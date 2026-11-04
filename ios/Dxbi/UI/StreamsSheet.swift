@@ -33,10 +33,28 @@ struct StreamsSheet: View {
         }
     }
 
+    /** Mobile data or Low Data Mode: why it's asking, and what helps */
+    private var savingNote: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: NetworkStatus.shared.lowDataMode ? "leaf.fill" : "antenna.radiowaves.left.and.right")
+                .font(.title3)
+                .foregroundStyle(Dx.blue)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("\(NetworkStatus.shared.reason): choose a stream").font(.subheadline.weight(.semibold))
+                Text("Nothing starts by itself. A smaller file uses less data: sort by size, or pick 720p or 1080p.")
+                    .font(.footnote).foregroundStyle(Dx.muted)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Dx.blue.opacity(0.15), in: .rect(cornerRadius: 16))
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
+                    if NetworkStatus.shared.saving { savingNote }
                     if let best = choices?.picked { pick(best) }
                     if all.count > 1 { filters }
                     ForEach(shown) { s in row(s, picked: s.index == choices?.pick) }

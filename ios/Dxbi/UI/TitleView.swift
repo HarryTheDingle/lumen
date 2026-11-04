@@ -106,7 +106,7 @@ struct TitleView: View {
         .task(id: waitingFor) {
             guard waitingFor != nil else { return }
             try? await Task.sleep(for: .seconds(6))
-            if let c = current, c.justPlay, waitingFor == c.videoId, let pick = c.picked { play(pick) }
+            if let c = current, c.justPlay, !NetworkStatus.shared.saving, waitingFor == c.videoId, let pick = c.picked { play(pick) }
         }
     }
 
@@ -133,6 +133,8 @@ struct TitleView: View {
     /** Just press Play: the stream chosen last time plays at once, anything else once every addon has answered */
     private func justPlayIfSure() {
         guard let c = current, c.justPlay, waitingFor == c.videoId, let pick = c.picked else { return }
+        // On mobile data or Low Data Mode the stream list stays open to choose from (the best is often the biggest)
+        guard !NetworkStatus.shared.saving else { return }
         if c.sameAsLastTime || c.settled { play(pick) }
     }
 

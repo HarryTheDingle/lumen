@@ -9,6 +9,8 @@ enum Dx {
     static let spectrum = LinearGradient(
         colors: [accent, Color(red: 0.184, green: 0.545, blue: 1.0), Color(red: 1.0, green: 0.710, blue: 0.278)],
         startPoint: .leading, endPoint: .trailing)
+    /** The icon's blue: progress (watched so far, downloads) */
+    static let blue = Color(red: 0.184, green: 0.545, blue: 1.0)
     /** Text on the accent (it's light) */
     static let onAccent = Color(red: 0.024, green: 0.078, blue: 0.102)
     static let background = Color.black
@@ -190,10 +192,8 @@ struct ProgressLine: View {
         GeometryReader { g in
             Capsule().fill(.white.opacity(0.3))
                 .overlay(alignment: .leading) {
-                    // In the accent, progress runs through the icon's colours
-                    Group {
-                        if colour == Dx.accent { Capsule().fill(Dx.spectrum) } else { Capsule().fill(colour) }
-                    }
+                    // (in the accent, progress is the icon's blue)
+                    Capsule().fill(colour == Dx.accent ? Dx.blue : colour)
                     .frame(width: g.size.width * min(max(value, 0), 1))
                 }
         }
