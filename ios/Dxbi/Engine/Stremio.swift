@@ -577,6 +577,11 @@ final class Stremio {
         page.js("window.__dxbiTv && window.__dxbiTv.onProgress(\(Int(position * 1000)), \(Int(duration * 1000)), \(paused))")
     }
 
+    /** The end credits started: the page finds the next episode's stream now, so it starts at once */
+    func prepareNext() {
+        page.js("window.__dxbiTv && window.__dxbiTv.prepareNext && window.__dxbiTv.prepareNext()")
+    }
+
     func partyTick(position: Double, duration: Double, paused: Bool, buffering: Bool, rate: Double) {
         page.js("window.__dxbiTv && window.__dxbiTv.onPartyTick(\(Int(position * 1000)), \(Int(duration * 1000)), \(paused), \(buffering), \(rate))")
     }

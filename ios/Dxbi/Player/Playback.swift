@@ -111,6 +111,7 @@ final class Playback: Identifiable {
     @ObservationIgnored private var tracksTask: Task<Void, Never>?
     @ObservationIgnored private var stalledSince: Date?
     @ObservationIgnored private var subtitlesDecided = false
+    @ObservationIgnored private var nextPrepared = false
     @ObservationIgnored private var offeredLighter = false
 
     init(payload: JSON, stremio: Stremio) {
@@ -422,6 +423,12 @@ final class Playback: Identifiable {
         if !paused { claimSound() }
         offerLighterIfStalling()
         if showStats { readStats() }
+        // (a minute before Up Next shows, or as the credits start: whichever's first)
+        if !nextPrepared, nextTitle != nil, duration > 300,
+           duration - position < Double(upNextSeconds) + 80 || segments.contains(where: { $0.type == "credits" && position >= $0.start - 30 }) {
+            nextPrepared = true
+            stremio?.prepareNext()
+        }
         stremio?.partyTick(position: position, duration: duration, paused: paused, buffering: buffering, rate: speed)
         // Stremio's watch progress, every few seconds
         if Date().timeIntervalSince(lastReport) > 5, mpv.started {

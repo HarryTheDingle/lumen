@@ -87,6 +87,8 @@ final class MPV {
         // a dropped connection picked up again rather than ending the file
         set("demuxer-max-bytes", ProcessInfo.processInfo.isiOSAppOnMac ? "512MiB" : "256MiB")
         set("stream-buffer-size", "2MiB")
+        // The buffer stays in memory, freed when the player closes: never written to the device's storage
+        set("cache-on-disk", "no")
         set("stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_delay_max=5")
         #if DEBUG
         // Test builds: what mpv saw (dropped frames, a slow decoder, timing) in Documents/mpv.log

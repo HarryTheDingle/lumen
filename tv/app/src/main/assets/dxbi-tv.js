@@ -834,8 +834,20 @@
     return links && (links.player || links.metaDetailsStreams);
   }
 
+  // The phone and iPad ask for it while the end credits roll, so the next episode starts at once when
+  // this one ends: the search for the same release (up to 8 seconds) is already done
+  let preparedNext = null; // { videoId, link }
+  tv.prepareNext = async () => {
+    const state = await playerState();
+    const next = state && state.nextVideo;
+    if (!next || (preparedNext && preparedNext.videoId === next.id)) return;
+    const mine = (preparedNext = { videoId: next.id, link: null });
+    mine.link = await nextLinkFor(state).catch(() => null);
+  };
+
   // Straight into the next episode with the same release, as on a computer, when one is found quickly
   async function nextLinkFor(state) {
+    if (preparedNext && preparedNext.link && state && state.nextVideo && preparedNext.videoId === state.nextVideo.id) return preparedNext.link;
     const dx = window.__dxbi;
     const sel = state && state.selected;
     const mp = sel && sel.metaRequest && sel.metaRequest.path;

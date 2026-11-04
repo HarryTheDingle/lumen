@@ -246,7 +246,19 @@ struct TitleView: View {
                 }
                 if let pick = current?.picked {
                     Button { play(pick, in: .otherApp) } label: { Label("Play with External Player", systemImage: "arrow.up.forward.app") }
-                    Button { play(pick, in: .download) } label: { Label("Download", systemImage: "arrow.down.circle") }
+                    let sizes = StreamOption.downloadSizes(current?.items ?? [])
+                    if sizes.isEmpty {
+                        Button { play(pick, in: .download) } label: { Label("Download", systemImage: "arrow.down.circle") }
+                    } else {
+                        Menu {
+                            ForEach(sizes, id: \.option.index) { size in
+                                Button { play(size.option, in: .download) } label: {
+                                    Text(size.name)
+                                    Text([size.option.label, ByteCountFormatter.string(fromByteCount: Int64(size.option.size), countStyle: .file)].joined(separator: " · "))
+                                }
+                            }
+                        } label: { Label("Download", systemImage: "arrow.down.circle") }
+                    }
                 }
             } label: {
                 Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold)).frame(width: 36, height: 36)

@@ -236,6 +236,28 @@ struct StreamOption: Identifiable, Hashable {
     }
 }
 
+extension StreamOption {
+    /**
+     * Download's three sizes from a title's streams: High (the biggest at the best resolution), Medium (a
+     * typical 1080p) and Small (the smallest that's 720p or better). Only ready, sized files; each once.
+     */
+    static func downloadSizes(_ items: [StreamOption]) -> [(name: String, option: StreamOption)] {
+        let ready = items.filter { !$0.pending && $0.size > 0 && !$0.lesser }
+        guard !ready.isEmpty else { return [] }
+        let top = ready.map(\.res).max() ?? 0
+        let high = ready.filter { $0.res == top }.max { $0.size < $1.size }
+        let hd = ready.filter { $0.res == 1080 }.sorted { $0.size < $1.size }
+        let medium = hd.isEmpty ? ready.sorted { $0.size < $1.size }[ready.count / 2] : hd[hd.count / 2]
+        let decent = ready.filter { $0.res >= 720 }
+        let small = (decent.isEmpty ? ready : decent).min { $0.size < $1.size }
+        var out: [(name: String, option: StreamOption)] = []
+        for (name, option) in [("High", high), ("Medium", Optional(medium)), ("Small", small)] {
+            if let option, !out.contains(where: { $0.option.index == option.index }) { out.append((name, option)) }
+        }
+        return out
+    }
+}
+
 /** Streams offered in the player, under what they change (lower resolution, lighter, HDR…) */
 struct StreamGroup: Identifiable {
     var title: String
