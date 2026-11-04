@@ -6,3 +6,4 @@ out/
 Lumen.xcodeproj/
 # XcodeGen writes it from project.yml
 Dxbi/Info.plist
+build-device/

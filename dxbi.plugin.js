@@ -1,7 +1,7 @@
 /**
  * @name Lumen
  * @description The Lumen experience: cinematic billboard, Netflix-style carousels, hover previews with trailers, ratings on posters, critic reviews, skip intro and up next, anime filler guide, new episode badges, watch stats and viewers, stream sorting & filters, a Netflix-style player with black-bar removal, night mode and subtitle sync, watch parties with friends, a cinematic intro and interface sounds. Use with the Lumen theme.
- * @version 2.30.1
+ * @version 2.30.2
  * @author dx.bi
  * @updateUrl https://raw.githubusercontent.com/HarryTheDingle/lumen/main/dxbi.plugin.js
  */
@@ -19,7 +19,7 @@
   // Stremio Enhanced loads each plugin as <script id="<file name>">, which tells us our settings key
   const SCRIPT_ID = (document.currentScript && document.currentScript.id) || "dxbi.plugin.js";
   const PLUGIN_KEY = SCRIPT_ID.replace(/\.plugin\.js$/, "");
-  const PLUGIN_VERSION = "2.30.1"; // kept in step with @version by tools/bundle-theme.mjs
+  const PLUGIN_VERSION = "2.30.2"; // kept in step with @version by tools/bundle-theme.mjs
   // Recent messages and errors, kept for problem reports (see `report`)
   const recent = { logs: [], errors: [] };
   const remember = (list, text) => {
@@ -15571,8 +15571,9 @@
           fallback: settings.quickPlayFallback,
           torrents: !!(server && server.settings && server.settings.type === "Ready") || (IN_TV && settings.tvTorrents),
           addon: settings.quickPlayAddon,
-          // This list refreshes while addons answer, so it takes the speed once it's measured
-          speed: settings.quickPlaySpeed ? (netSpeed.get(), netSpeed.mbps) : 0,
+          // Waits for the speed (a few seconds, once every 10 minutes): the phone plays the pick as soon
+          // as the addons have answered, which is often before it's measured
+          speed: settings.quickPlaySpeed ? await netSpeed.get() : 0,
           minutes: streamMinutes(state, state && state.selected && state.selected.streamPath && state.selected.streamPath.id),
         };
         const choice = items.length ? streamChoice.choose(items, metaId ? quickPlay.memory(metaId) : null, options) : null;
