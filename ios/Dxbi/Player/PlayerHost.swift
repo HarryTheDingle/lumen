@@ -10,6 +10,7 @@ import UIKit
 final class PlayerHost: UIHostingController<AnyView> {
 
     private static weak var shown: PlayerHost?
+    private weak var playback: Playback?
     /** Stremio's page: it goes with the player (see PageBox) */
     private static weak var page: WKWebView?
 
@@ -17,6 +18,37 @@ final class PlayerHost: UIHostingController<AnyView> {
     override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation { .landscapeRight }
     override var prefersStatusBarHidden: Bool { true }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
+
+    // A keyboard (an iPad's, or the Mac's): Space plays and pauses, the arrows jump 10 seconds
+    override var canBecomeFirstResponder: Bool { true }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        becomeFirstResponder()
+    }
+
+    override var keyCommands: [UIKeyCommand]? {
+        [(" ", "Play or Pause"), (UIKeyCommand.inputLeftArrow, "Back 10 Seconds"), (UIKeyCommand.inputRightArrow, "Forward 10 Seconds")].map { input, title in
+            let command = UIKeyCommand(title: title, action: #selector(key(_:)), input: input)
+            // (the arrows and Space would otherwise move focus or scroll)
+            command.wantsPriorityOverSystemBehavior = true
+            return command
+        }
+    }
+
+    @objc private func key(_ command: UIKeyCommand) {
+        guard let playback else { return }
+        switch command.input {
+        case " ": playback.mpv.toggle()
+        case UIKeyCommand.inputLeftArrow:
+            playback.mpv.seek(by: -10)
+            playback.show("−10 seconds")
+        case UIKeyCommand.inputRightArrow:
+            playback.mpv.seek(by: 10)
+            playback.show("+10 seconds")
+        default: break
+        }
+    }
 
     @MainActor
     static func show(_ playback: Playback, stremio: Stremio) {
@@ -27,6 +59,7 @@ final class PlayerHost: UIHostingController<AnyView> {
         let host = PlayerHost(rootView: AnyView(PlayerScreen(playback: playback).environment(stremio).preferredColorScheme(.dark)))
         host.modalPresentationStyle = .fullScreen
         host.view.backgroundColor = .black
+        host.playback = playback
         shown = host
         page = stremio.page.webView
         present(host, playback: playback, tries: 0)

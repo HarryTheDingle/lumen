@@ -1,7 +1,7 @@
 /**
  * @name Lumen
  * @description The Lumen experience: cinematic billboard, Netflix-style carousels, hover previews with trailers, ratings on posters, critic reviews, skip intro and up next, anime filler guide, new episode badges, watch stats and viewers, stream sorting & filters, a Netflix-style player with black-bar removal, night mode and subtitle sync, watch parties with friends, a cinematic intro and interface sounds. Use with the Lumen theme.
- * @version 2.30.3
+ * @version 2.30.4
  * @author dx.bi
  * @updateUrl https://raw.githubusercontent.com/HarryTheDingle/lumen/main/dxbi.plugin.js
  */
@@ -19,7 +19,7 @@
   // Stremio Enhanced loads each plugin as <script id="<file name>">, which tells us our settings key
   const SCRIPT_ID = (document.currentScript && document.currentScript.id) || "dxbi.plugin.js";
   const PLUGIN_KEY = SCRIPT_ID.replace(/\.plugin\.js$/, "");
-  const PLUGIN_VERSION = "2.30.3"; // kept in step with @version by tools/bundle-theme.mjs
+  const PLUGIN_VERSION = "2.30.4"; // kept in step with @version by tools/bundle-theme.mjs
   // Recent messages and errors, kept for problem reports (see `report`)
   const recent = { logs: [], errors: [] };
   const remember = (list, text) => {
@@ -3893,7 +3893,10 @@
     const site = (/(?:⚙\uFE0F?|🔎)\s*([^\s\n]+)/u.exec(all) || [])[1] || "";
     const codec = /\b(?:x265|h\.?265|hevc)\b/i.test(all) ? "HEVC" : /\bav1\b/i.test(all) ? "AV1" : /\b(?:x264|h\.?264|avc)\b/i.test(all) ? "H.264" : "";
 
-    return { provider, site, codec, instant, pending, lesser, res, hdr, dv, size, seeds, source, langs: [...langs] };
+    // A sample: a minute or two of the release, not the film
+    const sample = /\bsample\b/i.test(all);
+
+    return { provider, site, codec, instant, pending, lesser, sample, res, hdr, dv, size, seeds, source, langs: [...langs] };
   }
 
   function parseStream(el) {
@@ -3928,6 +3931,21 @@
       return this.MBPS_GUESS[d.res] || this.MBPS_GUESS[0];
     },
 
+    // Sample clips and other files far too small to be the whole thing: never picked (being small, they
+    // looked ideal for a slow connection). A sample by name; at least 5 times smaller than the usual size
+    // at its quality; or, with the title's length known, under 0.35 Mbit/s for 720p or better.
+    samples(list, minutes = 0) {
+      const out = new Set(list.filter((x) => x.d.sample));
+      for (const res of new Set(list.map((x) => x.d.res))) {
+        const sizes = list.filter((x) => x.d.res === res && x.d.size > 0 && !x.d.sample).map((x) => x.d.size).sort((a, b) => a - b);
+        if (sizes.length < 3) continue;
+        const usual = sizes[Math.floor(sizes.length / 2)];
+        for (const x of list) if (x.d.res === res && x.d.size > 0 && x.d.size < usual / 5) out.add(x);
+      }
+      if (minutes > 0) for (const x of list) if (x.d.res >= 720 && x.d.size > 0 && this.mbps(x.d, minutes) < 0.35) out.add(x);
+      return out;
+    },
+
     // speed: measured Mbit/s (0 = don't match). addon: preferred addon name (part of it will do).
     // Streams too big for the speed go, or all but the lightest when none fit; then the preferred
     // addon's streams, when it has any left.
@@ -3958,7 +3976,8 @@
 
     // items: [{ hint, d, torrent }]. memory: what this viewer chose last. Returns { item, how } or null.
     choose(items, memory, { limit = Infinity, fallback = "best", torrents = true, ...fit } = {}) {
-      const usable = this.suited(items.filter((x) => x.d.source !== "CAM" && !x.d.pending && (torrents || !x.torrent)), fit);
+      const short = this.samples(items, fit.minutes);
+      const usable = this.suited(items.filter((x) => !short.has(x) && x.d.source !== "CAM" && !x.d.pending && (torrents || !x.torrent)), fit);
       if (!usable.length) return null;
       const m = memory || null;
       if (m) {
@@ -3985,7 +4004,8 @@
 
     // What to try if the pick won't play: at most two, each a different release
     spares(items, picked, { limit = Infinity, torrents = true, speed = 0, minutes = 0 } = {}) {
-      const rest = items.filter((x) => x !== picked && x.d.source !== "CAM" && !x.d.pending && (torrents || !x.torrent) && x.d.res <= limit &&
+      const short = this.samples(items, minutes);
+      const rest = items.filter((x) => x !== picked && !short.has(x) && x.d.source !== "CAM" && !x.d.pending && (torrents || !x.torrent) && x.d.res <= limit &&
         !(speed > 0 && this.mbps(x.d, minutes) > speed * this.HEADROOM));
       const out = [];
       while (rest.length && out.length < 2) {
@@ -15573,7 +15593,7 @@
         const state = await core().getState("meta_details").catch(() => null);
         const groups = state && Array.isArray(state.streams) ? state.streams : [];
         const metaId = state && state.selected && state.selected.metaPath && state.selected.metaPath.id;
-        const items = groups.flatMap((g) => (g && g.content && g.content.type === "Ready" && Array.isArray(g.content.content)
+        let items = groups.flatMap((g) => (g && g.content && g.content.type === "Ready" && Array.isArray(g.content.content)
           ? g.content.content.map((st) => ({ st, addon: (g.addon && g.addon.manifest && g.addon.manifest.name) || "" })) : []))
           .filter((x) => x.st && x.st.deepLinks && x.st.deepLinks.player && !x.st.ytId)
           .map((x) => ({ ...x, torrent: !!x.st.infoHash && !x.st.url, hint: watchParty.streamHints(x.st), d: describeStream(String(x.st.name || ""), `${x.st.name || ""}\n${x.st.description || x.st.title || ""}`) }));
@@ -15588,6 +15608,9 @@
           speed: settings.quickPlaySpeed ? await netSpeed.get() : 0,
           minutes: streamMinutes(state, state && state.selected && state.selected.streamPath && state.selected.streamPath.id),
         };
+        // (samples aren't listed at all on the phone and iPad)
+        const short = streamChoice.samples(items, options.minutes);
+        if (short.size) items = items.filter((x) => !short.has(x));
         const choice = items.length ? streamChoice.choose(items, metaId ? quickPlay.memory(metaId) : null, options) : null;
         phoneStreams = { items, options };
         return {
@@ -15624,8 +15647,9 @@
         const same = (st) => (was.url ? st.url === was.url : st.infoHash === was.infoHash && st.fileIdx === was.fileIdx);
         const current = nowMbps > 0 ? nowMbps : streamChoice.mbps(phonePlaying.d, options.minutes);
         const cap = Math.min(current * 0.8, mbps > 0 ? mbps * streamChoice.HEADROOM : Infinity);
+        const short = streamChoice.samples(items, options.minutes);
         return items
-          .filter((x) => !same(x.st) && x.d.source !== "CAM" && !x.d.pending && (options.torrents || !x.torrent) && streamChoice.mbps(x.d, options.minutes) <= cap)
+          .filter((x) => !same(x.st) && !short.has(x) && x.d.source !== "CAM" && !x.d.pending && (options.torrents || !x.torrent) && streamChoice.mbps(x.d, options.minutes) <= cap)
           .sort((a, b) => streamChoice.rank(b.d) - streamChoice.rank(a.d) || b.d.seeds - a.d.seeds)
           .slice(0, 3)
           .map((x) => ({ index: items.indexOf(x), mbps: Math.round(streamChoice.mbps(x.d, options.minutes) * 10) / 10, ...phoneItem(x) }));

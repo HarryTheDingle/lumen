@@ -75,7 +75,18 @@ final class MPV {
         set("subs-fallback-forced", "yes")
         set("subs-match-os-language", "no")
         set("cache", "yes")
-        set("demuxer-max-bytes", "150MiB")
+        // High-bitrate files (4K remuxes run 50–80 Mbit/s) used up 150 MB in seconds: any slow patch from
+        // the server showed. More ahead (the Mac has the memory; an iPad less), read in bigger pieces, and
+        // a dropped connection picked up again rather than ending the file
+        set("demuxer-max-bytes", ProcessInfo.processInfo.isiOSAppOnMac ? "512MiB" : "256MiB")
+        set("stream-buffer-size", "2MiB")
+        set("stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_delay_max=5")
+        #if DEBUG
+        // Test builds: what mpv saw (dropped frames, a slow decoder, timing) in Documents/mpv.log
+        if let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            set("log-file", dir.appendingPathComponent("mpv.log").path)
+        }
+        #endif
         set("demuxer-max-back-bytes", "50MiB")
         set("network-timeout", "30")
         set("user-agent", "Mozilla/5.0 Lumen")

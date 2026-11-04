@@ -115,3 +115,20 @@ assert.equal(pick([torrentio4k], null, { addon: "mediafusion" }), torrentio4k.la
 const fusion4k = { ...item("[RD+] MediaFusion\n4k", "Film.2160p.REMUX 💾 70 GB"), addon: "MediaFusion" };
 assert.equal(pick([fusion4k, torrentio4k], null, { addon: "MediaFusion", speed: 40, minutes: 120 }), torrentio4k.label, "speed before the preferred addon");
 console.log("PASS preferred addon");
+
+const film = (name, desc) => item(`[RD+] Torrentio\n${name}`, desc);
+const fullA = film("1080p", "Film.2024.1080p.WEB-DL 💾 6 GB");
+const fullB = film("1080p", "Film.2024.1080p.BluRay 💾 9 GB");
+const fullC = film("1080p", "Film.2024.1080p.WEB 💾 4.5 GB");
+const named = film("1080p", "Film.2024.1080p.WEB-DL.Sample 💾 120 MB");
+const tiny = film("1080p", "Film.2024.1080p.WEB-DL 💾 300 MB");
+assert.equal(describeStream("[RD+] X", "Film.Sample.mkv").sample, true);
+assert.equal(describeStream("[RD+] X", "Film.Sampled.Edition.mkv").sample, false);
+assert.equal(streamChoice.samples([fullA, fullB, fullC, named, tiny]).size, 2, "a sample by name, and one 5 times smaller than usual");
+assert.equal(pick([named, tiny, fullC], null, { speed: 6, minutes: 120 }), fullC.label, "a slow line still gets the film, not a clip");
+assert.equal(pick([named, fullA], null, {}), fullA.label);
+const lone = film("1080p", "Film.2024.1080p.WEB 💾 250 MB");
+assert.equal(streamChoice.samples([lone], 120).size, 1, "far too small for the title's length");
+assert.equal(streamChoice.samples([lone]).size, 0, "nothing to tell without the length");
+assert.ok(!labels(streamChoice.spares([fullA, named, tiny, fullB], fullA)).some((l) => l === named.label || l === tiny.label), "no sample as a spare");
+console.log("PASS samples and clips are never picked");

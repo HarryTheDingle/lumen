@@ -36,6 +36,10 @@ struct PlayerScreen: View {
             if let slow = playback.slow, !locked { lighterOffer(slow).transition(.move(edge: .top).combined(with: .opacity)) }
         }
         .animation(.spring(duration: 0.35), value: playback.slow?.options.map(\.index))
+        // A mouse or trackpad (the Mac, an iPad's): moving it brings the controls back
+        .onContinuousHover { phase in
+            if case .active = phase, !locked, !visible { poke() }
+        }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .animation(.easeOut(duration: 0.2), value: visible)
