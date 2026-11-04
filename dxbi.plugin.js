@@ -128,6 +128,8 @@
     quickPlayMemory: "series",
     quickPlayQuality: "best",
     quickPlayFallback: "best",
+    quickPlaySpeed: false,
+    quickPlayAddon: "",
     streamRows: true,
     watchedTitles: "show",
     librarySort: true,
@@ -199,6 +201,8 @@
     { key: "quickPlayMemory", type: "select", label: "Remember my stream choice", defaultValue: DEFAULTS.quickPlayMemory, options: [{ label: "For each series", value: "series" }, { label: "Everywhere", value: "global" }] },
     { key: "quickPlayQuality", type: "select", label: "Highest quality to pick", defaultValue: DEFAULTS.quickPlayQuality, options: [{ label: "Best available", value: "best" }, { label: "4K", value: "2160" }, { label: "1080p", value: "1080" }, { label: "720p", value: "720" }] },
     { key: "quickPlayFallback", type: "select", label: "If my usual stream is missing", defaultValue: DEFAULTS.quickPlayFallback, options: [{ label: "Play the next best", value: "best" }, { label: "Show me the list", value: "ask" }] },
+    { key: "quickPlaySpeed", type: "toggle", label: "Match my internet speed", description: "Before picking, dx.bi checks your connection with a short download from Cloudflare's speed test (rechecked every 10 minutes) and skips streams too big for it. If a stream still buffers, Change in the player takes you back to the list.", defaultValue: DEFAULTS.quickPlaySpeed },
+    { key: "quickPlayAddon", type: "input", label: "Preferred addon (optional)", description: "Its name as the stream list shows it, e.g. MediaFusion or Torrentio. dx.bi picks from this addon whenever it has a stream that suits, and from the others when it doesn't.", defaultValue: DEFAULTS.quickPlayAddon },
     { key: "streamRows", type: "toggle", label: "Clean stream list", description: "Shows each stream as a simple row: quality, source, size and whether it's ready to play.", defaultValue: DEFAULTS.streamRows },
     { key: "builtInTheme", type: "toggle", label: "dx.bi look built in", description: `Use the dx.bi theme without installing it separately. Steps aside by itself when you apply another theme in Settings → ${SETTINGS_SECTION} → Themes.`, defaultValue: DEFAULTS.builtInTheme },
     { key: "videoRowsOnly", type: "toggle", label: "Only movie, series & anime rows on Home", description: "Hides rows from addons that list other things, like a debrid account's downloads or YouTube channels. They stay in Discover.", defaultValue: DEFAULTS.videoRowsOnly },
@@ -436,7 +440,7 @@
     ["Home", ["myList", "forYou", "videoRowsOnly", "billboard", "billboardSource", "billboardInterval", "newEpisodes", "airingRow", "whoIsWatching"]],
     ["Hover cards & trailers", ["previews", "trailers", "trailerDelay"]],
     ["Browsing & library", ["watchedTitles", "librarySort", "streamRows", "streamTools", "addonTools", "watchStats", "reviews", "tmdbKey", "mdblistKey", "profileSync"]],
-    ["Player", ["quickPlay", "quickPlayMemory", "quickPlayQuality", "quickPlayFallback", "tvTorrents", "playerExtras", "remainingTime", "playerClock", "seekPreviews", "enhance", "pictureSound", "streamStats", "rememberPlayback", "playerKeys", "pip", "externalPlayer", "convertVideo"]],
+    ["Player", ["quickPlay", "quickPlayMemory", "quickPlayQuality", "quickPlayFallback", "quickPlaySpeed", "quickPlayAddon", "tvTorrents", "playerExtras", "remainingTime", "playerClock", "seekPreviews", "enhance", "pictureSound", "streamStats", "rememberPlayback", "playerKeys", "pip", "externalPlayer", "convertVideo"]],
     ["Subtitles", ["subtitleStyle", "subtitleFont", "subtitleCustomFont", "subtitlesStart", "hdrSubtitles"]],
     ["Episodes & skipping", ["skipButtons", "autoSkip", "upNext", "preloadNext", "fillerGuide", "skipFiller"]],
     ["Watch party", ["watchParty", "partyFollow", "partyActivity", "partySounds"]],
@@ -3896,6 +3900,44 @@
     SOURCE: { BluRay: 3, WEB: 3, Remux: 2, HDTV: 1, Other: 0 },
     limit: (value) => (Number(value) > 0 ? Number(value) : Infinity),
 
+    // Typical bitrates (Mbit/s) for when a stream's size or the title's length isn't known
+    MBPS_GUESS: { 2160: 20, 1440: 12, 1080: 8, 720: 4, 480: 2, 0: 8 },
+    // A stream fits when it needs at most this share of the measured speed: speeds dip
+    HEADROOM: 0.75,
+
+    // "2h 28min", "148 min", "45": the length in minutes, or 0
+    minutes(runtime) {
+      const s = String(runtime || "");
+      const h = /(\d+)\s*h/i.exec(s);
+      const m = /(\d+)\s*m/i.exec(s);
+      if (h || m) return (h ? parseInt(h[1], 10) * 60 : 0) + (m ? parseInt(m[1], 10) : 0);
+      return parseInt(s, 10) || 0;
+    },
+
+    // The bitrate a stream needs: its size over the title's length, else a guess from its quality
+    mbps(d, minutes) {
+      if (d.size > 0 && minutes > 0) return (d.size * 8) / (minutes * 60) / 1e6;
+      return this.MBPS_GUESS[d.res] || this.MBPS_GUESS[0];
+    },
+
+    // speed: measured Mbit/s (0 = don't match). addon: preferred addon name (part of it will do).
+    // Streams too big for the speed go, or all but the lightest when none fit; then the preferred
+    // addon's streams, when it has any left.
+    suited(list, { speed = 0, minutes = 0, addon = "" } = {}) {
+      let pool = list;
+      if (speed > 0 && pool.length) {
+        const fits = pool.filter((x) => this.mbps(x.d, minutes) <= speed * this.HEADROOM);
+        const lightest = Math.min(...pool.map((x) => this.mbps(x.d, minutes)));
+        pool = fits.length ? fits : pool.filter((x) => this.mbps(x.d, minutes) === lightest);
+      }
+      const want = String(addon || "").trim().toLowerCase();
+      if (want) {
+        const mine = pool.filter((x) => String(x.addon || "").toLowerCase().includes(want));
+        if (mine.length) pool = mine;
+      }
+      return pool;
+    },
+
     // Ready-to-play first. HDR beats Dolby Vision, which stalls on some decoders, and an encode
     // beats a huge remux: the pick has to start and keep playing.
     rank(d) {
@@ -3907,8 +3949,8 @@
     },
 
     // items: [{ hint, d, torrent }]. memory: what this viewer chose last. Returns { item, how } or null.
-    choose(items, memory, { limit = Infinity, fallback = "best", torrents = true } = {}) {
-      const usable = items.filter((x) => x.d.source !== "CAM" && !x.d.pending && (torrents || !x.torrent));
+    choose(items, memory, { limit = Infinity, fallback = "best", torrents = true, ...fit } = {}) {
+      const usable = this.suited(items.filter((x) => x.d.source !== "CAM" && !x.d.pending && (torrents || !x.torrent)), fit);
       if (!usable.length) return null;
       const m = memory || null;
       if (m) {
@@ -3934,8 +3976,9 @@
     },
 
     // What to try if the pick won't play: at most two, each a different release
-    spares(items, picked, { limit = Infinity, torrents = true } = {}) {
-      const rest = items.filter((x) => x !== picked && x.d.source !== "CAM" && !x.d.pending && (torrents || !x.torrent) && x.d.res <= limit);
+    spares(items, picked, { limit = Infinity, torrents = true, speed = 0, minutes = 0 } = {}) {
+      const rest = items.filter((x) => x !== picked && x.d.source !== "CAM" && !x.d.pending && (torrents || !x.torrent) && x.d.res <= limit &&
+        !(speed > 0 && this.mbps(x.d, minutes) > speed * this.HEADROOM));
       const out = [];
       while (rest.length && out.length < 2) {
         const next = this.best(rest);
@@ -14297,6 +14340,68 @@
   };
 
   // ---------------------------------------------------------------------------
+  // Internet speed for "Match my internet speed": a few seconds of Cloudflare's speed test download
+  // (it allows any page to read it), kept for 10 minutes. 0 when it can't be measured.
+  // ---------------------------------------------------------------------------
+  const netSpeed = {
+    URL: "https://speed.cloudflare.com/__down?bytes=50000000",
+    mbps: 0,
+    at: 0,
+    pending: null,
+
+    get() {
+      if (this.at && Date.now() - this.at < 600000) return Promise.resolve(this.mbps);
+      if (!this.pending) this.pending = this.measure().then((m) => {
+        this.pending = null;
+        if (m > 0) { this.mbps = m; this.at = Date.now(); }
+        return m || this.mbps;
+      });
+      return this.pending;
+    },
+
+    // Reads for up to 4 seconds; the first half second is left out, while the connection gets going
+    async measure() {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 5000);
+      try {
+        const res = await fetch(`${this.URL}&t=${Date.now()}`, { cache: "no-store", signal: ctrl.signal });
+        if (!res.ok || !res.body) return 0;
+        const reader = res.body.getReader();
+        const start = performance.now();
+        let from = 0;
+        let bytes = 0;
+        let total = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const now = performance.now();
+          total += value.length;
+          if (!from && now - start >= 500) from = now;
+          else if (from) bytes += value.length;
+          if (now - start >= 4000) { reader.cancel().catch(() => {}); break; }
+        }
+        const end = performance.now();
+        // A very fast line finishes the whole download before the half second is up
+        if (from && end - from >= 500) return (bytes * 8) / ((end - from) / 1000) / 1e6;
+        return end > start ? (total * 8) / ((end - start) / 1000) / 1e6 : 0;
+      } catch (_) {
+        return 0;
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  };
+
+  // The length of what's about to play, in minutes (the episode's own, else the title's), or 0
+  function streamMinutes(state, videoId) {
+    const content = state && state.metaItem && state.metaItem.content;
+    const meta = content && content.type === "Ready" && content.content;
+    if (!meta) return 0;
+    const ep = Array.isArray(meta.videos) ? meta.videos.find((v) => v && v.id === videoId) : null;
+    return streamChoice.minutes(ep && ep.runtime) || streamChoice.minutes(meta.runtime);
+  }
+
+  // ---------------------------------------------------------------------------
   // Just press Play: Play or an episode click starts the best stream, with this viewer's own
   // choices remembered. Stream addresses are never stored: debrid links carry the API key.
   // ---------------------------------------------------------------------------
@@ -14436,8 +14541,14 @@
         limit: streamChoice.limit(settings.quickPlayQuality),
         fallback: settings.quickPlayFallback,
         torrents: serverUp || (IN_TV && settings.tvTorrents),
+        addon: settings.quickPlayAddon,
+        speed: 0,
+        minutes: 0,
       };
       this.status("Finding the best stream…");
+      // Measured while the addons answer
+      let speedKnown = !settings.quickPlaySpeed;
+      if (!speedKnown) netSpeed.get().then((m) => { options.speed = m; speedKnown = true; });
       const started = Date.now();
       let picked = null;
       let lastItems = [];
@@ -14447,17 +14558,21 @@
         const state = await core().getState("meta_details").catch(() => null);
         const path = state && state.selected && state.selected.streamPath;
         if (!path || path.id !== video.videoId) continue;
+        options.minutes = streamMinutes(state, video.videoId);
         const groups = Array.isArray(state.streams) ? state.streams : [];
-        const ready = groups.flatMap((g) => (g && g.content && g.content.type === "Ready" && Array.isArray(g.content.content) ? g.content.content : []))
-          .filter((st) => st && st.deepLinks && st.deepLinks.player && !st.externalUrl && !st.ytId);
-        const items = ready.map((st) => ({
+        const ready = groups.flatMap((g) => (g && g.content && g.content.type === "Ready" && Array.isArray(g.content.content)
+          ? g.content.content.map((st) => ({ st, addon: (g.addon && g.addon.manifest && g.addon.manifest.name) || "" })) : []))
+          .filter((x) => x.st && x.st.deepLinks && x.st.deepLinks.player && !x.st.externalUrl && !x.st.ytId);
+        const items = ready.map(({ st, addon }) => ({
           st,
+          addon,
           torrent: !!st.infoHash && !st.url,
           hint: watchParty.streamHints(st),
           d: describeStream(String(st.name || ""), `${st.name || ""}\n${st.description || st.title || ""}`),
         }));
         const settled = groups.length > 0 && !groups.some((g) => g && g.content && g.content.type === "Loading");
         lastItems = items;
+        if (!speedKnown) continue;
         const choice = streamChoice.choose(items, memory, options);
         // The stream chosen last time needs no waiting; anything else waits for slow addons a while
         if (choice && (choice.how === "same" || settled || Date.now() - started > 6000)) { picked = choice; break; }
@@ -14473,6 +14588,7 @@
       this.from = hash;
       this.spares = streamChoice.spares(lastItems, picked.item, options);
       this.play(picked.item);
+      if (options.speed > 0) this.announce += ` · for your ${Math.round(options.speed)} Mbps`;
       navigate(picked.item.st.deepLinks.player);
     },
 
@@ -14507,7 +14623,11 @@
       this.watching = setInterval(() => {
         const video = document.querySelector('[class*="player-container"] video');
         const stop = currentRoute() !== "player" || Date.now() - started > 120000 || (video && video.currentTime >= 2);
-        if (stop) { clearInterval(this.watching); return; }
+        if (stop) {
+          clearInterval(this.watching);
+          if (video && video.currentTime >= 2 && currentRoute() === "player") this.stalls(video);
+          return;
+        }
         const error = document.querySelector('[class*="player-container"] [class*="error-layer"]');
         // dx.bi's own conversion gets its turn first
         const converting = [...document.querySelectorAll(".dxe-playhelp")].some((n) => /^Converting it/.test(n.textContent.trim()));
@@ -14519,6 +14639,38 @@
           if (this.spares.length) this.next();
         }
       }, 1000);
+    },
+
+    // A picked stream that keeps buffering (a wait over 4 seconds, or a third wait in two minutes):
+    // offer the stream list once, so the viewer can choose a lighter one
+    stalls(video) {
+      const waits = [];
+      let since = 0;
+      let timer = null;
+      const done = () => {
+        clearTimeout(timer);
+        video.removeEventListener("waiting", onWait);
+        video.removeEventListener("playing", onPlay);
+      };
+      const offer = () => {
+        done();
+        if (currentRoute() === "player" && video.isConnected) this.pill("Buffering? Choose a lighter stream", true);
+      };
+      const onWait = () => {
+        if (!video.isConnected || currentRoute() !== "player") { done(); return; }
+        if (video.seeking) return; // a jump, not the connection
+        since = Date.now();
+        waits.push(since);
+        while (waits.length && since - waits[0] > 120000) waits.shift();
+        if (waits.length >= 3) { offer(); return; }
+        clearTimeout(timer);
+        timer = setTimeout(() => { if (since) offer(); }, 4000);
+      };
+      const onPlay = () => { since = 0; clearTimeout(timer); };
+      video.addEventListener("waiting", onWait);
+      video.addEventListener("playing", onPlay);
+      // Only the first half hour: by then it's the viewer's call
+      setTimeout(done, 1800000);
     },
 
     // In the player: remember what the viewer chose, and show what dx.bi picked for them
@@ -14543,13 +14695,13 @@
       this.remember(id, { infoHash: hint.infoHash, filename: hint.filename, bingeGroup: hint.bingeGroup, res: d.res, provider: d.provider, langs: d.langs });
     },
 
-    pill(text) {
+    pill(text, whole = false) {
       const root = document.querySelector('[class*="player-container"]');
       if (!root || IN_TV) return;
       root.querySelector(":scope > .dxq-pill")?.remove();
       const el = document.createElement("div");
       el.className = "dxq-pill";
-      el.innerHTML = `<span>${esc(`Playing ${text}`)}</span><button>Change</button>`;
+      el.innerHTML = `<span>${esc(whole ? text : `Playing ${text}`)}</span><button>Change</button>`;
       // Back can land on an earlier player address, so go to the stream list by name. Replacing
       // this entry means Back from the list doesn't reopen the video.
       el.querySelector("button").addEventListener("click", () => {
@@ -15407,6 +15559,10 @@
           limit: streamChoice.limit(settings.quickPlayQuality),
           fallback: settings.quickPlayFallback,
           torrents: !!(server && server.settings && server.settings.type === "Ready") || (IN_TV && settings.tvTorrents),
+          addon: settings.quickPlayAddon,
+          // This list refreshes while addons answer, so it takes the speed once it's measured
+          speed: settings.quickPlaySpeed ? (netSpeed.get(), netSpeed.mbps) : 0,
+          minutes: streamMinutes(state, state && state.selected && state.selected.streamPath && state.selected.streamPath.id),
         };
         const choice = items.length ? streamChoice.choose(items, metaId ? quickPlay.memory(metaId) : null, options) : null;
         phoneStreams = { items, options };

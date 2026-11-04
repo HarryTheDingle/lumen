@@ -90,3 +90,28 @@ assert.equal(details.site, "RARBG");
 assert.equal(details.codec, "HEVC");
 assert.equal(details.provider, "Torrentio");
 console.log("PASS seeds, provider, site and codec are read");
+
+assert.equal(streamChoice.minutes("2h 28min"), 148);
+assert.equal(streamChoice.minutes("148 min"), 148);
+assert.equal(streamChoice.minutes("45"), 45);
+assert.equal(streamChoice.minutes(""), 0);
+console.log("PASS runtimes are read");
+
+// 18 GB over 120 minutes is 20 Mbps; 4 GB is about 4.4 Mbps
+assert.equal(Math.round(streamChoice.mbps(cached4k.d, 120)), 20);
+assert.equal(streamChoice.mbps(describeStream("Comet", "Film.1080p.mkv"), 120), 8, "no size: a guess from the quality");
+assert.equal(pick([cached4k, cached1080], null, { speed: 100, minutes: 120 }), cached4k.label, "fast line: 4K");
+assert.equal(pick([cached4k, cached1080], null, { speed: 20, minutes: 120 }), cached1080.label, "20 Mbps: not a 20 Mbps stream");
+assert.equal(pick([cached4k, cached1080], null, { speed: 2, minutes: 120 }), cached1080.label, "nothing fits: the lightest");
+assert.equal(pick([cached4k, cached1080], null, { speed: 0, minutes: 120 }), cached4k.label, "unmeasured: as before");
+assert.equal(pick([remux, cached1080], { infoHash: "r" }, { speed: 30, minutes: 120 }), cached1080.label, "a remembered stream must fit too");
+assert.deepEqual(labels(streamChoice.spares([cached4k, spareA, spareB], spareB, { speed: 20, minutes: 120 })), [spareA.label], "spares fit the speed");
+console.log("PASS streams are matched to the internet speed");
+
+const fusion = { ...item("[RD+] MediaFusion\n1080p", "Film.1080p.WEB 💾 3 GB"), addon: "MediaFusion | ElfHosted" };
+const torrentio4k = { ...cached4k, addon: "Torrentio" };
+assert.equal(pick([torrentio4k, fusion], null, { addon: "mediafusion" }), fusion.label, "the preferred addon first");
+assert.equal(pick([torrentio4k], null, { addon: "mediafusion" }), torrentio4k.label, "others when it has nothing");
+const fusion4k = { ...item("[RD+] MediaFusion\n4k", "Film.2160p.REMUX 💾 70 GB"), addon: "MediaFusion" };
+assert.equal(pick([fusion4k, torrentio4k], null, { addon: "MediaFusion", speed: 40, minutes: 120 }), torrentio4k.label, "speed before the preferred addon");
+console.log("PASS preferred addon");
