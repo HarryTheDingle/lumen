@@ -112,6 +112,8 @@ final class Playback: Identifiable {
     @ObservationIgnored private var stalledSince: Date?
     @ObservationIgnored private var subtitlesDecided = false
     @ObservationIgnored private var nextPrepared = false
+    /** What the server gave while the buffer was filling (Mbit/s, once a second): the network's real speed */
+    @ObservationIgnored private var speedReadings: [Double] = []
     @ObservationIgnored private var offeredLighter = false
 
     init(payload: JSON, stremio: Stremio) {
@@ -423,6 +425,11 @@ final class Playback: Identifiable {
         if !paused { claimSound() }
         offerLighterIfStalling()
         if showStats { readStats() }
+        // (only while it's filling the buffer: with the buffer full it reads nothing, and that's no speed)
+        if settledIn, !paused, payload.text("offline") == nil, (mpv.number("demuxer-cache-duration") ?? 999) < 40,
+           let speed = mpv.number("cache-speed"), speed > 40_000, speedReadings.count < 1800 {
+            speedReadings.append(speed * 8 / 1e6)
+        }
         // (a minute before Up Next shows, or as the credits start: whichever's first)
         if !nextPrepared, nextTitle != nil, duration > 300,
            duration - position < Double(upNextSeconds) + 80 || segments.contains(where: { $0.type == "credits" && position >= $0.start - 30 }) {
@@ -624,6 +631,11 @@ final class Playback: Identifiable {
         closing = true
         timer?.invalidate()
         let at = position, length = duration
+        // What this network really gave: a high reading (the 75th of 100), from enough of them
+        if speedReadings.count >= 10 {
+            let sorted = speedReadings.sorted()
+            stremio?.networkSample(sorted[sorted.count * 3 / 4])
+        }
         pip.end()
         mpv.quit()
         UIApplication.shared.isIdleTimerDisabled = false

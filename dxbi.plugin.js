@@ -1,7 +1,7 @@
 /**
  * @name Lumen
  * @description The Lumen experience: cinematic billboard, Netflix-style carousels, hover previews with trailers, ratings on posters, critic reviews, skip intro and up next, anime filler guide, new episode badges, watch stats and viewers, stream sorting & filters, a Netflix-style player with black-bar removal, night mode and subtitle sync, watch parties with friends, a cinematic intro and interface sounds. Use with the Lumen theme.
- * @version 2.30.6
+ * @version 2.30.7
  * @author dx.bi
  * @updateUrl https://raw.githubusercontent.com/HarryTheDingle/lumen/main/dxbi.plugin.js
  */
@@ -19,7 +19,7 @@
   // Stremio Enhanced loads each plugin as <script id="<file name>">, which tells us our settings key
   const SCRIPT_ID = (document.currentScript && document.currentScript.id) || "dxbi.plugin.js";
   const PLUGIN_KEY = SCRIPT_ID.replace(/\.plugin\.js$/, "");
-  const PLUGIN_VERSION = "2.30.6"; // kept in step with @version by tools/bundle-theme.mjs
+  const PLUGIN_VERSION = "2.30.7"; // kept in step with @version by tools/bundle-theme.mjs
   // Recent messages and errors, kept for problem reports (see `report`)
   const recent = { logs: [], errors: [] };
   const remember = (list, text) => {
@@ -14382,7 +14382,14 @@
 
     get() {
       if (this.at && Date.now() - this.at < 600000) return Promise.resolve(this.mbps);
-      if (!this.pending) this.pending = this.measure().then((m) => {
+      if (!this.pending) this.pending = (async () => {
+        // A network it knows (and trusts what it learnt there): no speed test
+        const known = await netMemory.estimate();
+        if (known > 0) return known;
+        const m = await this.measure();
+        if (m > 0) netMemory.add(m, "test");
+        return m;
+      })().then((m) => {
         this.pending = null;
         if (m > 0) { this.mbps = m; this.at = Date.now(); }
         return m || this.mbps;
@@ -14420,6 +14427,85 @@
       } finally {
         clearTimeout(timer);
       }
+    },
+  };
+
+  // ---------------------------------------------------------------------------
+  // Speed per network: what streams really got on each connection (the player measures it while it
+  // fills its buffer), so a known network needs no speed test. Told apart by the internet address's
+  // range (an app can't read the Wi-Fi's name without special permission). The check: a slow reading,
+  // which would hold quality back, isn't trusted until it's been seen three times (until then it tests
+  // again), and a reading twice the remembered speed starts the memory afresh. Each network can also
+  // have a quality cap of its own.
+  // ---------------------------------------------------------------------------
+  const netMemory = {
+    KEY: "dxbi.networks",
+    SLOW: 10,
+    id: "",
+    idAt: 0,
+
+    // "v6:2a04:201:7dc3" (a /48) or "v4:82.13.45" (a /24): the same at home from day to day
+    async currentId() {
+      if (this.id && Date.now() - this.idAt < 120000) return this.id;
+      try {
+        const res = await fetch("https://speed.cloudflare.com/cdn-cgi/trace", { cache: "no-store", signal: AbortSignal.timeout(4000) });
+        const ip = (/^ip=(.+)$/m.exec(await res.text()) || [])[1] || "";
+        this.id = ip.includes(":") ? `v6:${ip.split(":").slice(0, 3).join(":")}` : ip ? `v4:${ip.split(".").slice(0, 3).join(".")}` : "";
+        this.idAt = Date.now();
+      } catch (_) { /* offline, or blocked: no memory this time */ }
+      return this.id;
+    },
+
+    all() {
+      try { return JSON.parse(localStorage.getItem(this.KEY) || "{}") || {}; } catch (_) { return {}; }
+    },
+    save(list) {
+      try { localStorage.setItem(this.KEY, JSON.stringify(list)); } catch (_) { /* full: it'll test instead */ }
+    },
+
+    // The middle of what playback got (the speed test only when there's no playback yet)
+    speed(rec) {
+      const played = (rec.samples || []).filter((x) => x.from === "play").map((x) => x.mbps);
+      const list = played.length ? played : (rec.samples || []).map((x) => x.mbps);
+      if (!list.length) return 0;
+      // (the lower middle: better a little light than buffering)
+      const sorted = [...list].sort((a, b) => a - b);
+      return sorted[Math.floor((sorted.length - 1) / 2)];
+    },
+    trusted(rec) {
+      const n = (rec.samples || []).length;
+      const mbps = this.speed(rec);
+      return mbps > 0 && Date.now() - (rec.at || 0) < 30 * 86400000 && (mbps >= this.SLOW ? n >= 1 : n >= 3);
+    },
+
+    async estimate() {
+      const id = await this.currentId();
+      const rec = id && this.all()[id];
+      return rec && this.trusted(rec) ? this.speed(rec) : 0;
+    },
+
+    async add(mbps, from) {
+      if (!(mbps > 0)) return;
+      const id = await this.currentId();
+      if (!id) return;
+      const list = this.all();
+      const rec = list[id] || { name: "", cap: 0, samples: [] };
+      // much faster than remembered: the connection's better now (or the first reading was off)
+      if (rec.samples.length && mbps > this.speed(rec) * 2) rec.samples = [];
+      rec.samples = [...rec.samples, { mbps: Math.round(mbps * 10) / 10, from, t: Date.now() }].slice(-8);
+      rec.at = Date.now();
+      list[id] = rec;
+      // (the 20 networks used last)
+      const kept = Object.entries(list).sort((a, b) => (b[1].at || 0) - (a[1].at || 0)).slice(0, 20);
+      this.save(Object.fromEntries(kept));
+      netSpeed.at = 0; // (the next pick uses what it's learnt)
+    },
+
+    // This network's own quality cap (0: none), on top of the Highest quality setting
+    async cap() {
+      const id = await this.currentId();
+      const rec = id && this.all()[id];
+      return (rec && rec.cap) || 0;
     },
   };
 
@@ -14569,7 +14655,7 @@
       const server = await core().getState("streaming_server").catch(() => null);
       const serverUp = !!(server && server.settings && server.settings.type === "Ready");
       const options = {
-        limit: streamChoice.limit(settings.quickPlayQuality),
+        limit: Math.min(streamChoice.limit(settings.quickPlayQuality), streamChoice.limit(await netMemory.cap())),
         fallback: settings.quickPlayFallback,
         torrents: serverUp || (IN_TV && settings.tvTorrents),
         addon: settings.quickPlayAddon,
@@ -15599,7 +15685,7 @@
           .map((x) => ({ ...x, torrent: !!x.st.infoHash && !x.st.url, hint: watchParty.streamHints(x.st), d: describeStream(String(x.st.name || ""), `${x.st.name || ""}\n${x.st.description || x.st.title || ""}`) }));
         const server = await core().getState("streaming_server").catch(() => null);
         const options = {
-          limit: streamChoice.limit(settings.quickPlayQuality),
+          limit: Math.min(streamChoice.limit(settings.quickPlayQuality), streamChoice.limit(await netMemory.cap())),
           fallback: settings.quickPlayFallback,
           torrents: !!(server && server.settings && server.settings.type === "Ready") || (IN_TV && settings.tvTorrents),
           addon: settings.quickPlayAddon,
@@ -15637,10 +15723,7 @@
       // best first, three at most. The measured speed also stands in for the speed test's for a while,
       // so the next pick fits it too.
       lighter(mbps, nowMbps) {
-        if (mbps > 0) {
-          netSpeed.mbps = netSpeed.at ? Math.min(netSpeed.mbps, mbps) : mbps;
-          netSpeed.at = Date.now();
-        }
+        if (mbps > 0) netMemory.add(mbps, "play");
         if (!phoneStreams || !phonePlaying) return [];
         const { items, options } = phoneStreams;
         const was = phonePlaying.st;
@@ -15663,6 +15746,36 @@
         quickPlay.spares = streamChoice.spares(phoneStreams.items, item, phoneStreams.options);
         const hints = item.st.behaviorHints || {};
         return { url: item.st.url, headers: (hints.proxyHeaders && hints.proxyHeaders.request) || {}, label: quickPlay.label(item.d) };
+      },
+      // What the player got from the server on this network (it measures while filling its buffer)
+      networkSample(mbps) {
+        netMemory.add(Number(mbps) || 0, "play");
+        return true;
+      },
+      // Settings → Networks: what it's learnt about each, and their quality caps
+      async networks() {
+        const current = await netMemory.currentId();
+        return Object.entries(netMemory.all()).sort((a, b) => (b[1].at || 0) - (a[1].at || 0)).map(([id, rec]) => ({
+          id, name: rec.name || "", cap: rec.cap || 0, current: id === current, trusted: netMemory.trusted(rec),
+          mbps: Math.round(netMemory.speed(rec) * 10) / 10, readings: (rec.samples || []).length, at: rec.at || 0,
+        }));
+      },
+      setNetwork(id, changes) {
+        const list = netMemory.all();
+        if (!list[id]) return false;
+        if (changes && typeof changes.name === "string") list[id].name = changes.name.trim().slice(0, 40);
+        if (changes && changes.cap !== undefined) list[id].cap = [0, 2160, 1080, 720].includes(Number(changes.cap)) ? Number(changes.cap) : 0;
+        if (changes && changes.relearn) list[id].samples = [];
+        netMemory.save(list);
+        netSpeed.at = 0;
+        return true;
+      },
+      forgetNetwork(id) {
+        const list = netMemory.all();
+        delete list[id];
+        netMemory.save(list);
+        netSpeed.at = 0;
+        return true;
       },
       // The player's Streams button: other streams of what's playing, by what they change. nowMbps: the
       // playing file's bitrate (0 if unknown). Never a sample, a cinema recording or a new debrid download.

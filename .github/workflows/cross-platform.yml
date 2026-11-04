@@ -58,6 +58,8 @@ jobs:
         run: node tools/party-roles-test.mjs
       - name: Just press Play picks the right stream
         run: node tools/quick-play-test.mjs
+      - name: Speed per network
+        run: node tools/network-memory-test.mjs
       - name: Times follow the device's clock
         run: node tools/device-clock-test.mjs
       - name: Dropped subtitles keep their encoding and reach the player

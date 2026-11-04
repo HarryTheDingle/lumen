@@ -236,6 +236,32 @@ struct StreamOption: Identifiable, Hashable {
     }
 }
 
+/** A network Lumen has learnt the speed of (Settings → Networks) */
+struct NetworkInfo: Identifiable, Hashable {
+    var id: String
+    var name: String
+    var cap: Int
+    var current: Bool
+    var trusted: Bool
+    var mbps: Double
+    var readings: Int
+    var at: Date
+
+    init(_ o: JSON) {
+        id = o.string("id")
+        name = o.string("name")
+        cap = o.int("cap")
+        current = o.bool("current")
+        trusted = o.bool("trusted")
+        mbps = o.double("mbps")
+        readings = o.int("readings")
+        at = Date(timeIntervalSince1970: o.double("at") / 1000)
+    }
+
+    /** Its own name, or where it's from */
+    var title: String { name.isEmpty ? (current ? "This network" : "Network \(id.suffix(4))") : name }
+}
+
 extension StreamOption {
     /**
      * Download's three sizes from a title's streams: High (the biggest at the best resolution), Medium (a

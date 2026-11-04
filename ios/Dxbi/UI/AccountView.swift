@@ -89,6 +89,7 @@ struct AccountView: View {
                     NavigationLink { CustomiseHomeView() } label: { Label("Customise Home", systemImage: "square.stack.3d.up.fill") }
                     NavigationLink { DxbiSettingsView() } label: { Label("Lumen Settings", systemImage: "slider.horizontal.3") }
                     NavigationLink { PlaybackSettingsView() } label: { Label("Playback", systemImage: "play.rectangle.fill") }
+                    NavigationLink { NetworksView() } label: { Label("Networks", systemImage: "wifi") }
                 }
                 Section {
                 }

@@ -269,6 +269,29 @@ final class Stremio {
         return s.seconds
     }
 
+    // MARK: - Speed per network
+
+    /** What the player measured on this network: the page remembers it (Settings → Networks) */
+    func networkSample(_ mbps: Double) {
+        Task { await dx("phone.networkSample", mbps) }
+    }
+
+    func networks() async -> [NetworkInfo] {
+        ((await dx("phone.networks") as? [Any]) ?? []).compactMap { $0 as? JSON }.map(NetworkInfo.init)
+    }
+
+    func setNetwork(_ id: String, name: String? = nil, cap: Int? = nil, relearn: Bool = false) async {
+        var changes: JSON = [:]
+        if let name { changes["name"] = name }
+        if let cap { changes["cap"] = cap }
+        if relearn { changes["relearn"] = true }
+        await dx("phone.setNetwork", id, changes)
+    }
+
+    func forgetNetwork(_ id: String) async {
+        await dx("phone.forgetNetwork", id)
+    }
+
     /** The player's Streams button: other streams of what's playing, grouped by what they change */
     func alternatives(nowMbps: Double) async -> [StreamGroup] {
         let o = await dx("phone.alternatives", nowMbps) as? JSON
