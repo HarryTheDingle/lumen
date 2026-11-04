@@ -212,9 +212,13 @@ final class PageBox: UIView {
         webView.alpha = 0.02
         webView.isUserInteractionEnabled = false
         view.insertSubview(webView, at: 0)
+        // SwiftUI doesn't promise to keep it under the picture: Stremio's own player (its play circle)
+        // showed faintly over the video. Its page keeps running, drawing nothing
+        webView.evaluateJavaScript("document.documentElement.style.setProperty('visibility', 'hidden', 'important')")
     }
 
     static func bringBack(_ webView: WKWebView) {
+        webView.evaluateJavaScript("document.documentElement.style.removeProperty('visibility')")
         home?.take(webView)
     }
 }
