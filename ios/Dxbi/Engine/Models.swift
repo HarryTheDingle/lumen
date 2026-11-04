@@ -25,6 +25,8 @@ struct Title: Identifiable, Hashable {
     var backdrop: URL? { URL(string: background ?? (id.hasPrefix("tt") ? "https://images.metahub.space/background/large/\(id)/img" : poster ?? "")) }
     var logoURL: URL? { URL(string: logo ?? (id.hasPrefix("tt") ? "https://images.metahub.space/logo/medium/\(id)/img" : "")) }
     var ref: TitleRef { TitleRef(type: type, id: id, name: name) }
+    /** Lumen is for films and shows: YouTube channels and live TV catalogs are left out everywhere */
+    static let watchable: Set<String> = ["movie", "series", "anime"]
 
     init(id: String, type: String, name: String) {
         self.id = id
@@ -94,7 +96,7 @@ struct Row: Identifiable {
         items = o.objects("items").map(Title.init)
     }
 
-    static func list(_ state: JSON?) -> [Row] { state?.objects("catalogs").map(Row.init) ?? [] }
+    static func list(_ state: JSON?) -> [Row] { state?.objects("catalogs").map(Row.init).filter { Title.watchable.contains($0.type) } ?? [] }
 
     /** "Popular · Movies": Stremio names rows by catalog and type */
     var heading: String {
@@ -113,7 +115,7 @@ struct Continue: Identifiable {
     static func list(_ state: JSON?) -> [Continue] {
         state?.objects("items").map { o in
             Continue(title: Title(o), progress: min(max(o.double("progress") / 100, 0), 1), videoId: o.text("videoId"), newEpisodes: o.int("notifications"))
-        } ?? []
+        }.filter { Title.watchable.contains($0.title.type) } ?? []
     }
 }
 
@@ -317,6 +319,7 @@ struct Discover {
     init(_ o: JSON) {
         request = o.object("request")
         types = o.objects("types").map { Pickable(name: $0.string("type"), selected: $0.bool("selected"), link: $0.text("link")) }
+            .filter { Title.watchable.contains($0.name) }
         catalogs = o.objects("catalogs").map { c in
             let addon = c.string("addon")
             let name = !addon.isEmpty && addon != "Cinemeta" ? "\(c.string("name")) · \(addon)" : c.string("name")

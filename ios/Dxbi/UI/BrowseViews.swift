@@ -110,7 +110,7 @@ struct SearchView: View {
         VStack(spacing: 30) {
             Text("You can search anything…").font(.title3).foregroundStyle(Dx.muted)
             HStack(alignment: .top, spacing: 12) {
-                ForEach([("film.stack", "Movies, series & anime"), ("person.fill", "Actors, directors & writers"), ("tv", "Channels & TV from your addons")], id: \.0) { icon, label in
+                ForEach([("film.stack", "Movies"), ("tv", "TV shows & anime"), ("person.fill", "Actors, directors & writers")], id: \.0) { icon, label in
                     VStack(spacing: 12) {
                         Image(systemName: icon).font(.system(size: 34)).frame(height: 40)
                         Text(label).font(.footnote).multilineTextAlignment(.center)

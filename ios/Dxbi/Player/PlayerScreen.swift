@@ -742,20 +742,20 @@ private struct TracksMenu: View {
         Menu {
             let subs = playback.subtitleTracks
             Section("Subtitles") {
-                Button { playback.mpv.select("sub", nil) } label: { check("Off", on: !subs.contains(where: \.selected)) }
+                Button { playback.choose("sub", nil) } label: { check("Off", on: !subs.contains(where: \.selected)) }
             }
             ForEach([("video", "In the Video"), ("stream", "With This Stream"), ("addon", "From Subtitle Addons · may not match")], id: \.0) { source, heading in
                 let group = subs.filter { playback.source(of: $0) == source }
                 if !group.isEmpty {
                     Section(heading) {
-                        ForEach(group) { t in Button { playback.mpv.select("sub", t.id) } label: { check(trackName(t), on: t.selected) } }
+                        ForEach(group) { t in Button { playback.choose("sub", t) } label: { check(trackName(t), on: t.selected) } }
                     }
                 }
             }
             if playback.audioTracks.count > 1 {
                 Section("Audio") {
                     ForEach(playback.audioTracks) { t in
-                        Button { playback.mpv.select("audio", t.id) } label: { check(trackName(t) + (t.codec.isEmpty ? "" : " · \(t.codec.uppercased())"), on: t.selected) }
+                        Button { playback.choose("audio", t) } label: { check(trackName(t) + (t.codec.isEmpty ? "" : " · \(t.codec.uppercased())"), on: t.selected) }
                     }
                 }
             }

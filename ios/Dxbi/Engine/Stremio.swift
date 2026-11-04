@@ -124,7 +124,7 @@ final class Stremio {
         case "meta_details": details = Details(data)
         case "search": search = Row.list(data)
         case "discover": discover = Discover(data)
-        case "library": library = data.objects("items").map(Title.init)
+        case "library": library = data.objects("items").map(Title.init).filter { Title.watchable.contains($0.type) }
         case "installed_addons": installedAddons = data.objects("items").map(Addon.init)
         case "remote_addons":
             remoteAddons = data.objects("items").map(Addon.init)

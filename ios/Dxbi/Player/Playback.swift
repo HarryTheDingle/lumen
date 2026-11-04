@@ -259,6 +259,11 @@ final class Playback: Identifiable {
     private func decideSubtitles() {
         let current = mpv.tracks
         guard let audio = current.first(where: { $0.type == "audio" && $0.selected }) else { return }
+        // What the viewer chose in an earlier episode comes first
+        if let show = showId, let choice = ShowChoices.get(show) {
+            applyShowChoice(choice, tracks: current, audio: audio)
+            return
+        }
         let wanted = Set([payload.text("subtitleLanguage") ?? "", "eng", "en", "english"].filter { !$0.isEmpty })
         let addon = subtitles.first { $0.start }
         // (an addon's file is fetched after the video opens: it's given a few seconds to arrive)
@@ -272,6 +277,88 @@ final class Playback: Identifiable {
                   let a = addon, let track = current.first(where: { $0.file == a.url }) {
             mpv.select("sub", track.id)
         }
+    }
+
+    // MARK: - Choices per show
+
+    /** The show an episode belongs to: "tt1234" from "tt1234:2:5" (a film has none) */
+    private var showId: String? {
+        payload.string("videoId").wholeMatch(of: /(.+):\d+:\d+/).map { String($0.1) }
+    }
+
+    /** A track chosen from the menu or the keyboard: chosen again for the show's next episodes */
+    func choose(_ type: String, _ track: MPV.Track?) {
+        mpv.select(type, track?.id)
+        guard let show = showId else { return }
+        var choice = ShowChoices.get(show) ?? ShowChoices.Choice()
+        if type == "audio" {
+            choice.audio = track?.lang
+        } else {
+            choice.subtitles = track.map { $0.lang.isEmpty ? $0.title : $0.lang } ?? "off"
+            choice.forced = track?.forced ?? false
+        }
+        ShowChoices.set(show, choice)
+    }
+
+    /** The show's earlier choices, on this episode (an addon's subtitle file gets a few seconds to arrive) */
+    private func applyShowChoice(_ choice: ShowChoices.Choice, tracks current: [MPV.Track], audio: MPV.Track) {
+        if let lang = choice.audio, !lang.isEmpty, audio.lang != lang,
+           let other = current.first(where: { $0.type == "audio" && $0.lang == lang }) {
+            mpv.select("audio", other.id)
+        }
+        guard let wanted = choice.subtitles else { subtitlesDecided = true; return }
+        if wanted == "off" {
+            subtitlesDecided = true
+            if current.contains(where: { $0.type == "sub" && $0.selected }) { mpv.select("sub", nil) }
+            return
+        }
+        let subs = current.filter { $0.type == "sub" && ($0.lang == wanted || $0.title == wanted) }
+        // the same kind (forced or full), from the video before an addon's
+        let match = subs.first { $0.forced == choice.forced && !$0.external } ?? subs.first { $0.forced == choice.forced } ?? subs.first
+        guard let match else {
+            if position > 8 { subtitlesDecided = true }
+            return
+        }
+        subtitlesDecided = true
+        if !match.selected { mpv.select("sub", match.id) }
+    }
+
+    /** The keyboard's ↑ and ↓: mpv's own volume (the device's stays where it is) */
+    func changeVolume(by step: Double) {
+        let now = min(max((mpv.number("volume") ?? 100) + step, 0), 100)
+        mpv.property("volume", String(format: "%.0f", now))
+        if mpv.text("mute") == "yes" { mpv.property("mute", "no") }
+        show("Volume \(Int(now))%")
+    }
+
+    func toggleMute() {
+        let muted = mpv.text("mute") == "yes"
+        mpv.property("mute", muted ? "no" : "yes")
+        show(muted ? "Sound on" : "Muted")
+    }
+
+    /** Subtitles on or off from the keyboard: on is the show's language, else the viewer's, else English */
+    func toggleSubtitles() {
+        let subs = subtitleTracks
+        if subs.contains(where: \.selected) {
+            choose("sub", nil)
+            show("Subtitles off")
+            return
+        }
+        let remembered = showId.flatMap { ShowChoices.get($0)?.subtitles }.flatMap { $0 == "off" ? nil : $0 }
+        let langs = [remembered, payload.text("subtitleLanguage"), "eng", "en"].compactMap { $0 }.filter { !$0.isEmpty }
+        let full = subs.filter { !$0.forced }
+        guard let pick = langs.lazy.compactMap({ l in full.first { $0.lang == l || $0.title == l } }).first ?? full.first else {
+            show("No subtitles for this video")
+            return
+        }
+        choose("sub", pick)
+        show("Subtitles: \(trackLabel(pick))")
+    }
+
+    private func trackLabel(_ t: MPV.Track) -> String {
+        let name = Locale.current.localizedString(forLanguageCode: t.lang) ?? t.lang
+        return t.title.isEmpty || t.title == t.lang ? name : "\(name) · \(t.title)"
     }
 
     /** What the stats panel shows, from mpv */
@@ -547,5 +634,37 @@ extension UIColor {
         guard s.count == 6 || s.count == 8, let v = UInt64(s, radix: 16) else { return nil }
         let rgb = s.count == 8 ? v >> 8 : v
         self.init(red: CGFloat((rgb >> 16) & 0xff) / 255, green: CGFloat((rgb >> 8) & 0xff) / 255, blue: CGFloat(rgb & 0xff) / 255, alpha: 1)
+    }
+}
+
+/** Audio and subtitles chosen for a show, kept on this device (the newest 300 shows) */
+enum ShowChoices {
+    struct Choice: Codable {
+        /** The audio track's language */
+        var audio: String?
+        /** "off", or the subtitle track's language */
+        var subtitles: String?
+        var forced = false
+        var at = Date()
+    }
+
+    private static let key = "lumen.showChoices"
+
+    static func get(_ show: String) -> Choice? { all()[show] }
+
+    static func set(_ show: String, _ choice: Choice) {
+        var list = all()
+        var c = choice
+        c.at = Date()
+        list[show] = c
+        if list.count > 300 {
+            for old in list.sorted(by: { $0.value.at < $1.value.at }).prefix(list.count - 300) { list[old.key] = nil }
+        }
+        UserDefaults.standard.set(try? JSONEncoder().encode(list), forKey: key)
+    }
+
+    private static func all() -> [String: Choice] {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return [:] }
+        return (try? JSONDecoder().decode([String: Choice].self, from: data)) ?? [:]
     }
 }

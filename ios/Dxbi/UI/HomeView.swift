@@ -17,8 +17,8 @@ struct HomeView: View {
             let wide = width > g.size.height
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 30) {
-                    if !stremio.billboard.isEmpty {
-                        Billboard(titles: stremio.billboard, height: wide ? g.size.height * 0.92 : min(g.size.height * 0.74, width * 1.55))
+                    if !billboardTitles.isEmpty {
+                        Billboard(titles: billboardTitles, playLabels: playLabels, height: wide ? g.size.height * 0.92 : min(g.size.height * 0.74, width * 1.55))
                     } else {
                         Color.clear.frame(height: 90)
                     }
@@ -95,6 +95,29 @@ struct HomeView: View {
     }
 
     /** Netflix's Movies · Series chips */
+    /**
+     * The billboard leads with what they're watching: the show watched last first, then the rest of
+     * Continue Watching (five at most). Suggestions only when nothing's in progress.
+     */
+    private var billboardTitles: [Title] {
+        let watching = stremio.continueWatching.prefix(5).map(\.title)
+        return watching.isEmpty ? stremio.billboard : Array(watching)
+    }
+
+    /** Play on the billboard, for what's in progress: "Resume S2 E5", "Play S3 E1" (a new episode) */
+    private var playLabels: [String: String] {
+        var labels: [String: String] = [:]
+        for item in stremio.continueWatching.prefix(5) {
+            let verb = item.progress > 0.02 ? "Resume" : "Play"
+            if let v = item.videoId, let m = v.wholeMatch(of: /.+:(\d+):(\d+)/) {
+                labels[item.id] = "\(verb) S\(m.1) E\(m.2)"
+            } else {
+                labels[item.id] = verb
+            }
+        }
+        return labels
+    }
+
     private var kinds: some View {
         let types = ["movie", "series", "anime"].filter { t in stremio.rows.contains { $0.type == t } }
         return ScrollView(.horizontal) {
@@ -212,6 +235,8 @@ private struct ContinueTile: View {
 private struct Billboard: View {
     @Environment(Stremio.self) private var stremio
     var titles: [Title]
+    /** Play's words for a title in progress ("Resume S2 E5") */
+    var playLabels: [String: String] = [:]
     var height: CGFloat
     @State private var index = 0
     @State private var drag: CGFloat = 0
@@ -286,7 +311,7 @@ private struct Billboard: View {
             .allowsHitTesting(false)
             HStack(spacing: 14) {
                 NavigationLink(value: Route.title(TitleRef(type: title.type, id: title.id, name: title.name, play: true))) {
-                    Label("Play", systemImage: "play.fill").font(.headline).frame(width: 150, height: 50)
+                    Label(playLabels[title.id] ?? "Play", systemImage: "play.fill").font(.headline).frame(minWidth: 150).padding(.horizontal, 10).frame(height: 50)
                 }
                 .buttonStyle(.glassProminent)
                 .tint(.white)
