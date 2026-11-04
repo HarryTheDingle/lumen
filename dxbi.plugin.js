@@ -1,7 +1,7 @@
 /**
  * @name Lumen
  * @description The Lumen experience: cinematic billboard, Netflix-style carousels, hover previews with trailers, ratings on posters, critic reviews, skip intro and up next, anime filler guide, new episode badges, watch stats and viewers, stream sorting & filters, a Netflix-style player with black-bar removal, night mode and subtitle sync, watch parties with friends, a cinematic intro and interface sounds. Use with the Lumen theme.
- * @version 2.30.4
+ * @version 2.30.6
  * @author dx.bi
  * @updateUrl https://raw.githubusercontent.com/HarryTheDingle/lumen/main/dxbi.plugin.js
  */
@@ -19,7 +19,7 @@
   // Stremio Enhanced loads each plugin as <script id="<file name>">, which tells us our settings key
   const SCRIPT_ID = (document.currentScript && document.currentScript.id) || "dxbi.plugin.js";
   const PLUGIN_KEY = SCRIPT_ID.replace(/\.plugin\.js$/, "");
-  const PLUGIN_VERSION = "2.30.4"; // kept in step with @version by tools/bundle-theme.mjs
+  const PLUGIN_VERSION = "2.30.6"; // kept in step with @version by tools/bundle-theme.mjs
   // Recent messages and errors, kept for problem reports (see `report`)
   const recent = { logs: [], errors: [] };
   const remember = (list, text) => {
@@ -15653,6 +15653,44 @@
           .sort((a, b) => streamChoice.rank(b.d) - streamChoice.rank(a.d) || b.d.seeds - a.d.seeds)
           .slice(0, 3)
           .map((x) => ({ index: items.indexOf(x), mbps: Math.round(streamChoice.mbps(x.d, options.minutes) * 10) / 10, ...phoneItem(x) }));
+      },
+      // Switching streams inside the player: the address and headers of one of [streams] (a web stream:
+      // a torrent needs the streaming server, so it goes through Stremio's player as usual, null here)
+      source(index) {
+        const item = phoneStreams && phoneStreams.items[index];
+        if (!item || !item.st.url || !/^https?:/i.test(item.st.url)) return null;
+        phonePlaying = item;
+        quickPlay.spares = streamChoice.spares(phoneStreams.items, item, phoneStreams.options);
+        const hints = item.st.behaviorHints || {};
+        return { url: item.st.url, headers: (hints.proxyHeaders && hints.proxyHeaders.request) || {}, label: quickPlay.label(item.d) };
+      },
+      // The player's Streams button: other streams of what's playing, by what they change. nowMbps: the
+      // playing file's bitrate (0 if unknown). Never a sample, a cinema recording or a new debrid download.
+      alternatives(nowMbps) {
+        if (!phoneStreams || !phonePlaying) return { groups: [] };
+        const { items, options } = phoneStreams;
+        const was = phonePlaying.st;
+        const same = (st) => (was.url ? st.url === was.url : st.infoHash === was.infoHash && st.fileIdx === was.fileIdx);
+        const short = streamChoice.samples(items, options.minutes);
+        const now = phonePlaying.d;
+        const rate = (x) => streamChoice.mbps(x.d, options.minutes);
+        const current = nowMbps > 0 ? nowMbps : rate(phonePlaying);
+        const pool = items.filter((x) => !same(x.st) && !short.has(x) && x.d.source !== "CAM" && !x.d.pending && (options.torrents || !x.torrent));
+        const best = (list, n) => [...list].sort((a, b) => streamChoice.rank(b.d) - streamChoice.rank(a.d) || b.d.seeds - a.d.seeds).slice(0, n);
+        const shown = (x) => ({ index: items.indexOf(x), mbps: Math.round(rate(x) * 10) / 10, ...phoneItem(x) });
+        const groups = [];
+        // the best at each lower quality
+        const lower = [...new Set(pool.filter((x) => x.d.res > 0 && x.d.res < now.res).map((x) => x.d.res))].sort((a, b) => b - a)
+          .flatMap((res) => best(pool.filter((x) => x.d.res === res), 1));
+        if (lower.length) groups.push({ title: "Lower resolution", options: lower.slice(0, 3).map(shown) });
+        const lighter = best(pool.filter((x) => x.d.res === now.res && rate(x) <= current * 0.8), 3);
+        if (lighter.length) groups.push({ title: `Lighter at ${QUALITY_LABEL[now.res] || "this quality"}`, options: lighter.map(shown) });
+        const range = now.hdr
+          ? best(pool.filter((x) => !x.d.hdr && x.d.res >= Math.min(now.res, 1080)), 2)
+          : best(pool.filter((x) => x.d.hdr && x.d.res >= now.res), 2);
+        if (range.length) groups.push({ title: now.hdr ? "Not HDR" : "HDR", options: range.map(shown) });
+        groups.push({ title: "All streams", options: best(pool, 25).map(shown) });
+        return { groups };
       },
       // Watch party (see watchParty.phone)
       party: watchParty.phone,

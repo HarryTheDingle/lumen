@@ -259,8 +259,47 @@ final class Stremio {
         return list.compactMap { $0 as? JSON }.map { StreamOption($0.int("index", -1), $0) }.filter { $0.index >= 0 }
     }
 
+    /** Where to start the next player after a stream switch: the same video, at this place */
+    @ObservationIgnored private var switching: (videoId: String, seconds: Double, at: Date)?
+
+    /** The place a stream switch left off, for the player that opens next (the same video, soon after) */
+    func resumePoint(for videoId: String) -> Double? {
+        defer { switching = nil }
+        guard let s = switching, s.videoId == videoId, Date().timeIntervalSince(s.at) < 60 else { return nil }
+        return s.seconds
+    }
+
+    /** The player's Streams button: other streams of what's playing, grouped by what they change */
+    func alternatives(nowMbps: Double) async -> [StreamGroup] {
+        let o = await dx("phone.alternatives", nowMbps) as? JSON
+        return (o?.objects("groups") ?? []).map { g in
+            StreamGroup(title: g.string("title"), options: g.objects("options").map { StreamOption($0.int("index", -1), $0) }.filter { $0.index >= 0 })
+        }.filter { !$0.options.isEmpty }
+    }
+
     /** From the player to another stream of the same video: it closes (keeping its place) and the other opens there */
     func switchStream(to option: StreamOption) {
+        // A web stream (debrid's) opens in the same player, at the same second: nothing closes
+        if let p = playback {
+            Task {
+                if let source = await dx("phone.source", option.index) as? JSON, let url = source.text("url") {
+                    let headers = (source.object("headers") ?? [:]).compactMapValues { $0 as? String }
+                    p.switchTo(url: url, headers: headers, label: source.string("label"))
+                } else {
+                    reopen(option)
+                }
+            }
+            return
+        }
+        play(option)
+    }
+
+    /** A torrent: the player closes and the other stream opens through Stremio's, where this one was */
+    private func reopen(_ option: StreamOption) {
+        // (Stremio's own saved place lags behind, and was sometimes the start: the player hands it over)
+        if let p = playback {
+            switching = (p.payload.string("videoId"), p.position, Date())
+        }
         playback?.finish(ended: false)
         Task {
             // (the page has to be back from the player before it can open another)

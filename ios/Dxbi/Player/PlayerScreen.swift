@@ -22,6 +22,7 @@ struct PlayerScreen: View {
     @State private var level: (icon: String, value: Double, left: Bool)?
     @State private var scrubbing: Double?
     @State private var now = Date()
+    @State private var streamsOpen = false
 
     private let clock = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -29,10 +30,12 @@ struct PlayerScreen: View {
         ZStack {
             Color.black.ignoresSafeArea()
             VideoSurface(mpv: playback.mpv).ignoresSafeArea()
+            if !playback.subtitleLine.isEmpty { subtitles }
             Gestures(handler: gestures).ignoresSafeArea()
             if playback.buffering && seekPreview == nil { ProgressView().controlSize(.large).tint(.white).allowsHitTesting(false) }
             if visible && !locked { controls.transition(.opacity) }
             overlays
+            if playback.showStats, let stats = playback.stats { statsPanel(stats) }
             if let slow = playback.slow, !locked { lighterOffer(slow).transition(.move(edge: .top).combined(with: .opacity)) }
         }
         .animation(.spring(duration: 0.35), value: playback.slow?.options.map(\.index))
@@ -233,6 +236,24 @@ struct PlayerScreen: View {
                 // clock every second, which made open menus jump and miss taps)
                 // (opening a menu keeps the controls up until the screen is tapped: they hid, and took
                 // the open menu with them)
+                if !playback.alternatives.isEmpty {
+                    Button {
+                        hold()
+                        streamsOpen = true
+                    } label: { Label("Streams", systemImage: "rectangle.stack.fill").frame(height: 24) }
+                        .buttonStyle(.glass)
+                        .popover(isPresented: $streamsOpen, arrowEdge: .bottom) {
+                            StreamsPanel(playback: playback) { option in
+                                streamsOpen = false
+                                stremio.switchStream(to: option)
+                            }
+                            .frame(minWidth: 380, idealWidth: 420, minHeight: 300, idealHeight: 520)
+                            .presentationCompactAdaptation(.sheet)
+                        }
+                }
+                Button { playback.showStats.toggle() } label: { Image(systemName: "chart.bar.xaxis").frame(width: 24, height: 24) }
+                    .buttonStyle(.glass)
+                    .accessibilityLabel(playback.showStats ? "Hide stats" : "Show stats")
                 SpeedMenu(playback: playback, onOpen: hold)
                 TracksMenu(playback: playback, onOpen: hold)
                 Button { stremio.playExternally(playback) } label: { Image(systemName: "arrow.up.forward.app").frame(width: 24, height: 24) }
@@ -249,6 +270,81 @@ struct PlayerScreen: View {
 
     // MARK: - Over everything: messages, skip, up next, lock
 
+    /**
+     * Text subtitles, drawn by Lumen over the picture (mpv drawing them meant repainting every 4K frame),
+     * in Stremio's subtitle settings: size, how far up, bold, text, outline and background colours
+     */
+    private var subtitles: some View {
+        let style = playback.subtitleStyle
+        let size = max(style.double("size", 100), 25) / 100
+        let raise = style.double("offset", 5) / 100
+        let text = Color(hex: style.text("text")) ?? .white
+        let outline = Color(hex: style.text("outline")) ?? .black
+        let background = Color(hex: style.text("background"))
+        return GeometryReader { g in
+            VStack {
+                Spacer()
+                Text(playback.subtitleLine)
+                    .font(.system(size: g.size.height * 0.048 * size, weight: style.bool("bold") ? .bold : .semibold))
+                    .foregroundStyle(text)
+                    .multilineTextAlignment(.center)
+                    .shadow(color: outline, radius: 0, x: 1.2, y: 1.2)
+                    .shadow(color: outline, radius: 0, x: -1.2, y: -1.2)
+                    .shadow(color: outline, radius: 0, x: 1.2, y: -1.2)
+                    .shadow(color: outline, radius: 0, x: -1.2, y: 1.2)
+                    .shadow(color: .black.opacity(0.6), radius: 4)
+                    .padding(.horizontal, background == nil ? 0 : 10)
+                    .padding(.vertical, background == nil ? 0 : 4)
+                    .background(background ?? .clear, in: .rect(cornerRadius: 6))
+                    .frame(maxWidth: g.size.width * 0.86)
+                    // (above the seek bar while the controls show)
+                    .padding(.bottom, max(g.size.height * raise, visible && !locked ? 120 : 0))
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .animation(.easeOut(duration: 0.2), value: visible)
+    }
+
+    /** Stats for nerds: the stream, the network and the device, and which (if any) is holding it back */
+    private func statsPanel(_ s: Playback.Stats) -> some View {
+        let verdict = s.verdict
+        func row(_ name: String, _ value: String) -> some View {
+            HStack(alignment: .firstTextBaseline) {
+                Text(name).foregroundStyle(Dx.muted).frame(width: 74, alignment: .leading)
+                Text(value)
+            }
+        }
+        return VStack {
+            HStack {
+                VStack(alignment: .leading, spacing: 5) {
+                    Label(verdict.text, systemImage: verdict.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(verdict.ok ? Color.green : Color.orange)
+                        .padding(.bottom, 3)
+                    row("Video", [s.format, s.size, s.fps, s.hdr ? "HDR" : ""].filter { !$0.isEmpty }.joined(separator: " · "))
+                    row("Decoder", s.decoder.isEmpty ? "—" : s.decoder)
+                    row("Bitrate", s.needMbps > 0 ? String(format: "%.1f Mbps", s.needMbps) : "—")
+                    row("Network", s.netMbps > 0.05 ? String(format: "%.1f Mbps", s.netMbps) : s.ahead > 20 ? "Idle (buffer full)" : "—")
+                    row("Buffered", String(format: "%.0f s ahead", s.ahead))
+                    row("Dropped", "\(s.dropped) frames\(s.droppedRecently > 0 ? " (\(s.droppedRecently) in 10 s)" : "")")
+                    row("A/V sync", String(format: "%+.0f ms", s.avsync * 1000))
+                    row("Stalls", "\(s.stalls)")
+                }
+                .font(.caption.monospacedDigit())
+                .padding(14)
+                .frame(width: 300, alignment: .leading)
+                .glassEffect(.regular, in: .rect(cornerRadius: 18))
+                Spacer()
+            }
+            .padding(.top, visible && !locked ? 76 : 20)
+            .padding(.leading, 24)
+            Spacer()
+        }
+        .allowsHitTesting(false)
+    }
+
     /** It's buffering: lighter streams that fit the speed it's really getting, or word that there are none */
     private func lighterOffer(_ slow: (mbps: Double, options: [StreamOption])) -> some View {
         let speed = slow.mbps >= 1 ? "\(Int(slow.mbps.rounded())) Mbps" : nil
@@ -256,7 +352,7 @@ struct PlayerScreen: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Buffering? Try a lighter stream").font(.headline)
+                        Text("Still buffering? Try a lighter stream").font(.headline)
                         Text(slow.options.isEmpty
                              ? "There's no lighter stream for this one\(speed.map { " (the server is giving \($0))" } ?? "")."
                              : "These should play smoothly\(speed.map { " at the \($0) the server is giving" } ?? ""). It carries on from here.")
@@ -580,6 +676,40 @@ private struct Gestures: UIViewRepresentable {
             case .changed: handler.hold(.changed, x - holdStart)
             default: handler.hold(.ended, 0)
             }
+        }
+    }
+}
+
+/**
+ * Other streams of what's playing: lower resolution, lighter, HDR or not, and the rest. A list in a
+ * panel, not a menu: a menu rebuilt itself as the player updated, and jumped back to the top
+ */
+private struct StreamsPanel: View {
+    let playback: Playback
+    var choose: (StreamOption) -> Void
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(playback.alternatives) { group in
+                    Section(group.title) {
+                        ForEach(group.options) { o in
+                            Button { choose(o) } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(o.label).font(.body.weight(.semibold))
+                                    Text([o.addon, o.size > 0 ? ByteCountFormatter.string(fromByteCount: Int64(o.size), countStyle: .file) : nil, o.mbps > 0 ? "\(o.mbps.formatted()) Mbps" : nil]
+                                        .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                                        .font(.footnote).foregroundStyle(Dx.muted).lineLimit(1)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Other Streams")
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 }

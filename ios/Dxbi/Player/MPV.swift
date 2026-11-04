@@ -39,6 +39,8 @@ final class MPV {
     private(set) var started = false
     /** Waiting for the network while playing (not loading, not a seek: those set [buffering] too) */
     private(set) var stalled = false
+    /** The subtitle line showing now (text subtitles, which Lumen draws itself) */
+    private(set) var subtitleText = ""
     private(set) var lastSeek = Date.distantPast
 
     let layer = AVSampleBufferDisplayLayer()
@@ -60,6 +62,11 @@ final class MPV {
         handle = mpv
         option("wid", layer)
         set("vo", "avfoundation")
+        // mpv repaints every frame into a new (64-bit, HDR) picture to draw subtitles on it: at 4K that
+        // dropped frames on older iPads. Off until subtitles show (Lumen draws its own controls)
+        set("avfoundation-composite-osd", "no")
+        // (Lumen draws text subtitles over the picture; mpv draws only styled and picture ones)
+        set("sub-visibility", "no")
         // subtitles drawn into the picture, so they show in picture in picture too
         set("avfoundation-composite-osd", "yes")
         set("hwdec", "videotoolbox")
@@ -95,7 +102,7 @@ final class MPV {
         mpv_initialize(mpv)
         for (name, format) in [("time-pos", MPV_FORMAT_DOUBLE), ("duration", MPV_FORMAT_DOUBLE), ("pause", MPV_FORMAT_FLAG),
                                ("paused-for-cache", MPV_FORMAT_FLAG), ("speed", MPV_FORMAT_DOUBLE), ("track-list", MPV_FORMAT_NONE),
-                               ("seeking", MPV_FORMAT_FLAG), ("core-idle", MPV_FORMAT_FLAG)] {
+                               ("seeking", MPV_FORMAT_FLAG), ("core-idle", MPV_FORMAT_FLAG), ("sub-text", MPV_FORMAT_STRING)] {
             mpv_observe_property(mpv, 0, name, format)
         }
         mpv_set_wakeup_callback(mpv, { context in
@@ -151,6 +158,11 @@ final class MPV {
         }
     }
 
+    /** Text mpv reports (video-format, hwdec-current…), read when asked */
+    func text(_ name: String) -> String? {
+        string(name)
+    }
+
     /** A number mpv reports (cache-speed, file-size…), read when asked */
     func number(_ name: String) -> Double? {
         string(name).flatMap(Double.init)
@@ -167,6 +179,10 @@ final class MPV {
     func load(_ url: String, start: Double, headers: [String: String], audioLanguage: String?, subtitleLanguage: String? = nil) {
         let fields = headers.map { "\($0.key): \($0.value)" }.joined(separator: ",")
         property("http-header-fields", fields)
+        // (the startup option doesn't reach the video output, which is made for each file: set just before,
+        // it does. Playback turns it on only for subtitles mpv has to draw)
+        property("avfoundation-composite-osd", "no")
+        property("sub-visibility", "no")
         property("start", start > 0 ? String(format: "%.2f", start) : "none")
         if let audioLanguage, !audioLanguage.isEmpty { property("alang", "\(audioLanguage),eng,en") }
         // (the viewer's subtitle language, then English: see subs-with-matching-audio)
@@ -192,16 +208,20 @@ final class MPV {
     func subtitleScale(_ scale: Double) { property("sub-scale", String(format: "%.2f", scale)) }
     func subtitleDelay(_ seconds: Double) { property("sub-delay", String(format: "%.2f", seconds)) }
 
+    /** Picture in picture is showing: its progress bar reads the layer's clock */
+    var pipShowing = false
+
     /**
-     * Keeps the layer's clock with mpv's: how fast it's going, and where it is when that's really
-     * changed (a seek, a stall). Setting it to every position mpv reported, which trails the picture,
-     * pulled the clock back and forth: frames hitched, and now and then an older one flashed up.
+     * The layer's clock. mpv's AVFoundation output stamps each frame from it and does all the timing
+     * itself, so it only runs or stops with pause (not stalls, not the speed). Moving it, to follow the
+     * position, threw out the frames already stamped: a frame glitched a second into playing, and older
+     * ones flashed up. Only picture in picture, whose progress bar reads it, has it follow the position.
      */
     private func clock() {
         guard let timebase else { return }
-        let rate = paused || stalled ? 0 : speed
+        let rate: Float64 = paused ? 0 : 1
         if CMTimebaseGetRate(timebase) != rate { CMTimebaseSetRate(timebase, rate: rate) }
-        if abs(CMTimebaseGetTime(timebase).seconds - position) > 0.25 {
+        if pipShowing, abs(CMTimebaseGetTime(timebase).seconds - position) > 1 {
             CMTimebaseSetTime(timebase, time: CMTime(seconds: position, preferredTimescale: 1000))
         }
     }
@@ -238,6 +258,8 @@ final class MPV {
                     let double = property.format == MPV_FORMAT_DOUBLE ? property.data?.assumingMemoryBound(to: Double.self).pointee : nil
                     let flag = property.format == MPV_FORMAT_FLAG ? (property.data?.assumingMemoryBound(to: Int32.self).pointee ?? 0) != 0 : nil
                     let tracks = name == "track-list" ? self.readTracks() : nil
+                    let text = property.format == MPV_FORMAT_STRING
+                        ? property.data?.assumingMemoryBound(to: UnsafePointer<CChar>?.self).pointee.map { String(cString: $0) } : nil
                     DispatchQueue.main.async {
                         switch name {
                         case "time-pos": if let double { self.position = double; if double > 0 { self.started = true } }
@@ -248,6 +270,7 @@ final class MPV {
                         case "seeking": if let flag { if flag { self.buffering = true; self.lastSeek = Date() } else { self.buffering = self.stalled } }
                         case "core-idle": if let flag, !flag { self.buffering = false }
                         case "speed": if let double { self.speed = double }
+                        case "sub-text": self.subtitleText = text ?? ""
                         case "track-list": if let tracks { self.tracks = tracks }
                         default: break
                         }

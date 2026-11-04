@@ -65,6 +65,43 @@ final class Playback: Identifiable {
     var flash: String?
     /** It buffered while playing: the speed it was really getting, and lighter streams that fit it */
     var slow: (mbps: Double, options: [StreamOption])?
+    /** The subtitle line Lumen draws (text subtitles), and how it looks (Stremio's subtitle settings) */
+    var subtitleLine = ""
+    let subtitleStyle: JSON
+    /** The Streams button's list */
+    var alternatives: [StreamGroup] = []
+    /** The stats panel: shown, and what it shows (read every second while it's open) */
+    var showStats = false {
+        didSet { if showStats { readStats() } }
+    }
+    var stats: Stats?
+
+    struct Stats {
+        var format = "", size = "", fps = "", decoder = "", hdr = false
+        var needMbps = 0.0, netMbps = 0.0, ahead = 0.0, dropped = 0, droppedRecently = 0, avsync = 0.0, stalls = 0
+        /** What's holding it back, if anything */
+        var verdict: (text: String, ok: Bool) {
+            if droppedRecently >= 5 || decoder == "Software" {
+                return ("The device: \(droppedRecently) frames dropped in 10 s\(decoder == "Software" ? ", decoding in software" : "")", false)
+            }
+            let starved = ahead < 5 && netMbps > 0 && needMbps > 0 && netMbps < needMbps * 1.2
+            if starved || stalls > 0 && ahead < 10 {
+                let rates = netMbps > 0 && needMbps > 0 ? ": \(Int(netMbps.rounded())) of \(Int(needMbps.rounded())) Mbps" : ""
+                return ("The network\(rates). Try a lighter stream", false)
+            }
+            return ("Playing smoothly", true)
+        }
+    }
+    @ObservationIgnored private var dropHistory: [(Date, Int)] = []
+    @ObservationIgnored private var stallCount = 0
+    @ObservationIgnored private var compositing = false
+    private static let textCodecs: Set<String> = ["subrip", "srt", "webvtt", "mov_text", "text", "microdvd", "subviewer", "jacosub", "mpl2", "realtext", "sami", "vplayer", "pjs", "stl"]
+    /** When the picture started moving (a resumed video starts far in: its position says nothing) */
+    @ObservationIgnored private var playingSince: Date?
+    /** It's been playing a few seconds: waiting for the network now is a stall, not the start */
+    private var settledIn: Bool { playingSince.map { Date().timeIntervalSince($0) > 5 } ?? false }
+    /** How far it's gone about stalls: 0 nothing yet, 1 and 2 buffering more, 3 lighter streams offered */
+    @ObservationIgnored private var stallStep = 0
 
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var lastReport: Date = .distantPast
@@ -79,6 +116,7 @@ final class Playback: Identifiable {
     init(payload: JSON, stremio: Stremio) {
         self.payload = payload
         self.stremio = stremio
+        subtitleStyle = payload.object("subtitleStyle") ?? [:]
         title = payload.string("title")
         subtitle = payload.string("subtitle")
         accent = UIColor(hex: payload.string("accent")) ?? UIColor(red: 0.9, green: 0.04, blue: 0.08, alpha: 1)
@@ -129,7 +167,9 @@ final class Playback: Identifiable {
         let headers = (payload.object("headers") ?? [:]).compactMapValues { $0 as? String }
         if let size = payload.object("subtitleStyle")?.double("size"), size > 0 { mpv.subtitleScale(size / 100) }
         mpv.gravity(fit.gravity)
-        mpv.load(payload.string("url"), start: payload.double("startMs") / 1000, headers: headers, audioLanguage: payload.text("audioLanguage"), subtitleLanguage: payload.text("subtitleLanguage"))
+        // (after a stream switch, exactly where the other one was)
+        let start = stremio?.resumePoint(for: payload.string("videoId")) ?? payload.double("startMs") / 1000
+        mpv.load(payload.string("url"), start: start, headers: headers, audioLanguage: payload.text("audioLanguage"), subtitleLanguage: payload.text("subtitleLanguage"))
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
@@ -138,7 +178,47 @@ final class Playback: Identifiable {
         loadArtwork()
     }
 
+    /**
+     * Another stream of the same video, in this player at this second (the Streams button, or lighter
+     * ones offered after stalls): the other file opens where this one was, nothing closes
+     */
+    func switchTo(url: String, headers: [String: String], label: String) {
+        let at = position
+        slow = nil
+        offeredLighter = false
+        stallCount = 0
+        stallStep = 0
+        stalledSince = nil
+        playingSince = nil
+        dropHistory = []
+        alternatives = []
+        subtitlesDecided = false
+        compositing = false
+        mpv.property("cache-pause-wait", "1")
+        mpv.load(url, start: at, headers: headers, audioLanguage: payload.text("audioLanguage"), subtitleLanguage: payload.text("subtitleLanguage"))
+        show(label.isEmpty ? "Switching stream" : "Switching to \(label)")
+    }
+
+    /** The Streams list, from the page (again when the button's opened: the list may have grown) */
+    func loadAlternatives() {
+        let size = mpv.number("file-size") ?? 0
+        let nowMbps = size > 0 && duration > 0 ? size * 8 / duration / 1e6 : 0
+        Task {
+            let groups = await stremio?.alternatives(nowMbps: nowMbps) ?? []
+            // (a new list while the menu's open redraws it under the finger)
+            let ids = { (g: [StreamGroup]) in g.map { [$0.title] + $0.options.map { String($0.index) } } }
+            if !closing, ids(groups) != ids(alternatives) { alternatives = groups }
+        }
+    }
+
     private func loaded() {
+        Task {
+            // (once the file's size is known, and again when slower addons have answered)
+            try? await Task.sleep(for: .seconds(3))
+            loadAlternatives()
+            try? await Task.sleep(for: .seconds(30))
+            loadAlternatives()
+        }
         // (listed, not shown: decideSubtitles turns one on only if the audio needs it)
         for s in subtitles { mpv.addSubtitle(s.url, title: s.label, lang: s.lang, start: false) }
     }
@@ -151,9 +231,22 @@ final class Playback: Identifiable {
         if buffering != mpv.buffering { buffering = mpv.buffering }
         if speed != mpv.speed { speed = mpv.speed; nowPlaying() }
         if tracks != mpv.tracks { settleTracks() }
+        // Text subtitles (SRT, WebVTT: forced ones, the addons') Lumen draws over the picture. Styled ones
+        // (ASS) and pictures (Blu-ray, DVD) need mpv, which then repaints every frame to draw them
+        let shown = mpv.tracks.first { $0.type == "sub" && $0.selected }
+        let mpvDraws = shown.map { !Self.textCodecs.contains($0.codec.lowercased()) } ?? false
+        if mpvDraws != compositing {
+            compositing = mpvDraws
+            mpv.property("avfoundation-composite-osd", mpvDraws ? "yes" : "no")
+            mpv.property("sub-visibility", mpvDraws ? "yes" : "no")
+        }
+        let line = shown != nil && !mpvDraws ? mpv.subtitleText : ""
+        if line != subtitleLine { subtitleLine = line }
+        if mpv.pipShowing != pip.active { mpv.pipShowing = pip.active }
         pip.refresh()
         autoSkipIfDue()
-        if mpv.stalled { stalledSince = stalledSince ?? Date() } else { stalledSince = nil }
+        if mpv.started, !mpv.buffering, playingSince == nil { playingSince = Date() }
+        if mpv.stalled { if stalledSince == nil, settledIn, Date().timeIntervalSince(mpv.lastSeek) > 4 { stallCount += 1 }; stalledSince = stalledSince ?? Date() } else { stalledSince = nil }
         if !subtitlesDecided, mpv.started { decideSubtitles() }
     }
 
@@ -181,20 +274,55 @@ final class Playback: Identifiable {
         }
     }
 
+    /** What the stats panel shows, from mpv */
+    private func readStats() {
+        var s = Stats()
+        s.format = (mpv.text("video-format") ?? "").uppercased()
+        let w = Int(mpv.number("video-params/w") ?? 0), h = Int(mpv.number("video-params/h") ?? 0)
+        s.size = w > 0 ? "\(w)×\(h)" : ""
+        if let fps = mpv.number("container-fps") ?? mpv.number("estimated-vf-fps"), fps > 0 { s.fps = String(format: "%.3g fps", fps) }
+        // (mpv says which decoder once the first frame's out: before that it's not known)
+        let hw = mpv.text("hwdec-current") ?? ""
+        s.decoder = !mpv.started ? "" : hw.isEmpty || hw == "no" ? "Software" : "Hardware"
+        s.hdr = ["pq", "hlg"].contains(mpv.text("video-params/gamma") ?? "")
+        let size = mpv.number("file-size") ?? 0
+        let bitrate = (mpv.number("video-bitrate") ?? 0) + (mpv.number("audio-bitrate") ?? 0)
+        s.needMbps = bitrate > 0 ? bitrate / 1e6 : size > 0 && duration > 0 ? size * 8 / duration / 1e6 : 0
+        s.netMbps = (mpv.number("cache-speed") ?? 0) * 8 / 1e6
+        s.ahead = mpv.number("demuxer-cache-duration") ?? 0
+        s.dropped = Int((mpv.number("frame-drop-count") ?? 0) + (mpv.number("decoder-frame-drop-count") ?? 0))
+        let now = Date()
+        dropHistory.append((now, s.dropped))
+        dropHistory.removeAll { now.timeIntervalSince($0.0) > 10 }
+        s.droppedRecently = s.dropped - (dropHistory.first?.1 ?? s.dropped)
+        s.avsync = mpv.number("avsync") ?? 0
+        s.stalls = stallCount
+        stats = s
+    }
+
     /**
-     * A stream that stalls once usually keeps stalling: at the first real stall (playing a while, not
-     * just after a seek, not a download or a watch party) it offers lighter streams that fit the speed
-     * mpv is really getting from the server
+     * A real stall (playing a while, not just after a seek, not a download or a watch party): first it
+     * waits for more before carrying on, 10 seconds and then 30, which rides out a slow patch. Stalling
+     * again after that (or at the second stall when the server is clearly slower than the stream needs),
+     * it offers lighter streams that fit the speed mpv is really getting from the server.
      */
     private func offerLighterIfStalling() {
         guard !offeredLighter, let since = stalledSince, Date().timeIntervalSince(since) >= 1.5,
-              mpv.started, position > 5, Date().timeIntervalSince(mpv.lastSeek) > 4,
-              payload.text("offline") == nil, party == nil else { return }
-        offeredLighter = true
+              settledIn, Date().timeIntervalSince(mpv.lastSeek) > 4,
+              payload.text("offline") == nil, party == nil, stallStep < stallCount else { return }
+        stallStep = stallCount
         // (bytes a second while it's catching up: all the server can give)
         let mbps = (mpv.number("cache-speed") ?? 0) * 8 / 1e6
         let size = mpv.number("file-size") ?? 0
         let nowMbps = size > 0 && duration > 0 ? size * 8 / duration / 1e6 : 0
+        let tooSlow = mbps > 0 && nowMbps > 0 && mbps < nowMbps * 0.8
+        if stallStep == 1 || (stallStep == 2 && !tooSlow) {
+            let wait = stallStep == 1 ? 10 : 30
+            mpv.property("cache-pause-wait", String(wait))
+            show("Buffering \(wait) seconds ahead to keep it smooth")
+            return
+        }
+        offeredLighter = true
         Task {
             let options = await stremio?.lighter(mbps: mbps, nowMbps: nowMbps) ?? []
             guard !closing else { return }
@@ -206,6 +334,7 @@ final class Playback: Identifiable {
         guard !closing else { return }
         if !paused { claimSound() }
         offerLighterIfStalling()
+        if showStats { readStats() }
         stremio?.partyTick(position: position, duration: duration, paused: paused, buffering: buffering, rate: speed)
         // Stremio's watch progress, every few seconds
         if Date().timeIntervalSince(lastReport) > 5, mpv.started {

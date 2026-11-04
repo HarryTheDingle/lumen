@@ -234,6 +234,13 @@ struct StreamOption: Identifiable, Hashable {
     }
 }
 
+/** Streams offered in the player, under what they change (lower resolution, lighter, HDR…) */
+struct StreamGroup: Identifiable {
+    var title: String
+    var options: [StreamOption]
+    var id: String { title }
+}
+
 struct StreamChoices {
     var justPlay: Bool
     var settled: Bool

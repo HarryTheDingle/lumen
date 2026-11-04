@@ -57,9 +57,11 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            // Stremio's page, working underneath (it has to be in the window to keep running)
+            // Stremio's page, working underneath (it has to be in the window, a little visible, to keep
+            // running), drawn off the edge of the screen: at 2% it still showed faintly ("Page not found")
             PageHost(webView: stremio.page.webView)
                 .opacity(0.02)
+                .offset(x: -4000)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
                 .ignoresSafeArea()
@@ -204,21 +206,25 @@ final class PageBox: UIView {
         addSubview(webView)
     }
 
-    /** Under the player's picture (kept the size it was, so the page isn't laid out again) */
+    /**
+     * With the player, off the edge of its screen (kept the size it was, so the page isn't laid out
+     * again). It has to stay in the window and a little visible, or iOS pauses the page; under the
+     * picture, SwiftUI didn't keep it there, and Stremio's own player ("Page not found", its play
+     * circle) showed faintly over the video. Its page also draws nothing while it's away.
+     */
     static func lend(_ webView: WKWebView, to view: UIView) {
-        let size = webView.bounds.size
+        let size = webView.bounds.size.width > 0 ? webView.bounds.size : CGSize(width: 400, height: 800)
         webView.autoresizingMask = []
-        webView.frame = CGRect(origin: .zero, size: size.width > 0 ? size : CGSize(width: 400, height: 800))
+        webView.frame = CGRect(origin: CGPoint(x: -size.width - 200, y: 0), size: size)
         webView.alpha = 0.02
         webView.isUserInteractionEnabled = false
         view.insertSubview(webView, at: 0)
-        // SwiftUI doesn't promise to keep it under the picture: Stremio's own player (its play circle)
-        // showed faintly over the video. Its page keeps running, drawing nothing
-        webView.evaluateJavaScript("document.documentElement.style.setProperty('visibility', 'hidden', 'important')")
+        // (opacity: unlike visibility, nothing in the page can turn it back on)
+        webView.evaluateJavaScript("document.documentElement.style.setProperty('opacity', '0', 'important')")
     }
 
     static func bringBack(_ webView: WKWebView) {
-        webView.evaluateJavaScript("document.documentElement.style.removeProperty('visibility')")
+        webView.evaluateJavaScript("document.documentElement.style.removeProperty('opacity')")
         home?.take(webView)
     }
 }

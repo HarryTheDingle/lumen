@@ -222,3 +222,16 @@ func typeName(_ type: String) -> String {
     default: type.capitalized
     }
 }
+
+extension Color {
+    /** Stremio's colour settings: #RRGGBB or #RRGGBBAA. nil when missing, or fully see-through */
+    init?(hex: String?) {
+        guard var s = hex?.trimmingCharacters(in: .whitespaces), s.hasPrefix("#") else { return nil }
+        s.removeFirst()
+        guard s.count == 6 || s.count == 8, let v = UInt64(s, radix: 16) else { return nil }
+        let alpha = s.count == 8 ? Double(v & 0xff) / 255 : 1
+        guard alpha > 0 else { return nil }
+        let rgb = s.count == 8 ? v >> 8 : v
+        self.init(.sRGB, red: Double((rgb >> 16) & 0xff) / 255, green: Double((rgb >> 8) & 0xff) / 255, blue: Double(rgb & 0xff) / 255, opacity: alpha)
+    }
+}
