@@ -29,6 +29,8 @@ final class MPV {
     /** The file ended (true) or couldn't play (the reason) */
     var onEnd: ((Bool, String?) -> Void)?
     var onLoaded: (() -> Void)?
+    /** A seek (or the start) has its first frame on screen */
+    var onRestart: (() -> Void)?
 
     private(set) var position: Double = 0
     private(set) var duration: Double = 0
@@ -49,10 +51,25 @@ final class MPV {
     private var handle: OpaquePointer?
     private let queue = DispatchQueue(label: "dxbi.mpv", qos: .userInitiated)
 
-    init() {
+    /**
+     * [preview]: the seek bar's picture of where it's going. A second, silent mpv on the same stream that
+     * shows only keyframes, with a small buffer, no sound and no subtitles
+     */
+    init(preview: Bool = false) {
         layer.videoGravity = .resizeAspect
-        layer.preventsDisplaySleepDuringVideoPlayback = true
         layer.backgroundColor = UIColor.black.cgColor
+        if preview {
+            // mpv's output reads the layer's clock to stamp each frame (with none it crashed): the
+            // preview's just runs, so a frame shows as soon as it's decoded
+            if CMTimebaseCreateWithSourceClock(allocator: kCFAllocatorDefault, sourceClock: CMClockGetHostTimeClock(), timebaseOut: &timebase) == noErr, let timebase {
+                CMTimebaseSetTime(timebase, time: .zero)
+                CMTimebaseSetRate(timebase, rate: 1)
+                layer.controlTimebase = timebase
+            }
+            setUpPreview()
+            return
+        }
+        layer.preventsDisplaySleepDuringVideoPlayback = true
         if CMTimebaseCreateWithSourceClock(allocator: kCFAllocatorDefault, sourceClock: CMClockGetHostTimeClock(), timebaseOut: &timebase) == noErr, let timebase {
             CMTimebaseSetTime(timebase, time: .zero)
             CMTimebaseSetRate(timebase, rate: 0)
@@ -67,8 +84,6 @@ final class MPV {
         set("avfoundation-composite-osd", "no")
         // (Lumen draws text subtitles over the picture; mpv draws only styled and picture ones)
         set("sub-visibility", "no")
-        // subtitles drawn into the picture, so they show in picture in picture too
-        set("avfoundation-composite-osd", "yes")
         set("hwdec", "videotoolbox")
         set("hwdec-software-fallback", "yes")
         set("video-rotate", "no")
@@ -116,12 +131,62 @@ final class MPV {
     deinit { quit() }
 
     /** Stops for good (mpv's own thread finishes in the background) */
+    private func setUpPreview() {
+        guard let mpv = mpv_create() else { return }
+        handle = mpv
+        option("wid", layer)
+        set("vo", "avfoundation")
+        set("avfoundation-composite-osd", "no")
+        set("hwdec", "videotoolbox")
+        set("hwdec-software-fallback", "yes")
+        set("aid", "no")
+        set("sid", "no")
+        set("sub-visibility", "no")
+        // (the nearest keyframe: quick, and close enough for a preview)
+        set("hr-seek", "no")
+        set("pause", "yes")
+        set("keep-open", "yes")
+        set("idle", "yes")
+        set("cache", "yes")
+        set("cache-on-disk", "no")
+        set("demuxer-max-bytes", "24MiB")
+        set("demuxer-max-back-bytes", "8MiB")
+        set("demuxer-readahead-secs", "2")
+        set("network-timeout", "20")
+        set("user-agent", "Mozilla/5.0 Lumen")
+        set("stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=3")
+        #if DEBUG
+        if let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            set("log-file", dir.appendingPathComponent("preview.log").path)
+        }
+        #endif
+        mpv_request_log_messages(mpv, "no")
+        mpv_initialize(mpv)
+        // (to hear when each seek's frame is up: the next waits for it)
+        mpv_set_wakeup_callback(mpv, { context in
+            guard let context else { return }
+            Unmanaged<MPV>.fromOpaque(context).takeUnretainedValue().readEvents()
+        }, Unmanaged.passUnretained(self).toOpaque())
+    }
+
     func quit() {
         guard let mpv = handle else { return }
         handle = nil
         mpv_set_wakeup_callback(mpv, nil, nil)
-        // (after anything still on its way to it)
-        control.async { mpv_terminate_destroy(mpv) }
+        // (after anything still on its way to it). The layer is kept until mpv has finished: its video
+        // output's thread still uses it as it shuts down, and a layer let go of first crashed it
+        let layer = self.layer
+        control.async {
+            // Stopping first, then a moment before the end: the video output's stop hands work to the main
+            // thread that still uses its state, and ending straight away freed that under it (a crash on
+            // closing, seen with the seek bar's preview)
+            var stop: [UnsafePointer<CChar>?] = [UnsafePointer(strdup("stop")), nil]
+            mpv_command(mpv, &stop)
+            free(UnsafeMutablePointer(mutating: stop[0]))
+            Thread.sleep(forTimeInterval: 0.5)
+            mpv_terminate_destroy(mpv)
+            withExtendedLifetime(layer) {}
+        }
         layer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
     }
 
@@ -279,6 +344,8 @@ final class MPV {
                         self.clock()
                         self.onChange?()
                     }
+                case MPV_EVENT_PLAYBACK_RESTART:
+                    DispatchQueue.main.async { self.onRestart?() }
                 case MPV_EVENT_FILE_LOADED:
                     DispatchQueue.main.async {
                         self.buffering = false

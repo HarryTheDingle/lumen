@@ -112,6 +112,8 @@ final class Playback: Identifiable {
     @ObservationIgnored private var stalledSince: Date?
     @ObservationIgnored private var subtitlesDecided = false
     @ObservationIgnored private var nextPrepared = false
+    /** The seek bar's picture of where it's going (a second mpv, opened when scrubbing starts) */
+    @ObservationIgnored private(set) var thumbs: SeekPreview?
     /** What the server gave while the buffer was filling (Mbit/s, once a second): the network's real speed */
     @ObservationIgnored private var speedReadings: [Double] = []
     @ObservationIgnored private var offeredLighter = false
@@ -172,6 +174,7 @@ final class Playback: Identifiable {
         mpv.gravity(fit.gravity)
         // (after a stream switch, exactly where the other one was)
         let start = stremio?.resumePoint(for: payload.string("videoId")) ?? payload.double("startMs") / 1000
+        thumbs = SeekPreview(url: payload.string("url"), headers: headers)
         mpv.load(payload.string("url"), start: start, headers: headers, audioLanguage: payload.text("audioLanguage"), subtitleLanguage: payload.text("subtitleLanguage"))
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
@@ -199,6 +202,7 @@ final class Playback: Identifiable {
         compositing = false
         mpv.property("cache-pause-wait", "1")
         mpv.load(url, start: at, headers: headers, audioLanguage: payload.text("audioLanguage"), subtitleLanguage: payload.text("subtitleLanguage"))
+        thumbs?.change(url: url, headers: headers)
         show(label.isEmpty ? "Switching stream" : "Switching to \(label)")
     }
 
@@ -631,6 +635,7 @@ final class Playback: Identifiable {
         closing = true
         timer?.invalidate()
         let at = position, length = duration
+        thumbs?.stop()
         // What this network really gave: a high reading (the 75th of 100), from enough of them
         if speedReadings.count >= 10 {
             let sorted = speedReadings.sorted()

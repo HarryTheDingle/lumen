@@ -35,6 +35,9 @@ struct PlayerScreen: View {
             if playback.buffering && seekPreview == nil { ProgressView().controlSize(.large).tint(.white).allowsHitTesting(false) }
             if visible && !locked { controls.transition(.opacity) }
             overlays
+            if let target = scrubbing ?? seekPreview, let layer = playback.thumbs?.layer, playback.duration > 0 {
+                previewBox(target: target, layer: layer)
+            }
             if playback.showStats, let stats = playback.stats { statsPanel(stats) }
             if let slow = playback.slow, !locked { lighterOffer(slow).transition(.move(edge: .top).combined(with: .opacity)) }
         }
@@ -42,6 +45,14 @@ struct PlayerScreen: View {
         // A mouse or trackpad (the Mac, an iPad's): moving it brings the controls back
         .onContinuousHover { phase in
             if case .active = phase, !locked, !visible { poke() }
+        }
+        // The controls showing: the preview opens in the background, ready for a scrub
+        .onChange(of: visible) { _, shown in
+            if shown, playback.duration > 0, !locked { playback.thumbs?.warm(at: playback.position) }
+        }
+        // Scrubbing: the preview follows the finger (and rests when it lets go)
+        .onChange(of: scrubbing ?? seekPreview) { _, target in
+            if let target { playback.thumbs?.show(target) } else { playback.thumbs?.rest() }
         }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
@@ -269,6 +280,28 @@ struct PlayerScreen: View {
     }
 
     // MARK: - Over everything: messages, skip, up next, lock
+
+    /** Where a seek will land, in a small picture above the seek bar, under the finger */
+    private func previewBox(target: Double, layer: CALayer) -> some View {
+        let width: CGFloat = Dx.pad ? 280 : 200
+        return GeometryReader { g in
+            let fraction = min(max(target / playback.duration, 0), 1)
+            let x = min(max(24 + fraction * (g.size.width - 48), width / 2 + 16), g.size.width - width / 2 - 16)
+            VStack(spacing: 6) {
+                SeekPreviewSurface(layer: layer)
+                    .frame(width: width, height: width * 9 / 16)
+                    .clipShape(.rect(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.25), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.5), radius: 12)
+                Text(time(target)).font(.subheadline.weight(.semibold)).monospacedDigit()
+                    .shadow(color: .black.opacity(0.8), radius: 4)
+            }
+            .position(x: x, y: g.size.height - (visible && !locked ? 118 : 96) - width * 9 / 32 - 12)
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .transition(.opacity)
+    }
 
     /**
      * Text subtitles, drawn by Lumen over the picture (mpv drawing them meant repainting every 4K frame),
