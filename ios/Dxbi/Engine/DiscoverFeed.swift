@@ -22,6 +22,20 @@ final class DiscoverFeed {
         /** The second colour of its gradient */
         var deep: Color
         var types: [String] = ["series", "movie"]
+        /** Its app icon, from JustWatch (where the catalogs come from) */
+        var icon: URL? { Self.icons[id].flatMap { URL(string: "https://images.justwatch.com/icon/\($0).png") } }
+        static let icons: [String: String] = [
+            "nfx": "207360008/s166/netflix",
+            "amp": "322992749/s166/amazonprime",
+            "dnp": "313118777/s166/disneyplus",
+            "atp": "338367329/s166/appletvplus",
+            "hbm": "332884837/s166/max",
+            "pmp": "242706661/s166/paramountplus",
+            "sgo": "346742420/s166/skygo",
+            "bbc": "694553/s166/bbc",
+            "itv": "302120301/s166/itv",
+            "al4": "306402519/s166/all4",
+        ]
     }
 
     /** UK services first (Lumen's at home there): the addon has each one for the country asked */

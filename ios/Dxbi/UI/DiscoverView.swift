@@ -26,10 +26,11 @@ struct DiscoverView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 30) {
                 tabs
-                if let platform { wordmark(platform) }
-                if loadedFor != selected {
+                header
+                // (the last tab's rows stay until the new ones are in: a page that emptied and refilled jumped)
+                if loadedFor == nil {
                     ProgressView().frame(maxWidth: .infinity).padding(60)
-                } else if rows.isEmpty {
+                } else if rows.isEmpty && loadedFor == selected {
                     ContentUnavailableView("Nothing to show", systemImage: "wifi.exclamationmark", description: Text("Couldn't reach the catalogs. Pull down to try again."))
                 }
                 ForEach(rows) { row in shelf(row) }
@@ -49,6 +50,10 @@ struct DiscoverView: View {
         .navigationTitle("Discover")
         .toolbarTitleDisplayMode(.inline)
         .task(id: selected) { await load() }
+        // (the Library can arrive after For You first loads: its "out on digital" row follows it)
+        .onChange(of: stremio.library.count) { old, new in
+            if selected.isEmpty, old == 0, new > 0 { Task { await load() } }
+        }
         .refreshable { await load() }
     }
 
@@ -58,7 +63,7 @@ struct DiscoverView: View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 chip("For You", id: "", colour: Dx.accent)
-                ForEach(DiscoverFeed.platforms) { p in chip(p.name, id: p.id, colour: p.colour) }
+                ForEach(DiscoverFeed.platforms) { p in chip(p.name, id: p.id, colour: p.colour, icon: p.icon) }
             }
             .padding(.horizontal, Dx.gutter)
         }
@@ -66,27 +71,56 @@ struct DiscoverView: View {
         .padding(.top, 8)
     }
 
-    private func chip(_ name: String, id: String, colour: Color) -> some View {
+    private func chip(_ name: String, id: String, colour: Color, icon: URL? = nil) -> some View {
         let on = selected == id
         return Button { selected = id } label: {
-            Text(name)
+            HStack(spacing: 8) {
+                if let icon {
+                    AsyncImage(url: icon) { $0.resizable().scaledToFill() } placeholder: { colour.opacity(0.4) }
+                        .frame(width: 22, height: 22)
+                        .clipShape(.rect(cornerRadius: 5))
+                }
+                Text(name)
+            }
                 .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 16).padding(.vertical, 9)
+                .padding(.leading, icon == nil ? 16 : 8).padding(.trailing, 16).padding(.vertical, 9)
                 .foregroundStyle(on ? (colour.isLight ? Color.black : .white) : .white)
                 .background(on ? colour : Color.white.opacity(0.1), in: .capsule)
         }
         .buttonStyle(.plain)
     }
 
-    /** The service's name, large, in its colour (its page's heading) */
-    private func wordmark(_ p: DiscoverFeed.Platform) -> some View {
-        Text(p.name)
-            .font(.system(size: 46, weight: .black))
-            .tracking(-0.5)
-            .foregroundStyle(p.colour)
-            .shadow(color: p.colour.opacity(0.45), radius: 18)
-            .padding(.horizontal, Dx.gutter)
+    /**
+     * The page's heading: the service's own logo, large, with its name (For You: Lumen's colours). The
+     * same height on every tab, so switching doesn't move the page
+     */
+    private var header: some View {
+        HStack(spacing: 16) {
+            Group {
+                if let p = platform {
+                    AsyncImage(url: p.icon) { $0.resizable().scaledToFill() } placeholder: { p.colour.opacity(0.5) }
+                } else {
+                    ZStack {
+                        Dx.spectrum
+                        Image(systemName: "sparkles").font(.system(size: 30, weight: .semibold)).foregroundStyle(Dx.onAccent)
+                    }
+                }
+            }
+            .frame(width: 72, height: 72)
+            .clipShape(.rect(cornerRadius: 16))
+            .shadow(color: (platform?.colour ?? Dx.accent).opacity(0.45), radius: 16)
+            .id(selected)
             .transition(.opacity)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(platform?.name ?? "For You").font(.title.bold())
+                Text(platform == nil ? "New on digital, popular and by genre" : "What's on \(platform?.name ?? "")")
+                    .font(.subheadline).foregroundStyle(Dx.muted)
+            }
+            Spacer()
+            if loadedFor != selected { ProgressView().controlSize(.regular) }
+        }
+        .frame(height: 80)
+        .padding(.horizontal, Dx.gutter)
     }
 
     /** The page's colours: the service's, fading to black (For You: Lumen's) */

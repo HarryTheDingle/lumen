@@ -1,7 +1,7 @@
 /**
  * @name Lumen
  * @description The Lumen experience: cinematic billboard, Netflix-style carousels, hover previews with trailers, ratings on posters, critic reviews, skip intro and up next, anime filler guide, new episode badges, watch stats and viewers, stream sorting & filters, a Netflix-style player with black-bar removal, night mode and subtitle sync, watch parties with friends, a cinematic intro and interface sounds. Use with the Lumen theme.
- * @version 2.30.7
+ * @version 2.30.8
  * @author dx.bi
  * @updateUrl https://raw.githubusercontent.com/HarryTheDingle/lumen/main/dxbi.plugin.js
  */
@@ -19,7 +19,7 @@
   // Stremio Enhanced loads each plugin as <script id="<file name>">, which tells us our settings key
   const SCRIPT_ID = (document.currentScript && document.currentScript.id) || "dxbi.plugin.js";
   const PLUGIN_KEY = SCRIPT_ID.replace(/\.plugin\.js$/, "");
-  const PLUGIN_VERSION = "2.30.7"; // kept in step with @version by tools/bundle-theme.mjs
+  const PLUGIN_VERSION = "2.30.8"; // kept in step with @version by tools/bundle-theme.mjs
   // Recent messages and errors, kept for problem reports (see `report`)
   const recent = { logs: [], errors: [] };
   const remember = (list, text) => {
@@ -15698,7 +15698,7 @@
         const short = streamChoice.samples(items, options.minutes);
         if (short.size) items = items.filter((x) => !short.has(x));
         const choice = items.length ? streamChoice.choose(items, metaId ? quickPlay.memory(metaId) : null, options) : null;
-        phoneStreams = { items, options };
+        phoneStreams = { items, options, videoId: (state && state.selected && state.selected.streamPath && state.selected.streamPath.id) || null };
         return {
           justPlay: settings.quickPlay,
           settled: groups.length > 0 && !groups.some((g) => g && g.content && g.content.type === "Loading"),
@@ -15776,6 +15776,21 @@
         netMemory.save(list);
         netSpeed.at = 0;
         return true;
+      },
+      // The seek bar's previews: the lightest web stream of the video playing (720p, else 1080p, else what
+      // there is, never a sample), so each jump is quick and the device's decoder barely notices. Only the
+      // list for that very video (after Up Next, the list open is the episode before's); null otherwise.
+      previewSource(videoId) {
+        if (!phoneStreams || !videoId || phoneStreams.videoId !== videoId) return null;
+        const { items, options } = phoneStreams;
+        const short = streamChoice.samples(items, options.minutes);
+        const web = items.filter((x) => x.st.url && /^https?:/i.test(x.st.url) && !short.has(x) && !x.d.pending && x.d.source !== "CAM" && x.d.res >= 480);
+        const pick = [720, 1080, 480, 1440, 2160].map((res) => web.filter((x) => x.d.res === res))
+          .find((list) => list.length);
+        if (!pick) return null;
+        const light = [...pick].sort((a, b) => (a.d.size || Infinity) - (b.d.size || Infinity))[0];
+        const hints = light.st.behaviorHints || {};
+        return { url: light.st.url, headers: (hints.proxyHeaders && hints.proxyHeaders.request) || {}, label: quickPlay.label(light.d) };
       },
       // The player's Streams button: other streams of what's playing, by what they change. nowMbps: the
       // playing file's bitrate (0 if unknown). Never a sample, a cinema recording or a new debrid download.

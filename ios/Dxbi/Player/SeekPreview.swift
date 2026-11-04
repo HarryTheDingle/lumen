@@ -13,6 +13,8 @@ import UIKit
 final class SeekPreview {
     private var mpv: MPV?
     private var source: (url: String, headers: [String: String])
+    /** On a light stream of its own (not the one playing): a switch doesn't change it */
+    private var light = false
     private var shown = -10.0
     private var wanted: Double?
     private var busy = false
@@ -26,10 +28,21 @@ final class SeekPreview {
     /** The layer showing the preview (none until it's opened) */
     var layer: CALayer? { mpv?.layer }
 
-    /** The stream changed (a switch): it opens the new one next time */
+    /** The stream playing changed (a switch): it opens that next time, unless it has a light one */
     func change(url: String, headers: [String: String]) {
+        guard !light else { return }
         source = (url, headers)
         stop()
+    }
+
+    /** A light stream of the same video for the previews (720p or so): far less to fetch for each jump */
+    func useLight(url: String, headers: [String: String]) {
+        light = true
+        source = (url, headers)
+        let at = shown
+        let open = mpv != nil
+        stop()
+        if open { warm(at: max(at, 0)) }
     }
 
     /** The controls are showing: scrubbing may be next, so it opens now, where the video is */

@@ -292,6 +292,12 @@ final class Stremio {
         await dx("phone.forgetNetwork", id)
     }
 
+    /** The seek bar's previews: a light web stream of this video (720p or so), when there is one */
+    func previewSource(videoId: String) async -> (url: String, headers: [String: String])? {
+        guard let o = await dx("phone.previewSource", videoId) as? JSON, let url = o.text("url") else { return nil }
+        return (url, (o.object("headers") ?? [:]).compactMapValues { $0 as? String })
+    }
+
     /** The player's Streams button: other streams of what's playing, grouped by what they change */
     func alternatives(nowMbps: Double) async -> [StreamGroup] {
         let o = await dx("phone.alternatives", nowMbps) as? JSON

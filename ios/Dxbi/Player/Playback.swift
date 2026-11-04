@@ -175,6 +175,15 @@ final class Playback: Identifiable {
         // (after a stream switch, exactly where the other one was)
         let start = stremio?.resumePoint(for: payload.string("videoId")) ?? payload.double("startMs") / 1000
         thumbs = SeekPreview(url: payload.string("url"), headers: headers)
+        // (a lighter stream of the same video for the previews, when there is one; not for a download)
+        if payload.text("offline") == nil {
+            let videoId = payload.string("videoId")
+            Task { [weak self] in
+                if let light = await self?.stremio?.previewSource(videoId: videoId) {
+                    self?.thumbs?.useLight(url: light.url, headers: light.headers)
+                }
+            }
+        }
         mpv.load(payload.string("url"), start: start, headers: headers, audioLanguage: payload.text("audioLanguage"), subtitleLanguage: payload.text("subtitleLanguage"))
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
