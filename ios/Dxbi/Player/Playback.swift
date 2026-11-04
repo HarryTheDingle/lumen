@@ -63,6 +63,8 @@ final class Playback: Identifiable {
     }
     var party: (code: String, people: [String])?
     var flash: String?
+    /** It buffered while playing: the speed it was really getting, and lighter streams that fit it */
+    var slow: (mbps: Double, options: [StreamOption])?
 
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var lastReport: Date = .distantPast
@@ -70,6 +72,9 @@ final class Playback: Identifiable {
     @ObservationIgnored private var closing = false
     @ObservationIgnored private var artwork: MPMediaItemArtwork?
     @ObservationIgnored private var tracksTask: Task<Void, Never>?
+    @ObservationIgnored private var stalledSince: Date?
+    @ObservationIgnored private var subtitlesDecided = false
+    @ObservationIgnored private var offeredLighter = false
 
     init(payload: JSON, stremio: Stremio) {
         self.payload = payload
@@ -134,7 +139,8 @@ final class Playback: Identifiable {
     }
 
     private func loaded() {
-        for s in subtitles { mpv.addSubtitle(s.url, title: s.label, lang: s.lang, start: s.start) }
+        // (listed, not shown: decideSubtitles turns one on only if the audio needs it)
+        for s in subtitles { mpv.addSubtitle(s.url, title: s.label, lang: s.lang, start: false) }
     }
 
     private func update() {
@@ -147,11 +153,59 @@ final class Playback: Identifiable {
         if tracks != mpv.tracks { settleTracks() }
         pip.refresh()
         autoSkipIfDue()
+        if mpv.stalled { stalledSince = stalledSince ?? Date() } else { stalledSince = nil }
+        if !subtitlesDecided, mpv.started { decideSubtitles() }
+    }
+
+    /**
+     * Subtitles are off unless the audio needs them. mpv starts forced ones (foreign-language lines)
+     * itself, and full ones in the viewer's language when the audio's in another. On top of that: a
+     * subtitle addon's track for audio in another language, and nothing (but forced) when the audio
+     * doesn't say what language it is.
+     */
+    private func decideSubtitles() {
+        let current = mpv.tracks
+        guard let audio = current.first(where: { $0.type == "audio" && $0.selected }) else { return }
+        let wanted = Set([payload.text("subtitleLanguage") ?? "", "eng", "en", "english"].filter { !$0.isEmpty })
+        let addon = subtitles.first { $0.start }
+        // (an addon's file is fetched after the video opens: it's given a few seconds to arrive)
+        let arrived = addon.map { a in current.contains { $0.file == a.url } } ?? true
+        guard arrived || position > 8 else { return }
+        subtitlesDecided = true
+        let shown = current.first { $0.type == "sub" && $0.selected }
+        if audio.lang.isEmpty {
+            if let shown, !shown.forced { mpv.select("sub", nil) }
+        } else if !wanted.contains(audio.lang.lowercased()), shown == nil,
+                  let a = addon, let track = current.first(where: { $0.file == a.url }) {
+            mpv.select("sub", track.id)
+        }
+    }
+
+    /**
+     * A stream that stalls once usually keeps stalling: at the first real stall (playing a while, not
+     * just after a seek, not a download or a watch party) it offers lighter streams that fit the speed
+     * mpv is really getting from the server
+     */
+    private func offerLighterIfStalling() {
+        guard !offeredLighter, let since = stalledSince, Date().timeIntervalSince(since) >= 1.5,
+              mpv.started, position > 5, Date().timeIntervalSince(mpv.lastSeek) > 4,
+              payload.text("offline") == nil, party == nil else { return }
+        offeredLighter = true
+        // (bytes a second while it's catching up: all the server can give)
+        let mbps = (mpv.number("cache-speed") ?? 0) * 8 / 1e6
+        let size = mpv.number("file-size") ?? 0
+        let nowMbps = size > 0 && duration > 0 ? size * 8 / duration / 1e6 : 0
+        Task {
+            let options = await stremio?.lighter(mbps: mbps, nowMbps: nowMbps) ?? []
+            guard !closing else { return }
+            slow = (mbps, options)
+        }
     }
 
     private func tick() {
         guard !closing else { return }
         if !paused { claimSound() }
+        offerLighterIfStalling()
         stremio?.partyTick(position: position, duration: duration, paused: paused, buffering: buffering, rate: speed)
         // Stremio's watch progress, every few seconds
         if Date().timeIntervalSince(lastReport) > 5, mpv.started {

@@ -177,6 +177,8 @@ struct StreamOption: Identifiable, Hashable {
     var seeds: Int
     var source: String
     var langs: [String]
+    /** The bitrate it needs (Mbit/s), when it's offered as lighter than the one playing */
+    var mbps: Double
     var id: Int { index }
 
     init(_ i: Int, _ o: JSON) {
@@ -196,6 +198,7 @@ struct StreamOption: Identifiable, Hashable {
         hdr = o.bool("hdr")
         dv = o.bool("dv")
         size = o.double("size")
+        mbps = o.double("mbps")
         seeds = o.int("seeds", -1)
         source = o.string("source")
         langs = o.strings("langs")

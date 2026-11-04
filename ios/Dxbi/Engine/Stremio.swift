@@ -250,7 +250,26 @@ final class Stremio {
         (await dx("phone.streams") as? JSON).map(StreamChoices.init)
     }
 
-    /** Plays one of [streams] (dx.bi keeps the next best ready in case it won't play) */
+    /**
+     * It's buffering: streams lighter than the one playing that fit the speed it's really getting
+     * ([mbps], measured by the player; [nowMbps], the playing file's bitrate, 0 if unknown)
+     */
+    func lighter(mbps: Double, nowMbps: Double) async -> [StreamOption] {
+        let list = await dx("phone.lighter", mbps, nowMbps) as? [Any] ?? []
+        return list.compactMap { $0 as? JSON }.map { StreamOption($0.int("index", -1), $0) }.filter { $0.index >= 0 }
+    }
+
+    /** From the player to another stream of the same video: it closes (keeping its place) and the other opens there */
+    func switchStream(to option: StreamOption) {
+        playback?.finish(ended: false)
+        Task {
+            // (the page has to be back from the player before it can open another)
+            try? await Task.sleep(for: .seconds(1.5))
+            play(option)
+        }
+    }
+
+    /** Plays one of [streams] (Lumen keeps the next best ready in case it won't play) */
     func play(_ option: StreamOption, in target: Target = .player) {
         nextTarget = target == .player && otherApp != nil ? .otherApp : target
         Task {

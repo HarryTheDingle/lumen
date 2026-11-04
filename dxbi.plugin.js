@@ -1,7 +1,7 @@
 /**
  * @name Lumen
  * @description The Lumen experience: cinematic billboard, Netflix-style carousels, hover previews with trailers, ratings on posters, critic reviews, skip intro and up next, anime filler guide, new episode badges, watch stats and viewers, stream sorting & filters, a Netflix-style player with black-bar removal, night mode and subtitle sync, watch parties with friends, a cinematic intro and interface sounds. Use with the Lumen theme.
- * @version 2.30.2
+ * @version 2.30.3
  * @author dx.bi
  * @updateUrl https://raw.githubusercontent.com/HarryTheDingle/lumen/main/dxbi.plugin.js
  */
@@ -19,7 +19,7 @@
   // Stremio Enhanced loads each plugin as <script id="<file name>">, which tells us our settings key
   const SCRIPT_ID = (document.currentScript && document.currentScript.id) || "dxbi.plugin.js";
   const PLUGIN_KEY = SCRIPT_ID.replace(/\.plugin\.js$/, "");
-  const PLUGIN_VERSION = "2.30.2"; // kept in step with @version by tools/bundle-theme.mjs
+  const PLUGIN_VERSION = "2.30.3"; // kept in step with @version by tools/bundle-theme.mjs
   // Recent messages and errors, kept for problem reports (see `report`)
   const recent = { logs: [], errors: [] };
   const remember = (list, text) => {
@@ -15371,6 +15371,18 @@
 
   // The last streams the phone app was shown (api.phone.streams), for api.phone.play
   let phoneStreams = null;
+  // A stream as the phone and iPad screens list it
+  const phoneItem = (x) => ({
+    play: x.st.deepLinks.player,
+    addon: x.addon,
+    // the file's own name: what tells two 1080p streams apart
+    filename: (x.st.behaviorHints && x.st.behaviorHints.filename) || String(x.st.description || x.st.title || "").split("\n").map((l) => l.trim()).find((l) => l && !/^[👤💾⚙🔎]/u.test(l)) || "",
+    label: quickPlay.label(x.d),
+    torrent: x.torrent,
+    ...x.d,
+  });
+  // The stream the phone or iPad is playing (from phoneStreams), for lighter ones if it buffers
+  let phonePlaying = null;
   const api = {
     settings,
     sync,
@@ -15584,25 +15596,39 @@
           videoId: (state && state.selected && state.selected.streamPath && state.selected.streamPath.id) || null,
           pick: choice ? items.indexOf(choice.item) : -1,
           how: choice ? choice.how : null,
-          items: items.map((x) => ({
-            play: x.st.deepLinks.player,
-            addon: x.addon,
-            // the file's own name: what tells two 1080p streams apart
-            filename: (x.st.behaviorHints && x.st.behaviorHints.filename) || String(x.st.description || x.st.title || "").split("\n").map((l) => l.trim()).find((l) => l && !/^[👤💾⚙🔎]/u.test(l)) || "",
-            label: quickPlay.label(x.d),
-            torrent: x.torrent,
-            ...x.d,
-          })),
+          items: items.map(phoneItem),
         };
       },
       // Playing one of those: like Just press Play, the next best are kept in case it won't play
       play(index) {
         const item = phoneStreams && phoneStreams.items[index];
         if (!item) return null;
+        phonePlaying = item;
         quickPlay.from = location.hash;
         quickPlay.spares = streamChoice.spares(phoneStreams.items, item, phoneStreams.options);
         quickPlay.play(item);
         return item.st.deepLinks.player;
+      },
+      // It's buffering: streams lighter than the one playing that fit the speed the player is really
+      // getting (mbps, measured by the player; nowMbps, the playing file's bitrate, 0 if unknown). The
+      // best first, three at most. The measured speed also stands in for the speed test's for a while,
+      // so the next pick fits it too.
+      lighter(mbps, nowMbps) {
+        if (mbps > 0) {
+          netSpeed.mbps = netSpeed.at ? Math.min(netSpeed.mbps, mbps) : mbps;
+          netSpeed.at = Date.now();
+        }
+        if (!phoneStreams || !phonePlaying) return [];
+        const { items, options } = phoneStreams;
+        const was = phonePlaying.st;
+        const same = (st) => (was.url ? st.url === was.url : st.infoHash === was.infoHash && st.fileIdx === was.fileIdx);
+        const current = nowMbps > 0 ? nowMbps : streamChoice.mbps(phonePlaying.d, options.minutes);
+        const cap = Math.min(current * 0.8, mbps > 0 ? mbps * streamChoice.HEADROOM : Infinity);
+        return items
+          .filter((x) => !same(x.st) && x.d.source !== "CAM" && !x.d.pending && (options.torrents || !x.torrent) && streamChoice.mbps(x.d, options.minutes) <= cap)
+          .sort((a, b) => streamChoice.rank(b.d) - streamChoice.rank(a.d) || b.d.seeds - a.d.seeds)
+          .slice(0, 3)
+          .map((x) => ({ index: items.indexOf(x), mbps: Math.round(streamChoice.mbps(x.d, options.minutes) * 10) / 10, ...phoneItem(x) }));
       },
       // Watch party (see watchParty.phone)
       party: watchParty.phone,

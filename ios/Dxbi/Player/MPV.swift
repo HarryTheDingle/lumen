@@ -20,6 +20,8 @@ final class MPV {
         var external: Bool
         var file: String
         var selected: Bool
+        /** A forced subtitle: just the lines in another language */
+        var forced: Bool = false
     }
 
     /** What the player shows changes: always told on the main thread */
@@ -35,6 +37,9 @@ final class MPV {
     private(set) var speed: Double = 1
     private(set) var tracks: [Track] = []
     private(set) var started = false
+    /** Waiting for the network while playing (not loading, not a seek: those set [buffering] too) */
+    private(set) var stalled = false
+    private(set) var lastSeek = Date.distantPast
 
     let layer = AVSampleBufferDisplayLayer()
     /** The layer's clock: the frames mpv sends are stamped from it, and picture in picture reads it */
@@ -63,7 +68,12 @@ final class MPV {
         // (the end of a file is reported as its end, for Up Next)
         set("keep-open", "no")
         set("idle", "yes")
-        set("subs-fallback", "yes")
+        // Subtitles start only when they're needed: in the viewer's language (slang) when the audio isn't,
+        // or the forced ones (foreign-language lines) when it is. Never just because a file has some.
+        set("subs-with-matching-audio", "forced")
+        set("subs-fallback", "no")
+        set("subs-fallback-forced", "yes")
+        set("subs-match-os-language", "no")
         set("cache", "yes")
         set("demuxer-max-bytes", "150MiB")
         set("demuxer-max-back-bytes", "50MiB")
@@ -130,6 +140,11 @@ final class MPV {
         }
     }
 
+    /** A number mpv reports (cache-speed, file-size…), read when asked */
+    func number(_ name: String) -> Double? {
+        string(name).flatMap(Double.init)
+    }
+
     private func string(_ name: String) -> String? {
         guard let handle, let c = mpv_get_property_string(handle, name) else { return nil }
         defer { mpv_free(c) }
@@ -143,8 +158,8 @@ final class MPV {
         property("http-header-fields", fields)
         property("start", start > 0 ? String(format: "%.2f", start) : "none")
         if let audioLanguage, !audioLanguage.isEmpty { property("alang", "\(audioLanguage),eng,en") }
-        // (a subtitle in the video itself, in Stremio's subtitle language, starts on)
-        property("slang", subtitleLanguage ?? "")
+        // (the viewer's subtitle language, then English: see subs-with-matching-audio)
+        property("slang", ([subtitleLanguage ?? ""] + ["eng", "en"]).filter { !$0.isEmpty }.joined(separator: ","))
         command(["loadfile", url, "replace"])
     }
 
@@ -166,11 +181,18 @@ final class MPV {
     func subtitleScale(_ scale: Double) { property("sub-scale", String(format: "%.2f", scale)) }
     func subtitleDelay(_ seconds: Double) { property("sub-delay", String(format: "%.2f", seconds)) }
 
-    /** Keeps the layer's clock with mpv's: where it is, and how fast it's going */
+    /**
+     * Keeps the layer's clock with mpv's: how fast it's going, and where it is when that's really
+     * changed (a seek, a stall). Setting it to every position mpv reported, which trails the picture,
+     * pulled the clock back and forth: frames hitched, and now and then an older one flashed up.
+     */
     private func clock() {
         guard let timebase else { return }
-        CMTimebaseSetTime(timebase, time: CMTime(seconds: position, preferredTimescale: 1000))
-        CMTimebaseSetRate(timebase, rate: paused ? 0 : speed)
+        let rate = paused || stalled ? 0 : speed
+        if CMTimebaseGetRate(timebase) != rate { CMTimebaseSetRate(timebase, rate: rate) }
+        if abs(CMTimebaseGetTime(timebase).seconds - position) > 0.25 {
+            CMTimebaseSetTime(timebase, time: CMTime(seconds: position, preferredTimescale: 1000))
+        }
     }
 
     // MARK: - Hearing back
@@ -187,7 +209,8 @@ final class MPV {
                 codec: string(p + "codec") ?? "",
                 external: string(p + "external") == "yes",
                 file: string(p + "external-filename") ?? "",
-                selected: string(p + "selected") == "yes"
+                selected: string(p + "selected") == "yes",
+                forced: string(p + "forced") == "yes"
             )
         }
     }
@@ -209,8 +232,9 @@ final class MPV {
                         case "time-pos": if let double { self.position = double; if double > 0 { self.started = true } }
                         case "duration": if let double { self.duration = double }
                         case "pause": if let flag { self.paused = flag }
-                        case "paused-for-cache": if let flag { self.buffering = flag }
-                        case "seeking": if let flag, flag { self.buffering = true }
+                        case "paused-for-cache": if let flag { self.buffering = flag; self.stalled = flag }
+                        // (a seek that's done stops the spinner too, unless it's still waiting for the network)
+                        case "seeking": if let flag { if flag { self.buffering = true; self.lastSeek = Date() } else { self.buffering = self.stalled } }
                         case "core-idle": if let flag, !flag { self.buffering = false }
                         case "speed": if let double { self.speed = double }
                         case "track-list": if let tracks { self.tracks = tracks }

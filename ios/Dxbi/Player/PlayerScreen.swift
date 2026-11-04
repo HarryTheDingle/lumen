@@ -5,8 +5,8 @@ import SwiftUI
 import UIKit
 
 /**
- * The player: mpv's picture, glass controls over it, and the gestures (tap the middle to pause,
- * double-tap a side to skip 10 seconds, drag across to seek, up and down for brightness and volume,
+ * The player: mpv's picture, glass controls over it, and the gestures (tap to show or hide the
+ * controls, whose button pauses; double-tap a side to skip 10 seconds, drag across to seek, up and down for brightness and volume,
  * pinch to fill, hold for 2× and slide for faster or slower).
  */
 struct PlayerScreen: View {
@@ -33,7 +33,9 @@ struct PlayerScreen: View {
             if playback.buffering && seekPreview == nil { ProgressView().controlSize(.large).tint(.white).allowsHitTesting(false) }
             if visible && !locked { controls.transition(.opacity) }
             overlays
+            if let slow = playback.slow, !locked { lighterOffer(slow).transition(.move(edge: .top).combined(with: .opacity)) }
         }
+        .animation(.spring(duration: 0.35), value: playback.slow?.options.map(\.index))
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .animation(.easeOut(duration: 0.2), value: visible)
@@ -71,11 +73,8 @@ struct PlayerScreen: View {
                 Task { try? await Task.sleep(for: .seconds(3)); unlockShown = false }
                 return
             }
-            // the middle pauses; either side shows or hides the controls
-            if abs(x - width / 2) < width / 6 {
-                playback.mpv.toggle()
-                poke()
-            } else if visible {
+            // A tap anywhere shows or hides the controls: only their button pauses
+            if visible {
                 visible = false
             } else {
                 poke()
@@ -245,6 +244,57 @@ struct PlayerScreen: View {
     }
 
     // MARK: - Over everything: messages, skip, up next, lock
+
+    /** It's buffering: lighter streams that fit the speed it's really getting, or word that there are none */
+    private func lighterOffer(_ slow: (mbps: Double, options: [StreamOption])) -> some View {
+        let speed = slow.mbps >= 1 ? "\(Int(slow.mbps.rounded())) Mbps" : nil
+        return VStack {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Buffering? Try a lighter stream").font(.headline)
+                        Text(slow.options.isEmpty
+                             ? "There's no lighter stream for this one\(speed.map { " (the server is giving \($0))" } ?? "")."
+                             : "These should play smoothly\(speed.map { " at the \($0) the server is giving" } ?? ""). It carries on from here.")
+                            .font(.subheadline).foregroundStyle(Dx.muted)
+                    }
+                    Spacer(minLength: 16)
+                    Button { playback.slow = nil } label: {
+                        Image(systemName: "xmark").font(.system(size: 15, weight: .semibold)).frame(width: 34, height: 34)
+                    }
+                    .buttonStyle(.glass)
+                    .accessibilityLabel("Keep this stream")
+                }
+                ForEach(slow.options) { option in
+                    Button {
+                        playback.slow = nil
+                        stremio.switchStream(to: option)
+                    } label: {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(option.label).font(.subheadline.weight(.semibold))
+                                Text([option.addon, option.size > 0 ? ByteCountFormatter.string(fromByteCount: Int64(option.size), countStyle: .file) : nil, option.mbps > 0 ? "about \(option.mbps.formatted()) Mbps" : nil]
+                                    .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                                    .font(.footnote).foregroundStyle(Dx.muted).lineLimit(1)
+                            }
+                            Spacer()
+                            Image(systemName: "play.fill").foregroundStyle(Dx.accent)
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .background(.white.opacity(0.08), in: .rect(cornerRadius: 14))
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: 460)
+            .glassEffect(.regular, in: .rect(cornerRadius: 26))
+            .padding(.top, 16)
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+    }
 
     private var overlays: some View {
         ZStack {
