@@ -150,7 +150,7 @@ final class Stremio {
         do {
             return try await page.call(op, args, timeout: timeout)
         } catch {
-            print("[dx.bi] \(op) failed: \(error.localizedDescription)")
+            print("[Lumen] \(op) failed: \(error.localizedDescription)")
             return nil
         }
     }

@@ -13,7 +13,7 @@ final class PlayerHost: UIHostingController<AnyView> {
     /** Stremio's page: it goes with the player (see PageBox) */
     private static weak var page: WKWebView?
 
-    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .landscape }
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { AppDelegate.isPad ? .all : .landscape }
     override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation { .landscapeRight }
     override var prefersStatusBarHidden: Bool { true }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
@@ -49,7 +49,7 @@ final class PlayerHost: UIHostingController<AnyView> {
             return
         }
         // (sideways only once the player is there to be sideways)
-        AppDelegate.orientations = .landscape
+        if !AppDelegate.isPad { AppDelegate.orientations = .landscape }
         if let page { PageBox.lend(page, to: host.view) }
         top.present(host, animated: true)
     }
@@ -58,11 +58,12 @@ final class PlayerHost: UIHostingController<AnyView> {
     static func hide() {
         guard let host = shown else { return }
         shown = nil
-        AppDelegate.orientations = .portrait
+        if !AppDelegate.isPad { AppDelegate.orientations = .portrait }
         let presenter = host.presentingViewController
         host.dismiss(animated: true) {
             // the page back under the app's screens, unless another player has it already
             if let page, page.superview === host.view { PageBox.bringBack(page) }
+            guard !AppDelegate.isPad else { return }
             presenter?.setNeedsUpdateOfSupportedInterfaceOrientations()
             (presenter?.view.window?.windowScene)?.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait)) { _ in }
         }

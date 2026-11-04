@@ -74,7 +74,7 @@ struct ReportView: View {
                 Section {
                     VStack(alignment: .leading, spacing: 10) {
                         Label("Report sent", systemImage: "checkmark.circle.fill").font(.headline).foregroundStyle(.green)
-                        Text("Thanks! Your report code is **\(sent)**. Post it in dx.bi's Discord (#bug-reports) so it can be matched to you.")
+                        Text("Thanks! Your report code is **\(sent)**. Post it in Lumen's Discord (#bug-reports) so it can be matched to you.")
                         Button("Copy the Code") { UIPasteboard.general.string = sent }
                     }
                     .padding(.vertical, 6)
@@ -84,7 +84,7 @@ struct ReportView: View {
                     TextField("What went wrong, and what were you doing?", text: $text, axis: .vertical)
                         .lineLimit(5...12)
                 } footer: {
-                    Text("dx.bi adds its version, this phone's model, your settings, addon names and recent errors. No passwords, keys or stream links are sent.")
+                    Text("Lumen adds its version, this phone's model, your settings, addon names and recent errors. No passwords, keys or stream links are sent.")
                 }
                 if let problem { Section { Text(problem).foregroundStyle(.red) } }
                 Section {

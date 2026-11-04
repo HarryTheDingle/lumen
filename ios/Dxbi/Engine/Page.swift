@@ -102,7 +102,7 @@ final class Page: NSObject {
         let device: JSON = [
             "app": Self.version,
             // (reports show this: the model, e.g. iPhone17,1, and that it's the iPhone app)
-            "device": "\(Self.model) · dx.bi for iPhone",
+            "device": "\(Self.model) · Lumen for iPad and iPhone",
             "ios": UIDevice.current.systemVersion,
             "phone": true,
         ]

@@ -68,7 +68,7 @@ final class MPV {
         set("demuxer-max-bytes", "150MiB")
         set("demuxer-max-back-bytes", "50MiB")
         set("network-timeout", "30")
-        set("user-agent", "Mozilla/5.0 dx.bi")
+        set("user-agent", "Mozilla/5.0 Lumen")
         set("sub-ass-override", "scale")
         mpv_request_log_messages(mpv, "no")
         mpv_initialize(mpv)

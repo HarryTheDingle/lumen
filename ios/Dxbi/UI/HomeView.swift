@@ -126,7 +126,7 @@ struct HomeView: View {
         Shelf(title: name, see: see) {
             ForEach(Array(items.prefix(rank ? 10 : 30).enumerated()), id: \.element.id) { i, title in
                 NavigationLink(value: Route.title(title.ref)) {
-                    PosterCard(title: title, width: 150, rank: rank ? i + 1 : nil)
+                    PosterCard(title: title, width: Dx.poster, rank: rank ? i + 1 : nil)
                         .zoomSource(title.id)
                 }
                 .buttonStyle(.plain)

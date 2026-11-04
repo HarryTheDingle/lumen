@@ -53,7 +53,7 @@ struct ContinueCard: View {
                 .frame(maxHeight: .infinity)
                 .padding(.bottom, 40)
             HStack(spacing: 10) {
-                if item.progress > 0 { ProgressLine(value: item.progress).frame(width: 44) }
+                if item.progress > 0 { ProgressLine(value: item.progress, colour: Dx.accent).frame(width: 44) }
                 Text([episodeLabel(item.videoId), item.newEpisodes > 0 ? "\(item.newEpisodes) new" : nil].compactMap { $0 }.joined(separator: " · ").ifEmpty(typeName(title.type)))
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)

@@ -3,24 +3,35 @@ import SwiftUI
 import UIKit
 
 enum Dx {
-    /** dx.bi's red (Netflix's): progress, what's chosen */
-    static let accent = Color(red: 0.898, green: 0.035, blue: 0.078)
+    /** Lumen's cyan, from the icon: what's chosen, small highlights */
+    static let accent = Color(red: 0.180, green: 0.902, blue: 0.839)
+    /** The icon's light, cyan through blue to amber: the logo and progress */
+    static let spectrum = LinearGradient(
+        colors: [accent, Color(red: 0.184, green: 0.545, blue: 1.0), Color(red: 1.0, green: 0.710, blue: 0.278)],
+        startPoint: .leading, endPoint: .trailing)
+    /** Text on the accent (it's light) */
+    static let onAccent = Color(red: 0.024, green: 0.078, blue: 0.102)
     static let background = Color.black
     static let raised = Color(white: 0.12)
     static let muted = Color.white.opacity(0.62)
     static let faint = Color.white.opacity(0.4)
     static let gutter: CGFloat = 20
+    /** iPad: posters a little bigger, text no wider than reads well */
+    static let pad = UIDevice.current.userInterfaceIdiom == .pad
+    static let poster: CGFloat = pad ? 180 : 150
+    static let readable: CGFloat = 720
 }
 
-/** DX.BI in Bebas Neue, as on the desktop */
+/** LUMEN in Bebas Neue, in the icon's colours, as on the desktop */
 struct Logo: View {
     var size: CGFloat = 30
     var body: some View {
-        Text("DX.BI")
+        Text("LUMEN")
             .font(.custom("BebasNeue-Regular", size: size))
-            .foregroundStyle(Dx.accent)
-            .shadow(color: Dx.accent.opacity(0.55), radius: size / 5)
-            .accessibilityLabel("dx.bi")
+            .tracking(size * 0.08)
+            .foregroundStyle(Dx.spectrum)
+            .shadow(color: Dx.accent.opacity(0.35), radius: size / 5)
+            .accessibilityLabel("Lumen")
     }
 }
 
@@ -178,7 +189,13 @@ struct ProgressLine: View {
     var body: some View {
         GeometryReader { g in
             Capsule().fill(.white.opacity(0.3))
-                .overlay(alignment: .leading) { Capsule().fill(colour).frame(width: g.size.width * min(max(value, 0), 1)) }
+                .overlay(alignment: .leading) {
+                    // In the accent, progress runs through the icon's colours
+                    Group {
+                        if colour == Dx.accent { Capsule().fill(Dx.spectrum) } else { Capsule().fill(colour) }
+                    }
+                    .frame(width: g.size.width * min(max(value, 0), 1))
+                }
         }
         .frame(height: 4)
     }

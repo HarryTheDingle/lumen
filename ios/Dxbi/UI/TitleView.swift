@@ -168,7 +168,8 @@ struct TitleView: View {
     // MARK: - The top: art, logo, Play
 
     private func header(width: CGFloat) -> some View {
-        let artHeight = width * 0.9
+        // On a wide screen the art is a band across the top, not most of the screen
+        let artHeight = width > 600 ? min(width * 0.5, 600) : width * 0.9
         return VStack(spacing: 14) {
             // the art is behind (below); this space shows it, with the logo low on it
             Color.clear
@@ -198,6 +199,7 @@ struct TitleView: View {
                 facts
                 if let scores = reviews?.scores, !scores.isEmpty { scoreRow(scores) }
             }
+            .frame(maxWidth: Dx.readable)
             .padding(.horizontal, Dx.gutter)
             .padding(.bottom, 24)
         }

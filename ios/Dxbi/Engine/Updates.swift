@@ -16,8 +16,8 @@ enum Updates {
     }
 
     /** The repository it was built from (the Info.plist's, set by the build) */
-    static let repo: String = Bundle.main.object(forInfoDictionaryKey: "DxbiUpdateRepo") as? String ?? "notdxbi/dxbi-stremio"
-    private static let asset = "dxbi.ipa"
+    static let repo: String = Bundle.main.object(forInfoDictionaryKey: "DxbiUpdateRepo") as? String ?? "HarryTheDingle/lumen"
+    private static let asset = "Lumen.ipa"
     private static let recheck: TimeInterval = 6 * 60 * 60
     private static var lastCheck: Date = .distantPast
     private static let defaults = UserDefaults.standard

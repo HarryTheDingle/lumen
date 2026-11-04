@@ -24,8 +24,10 @@ struct DxbiApp: App {
 }
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
-    /** Upright, apart from the player, which turns the phone sideways */
-    static var orientations: UIInterfaceOrientationMask = .portrait
+    /** A phone stays upright, apart from the player, which turns it sideways. An iPad turns freely
+     (Split View and Stage Manager need every way up) */
+    static let isPad = UIDevice.current.userInterfaceIdiom == .pad
+    static var orientations: UIInterfaceOrientationMask = isPad ? .all : .portrait
 
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         Self.orientations
@@ -88,12 +90,12 @@ struct RootView: View {
             guard phase == .active else { return }
             Task { if let found = await Updates.check() { update = found } }
         }
-        .alert("dx.bi \(update?.version ?? "") is out", isPresented: Binding(get: { update != nil }, set: { if !$0 { update = nil } }), presenting: update) { release in
+        .alert("Lumen \(update?.version ?? "") is out", isPresented: Binding(get: { update != nil }, set: { if !$0 { update = nil } }), presenting: update) { release in
             Button("Open the Release") { UIApplication.shared.open(release.page) }
             Button("Skip This Version") { Updates.skip(release) }
             Button("Not Now", role: .cancel) {}
         } message: { _ in
-            Text("You have \(Page.version). The release page has dxbi.ipa: install it over this one with SideStore, AltStore or Sideloadly, and your sign-in, settings and downloads stay.")
+            Text("You have \(Page.version). The release page has the new app: install it over this one with SideStore, AltStore or Sideloadly, and your sign-in, settings and downloads stay.")
         }
     }
 
@@ -112,6 +114,8 @@ struct RootView: View {
                 Stack { SearchView() }
             }
         }
+        // A sidebar on iPad (it folds into a tab bar at the top), the tab bar on a phone
+        .tabViewStyle(.sidebarAdaptable)
         .tabBarMinimizeBehavior(.onScrollDown)
         .onChange(of: stremio.pendingSearch) { _, q in if q != nil { tab = .search } }
     }

@@ -17,7 +17,7 @@
 		"build:win:arm64": "npm run dist && electron-builder --win --arm64",
 		"build:win": "npm run dist && electron-builder --win"
 	},
-	"repository": "https://github.com/notdxbi/dxbi-stremio.git",
+	"repository": "https://github.com/HarryTheDingle/lumen.git",
 	"publish": {
 		"provider": "github",
 		"releaseType": "release"
@@ -54,7 +54,7 @@
 		"publish": {
 			"provider": "github",
 			"owner": "HarryTheDingle",
-			"repo": "dxbi-stremio"
+			"repo": "lumen"
 		},
 		"asarUnpack": [
 			"**/register-scheme/build/Release/*.node",

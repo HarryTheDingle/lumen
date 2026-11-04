@@ -1,8 +1,8 @@
-# dx.bi for iPhone. XcodeGen makes the Xcode project from this (`xcodegen` in ios/; the .xcodeproj
+# Lumen for iPad and iPhone. XcodeGen makes the Xcode project from this (`xcodegen` in ios/; the .xcodeproj
 # isn't kept in git). GitHub Actions builds it on a Mac: .github/workflows/ios.yml
-name: Dxbi
+name: Lumen
 options:
-  bundleIdPrefix: com.notdxbi
+  bundleIdPrefix: com.harrythedingle
   deploymentTarget:
     iOS: "26.0"
   createIntermediateGroups: true
@@ -11,7 +11,7 @@ settings:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "1.0.0"
     # where the app looks for its updates: the repository it was built from (the build sets it)
-    DXBI_UPDATE_REPO: notdxbi/dxbi-stremio
+    DXBI_UPDATE_REPO: HarryTheDingle/lumen
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: ""
     TARGETED_DEVICE_FAMILY: "1,2"
@@ -21,7 +21,7 @@ packages:
     url: https://github.com/streamyfin/MPVKit.git
     exactVersion: 0.41.0-av5
 targets:
-  Dxbi:
+  Lumen:
     type: application
     platform: iOS
     sources:
@@ -41,7 +41,7 @@ targets:
     info:
       path: Dxbi/Info.plist
       properties:
-        CFBundleDisplayName: dx.bi
+        CFBundleDisplayName: Lumen
         DxbiUpdateRepo: $(DXBI_UPDATE_REPO)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
@@ -65,8 +65,8 @@ targets:
           - bebas_neue.ttf
         UIUserInterfaceStyle: Dark
         ITSAppUsesNonExemptEncryption: false
-        # A streaming server on the network (Stremio or dx.bi on a computer) plays torrents for the phone
-        NSLocalNetworkUsageDescription: dx.bi looks for a Stremio streaming server on your network to play torrents.
+        # A streaming server on the network (Stremio or Lumen on a computer) plays torrents for the phone
+        NSLocalNetworkUsageDescription: Lumen looks for a Stremio streaming server on your network to play torrents.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         # "Play in another app"
@@ -77,12 +77,12 @@ targets:
           - outplayer
           - senplayer
         CFBundleURLTypes:
-          - CFBundleURLName: com.notdxbi.dxbi.stremio
+          - CFBundleURLName: com.harrythedingle.lumen.stremio
             CFBundleURLSchemes:
               - stremio
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.notdxbi.dxbi.ios
+        PRODUCT_BUNDLE_IDENTIFIER: com.harrythedingle.lumen.ios
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGNING_ALLOWED: NO
         CODE_SIGN_IDENTITY: ""

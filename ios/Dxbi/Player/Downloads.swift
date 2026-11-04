@@ -41,7 +41,7 @@ final class Downloads: NSObject {
     @ObservationIgnored var backgroundDone: (() -> Void)?
 
     @ObservationIgnored private lazy var session: URLSession = {
-        let config = URLSessionConfiguration.background(withIdentifier: "com.notdxbi.dxbi.downloads")
+        let config = URLSessionConfiguration.background(withIdentifier: "com.harrythedingle.lumen.downloads")
         config.sessionSendsLaunchEvents = true
         config.isDiscretionary = false
         return URLSession(configuration: config, delegate: self, delegateQueue: .main)

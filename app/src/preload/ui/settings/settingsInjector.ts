@@ -64,8 +64,8 @@ export function checkSettings() {
     const themesList = readdirSync(properties.themesPath).filter(f => f.endsWith(FILE_EXTENSIONS.THEME));
     const pluginsList = readdirSync(properties.pluginsPath).filter(f => f.endsWith(FILE_EXTENSIONS.PLUGIN));
     
-    logger.info("Adding 'dx.bi' sections...");
-    settingsBuilder.addSection("enhanced", "dx.bi");
+    logger.info("Adding 'Lumen' sections...");
+    settingsBuilder.addSection("enhanced", "Lumen");
     settingsBuilder.addCategory("Themes", "enhanced", getThemeIcon());
     settingsBuilder.addCategory("Plugins", "enhanced", getPluginIcon());
     settingsBuilder.addCategory("About", "enhanced", getAboutIcon());

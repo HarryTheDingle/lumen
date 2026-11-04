@@ -6,7 +6,7 @@ struct PosterGrid: View {
     var onEnd: (() -> Void)?
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 108, maximum: 170), spacing: 12)], spacing: 14) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: Dx.pad ? 150 : 108, maximum: Dx.pad ? 210 : 170), spacing: Dx.pad ? 18 : 12)], spacing: Dx.pad ? 22 : 14) {
             ForEach(items) { title in
                 NavigationLink(value: Route.title(title.ref)) {
                     Color.clear
@@ -67,7 +67,7 @@ struct SearchView: View {
                         Shelf(title: row.heading, see: row.discover.map { .browse(link: $0, name: row.heading) }) {
                             ForEach(row.items) { title in
                                 NavigationLink(value: Route.title(title.ref)) {
-                                    PosterCard(title: title, width: 130).zoomSource(title.id)
+                                    PosterCard(title: title, width: Dx.pad ? 160 : 130).zoomSource(title.id)
                                 }
                                 .buttonStyle(.plain)
                             }
