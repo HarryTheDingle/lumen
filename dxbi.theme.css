@@ -1,10 +1,10 @@
 /**
- * @name dx.bi
+ * @name Lumen
  * @description Cinematic, Netflix-inspired interface for dx.bi. Pair it with the dx.bi plugin for the billboard, carousels, previews, ratings and player extras.
  * @version 2.17.0
  * @author dx.bi
  * @requirements ["dxbi.plugin.js"]
- * @updateUrl https://raw.githubusercontent.com/notdxbi/dxbi-stremio/main/dxbi.theme.css
+ * @updateUrl https://raw.githubusercontent.com/HarryTheDingle/dxbi-stremio/main/dxbi.theme.css
  */
 /* dx.bi — Copyright (C) 2026 dx.bi. Free software under the GNU General Public License, version 3
    or later (see LICENSE and NOTICE.md at github.com/notdxbi/dxbi-stremio). Versions up to 2.15.9: MIT. */
@@ -25,7 +25,7 @@
    ===================================================================== */
 
 :root {
-    /* Accent is overridable by the plugin (Settings → dx.bi) */
+    /* Accent is overridable by the plugin (Settings → Lumen) */
     --dx-accent: #e50914;
     --dx-accent-hover: color-mix(in srgb, var(--dx-accent) 85%, white);
     --dx-accent-soft: color-mix(in srgb, var(--dx-accent) 18%, transparent);
@@ -174,7 +174,7 @@ body #app [class*="main-nav-bars-container"] > nav[class*="horizontal-nav-bar"][
 }
 
 #app nav[class*="horizontal-nav-bar"] [class*="logo-container"]::before {
-    content: "DX.BI";
+    content: "LUMEN";
     font-family: "Bebas Neue", "Inter", sans-serif;
     font-size: 2.35rem;
     line-height: 1;

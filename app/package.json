@@ -1,7 +1,7 @@
 {
 	"name": "dxbi",
-	"version": "2.30.0",
-	"description": "dx.bi: a Netflix-style desktop app for Stremio, with the dx.bi experience built in.",
+	"version": "2.30.1",
+	"description": "Lumen: a Netflix-style desktop app for Stremio, based on dx.bi.",
 	"main": "./dist/main.js",
 	"scripts": {
 		"dist": "node ./copyComponents.js --plugin-only && tsc && node ./copyComponents.js",
@@ -44,8 +44,8 @@
 		"dmg-license": "^1.0.11"
 	},
 	"build": {
-		"appId": "com.notdxbi.dxbi",
-		"productName": "dx.bi",
+		"appId": "com.harrythedingle.lumen",
+		"productName": "Lumen",
 		"asar": true,
 		"icon": "images/icon",
 		"directories": {
@@ -53,7 +53,7 @@
 		},
 		"publish": {
 			"provider": "github",
-			"owner": "notdxbi",
+			"owner": "HarryTheDingle",
 			"repo": "dxbi-stremio"
 		},
 		"asarUnpack": [
@@ -85,14 +85,14 @@
 			"target": "AppImage",
 			"icon": "images/icon.png",
 			"category": "AudioVideo",
-			"executableName": "dxbi"
+			"executableName": "lumen"
 		},
-		"artifactName": "dxbi-${os}-${arch}.${ext}",
+		"artifactName": "Lumen-${os}-${arch}.${ext}",
 		"nsis": {
-			"artifactName": "dxbi-Setup-${arch}.${ext}"
+			"artifactName": "Lumen-Setup-${arch}.${ext}"
 		},
 		"portable": {
-			"artifactName": "dxbi-portable-${arch}.${ext}"
+			"artifactName": "Lumen-portable-${arch}.${ext}"
 		},
 		"protocols": [
 			{

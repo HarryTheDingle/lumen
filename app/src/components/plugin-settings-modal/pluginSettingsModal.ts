@@ -166,8 +166,8 @@ function escapeAttr(text: string): string {
     return text.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 }
 
-// The plugin's file name, or its proper name for dx.bi's own
+// The plugin's file name, or its proper name for Lumen's own
 function displayName(pluginName: string): string {
     const base = pluginName.replace(FILE_EXTENSIONS.PLUGIN, "");
-    return base === "dxbi" ? "dx.bi" : base;
+    return base === "dxbi" ? "Lumen" : base;
 }

@@ -31,7 +31,7 @@ import { restoreWindowState } from "./core/WindowState";
 import { isFullScreen, maximize, setFullScreen, useManualMaximize } from "./core/Maximize";
 import { setupAutoUpdate } from "./core/AutoUpdate";
 
-app.setName("dxbi");
+app.setName("lumen");
 const userDataPath = app.getPath('userData');
 
 export let mainWindow: BrowserWindow | null;
@@ -94,7 +94,10 @@ async function createWindow() {
             allowRunningInsecureContent: false,
             experimentalFeatures: false,
             spellcheck: false,
-            backgroundThrottling: false
+            // Hidden, minimised or covered: stop drawing (the hero's animations ran at the display's full
+            // 120 Hz in the background). Timers keep running (disable-background-timer-throttling above),
+            // so watch parties and progress saving carry on, and Chromium never pauses a playing video.
+            backgroundThrottling: true
         },
         width: 1500,
         height: 850,
@@ -180,7 +183,7 @@ async function useStremioService() {
 }
 
 app.on("ready", async () => {
-    logger.info("dx.bi version: v" + Updater.getCurrentVersion());
+    logger.info("Lumen version: v" + Updater.getCurrentVersion());
     logger.info("Running on NodeJS version: " + process.version);
     logger.info("Running on Electron version: v" + process.versions.electron);
     logger.info("Running on Chromium version: v" + process.versions.chrome);

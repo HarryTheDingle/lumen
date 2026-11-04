@@ -10,8 +10,8 @@ class Properties {
             ? join(homedir(), "Library", "Application Support")
             : join(homedir(), ".config");
 
-    // DXBI_DATA_DIR keeps a source build's plugins, themes and server apart from an installed dx.bi
-    public static enhancedPath = process.env.DXBI_DATA_DIR || join(Properties.baseDataPath, "dxbi");
+    // DXBI_DATA_DIR keeps a source build's plugins, themes and server apart from an installed Lumen
+    public static enhancedPath = process.env.DXBI_DATA_DIR || join(Properties.baseDataPath, "lumen");
 
     public static themesPath = join(Properties.enhancedPath, "themes");
     public static pluginsPath = join(Properties.enhancedPath, "plugins");
