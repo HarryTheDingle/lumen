@@ -216,13 +216,14 @@ private struct ContinueTile: View {
     var width: CGFloat
 
     var body: some View {
-        NavigationLink(value: Route.title(TitleRef(type: item.title.type, id: item.title.id, name: item.title.name, play: true))) {
+        // (it opens the title: Resume there starts it, rather than playing straight from Home)
+        NavigationLink(value: Route.title(item.title.ref)) {
             ContinueCard(item: item, width: width)
                 .zoomSource(item.title.id)
         }
         .buttonStyle(.plain)
         .contextMenu {
-            NavigationLink(value: Route.title(item.title.ref)) { Label("Details", systemImage: "info.circle") }
+            NavigationLink(value: Route.title(TitleRef(type: item.title.type, id: item.title.id, name: item.title.name, play: true))) { Label("Resume", systemImage: "play.fill") }
             Button(role: .destructive) { stremio.removeFromContinue(item.title.id) } label: { Label("Remove from Continue Watching", systemImage: "eye.slash") }
         }
     }

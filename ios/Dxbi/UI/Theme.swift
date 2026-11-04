@@ -184,20 +184,28 @@ struct Badge: View {
     }
 }
 
-/** A thin progress line */
+/**
+ * A progress line. In the accent it's the icon's blue, a little thicker, with a soft glow, over a track
+ * that shows on light art too; and a little progress still shows (a dot, not a sliver)
+ */
 struct ProgressLine: View {
     var value: Double
     var colour: Color = .white
     var body: some View {
+        let accent = colour == Dx.accent
+        let height: CGFloat = accent ? 5 : 4
+        let fill = accent ? Dx.blue : colour
         GeometryReader { g in
-            Capsule().fill(.white.opacity(0.3))
+            Capsule().fill(.white.opacity(accent ? 0.28 : 0.3))
+                .overlay(Capsule().strokeBorder(.black.opacity(accent ? 0.25 : 0), lineWidth: 0.5))
                 .overlay(alignment: .leading) {
-                    // (in the accent, progress is the icon's blue)
-                    Capsule().fill(colour == Dx.accent ? Dx.blue : colour)
-                    .frame(width: g.size.width * min(max(value, 0), 1))
+                    let p = min(max(value, 0), 1)
+                    Capsule().fill(fill)
+                        .frame(width: p > 0 ? max(g.size.width * p, height) : 0)
+                        .shadow(color: accent ? fill.opacity(0.7) : .clear, radius: 4)
                 }
         }
-        .frame(height: 4)
+        .frame(height: height)
     }
 }
 

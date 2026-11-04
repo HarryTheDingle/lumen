@@ -53,8 +53,8 @@ struct ContinueCard: View {
                 .frame(maxHeight: .infinity)
                 .padding(.bottom, 40)
             HStack(spacing: 10) {
-                if item.progress > 0 { ProgressLine(value: item.progress, colour: Dx.accent).frame(width: 44) }
-                Text([episodeLabel(item.videoId), item.newEpisodes > 0 ? "\(item.newEpisodes) new" : nil].compactMap { $0 }.joined(separator: " · ").ifEmpty(typeName(title.type)))
+                if item.progress > 0 { ProgressLine(value: item.progress, colour: Dx.accent).frame(width: 64) }
+                Text([episodeLabel(item.videoId), timeLeft(item), item.newEpisodes > 0 ? "\(item.newEpisodes) new" : nil].compactMap { $0 }.joined(separator: " · ").ifEmpty(typeName(title.type)))
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)
                 Spacer(minLength: 0)
@@ -163,4 +163,16 @@ struct BlurFade: View {
             .overlay(LinearGradient(stops: [.init(color: .clear, location: from), .init(color: .black.opacity(0.4), location: 1)], startPoint: .top, endPoint: .bottom))
             .allowsHitTesting(false)
     }
+}
+
+/** "28m left", "1h 12m left": from the title's length and how far in it is (nothing when the length isn't known) */
+func timeLeft(_ item: Continue) -> String? {
+    guard item.progress > 0.02, item.progress < 0.98, let runtime = item.title.runtime else { return nil }
+    let h = runtime.firstMatch(of: /(\d+)\s*h/).flatMap { Int($0.1) } ?? 0
+    let m = runtime.firstMatch(of: /(\d+)\s*m/).flatMap { Int($0.1) } ?? (h == 0 ? Int(runtime.prefix { $0.isNumber }) ?? 0 : 0)
+    let total = h * 60 + m
+    guard total > 0 else { return nil }
+    let left = Int((Double(total) * (1 - item.progress)).rounded())
+    guard left > 0 else { return nil }
+    return left >= 60 ? "\(left / 60)h \(left % 60)m left" : "\(left)m left"
 }
