@@ -134,8 +134,8 @@ struct SearchView: View {
 
 // MARK: - Discover
 
-/** Every catalog the addons have, by type, catalog and genre */
-struct DiscoverView: View {
+/** Every catalog the addons have, by type, catalog and genre (Discover's "Browse All Catalogs") */
+struct CatalogBrowserView: View {
     @Environment(Stremio.self) private var stremio
 
     var body: some View {
@@ -153,7 +153,7 @@ struct DiscoverView: View {
             .padding(.bottom, 30)
         }
         .screenBackground()
-        .navigationTitle("Discover")
+        .navigationTitle("All Catalogs")
         .onAppear { stremio.discoverStart() }
         .onChange(of: stremio.allRows.count) { stremio.discoverStart() }
     }
