@@ -76,7 +76,7 @@ struct DiscoverView: View {
         return Button { selected = id } label: {
             HStack(spacing: 8) {
                 if let icon {
-                    AsyncImage(url: icon) { $0.resizable().scaledToFill() } placeholder: { colour.opacity(0.4) }
+                    WebImage(url: icon) { $0.resizable().scaledToFill() } placeholder: { _ in colour.opacity(0.4) }
                         .frame(width: 22, height: 22)
                         .clipShape(.rect(cornerRadius: 5))
                 }
@@ -98,7 +98,7 @@ struct DiscoverView: View {
         HStack(spacing: 16) {
             Group {
                 if let p = platform {
-                    AsyncImage(url: p.icon) { $0.resizable().scaledToFill() } placeholder: { p.colour.opacity(0.5) }
+                    WebImage(url: p.icon) { $0.resizable().scaledToFill() } placeholder: { _ in p.colour.opacity(0.5) }
                 } else {
                     ZStack {
                         Dx.spectrum
@@ -154,11 +154,13 @@ struct DiscoverView: View {
                         }
                         .buttonStyle(.plain)
                         .zoomSource(t.id)
+                        .titleMenu(t)
                     }
                 }
                 .padding(.horizontal, Dx.gutter)
             }
             .scrollIndicators(.hidden)
+            .scrollClipDisabled()
         }
     }
 

@@ -2,6 +2,7 @@ import SwiftUI
 
 /** Posters in a grid that fits the screen */
 struct PosterGrid: View {
+    @Environment(Stremio.self) private var stremio
     var items: [Title]
     var onEnd: (() -> Void)?
 
@@ -14,14 +15,14 @@ struct PosterGrid: View {
                         .overlay { Art(url: title.art) }
                         .clipShape(.rect(cornerRadius: 14))
                         .overlay(alignment: .topTrailing) {
-                            if title.watched {
+                            if stremio.isWatched(title) {
                                 Image(systemName: "checkmark.circle.fill").symbolRenderingMode(.palette).foregroundStyle(.black, .white).padding(6)
                             }
                         }
                         .zoomSource(title.id)
                 }
                 .buttonStyle(.plain)
-                .contextMenu { TitleMenu(title: title) }
+                .titleMenu(title)
                 .onAppear { if title.id == items.last?.id { onEnd?() } }
             }
         }
@@ -70,6 +71,7 @@ struct SearchView: View {
                                     PosterCard(title: title, width: Dx.pad ? 160 : 130).zoomSource(title.id)
                                 }
                                 .buttonStyle(.plain)
+                                .titleMenu(title)
                             }
                         }
                     }

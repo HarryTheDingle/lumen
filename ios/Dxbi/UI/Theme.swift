@@ -39,18 +39,88 @@ struct Logo: View {
 
 // MARK: - Pictures
 
-/** A picture from the web, kept in memory and on disk (URLCache) so rows scroll without reloading */
+/**
+ * Pictures from the web, kept in memory (and on disk by URLCache). A load carries on when the card that
+ * asked scrolls away, so it's there when the card comes back; one that fails is tried twice more.
+ * (SwiftUI's AsyncImage gave up for good on a load cut short in a scrolling row: a blank poster
+ * until the page was opened again. metahub's newest posters can take seconds to be made.)
+ */
+@MainActor
+enum Pictures {
+    enum Result { case image(UIImage), missing }
+    private static let memory: NSCache<NSURL, UIImage> = {
+        let c = NSCache<NSURL, UIImage>()
+        c.totalCostLimit = 120 * 1024 * 1024
+        return c
+    }()
+    private static var missing = Set<URL>()
+    private static var loading: [URL: Task<UIImage?, Never>] = [:]
+
+    static func cached(_ url: URL?) -> Result? {
+        guard let url else { return .missing }
+        if let image = memory.object(forKey: url as NSURL) { return .image(image) }
+        return missing.contains(url) ? .missing : nil
+    }
+
+    static func load(_ url: URL) async -> Result {
+        if let known = cached(url) { return known }
+        let task = loading[url] ?? Task.detached(priority: .utility) {
+            for attempt in 0..<3 {
+                if attempt > 0 { try? await Task.sleep(for: .seconds(attempt == 1 ? 1.5 : 4)) }
+                guard let (data, response) = try? await URLSession.shared.data(from: url) else { continue }
+                // (not there: no use asking again)
+                if let http = response as? HTTPURLResponse, http.statusCode == 404 { return nil }
+                if let image = UIImage(data: data)?.preparingForDisplay() ?? UIImage(data: data) { return image }
+            }
+            return nil
+        }
+        loading[url] = task
+        let image = await task.value
+        loading[url] = nil
+        if let image {
+            memory.setObject(image, forKey: url as NSURL, cost: Int(image.size.width * image.size.height * image.scale * image.scale * 4))
+            return .image(image)
+        }
+        missing.insert(url)
+        return .missing
+    }
+}
+
+/** A picture from the web: [content] once it's in, [placeholder] while it loads or when there's none */
+struct WebImage<Content: View, Placeholder: View>: View {
+    var url: URL?
+    @ViewBuilder var content: (Image) -> Content
+    @ViewBuilder var placeholder: (_ missing: Bool) -> Placeholder
+    @State private var result: Pictures.Result?
+
+    var body: some View {
+        let shown = result ?? Pictures.cached(url)
+        ZStack {
+            switch shown {
+            case .image(let image): content(Image(uiImage: image)).transition(.opacity)
+            case .missing: placeholder(true)
+            case nil: placeholder(false)
+            }
+        }
+        .task(id: url) {
+            result = Pictures.cached(url)
+            guard result == nil, let url else { return }
+            let loaded = await Pictures.load(url)
+            withAnimation(.easeOut(duration: 0.25)) { result = loaded }
+        }
+    }
+}
+
+/** A picture from the web, filling its frame (or fitting) */
 struct Art: View {
     var url: URL?
     var contentMode: ContentMode = .fill
 
     var body: some View {
-        AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.25))) { phase in
-            if let image = phase.image {
-                image.resizable().aspectRatio(contentMode: contentMode)
-            } else {
-                Rectangle().fill(Dx.raised)
-            }
+        WebImage(url: url) { image in
+            image.resizable().aspectRatio(contentMode: contentMode)
+        } placeholder: { _ in
+            Rectangle().fill(Dx.raised)
         }
     }
 }
@@ -63,11 +133,12 @@ struct TitleLogo: View {
     var alignment: Alignment = .center
 
     var body: some View {
-        AsyncImage(url: title.logoURL) { phase in
-            if let image = phase.image {
-                image.resizable().scaledToFit().frame(maxHeight: maxHeight, alignment: alignment)
-                    .shadow(color: .black.opacity(0.5), radius: 12)
-            } else if case .empty = phase, title.logoURL != nil {
+        WebImage(url: title.logoURL) { image in
+            image.resizable().scaledToFit().frame(maxHeight: maxHeight, alignment: alignment)
+                .shadow(color: .black.opacity(0.5), radius: 12)
+                .frame(maxWidth: .infinity, alignment: alignment)
+        } placeholder: { missing in
+            if !missing {
                 Color.clear.frame(height: maxHeight * 0.6)
             } else {
                 Text(title.name)
@@ -163,7 +234,8 @@ struct SectionHeader: View {
             .foregroundStyle(.white)
         }
         .buttonStyle(.plain)
-        .disabled(action == nil)
+        // (not .disabled: that greys a heading that opens nothing)
+        .allowsHitTesting(action != nil)
         .padding(.horizontal, Dx.gutter)
     }
 }

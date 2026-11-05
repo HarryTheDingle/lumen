@@ -111,7 +111,6 @@ final class Playback: Identifiable {
     @ObservationIgnored private var tracksTask: Task<Void, Never>?
     @ObservationIgnored private var stalledSince: Date?
     @ObservationIgnored private var subtitlesDecided = false
-    @ObservationIgnored private var nextPrepared = false
     /** The seek bar's picture of where it's going (a second mpv, opened when scrubbing starts) */
     @ObservationIgnored private(set) var thumbs: SeekPreview?
     /** What the server gave while the buffer was filling (Mbit/s, once a second): the network's real speed */
@@ -442,12 +441,6 @@ final class Playback: Identifiable {
         if settledIn, !paused, payload.text("offline") == nil, (mpv.number("demuxer-cache-duration") ?? 999) < 40,
            let speed = mpv.number("cache-speed"), speed > 40_000, speedReadings.count < 1800 {
             speedReadings.append(speed * 8 / 1e6)
-        }
-        // (a minute before Up Next shows, or as the credits start: whichever's first)
-        if !nextPrepared, nextTitle != nil, duration > 300,
-           duration - position < Double(upNextSeconds) + 80 || segments.contains(where: { $0.type == "credits" && position >= $0.start - 30 }) {
-            nextPrepared = true
-            stremio?.prepareNext()
         }
         stremio?.partyTick(position: position, duration: duration, paused: paused, buffering: buffering, rate: speed)
         // Stremio's watch progress, every few seconds

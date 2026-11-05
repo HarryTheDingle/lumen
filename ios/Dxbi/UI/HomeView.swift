@@ -41,6 +41,7 @@ struct HomeView: View {
                                     AiringCard(item: item, width: min(max(width * 0.7, 260), 380))
                                 }
                                 .buttonStyle(.plain)
+                                .titleMenu(Title(id: item.id, type: "series", name: item.name))
                             }
                         }
                     }
@@ -153,7 +154,7 @@ struct HomeView: View {
                         .zoomSource(title.id)
                 }
                 .buttonStyle(.plain)
-                .contextMenu { TitleMenu(title: title) }
+                .titleMenu(title)
             }
         }
     }
@@ -195,17 +196,60 @@ struct Shelf<Content: View>: View {
             }
             .scrollTargetBehavior(.viewAligned)
             .scrollIndicators(.hidden)
+            // (a held card grows as its menu opens: past the row, not cut off at its top and bottom)
+            .scrollClipDisabled()
         }
     }
 }
 
-/** Long-press on a title */
+/**
+ * Long-press on a title (right-click on the Mac), the same everywhere: Details, Play, the Library,
+ * watched or not, the trailer. [resume]: it's in Continue Watching (Resume, and Remove from the row)
+ */
 struct TitleMenu: View {
     @Environment(Stremio.self) private var stremio
     var title: Title
+    var resume = false
+
     var body: some View {
+        let inList = stremio.isInLibrary(title)
+        let watched = stremio.isWatched(title)
         NavigationLink(value: Route.title(title.ref)) { Label("Details", systemImage: "info.circle") }
-        NavigationLink(value: Route.title(TitleRef(type: title.type, id: title.id, name: title.name, play: true))) { Label("Play", systemImage: "play.fill") }
+        NavigationLink(value: Route.title(TitleRef(type: title.type, id: title.id, name: title.name, play: true))) {
+            Label(resume ? "Resume" : "Play", systemImage: "play.fill")
+        }
+        Divider()
+        Button {
+            stremio.setInLibrary(title, !inList)
+            stremio.show(inList ? "Removed from your Library" : "Added to your Library")
+        } label: {
+            Label(inList ? "Remove from Library" : "Add to Library", systemImage: inList ? "minus.circle" : "plus.circle")
+        }
+        Button {
+            stremio.setWatched(title, !watched)
+            stremio.show(watched ? "Marked as unwatched" : "Marked as watched")
+        } label: {
+            Label(watched ? "Mark as Unwatched" : "Mark as Watched", systemImage: watched ? "eye.slash" : "eye")
+        }
+        if resume {
+            Button(role: .destructive) { stremio.removeFromContinue(title.id) } label: {
+                Label("Remove from Continue Watching", systemImage: "xmark.circle")
+            }
+        }
+        if let trailer = title.trailer, let url = URL(string: "https://www.youtube.com/watch?v=\(trailer)") {
+            Divider()
+            Link(destination: url) { Label("Trailer", systemImage: "film") }
+        }
+        if title.id.hasPrefix("tt"), let url = URL(string: "https://www.imdb.com/title/\(title.id)/") {
+            ShareLink(item: url, subject: Text(title.name)) { Label("Share", systemImage: "square.and.arrow.up") }
+        }
+    }
+}
+
+extension View {
+    /** A title's long-press menu (see TitleMenu) */
+    func titleMenu(_ title: Title, resume: Bool = false) -> some View {
+        contextMenu { TitleMenu(title: title, resume: resume) }
     }
 }
 
@@ -222,10 +266,7 @@ private struct ContinueTile: View {
                 .zoomSource(item.title.id)
         }
         .buttonStyle(.plain)
-        .contextMenu {
-            NavigationLink(value: Route.title(TitleRef(type: item.title.type, id: item.title.id, name: item.title.name, play: true))) { Label("Resume", systemImage: "play.fill") }
-            Button(role: .destructive) { stremio.removeFromContinue(item.title.id) } label: { Label("Remove from Continue Watching", systemImage: "eye.slash") }
-        }
+        .titleMenu(item.title, resume: true)
     }
 }
 
@@ -263,6 +304,7 @@ private struct Billboard: View {
         .contentShape(.rect)
         // a tap opens the title; a swipe only changes the slide (and Home still scrolls up and down)
         .onTapGesture { opened = current.ref }
+        .titleMenu(current)
         .navigationDestination(item: $opened) { TitleView(ref: $0) }
         .simultaneousGesture(
             DragGesture(minimumDistance: 20)

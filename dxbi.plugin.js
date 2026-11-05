@@ -1,7 +1,7 @@
 /**
  * @name Lumen
  * @description The Lumen experience: cinematic billboard, Netflix-style carousels, hover previews with trailers, ratings on posters, critic reviews, skip intro and up next, anime filler guide, new episode badges, watch stats and viewers, stream sorting & filters, a Netflix-style player with black-bar removal, night mode and subtitle sync, watch parties with friends, a cinematic intro and interface sounds. Use with the Lumen theme.
- * @version 2.30.8
+ * @version 2.30.10
  * @author dx.bi
  * @updateUrl https://raw.githubusercontent.com/HarryTheDingle/lumen/main/dxbi.plugin.js
  */
@@ -19,7 +19,7 @@
   // Stremio Enhanced loads each plugin as <script id="<file name>">, which tells us our settings key
   const SCRIPT_ID = (document.currentScript && document.currentScript.id) || "dxbi.plugin.js";
   const PLUGIN_KEY = SCRIPT_ID.replace(/\.plugin\.js$/, "");
-  const PLUGIN_VERSION = "2.30.8"; // kept in step with @version by tools/bundle-theme.mjs
+  const PLUGIN_VERSION = "2.30.10"; // kept in step with @version by tools/bundle-theme.mjs
   // Recent messages and errors, kept for problem reports (see `report`)
   const recent = { logs: [], errors: [] };
   const remember = (list, text) => {
@@ -15606,6 +15606,14 @@
           items: list.map((i) => ({ id: i._id, type: i.type, name: i.name, poster: i.poster || (isImdb(i._id) ? `https://images.metahub.space/poster/small/${i._id}/img` : null) })),
         }));
       },
+      // What's in the Library and what's watched (a title's long-press menu says Add or Remove, Watched or not)
+      marks() {
+        const items = stremioLibrary();
+        return {
+          library: items.filter((i) => !i.removed && !i.temp).map((i) => i._id),
+          watched: items.filter((i) => (i.state.timesWatched || 0) > 0 || (i.state.flaggedWatched || 0) > 0).map((i) => i._id),
+        };
+      },
       // null while it's still being worked out (ask again shortly)
       forYou() {
         if (!settings.forYou || viewers.current().kids) return { items: [] };
@@ -15621,6 +15629,15 @@
           return null;
         }
         return { name: `Because you watched ${data.name}`, items: data.list.map((i) => ({ id: i._id, type: i.type, name: i.name, poster: i.poster || null })) };
+      },
+      // A title's page: titles like it (TMDB's recommendations with a key, else popular ones in its genres)
+      async related(type, id, genres) {
+        if (!/^tt/.test(String(id)) || (type !== "movie" && type !== "series")) return [];
+        const json = (path) => fetch(`${forYou.BASE}${path}`, { signal: AbortSignal.timeout(10000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+        const real = await forYou.recommended({ type, _id: id }).catch(() => null);
+        const lists = real && real.length ? [real]
+          : (await Promise.all((genres || []).slice(0, 2).map((g) => json(`/catalog/${type}/top/genre=${encodeURIComponent(g)}.json`)))).map((l) => (l && l.metas) || []);
+        return forYou.pick(lists, new Set([id])).map((m) => ({ id: m.id, type, name: m.name, poster: m.poster || null }));
       },
       // Airing this week: each show's next episode (or the one just out), soonest first
       airing() {

@@ -2,6 +2,7 @@ import SwiftUI
 
 /** A title in a row: its poster, and (Netflix's Top 10) a large number in the corner */
 struct PosterCard: View {
+    @Environment(Stremio.self) private var stremio
     var title: Title
     var width: CGFloat = 150
     var rank: Int?
@@ -28,13 +29,14 @@ struct PosterCard: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            if title.watched {
+            if stremio.isWatched(title) {
                 Image(systemName: "checkmark.circle.fill").font(.title3).symbolRenderingMode(.palette).foregroundStyle(.black, .white).padding(8)
             }
         }
         .clipShape(.rect(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.1)))
         .contentShape(.rect(cornerRadius: 18))
+        .contentShape(.contextMenuPreview, .rect(cornerRadius: 18))
     }
 }
 

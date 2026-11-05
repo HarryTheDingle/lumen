@@ -33,6 +33,11 @@ final class Stremio {
     var search: [Row] = []
     var discover: Discover?
     var library: [Title] = []
+    /** Every title in the Library, and every one watched (by id): what a title's long-press menu offers */
+    var inLibrary: Set<String> = []
+    var watchedIds: Set<String> = []
+    /** [inLibrary] and [watchedIds] have been read (till then, what each title came with) */
+    var marksKnown = false
     var installedAddons: [Addon] = []
     var remoteAddons: [Addon] = []
     var remoteAddonsLoading = false
@@ -168,6 +173,7 @@ final class Stremio {
     func refreshExtras() {
         extrasTask?.cancel()
         extrasTask = Task {
+            await refreshMarks()
             if let v = await dx("phone.viewers") as? JSON {
                 viewers = v.objects("list").map { Viewer(id: $0.string("id"), name: $0.string("name")) }
                 viewer = viewers.first { $0.id == v.string("current") } ?? viewers.first
@@ -221,27 +227,72 @@ final class Stremio {
     }
 
     func setInLibrary(_ add: Bool) {
+        if let id = details?.metaId { mark(id, inLibrary: add) }
         Task {
             await ask("library", ["add": add])
+            // (Stremio saves the Library a moment later: asked at once, it still says the old)
+            try? await Task.sleep(for: .seconds(1))
             refreshExtras()
         }
     }
 
-    /** Adds a title that isn't open (Home's +): Stremio wants the whole title, so it's opened first */
+    /** Adds a title that isn't open (Home's +, a long-press): Stremio wants the whole title, so it's opened first */
     func setInLibrary(_ title: Title, _ add: Bool) {
+        mark(title.id, inLibrary: add)
+        if let i = billboard.firstIndex(where: { $0.id == title.id }) { billboard[i].inLibrary = add }
+        withOpened(title) { await self.ask("library", ["add": add]) }
+    }
+
+    func setWatched(_ watched: Bool) {
+        if let id = details?.metaId { mark(id, watched: watched) }
+        Task {
+            await ask("watched", ["value": watched])
+            try? await Task.sleep(for: .seconds(1))
+            await refreshMarks()
+        }
+    }
+
+    /** Marks a title that isn't open as watched or not (a series: every episode) */
+    func setWatched(_ title: Title, _ watched: Bool) {
+        mark(title.id, watched: watched)
+        withOpened(title) { await self.ask("watched", ["value": watched]) }
+    }
+
+    /** In the Library, or watched: from [inLibrary] and [watchedIds], else what the title came with */
+    func isInLibrary(_ title: Title) -> Bool { marksKnown ? inLibrary.contains(title.id) : title.inLibrary }
+    func isWatched(_ title: Title) -> Bool { marksKnown ? watchedIds.contains(title.id) : title.watched }
+
+    func refreshMarks() async {
+        guard let marks = await dx("phone.marks") as? JSON else { return }
+        inLibrary = Set(marks.strings("library"))
+        watchedIds = Set(marks.strings("watched"))
+        marksKnown = true
+    }
+
+    /** Shown at once; Stremio's own answer follows */
+    private func mark(_ id: String, inLibrary add: Bool? = nil, watched: Bool? = nil) {
+        if let add { if add { inLibrary.insert(id) } else { inLibrary.remove(id) } }
+        if let watched { if watched { watchedIds.insert(id) } else { watchedIds.remove(id) } }
+    }
+
+    /**
+     * Opens [title] to change it (Stremio changes the title open in details), then opens again what
+     * was open before (a title's page whose Related poster was long-pressed keeps its own)
+     */
+    private func withOpened(_ title: Title, _ change: @escaping () async -> Void) {
+        let before = details.flatMap { d in d.metaId.map { (type: d.title?.type ?? "", id: $0, videoId: d.videoId) } }
         open(title.type, title.id)
         Task {
             for _ in 0..<40 where !(details?.metaId == title.id && details?.state == .ready) {
                 try? await Task.sleep(for: .milliseconds(150))
             }
             guard details?.metaId == title.id else { return show("Couldn't reach Stremio. Try again.") }
-            await ask("library", ["add": add])
-            if let i = billboard.firstIndex(where: { $0.id == title.id }) { billboard[i].inLibrary = add }
+            await change()
+            if let before, before.id != title.id, !before.type.isEmpty { open(before.type, before.id, videoId: before.videoId) }
+            try? await Task.sleep(for: .seconds(1))
             refreshExtras()
         }
     }
-
-    func setWatched(_ watched: Bool) { Task { await ask("watched", ["value": watched]) } }
 
     func removeFromContinue(_ id: String) { Task { await ask("dismiss", ["id": id]) } }
 
@@ -567,6 +618,12 @@ final class Stremio {
         (await ask("dx", ["method": "phone.cast", "args": [type, imdb, names]], timeout: 25) as? [Any])?.compactMap { $0 as? JSON }
     }
 
+    /** Titles like this one, for its page's Related row */
+    func related(_ type: String, _ id: String, genres: [String]) async -> [Title] {
+        let list = await ask("dx", ["method": "phone.related", "args": [type, id, genres]], timeout: 25) as? [Any]
+        return (list ?? []).compactMap { $0 as? JSON }.map(Title.init)
+    }
+
     /** Search for this (a name tapped on a title's page): the Search tab opens with it */
     var pendingSearch: String?
 
@@ -604,11 +661,6 @@ final class Stremio {
 
     func progress(position: Double, duration: Double, paused: Bool) {
         page.js("window.__dxbiTv && window.__dxbiTv.onProgress(\(Int(position * 1000)), \(Int(duration * 1000)), \(paused))")
-    }
-
-    /** The end credits started: the page finds the next episode's stream now, so it starts at once */
-    func prepareNext() {
-        page.js("window.__dxbiTv && window.__dxbiTv.prepareNext && window.__dxbiTv.prepareNext()")
     }
 
     func partyTick(position: Double, duration: Double, paused: Bool, buffering: Bool, rate: Double) {
