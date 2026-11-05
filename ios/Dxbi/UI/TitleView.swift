@@ -22,6 +22,11 @@ struct TitleView: View {
     @State private var autoPlayed = false
     /** The cast with photos (TMDB, with a key in dx.bi settings), else nil */
     @State private var cast: [JSON]?
+    /** The trailer, fading in over the art a moment after the page opens */
+    @State private var preview = TrailerPreview.Controller()
+    @State private var previewOn = false
+    /** The art has scrolled away: the top bar's edge shows again */
+    @State private var pastArt = false
 
     private var details: Details? { stremio.details?.metaId == ref.id ? stremio.details : nil }
     private var title: Title { details?.title ?? Title(id: ref.id, type: ref.type, name: ref.name) }
@@ -48,14 +53,41 @@ struct TitleView: View {
                 }
             }
             .scrollIndicators(.hidden)
+            // the art runs up behind the top bar, as on Apple TV: no band under the bar until the page moves
+            .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 24 } action: { _, past in
+                pastArt = past
+            }
+            .scrollEdgeEffectHidden(!pastArt, for: .top)
             .ignoresSafeArea(edges: .top)
         }
         .background(Color.black.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .toolbar {
+            if preview.playing {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { preview.setMuted(!preview.muted) } label: {
+                        Image(systemName: preview.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                    .accessibilityLabel(preview.muted ? "Sound on" : "Sound off")
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 if let link = shareLink { ShareLink(item: link) { Image(systemName: "square.and.arrow.up") } }
             }
+        }
+        // the trailer: a moment after the page is ready (not on mobile data or Low Data Mode)
+        .task(id: "\(ref.id)-preview-\(title.trailer ?? "")") {
+            guard title.trailer != nil, !NetworkStatus.shared.saving, !previewOn else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            if !Task.isCancelled { previewOn = true }
+        }
+        // quiet while another page is on top, or a video plays
+        .onDisappear { preview.pause() }
+        .onAppear { if previewOn { preview.resume() } }
+        .onChange(of: stremio.playback != nil) { _, playing in
+            if playing { preview.setMuted(true); preview.pause() } else { preview.resume() }
         }
         .sheet(isPresented: $streamsOpen) {
             StreamsSheet(choices: current, heading: title.name, subheading: episodeLine) { option, target in
@@ -166,11 +198,15 @@ struct TitleView: View {
 
     // MARK: - The top: art, logo, Play
 
+    /** Apple TV's: the art fills the top (most of the screen on an iPad); the details sit on it, low */
+    private func artHeight(_ size: CGSize) -> CGFloat {
+        size.width > 600 ? max(min(size.height * 0.8, size.width * 0.75), 520) : max(size.width * 1.35, 520)
+    }
+
     private func header(size: CGSize) -> some View {
         let width = size.width
         let wide = width > 600
-        // Apple TV's: the art fills the top (most of the screen on an iPad); the details sit on it, low
-        let artHeight = wide ? max(min(size.height * 0.8, width * 0.75), 520) : max(width * 1.35, 520)
+        let artHeight = artHeight(size)
         return ZStack(alignment: .bottom) {
             Color.clear.frame(width: width, height: artHeight)
             HStack(alignment: .bottom, spacing: 30) {
@@ -186,7 +222,16 @@ struct TitleView: View {
         .background(alignment: .top) {
             // the page scrolls up over the art, which stays where it is and fades as it's covered (and
             // grows when the page is pulled down). Darkened, no colour: low and on the left, under the text
-            Art(url: title.backdrop)
+            // (the trailer plays under the art, which fades away once it's going: WebKit won't start a
+            // video in a view that can't be seen)
+            ZStack {
+                if previewOn, let trailer = title.trailer {
+                    TrailerPreview(id: trailer, controller: preview)
+                }
+                Art(url: title.backdrop)
+                    .opacity(preview.playing ? 0 : 1)
+                    .animation(.easeIn(duration: 0.9), value: preview.playing)
+            }
                 .frame(width: width, height: artHeight)
                 .clipped()
                 .overlay(LinearGradient(stops: [.init(color: .black.opacity(0.35), location: 0), .init(color: .clear, location: 0.22), .init(color: .clear, location: 0.42), .init(color: .black.opacity(0.72), location: 0.8), .init(color: .black, location: 1)], startPoint: .top, endPoint: .bottom))

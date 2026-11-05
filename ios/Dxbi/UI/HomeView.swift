@@ -162,7 +162,7 @@ struct HomeView: View {
     private func loadingRow(_ name: String) -> some View {
         Shelf(title: name) {
             ForEach(0..<4, id: \.self) { _ in
-                RoundedRectangle(cornerRadius: 18).fill(Dx.raised).frame(width: 150, height: 225)
+                RoundedRectangle(cornerRadius: 14).fill(Dx.raised).frame(width: Dx.poster, height: Dx.poster * 1.5)
             }
         }
         .redacted(reason: .placeholder)

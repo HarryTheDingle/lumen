@@ -68,7 +68,7 @@ struct SearchView: View {
                         Shelf(title: row.heading, see: row.discover.map { .browse(link: $0, name: row.heading) }) {
                             ForEach(row.items) { title in
                                 NavigationLink(value: Route.title(title.ref)) {
-                                    PosterCard(title: title, width: Dx.pad ? 160 : 130).zoomSource(title.id)
+                                    PosterCard(title: title, width: Dx.pad ? 160 : Dx.poster).zoomSource(title.id)
                                 }
                                 .buttonStyle(.plain)
                                 .titleMenu(title)

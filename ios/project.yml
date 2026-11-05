@@ -33,7 +33,7 @@ targets:
         buildPhase: resources
       - path: ../tv/app/src/mobile/assets/dxbi-engine.js
         buildPhase: resources
-      - path: ../tv/app/src/mobile/res/font/bebas_neue.ttf
+      - path: ../tv/app/src/shared/res/font/bebas_neue.ttf
         buildPhase: resources
     dependencies:
       - package: MPVKit

@@ -1,12 +1,14 @@
 import SwiftUI
 
-/** A title in a row: its poster, and (Netflix's Top 10) a large number in the corner */
+/** A title in a row: its poster, and (a Top 10) a frosted number in the corner, as on Apple TV */
 struct PosterCard: View {
     @Environment(Stremio.self) private var stremio
     var title: Title
     var width: CGFloat = 150
     var rank: Int?
     var progress: Double?
+
+    private var corner: CGFloat { min(18, width * 0.12) }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -20,23 +22,31 @@ struct PosterCard: View {
         .frame(width: width, height: width * 1.5)
         .overlay(alignment: .topLeading) {
             if let rank {
-                Text("\(rank)")
-                    .font(.system(size: width * 0.3, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.6), radius: 6)
-                    .padding(.leading, 10)
-                    .padding(.top, 2)
+                // frosted glass in the number's shape: the poster shows through, blurred and lightened
+                let number = Text("\(rank)").font(.system(size: width * 0.22, weight: .bold))
+                number.hidden()
+                    .overlay {
+                        ZStack {
+                            Rectangle().fill(.ultraThinMaterial)
+                            Color.white.opacity(0.55)
+                        }
+                        .mask(number)
+                    }
+                    .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
+                    .padding(.leading, width * 0.09)
+                    .padding(.top, width * 0.04)
             }
         }
         .overlay(alignment: .topTrailing) {
             if stremio.isWatched(title) {
-                Image(systemName: "checkmark.circle.fill").font(.title3).symbolRenderingMode(.palette).foregroundStyle(.black, .white).padding(8)
+                Image(systemName: "checkmark.circle.fill").font(width < 130 ? .body : .title3).symbolRenderingMode(.palette).foregroundStyle(.black, .white).padding(width < 130 ? 6 : 8)
             }
         }
-        .clipShape(.rect(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.1)))
-        .contentShape(.rect(cornerRadius: 18))
-        .contentShape(.contextMenuPreview, .rect(cornerRadius: 18))
+        .clipShape(.rect(cornerRadius: corner))
+        // a glass rim, catching the light at the top
+        .overlay(RoundedRectangle(cornerRadius: corner).strokeBorder(LinearGradient(colors: [.white.opacity(0.32), .white.opacity(0.06), .white.opacity(0.14)], startPoint: .top, endPoint: .bottom), lineWidth: 1))
+        .contentShape(.rect(cornerRadius: corner))
+        .contentShape(.contextMenuPreview, .rect(cornerRadius: corner))
     }
 }
 

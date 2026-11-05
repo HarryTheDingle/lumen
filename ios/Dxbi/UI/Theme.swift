@@ -20,7 +20,8 @@ enum Dx {
     static let gutter: CGFloat = 20
     /** iPad: posters a little bigger, text no wider than reads well */
     static let pad = UIDevice.current.userInterfaceIdiom == .pad
-    static let poster: CGFloat = pad ? 180 : 150
+    /** A row's posters: on the iPhone three and a bit across, as Apple TV's */
+    static let poster: CGFloat = pad ? 180 : 112
     static let readable: CGFloat = 720
 }
 
@@ -84,6 +85,35 @@ enum Pictures {
         missing.insert(url)
         return .missing
     }
+
+    private static var darkness: [URL: Bool] = [:]
+
+    /** Mostly dark (its visible pixels): a logo drawn in black, lost on a dark page */
+    static func isDark(_ url: URL?) -> Bool {
+        guard let url, let image = memory.object(forKey: url as NSURL)?.cgImage else { return false }
+        if let known = darkness[url] { return known }
+        let side = 24
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        let drawn: Bool = pixels.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+            return true
+        }
+        guard drawn else { return false }
+        var light = 0.0, weight = 0.0
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            let a = Double(pixels[i + 3]) / 255
+            guard a > 0.2 else { continue }
+            // (premultiplied: back to the colour itself)
+            let r = Double(pixels[i]) / 255 / a, g = Double(pixels[i + 1]) / 255 / a, b = Double(pixels[i + 2]) / 255 / a
+            light += (0.299 * r + 0.587 * g + 0.114 * b) * a
+            weight += a
+        }
+        let dark = weight > 0 && light / weight < 0.3
+        darkness[url] = dark
+        return dark
+    }
 }
 
 /** A picture from the web: [content] once it's in, [placeholder] while it loads or when there's none */
@@ -125,7 +155,10 @@ struct Art: View {
     }
 }
 
-/** A title's logo (its name drawn as on the poster), or its name in large type when it has none */
+/**
+ * A title's logo (its name drawn as on the poster), or its name in large type when it has none. A logo
+ * drawn in black is shown in white, as Apple TV does: it's always over dark art
+ */
 struct TitleLogo: View {
     var title: Title
     var maxHeight: CGFloat = 100
@@ -134,7 +167,9 @@ struct TitleLogo: View {
 
     var body: some View {
         WebImage(url: title.logoURL) { image in
-            image.resizable().scaledToFit().frame(maxHeight: maxHeight, alignment: alignment)
+            image.renderingMode(Pictures.isDark(title.logoURL) ? .template : .original)
+                .resizable().scaledToFit().frame(maxHeight: maxHeight, alignment: alignment)
+                .foregroundStyle(.white)
                 .shadow(color: .black.opacity(0.5), radius: 12)
                 .frame(maxWidth: .infinity, alignment: alignment)
         } placeholder: { missing in
