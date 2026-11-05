@@ -323,6 +323,9 @@ struct Details {
     var durationMs: Double
     /** Changes as addons answer with streams (the stream list is asked for again) */
     var streamsKey: String
+    /** How many addons were asked for streams, and how many have answered */
+    var addonsAsked = 0
+    var addonsAnswered = 0
 
     init(_ o: JSON) {
         let meta = o.object("meta")
@@ -338,6 +341,9 @@ struct Details {
         resumeVideoId = resume?.text("videoId")
         resumeMs = resume?.double("timeOffset") ?? 0
         durationMs = resume?.double("duration") ?? 0
+        let groups = o.objects("streams")
+        addonsAsked = groups.count
+        addonsAnswered = groups.filter { $0.string("state") != "Loading" }.count
         streamsKey = (selected?.object("streamPath")?.string("id") ?? "") + o.objects("streams").map { "\($0.string("state")):\($0.objects("items").count)" }.joined(separator: ",")
     }
 

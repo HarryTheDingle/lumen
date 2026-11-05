@@ -27,6 +27,8 @@ struct TitleView: View {
     @State private var previewOn = false
     /** The art has scrolled away: the top bar's edge shows again */
     @State private var pastArt = false
+    /** dx.bi settings → Blur unwatched episodes */
+    @State private var blurUnwatched = false
 
     private var details: Details? { stremio.details?.metaId == ref.id ? stremio.details : nil }
     private var title: Title { details?.title ?? Title(id: ref.id, type: ref.type, name: ref.name) }
@@ -97,6 +99,7 @@ struct TitleView: View {
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $reviewsOpen) { ReviewsView(title: title, reviews: reviews) }
+        .task { blurUnwatched = await stremio.settings().first { $0.key == "blurUnwatched" }?.value == "true" }
         .task(id: ref.id) {
             if stremio.details?.metaId != ref.id { stremio.open(ref.type, ref.id) }
             reviews = await stremio.reviews(ref.type, ref.id)
@@ -131,6 +134,7 @@ struct TitleView: View {
             guard details?.videoId != nil else { return }
             choices = await stremio.streams()
             justPlayIfSure()
+            updateLaunch()
         }
         .task(id: waitingFor) {
             guard waitingFor != nil else { return }
@@ -155,8 +159,33 @@ struct TitleView: View {
             stremio.open(ref.type, ref.id, videoId: videoId)
         }
         waitingFor = target
-        streamsOpen = true
+        if NetworkStatus.shared.saving {
+            // (mobile data or Low Data Mode: the list, to choose from)
+            streamsOpen = true
+        } else {
+            let video = details?.videos.first { $0.id == target }
+            let line = video.flatMap { v in v.season.flatMap { s in v.episode.map { "S\(s), E\($0)" + (v.title.isEmpty ? "" : " · \(v.title)") } } }
+            stremio.beginLaunch(title, episode: line, text: "Opening \(title.name)")
+            stremio.onLaunchCancel = { waitingFor = nil }
+        }
         justPlayIfSure()
+        updateLaunch()
+    }
+
+    /** What the loading screen says while the streams come in */
+    private func updateLaunch() {
+        guard waitingFor != nil, stremio.launch != nil else { return }
+        guard let d = details, d.state == .ready else { return stremio.stepLaunch("Opening \(title.name)", progress: 0.1) }
+        let found = current?.items.count ?? 0
+        let progress = 0.25 + 0.55 * (d.addonsAsked == 0 ? 0 : Double(d.addonsAnswered) / Double(d.addonsAsked))
+        if let c = current, c.settled, c.picked == nil {
+            return stremio.failLaunch("No streams found", "Your addons may not have this one yet.")
+        }
+        stremio.stepLaunch(
+            "Finding the best stream",
+            detail: d.addonsAsked == 0 ? "Asking your addons" : found == 0 ? "\(d.addonsAnswered) of \(d.addonsAsked) addons answered" : "\(found) streams from \(d.addonsAnswered) of \(d.addonsAsked) addons",
+            progress: progress
+        )
     }
 
     /** Just press Play: the stream chosen last time plays at once, anything else once every addon has answered */
@@ -170,6 +199,10 @@ struct TitleView: View {
     private func play(_ option: StreamOption, in target: Stremio.Target = .player) {
         waitingFor = nil
         streamsOpen = false
+        if stremio.launch != nil {
+            let what = [option.quality, option.dv ? "Dolby Vision" : option.hdr ? "HDR" : nil].compactMap { $0 }.joined(separator: " · ")
+            stremio.stepLaunch("Starting \(what)", detail: [option.provider, option.sizeText ?? "", option.source].filter { !$0.isEmpty && $0 != "Other" }.joined(separator: " · "), progress: 0.88)
+        }
         stremio.play(option, in: target)
     }
 
@@ -476,7 +509,7 @@ struct TitleView: View {
 
     private func episodeButton(_ v: Video, width: CGFloat, d: Details) -> some View {
         Button { start(v.id) } label: {
-            EpisodeCard(video: v, width: width, fallbackArt: title.backdrop, playing: v.id == nextVideo(d)?.id)
+            EpisodeCard(video: v, width: width, fallbackArt: title.backdrop, playing: v.id == nextVideo(d)?.id, blurUnwatched: blurUnwatched)
         }
         .buttonStyle(.plain)
         .contextMenu {

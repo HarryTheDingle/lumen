@@ -72,6 +72,12 @@ struct RootView: View {
             }
         }
         .screenBackground()
+        .overlay {
+            if let launch = stremio.launch {
+                LoadingScreen(screen: launch).transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.3), value: stremio.launch != nil)
         .overlay(alignment: .top) {
             if let message = stremio.message {
                 Text(message)

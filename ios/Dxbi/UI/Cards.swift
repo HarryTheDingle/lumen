@@ -112,13 +112,20 @@ struct EpisodeCard: View {
     var width: CGFloat
     var fallbackArt: URL?
     var playing = false
+    /** Blur unwatched episodes (dx.bi settings): the picture hidden until it's watched or started */
+    var blurUnwatched = false
+
+    private var hidden: Bool { blurUnwatched && !video.watched && (video.progress ?? 0) <= 0 }
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Art(url: URL(string: video.thumbnail ?? "") ?? fallbackArt)
-                .frame(width: width, height: width * 0.92)
-            BlurFade(url: URL(string: video.thumbnail ?? "") ?? fallbackArt, from: 0.36)
-                .frame(width: width, height: width * 0.92)
+            Group {
+                Art(url: URL(string: video.thumbnail ?? "") ?? fallbackArt)
+                    .frame(width: width, height: width * 0.92)
+                BlurFade(url: URL(string: video.thumbnail ?? "") ?? fallbackArt, from: 0.36)
+                    .frame(width: width, height: width * 0.92)
+            }
+            .blur(radius: hidden ? 22 : 0, opaque: true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(video.episode.map { "EPISODE \($0)" } ?? "SPECIAL")
                     .font(.caption.weight(.semibold))

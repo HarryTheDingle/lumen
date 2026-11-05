@@ -747,64 +747,110 @@ private struct StreamsPanel: View {
     }
 }
 
-/** Playback speed */
+/**
+ * Playback speed. A list in a panel, as the streams are: a menu rebuilt itself as the player updated,
+ * and jumped about under the finger
+ */
 private struct SpeedMenu: View {
     let playback: Playback
-    /** The menu opened: the controls stay up while it's open */
+    /** The panel opened: the controls stay up while it's open */
     var onOpen: () -> Void
+    @State private var open = false
     var body: some View {
-        Menu {
-            Picker("Speed", selection: Binding(get: { playback.speed }, set: { playback.mpv.setSpeed($0) })) {
-                ForEach([0.5, 0.75, 1, 1.25, 1.5, 1.75, 2], id: \.self) { r in Text(r == 1 ? "Normal" : "\(r.formatted())×").tag(r) }
-            }
+        Button {
+            onOpen()
+            open = true
         } label: {
             Label(playback.speed == 1 ? "Speed" : "\(playback.speed.formatted())×", systemImage: "gauge.with.dots.needle.67percent").frame(height: 24)
         }
         .buttonStyle(.glass)
-        .simultaneousGesture(TapGesture().onEnded(onOpen))
-        // (opening upward, iOS turned the list upside down: Off ended up at the bottom)
-        .menuOrder(.fixed)
+        .popover(isPresented: $open, arrowEdge: .bottom) {
+            NavigationStack {
+                List {
+                    ForEach([0.5, 0.75, 1, 1.25, 1.5, 1.75, 2], id: \.self) { r in
+                        choice(r == 1 ? "Normal" : "\(r.formatted())×", on: playback.speed == r) {
+                            playback.mpv.setSpeed(r)
+                            open = false
+                        }
+                    }
+                }
+                .navigationTitle("Speed")
+                .navigationBarTitleDisplayMode(.inline)
+            }
+            .frame(minWidth: 320, idealWidth: 360, minHeight: 300, idealHeight: 440)
+            .presentationCompactAdaptation(.sheet)
+        }
     }
 }
 
-/** Subtitles, by where they come from, and the sound tracks */
+/** Subtitles, by where they come from, and the sound tracks: a list in a panel, as the streams are */
 private struct TracksMenu: View {
     let playback: Playback
     var onOpen: () -> Void
+    @State private var open = false
     var body: some View {
-        Menu {
-            let subs = playback.subtitleTracks
-            Section("Subtitles") {
-                Button { playback.choose("sub", nil) } label: { check("Off", on: !subs.contains(where: \.selected)) }
-            }
-            ForEach([("video", "In the Video"), ("stream", "With This Stream"), ("addon", "From Subtitle Addons · may not match")], id: \.0) { source, heading in
-                let group = subs.filter { playback.source(of: $0) == source }
-                if !group.isEmpty {
-                    Section(heading) {
-                        ForEach(group) { t in Button { playback.choose("sub", t) } label: { check(trackName(t), on: t.selected) } }
-                    }
-                }
-            }
-            if playback.audioTracks.count > 1 {
-                Section("Audio") {
-                    ForEach(playback.audioTracks) { t in
-                        Button { playback.choose("audio", t) } label: { check(trackName(t) + (t.codec.isEmpty ? "" : " · \(t.codec.uppercased())"), on: t.selected) }
-                    }
-                }
-            }
+        Button {
+            onOpen()
+            open = true
         } label: {
             Label("Subtitles", systemImage: "captions.bubble.fill").frame(height: 24)
         }
         .buttonStyle(.glass)
-        .simultaneousGesture(TapGesture().onEnded(onOpen))
-        // (opening upward, iOS turned the list upside down: Off ended up at the bottom)
-        .menuOrder(.fixed)
+        .popover(isPresented: $open, arrowEdge: .bottom) {
+            NavigationStack {
+                let subs = playback.subtitleTracks
+                List {
+                    Section("Subtitles") {
+                        choice("Off", on: !subs.contains(where: \.selected)) {
+                            playback.choose("sub", nil)
+                            open = false
+                        }
+                    }
+                    ForEach([("video", "In the Video"), ("stream", "With This Stream"), ("addon", "From Subtitle Addons · may not match")], id: \.0) { source, heading in
+                        let group = subs.filter { playback.source(of: $0) == source }
+                        if !group.isEmpty {
+                            Section(heading) {
+                                ForEach(group) { t in
+                                    choice(trackName(t), on: t.selected) {
+                                        playback.choose("sub", t)
+                                        open = false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if playback.audioTracks.count > 1 {
+                        Section("Audio") {
+                            ForEach(playback.audioTracks) { t in
+                                choice(trackName(t) + (t.codec.isEmpty ? "" : " · \(t.codec.uppercased())"), on: t.selected) {
+                                    playback.choose("audio", t)
+                                    open = false
+                                }
+                            }
+                        }
+                    }
+                }
+                .navigationTitle("Subtitles & Audio")
+                .navigationBarTitleDisplayMode(.inline)
+            }
+            .frame(minWidth: 380, idealWidth: 420, minHeight: 300, idealHeight: 520)
+            .presentationCompactAdaptation(.sheet)
+        }
     }
 }
 
-@ViewBuilder
-private func check(_ text: String, on: Bool) -> some View {
-    if on { Label(text, systemImage: "checkmark") } else { Text(text) }
+/** A row of one of those lists, ticked when it's the one in use */
+private func choice(_ text: String, on: Bool, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+        HStack {
+            Text(text).font(.body.weight(on ? .semibold : .regular)).multilineTextAlignment(.leading)
+            Spacer(minLength: 8)
+            if on { Image(systemName: "checkmark").font(.body.weight(.semibold)) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(.rect)
+    }
+    .buttonStyle(.plain)
 }
 
 private func trackName(_ t: MPV.Track) -> String {

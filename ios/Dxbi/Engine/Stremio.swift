@@ -54,6 +54,12 @@ final class Stremio {
     /** What the player is showing (the page's play payload), while it's open */
     var playback: Playback?
 
+    /** The loading screen over everything while Play finds a stream or a stream is switched (nil: none) */
+    var launch: LaunchScreen?
+    /** Called when the loading screen is closed by hand (the page that was waiting for a stream stops waiting) */
+    @ObservationIgnored var onLaunchCancel: (() -> Void)?
+    @ObservationIgnored private var launchTimeout: Task<Void, Never>?
+
     @ObservationIgnored private var board: JSON?
     @ObservationIgnored private var nextTarget = Target.player
     @ObservationIgnored private var extrasTask: Task<Void, Never>?
@@ -207,6 +213,45 @@ final class Stremio {
                 try? await Task.sleep(for: .seconds(1.5))
             }
         }
+    }
+
+    // MARK: - The loading screen
+
+    func beginLaunch(_ title: Title, episode: String? = nil, text: String, detail: String? = nil, progress: Double = 0.03) {
+        launch = LaunchScreen(title: title, episode: episode, text: text, detail: detail, progress: progress)
+        launchTimeout?.cancel()
+        // (the player is slow to open, or never does: the screen doesn't stay for ever)
+        launchTimeout = Task {
+            try? await Task.sleep(for: .seconds(45))
+            if !Task.isCancelled, launch?.failed == false { failLaunch("Couldn't start a stream", "Try Choose a Stream on the title's page.") }
+        }
+    }
+
+    func stepLaunch(_ text: String, detail: String? = nil, progress: Double) {
+        guard launch?.failed == false else { return }
+        launch?.text = text
+        launch?.detail = detail
+        launch?.progress = max(progress, launch?.progress ?? 0)
+    }
+
+    func failLaunch(_ text: String, _ detail: String) {
+        guard launch != nil else { return }
+        launch?.text = text
+        launch?.detail = detail
+        launch?.progress = 1
+        launch?.failed = true
+    }
+
+    func endLaunch() {
+        launchTimeout?.cancel()
+        launch = nil
+    }
+
+    /** Closed by hand */
+    func cancelLaunch() {
+        endLaunch()
+        onLaunchCancel?()
+        onLaunchCancel = nil
     }
 
     // MARK: - Details
@@ -379,6 +424,23 @@ final class Stremio {
         // (Stremio's own saved place lags behind, and was sometimes the start: the player hands it over)
         if let p = playback {
             switching = (p.payload.string("videoId"), p.position, Date())
+            // (the loading screen goes up first, so the page under the player never shows)
+            let video = p.payload.string("videoId")
+            let meta = video.wholeMatch(of: /(.+):\d+:\d+/).map { String($0.1) } ?? video
+            var title = details?.metaId == meta ? details?.title : nil
+            if title == nil {
+                var t = Title(id: meta, type: meta == video ? "movie" : "series", name: p.payload.string("title"))
+                t.poster = p.payload.text("poster")
+                t.background = p.payload.text("background")
+                title = t
+            }
+            beginLaunch(
+                title!,
+                episode: p.payload.text("subtitle"),
+                text: "Switching stream",
+                detail: option.label,
+                progress: 0.5
+            )
         }
         playback?.finish(ended: false)
         Task {
@@ -590,6 +652,13 @@ final class Stremio {
         // (from here, not from a screen watching for it: the screens under the player don't update
         // while it covers them, so it never closed)
         PlayerHost.show(playback, stremio: self)
+        // (the loading screen stays until the player has covered it)
+        if launch != nil {
+            Task {
+                try? await Task.sleep(for: .seconds(0.8))
+                if self.playback === playback { endLaunch() }
+            }
+        }
     }
 
     /** The player's external player button: carries on in another app */
