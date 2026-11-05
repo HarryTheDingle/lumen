@@ -60,6 +60,10 @@ struct TitleRef: Hashable {
     var name: String = ""
     /** Start playing as soon as it's open (Play on Home) */
     var play = false
+    /** ...from 0 rather than the saved place (Start from the Beginning) */
+    var fromStart = false
+    /** ...a series' random episode (Shuffle) */
+    var shuffle = false
 }
 
 enum Load {
@@ -175,6 +179,12 @@ struct StreamOption: Identifiable, Hashable {
     var res: Int
     var hdr: Bool
     var dv: Bool
+    /** Formats the file name claims: IMAX, Dolby Atmos, HDR10+, Open Matte, 3D */
+    var imax: Bool
+    var atmos: Bool
+    var hdr10plus: Bool
+    var openMatte: Bool
+    var threeD: Bool
     var size: Double
     var seeds: Int
     var source: String
@@ -199,6 +209,11 @@ struct StreamOption: Identifiable, Hashable {
         res = o.int("res")
         hdr = o.bool("hdr")
         dv = o.bool("dv")
+        imax = o.bool("imax")
+        atmos = o.bool("atmos")
+        hdr10plus = o.bool("hdr10plus")
+        openMatte = o.bool("openMatte")
+        threeD = o.bool("threeD")
         size = o.double("size")
         mbps = o.double("mbps")
         seeds = o.int("seeds", -1)
@@ -216,6 +231,20 @@ struct StreamOption: Identifiable, Hashable {
         default: "SD"
         }
     }
+
+    /** The formats it offers, for the Format filter */
+    var formats: [String] {
+        var f: [String] = []
+        if imax { f.append("IMAX") }
+        if dv { f.append("Dolby Vision") }
+        if hdr { f.append("HDR") }
+        if atmos { f.append("Atmos") }
+        if source == "Remux" { f.append("Remux") }
+        if openMatte { f.append("Open Matte") }
+        if threeD { f.append("3D") }
+        return f
+    }
+    static let formatOrder = ["IMAX", "Dolby Vision", "HDR", "Atmos", "Remux", "Open Matte", "3D"]
 
     var sizeText: String? {
         guard size > 0 else { return nil }
@@ -319,6 +348,8 @@ struct Details {
     var directors: [String]
     var videos: [Video]
     var resumeVideoId: String?
+    /** The episode Play starts (the engine works it out: dxbi-engine.js nextEpisode) */
+    var nextVideoId: String?
     var resumeMs: Double
     var durationMs: Double
     /** Changes as addons answer with streams (the stream list is asked for again) */
@@ -339,12 +370,20 @@ struct Details {
         directors = (meta?.strings("directors") ?? []).map(\.unescaped)
         videos = meta?.objects("videos").map(Video.init) ?? []
         resumeVideoId = resume?.text("videoId")
+        nextVideoId = o.text("next")
         resumeMs = resume?.double("timeOffset") ?? 0
         durationMs = resume?.double("duration") ?? 0
         let groups = o.objects("streams")
         addonsAsked = groups.count
         addonsAnswered = groups.filter { $0.string("state") != "Loading" }.count
         streamsKey = (selected?.object("streamPath")?.string("id") ?? "") + o.objects("streams").map { "\($0.string("state")):\($0.objects("items").count)" }.joined(separator: ",")
+    }
+
+    /** A random released episode for Shuffle (specials and unreleased skipped; not the one last played, unless it's the only one) */
+    func shuffled() -> Video? {
+        let now = Date()
+        let out = videos.filter { ($0.season ?? 0) > 0 && !$0.upcoming && ($0.releaseDate.map { $0 <= now } ?? true) }
+        return out.filter { $0.id != resumeVideoId }.randomElement() ?? out.randomElement()
     }
 
     /** Seasons in order, specials (season 0) last */
@@ -406,7 +445,7 @@ struct Account {
 }
 
 /** dx.bi's own Home rows (window.__dxbi.phone) */
-struct ListRow {
+struct ListRow: Equatable {
     var name: String
     var items: [Title]
     init(_ o: JSON) {
@@ -550,6 +589,22 @@ struct Setting: Identifiable {
 struct Viewer: Identifiable, Hashable {
     var id: String
     var name: String
+    /** dx.bi's viewer colour (hex) */
+    var colour: String?
+    var kids = false
+
+    init(id: String, name: String, colour: String? = nil, kids: Bool = false) {
+        self.id = id
+        self.name = name
+        self.colour = colour
+        self.kids = kids
+    }
+
+    init(_ o: JSON) {
+        self.init(id: o.string("id"), name: o.string("name"), colour: o.text("colour"), kids: o.bool("kids"))
+    }
+
+    var initial: String { String(name.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased() }
 }
 
 struct HomeLayout {

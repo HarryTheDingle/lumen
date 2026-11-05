@@ -56,6 +56,9 @@ final class Playback: Identifiable {
     var duration: Double = 0
     var paused = false
     var buffering = true
+    /** The first picture is playing: the loading screen over the player goes */
+    var ready = false
+    @ObservationIgnored private var readyFrom: Double?
     var speed: Double = 1
     var tracks: [MPV.Track] = []
     var fit = Fit.fit {
@@ -261,6 +264,13 @@ final class Playback: Identifiable {
         pip.refresh()
         autoSkipIfDue()
         if mpv.started, !mpv.buffering, playingSince == nil { playingSince = Date() }
+        // (playing isn't yet showing: the picture layer is a moment behind the decoder, so it waits until
+        // the video has played most of a second, and the loading screen doesn't lift onto a black screen)
+        if !ready, mpv.started, !mpv.buffering {
+            let from = readyFrom ?? mpv.position
+            readyFrom = from
+            if mpv.position - from >= 0.8 { ready = true }
+        }
         if mpv.stalled { if stalledSince == nil, settledIn, Date().timeIntervalSince(mpv.lastSeek) > 4 { stallCount += 1 }; stalledSince = stalledSince ?? Date() } else { stalledSince = nil }
         if !subtitlesDecided, mpv.started { decideSubtitles() }
     }
@@ -404,7 +414,8 @@ final class Playback: Identifiable {
 
     /**
      * A real stall (playing a while, not just after a seek, not a download or a watch party): first it
-     * waits for more before carrying on, 10 seconds and then 30, which rides out a slow patch. Stalling
+     * waits for more before carrying on, 15 seconds (5 when the connection is clearly quicker than the
+     * stream needs: over 3 times its bitrate), which rides out a slow patch. Stalling
      * again after that (or at the second stall when the server is clearly slower than the stream needs),
      * it offers lighter streams that fit the speed mpv is really getting from the server.
      */
@@ -419,7 +430,9 @@ final class Playback: Identifiable {
         let nowMbps = size > 0 && duration > 0 ? size * 8 / duration / 1e6 : 0
         let tooSlow = mbps > 0 && nowMbps > 0 && mbps < nowMbps * 0.8
         if stallStep == 1 || (stallStep == 2 && !tooSlow) {
-            let wait = stallStep == 1 ? 10 : 30
+            // (the quickest reading of this connection: now, or the high ones from earlier in this video)
+            let best = max(mbps, speedReadings.isEmpty ? 0 : speedReadings.sorted()[speedReadings.count * 3 / 4])
+            let wait = nowMbps > 0 && best > nowMbps * 3 ? 5 : 15
             mpv.property("cache-pause-wait", String(wait))
             show("Buffering \(wait) seconds ahead to keep it smooth")
             return

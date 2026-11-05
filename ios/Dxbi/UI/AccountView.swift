@@ -36,7 +36,33 @@ struct WelcomeView: View {
                 if !stremio.ready {
                     Label("Starting Stremio…", systemImage: "hourglass").font(.footnote).foregroundStyle(Dx.faint)
                 }
-                Button("Continue Without an Account") { stremio.guest = true }
+                if !stremio.accounts.isEmpty {
+                    VStack(spacing: 8) {
+                        Text("Saved on this device").font(.footnote.weight(.semibold)).foregroundStyle(Dx.muted)
+                        ForEach(stremio.accounts) { a in
+                            Button { stremio.switchAccount(to: a.id) } label: {
+                                HStack(spacing: 10) {
+                                    Avatar(email: a.email, size: 30)
+                                    Text(a.email).lineLimit(1)
+                                    Spacer()
+                                    Image(systemName: "arrow.right.circle").foregroundStyle(Dx.muted)
+                                }
+                                .padding(12)
+                                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!stremio.ready)
+                        }
+                    }
+                    .padding(.top, 14)
+                }
+                if stremio.addingAccount {
+                    Button("Cancel") { stremio.cancelAddAccount() }.font(.subheadline.weight(.semibold)).padding(.top, 4)
+                }
+                Button("Continue Without an Account") {
+                    stremio.guest = true
+                    stremio.addingAccount = false
+                }
                     .font(.subheadline.weight(.semibold))
                     .padding(.top, 6)
                 Link("Create a Stremio account", destination: URL(string: "https://www.stremio.com/register")!)
@@ -67,20 +93,36 @@ struct WelcomeView: View {
 struct AccountView: View {
     @Environment(Stremio.self) private var stremio
     @Environment(\.dismiss) private var dismiss
+    @State private var picking = false
 
     var body: some View {
         @Bindable var stremio = stremio
         NavigationStack {
             List {
                 Section {
-                    HStack(spacing: 14) {
-                        Avatar(email: stremio.account?.email).scaleEffect(1.6).frame(width: 52, height: 52)
-                        VStack(alignment: .leading) {
-                            Text(stremio.account?.email ?? "Not signed in").font(.headline)
-                            Text(stremio.account?.signedIn == true ? "Stremio account" : "Using Lumen without an account").font(.footnote).foregroundStyle(Dx.muted)
+                    // who's watching now (their own Continue Watching, watched marks and picks)
+                    Button { picking = true } label: {
+                        HStack(spacing: 14) {
+                            if let v = stremio.viewer { ProfileAvatar(name: v.name, colour: v.colour, size: 52) }
+                            else { Avatar(email: stremio.account?.email).scaleEffect(1.6).frame(width: 52, height: 52) }
+                            VStack(alignment: .leading) {
+                                Text(stremio.viewer?.name ?? stremio.account?.email ?? "Not signed in").font(.headline).foregroundStyle(.white)
+                                Text(stremio.viewers.count > 1 ? "Switch or manage profiles" : "Add a profile for someone else").font(.footnote).foregroundStyle(Dx.muted)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(Dx.faint)
+                        }
+                        .padding(.vertical, 6)
+                    }
+                    NavigationLink { AccountsView() } label: {
+                        HStack(spacing: 12) {
+                            Avatar(email: stremio.account?.email, size: 30)
+                            VStack(alignment: .leading) {
+                                Text(stremio.account?.email ?? "Not signed in")
+                                Text(stremio.account?.signedIn == true ? "Stremio account" : "Using Lumen without an account").font(.footnote).foregroundStyle(Dx.muted)
+                            }
                         }
                     }
-                    .padding(.vertical, 6)
                 }
                 Section {
                     NavigationLink { AddonsView() } label: { Label("Addons", systemImage: "puzzlepiece.extension.fill") }
@@ -109,6 +151,7 @@ struct AccountView: View {
                     Text("Lumen \(Page.version) · Not affiliated with Stremio.")
                 }
             }
+            .fullScreenCover(isPresented: $picking) { ProfilePicker { picking = false } }
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -210,7 +253,7 @@ struct DxbiSettingsView: View {
 
     /** How Stremio's page looks: the app's own screens don't use these */
     private static let webOnly: Set<String> = [
-        "liteMode", "builtInTheme", "previews", "ratings", "animeTitles", "wideContinue", "librarySort", "trailers",
+        "liteMode", "builtInTheme", "previews", "ratings", "animeTitles", "wideContinue", "librarySort", "trailers", "trailerDelay",
         "whoIsWatching", "addonTools", "posterAccent", "crispPosters", "streamTools", "streamRows", "splash", "introSound",
         "profileSync", "uiSounds", "focusColour", "videoRowsOnly", "newEpisodes", "accent", "tvTorrents",
     ]

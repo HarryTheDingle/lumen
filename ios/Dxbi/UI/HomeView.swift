@@ -16,7 +16,9 @@ struct HomeView: View {
             let width = g.size.width
             let wide = width > g.size.height
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 30) {
+                // (not lazy: rows arriving above, Top Picks among them, left a lazy column with blank gaps
+                // where rows should be, coming and going. Each row's own posters are still lazy)
+                VStack(alignment: .leading, spacing: 30) {
                     if !billboardTitles.isEmpty {
                         Billboard(titles: billboardTitles, playLabels: playLabels, height: wide ? g.size.height * 0.92 : min(g.size.height * 0.74, width * 1.55))
                     } else {
@@ -33,7 +35,10 @@ struct HomeView: View {
                     ForEach(Array(stremio.myList.enumerated()), id: \.offset) { _, row in
                         if kind == nil, !row.items.isEmpty { titleRow(row.name, row.items, see: .library) }
                     }
-                    if kind == nil, let forYou = stremio.forYou { titleRow(forYou.name, forYou.items) }
+                    if kind == nil {
+                        ForEach(stremio.picks.prefix(1), id: \.name) { row in titleRow(row.name, row.items) }
+                        if stremio.picks.isEmpty, let forYou = stremio.forYou { titleRow(forYou.name, forYou.items) }
+                    }
                     if kind == nil, !stremio.airing.isEmpty {
                         Shelf(title: "New Episodes This Week") {
                             ForEach(stremio.airing) { item in
@@ -44,6 +49,10 @@ struct HomeView: View {
                                 .titleMenu(Title(id: item.id, type: "series", name: item.name))
                             }
                         }
+                    }
+                    // Because you watched …: on what this profile actually watched
+                    if kind == nil {
+                        ForEach(stremio.picks.dropFirst(), id: \.name) { row in titleRow(row.name, row.items) }
                     }
                     let rows = stremio.rows.filter { kind == nil || $0.type == kind }
                     ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
@@ -82,8 +91,11 @@ struct HomeView: View {
             // The picture is the button, a perfect circle (not inside the bar's glass capsule)
             ToolbarItem(placement: .topBarTrailing) {
                 Button { account = true } label: {
-                    Avatar(email: stremio.account?.email, size: 44)
-                        .glassEffect(.regular.interactive(), in: .circle)
+                    Group {
+                        if stremio.viewers.count > 1, let v = stremio.viewer { ProfileAvatar(name: v.name, colour: v.colour, size: 44) }
+                        else { Avatar(email: stremio.account?.email, size: 44) }
+                    }
+                    .glassEffect(.regular.interactive(), in: .circle)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Profile and settings")
@@ -101,7 +113,7 @@ struct HomeView: View {
      * Continue Watching (five at most). Suggestions only when nothing's in progress.
      */
     private var billboardTitles: [Title] {
-        let watching = stremio.continueWatching.prefix(5).map(\.title)
+        let watching = stremio.continueWatching.prefix(5).map { stremio.filledIn($0.title) }
         return watching.isEmpty ? stremio.billboard : Array(watching)
     }
 
@@ -214,9 +226,20 @@ struct TitleMenu: View {
     var body: some View {
         let inList = stremio.isInLibrary(title)
         let watched = stremio.isWatched(title)
+        let started = resume || stremio.isStarted(title)
         NavigationLink(value: Route.title(title.ref)) { Label("Details", systemImage: "info.circle") }
         NavigationLink(value: Route.title(TitleRef(type: title.type, id: title.id, name: title.name, play: true))) {
             Label(resume ? "Resume" : "Play", systemImage: "play.fill")
+        }
+        if started {
+            NavigationLink(value: Route.title(TitleRef(type: title.type, id: title.id, name: title.name, fromStart: true))) {
+                Label("Start from the Beginning", systemImage: "arrow.counterclockwise")
+            }
+        }
+        if title.type == "series" {
+            NavigationLink(value: Route.title(TitleRef(type: title.type, id: title.id, name: title.name, shuffle: true))) {
+                Label("Shuffle", systemImage: "shuffle")
+            }
         }
         Divider()
         Button {
@@ -225,11 +248,17 @@ struct TitleMenu: View {
         } label: {
             Label(inList ? "Remove from Library" : "Add to Library", systemImage: inList ? "minus.circle" : "plus.circle")
         }
-        Button {
-            stremio.setWatched(title, !watched)
-            stremio.show(watched ? "Marked as unwatched" : "Marked as watched")
-        } label: {
-            Label(watched ? "Mark as Unwatched" : "Mark as Watched", systemImage: watched ? "eye.slash" : "eye")
+        if !watched {
+            Button {
+                stremio.setWatched(title, true)
+                stremio.show("Marked as watched")
+            } label: { Label("Mark as Watched", systemImage: "eye") }
+        }
+        if watched || started {
+            Button {
+                stremio.setWatched(title, false)
+                stremio.show("Marked as unwatched")
+            } label: { Label("Mark as Unwatched", systemImage: "eye.slash") }
         }
         if resume {
             Button(role: .destructive) { stremio.removeFromContinue(title.id) } label: {
@@ -338,20 +367,9 @@ private struct Billboard: View {
     }
 
     private func info(_ title: Title) -> some View {
-        VStack(spacing: 12) {
-            Group {
-                if let year = title.year { Badge(text: year) }
-                TitleLogo(title: title, maxHeight: 110, textSize: 40)
-                    .frame(maxWidth: 320)
-                Text(([typeName(title.type)] + title.genres.prefix(2)).joined(separator: " · "))
-                    .font(.subheadline)
-                    .foregroundStyle(Dx.muted)
-                if let d = title.description {
-                    Text(d).font(.footnote).foregroundStyle(Dx.faint).lineLimit(2).multilineTextAlignment(.center).frame(maxWidth: 360)
-                }
-            }
-            // (the words open the title too)
-            .allowsHitTesting(false)
+        TitleInfo(title: title, status: status(title), more: .constant(false)) {
+            EmptyView()
+        } buttons: {
             HStack(spacing: 14) {
                 NavigationLink(value: Route.title(TitleRef(type: title.type, id: title.id, name: title.name, play: true))) {
                     Label(playLabels[title.id] ?? "Play", systemImage: "play.fill").font(.headline).frame(minWidth: 150).padding(.horizontal, 10).frame(height: 50)
@@ -364,10 +382,22 @@ private struct Billboard: View {
                     stremio.show(title.inLibrary ? "Removed from your Library" : "Added to your Library")
                 }
             }
-            .padding(.top, 4)
         }
+        .frame(maxWidth: 520, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 24)
         .padding(.bottom, 34)
+    }
+
+    /** What's new, from what Stremio knows: an episode coming this week or out now, or new episodes waiting (else nothing) */
+    private func status(_ title: Title) -> String? {
+        if title.type != "movie", let a = stremio.airing.first(where: { $0.id == title.id }) {
+            return a.out ? "New Episode Out Now" : "S\(a.season), E\(a.episode) · \(a.whenText)"
+        }
+        if let n = stremio.continueWatching.first(where: { $0.id == title.id })?.newEpisodes, n > 0 {
+            return n == 1 ? "New Episode Out Now" : "\(n) New Episodes Out Now"
+        }
+        return nil
     }
 
     private var dots: some View {

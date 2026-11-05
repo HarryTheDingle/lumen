@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import WebKit
+import VideoToolbox
 
 /**
  * Stremio's web app, running out of sight: it does Stremio's work (account, addons, library, finding
@@ -117,7 +118,7 @@ final class Page: NSObject {
             try { Object.defineProperty(window, name, { value: undefined, configurable: false, writable: false }); } catch (_) {}
           }
           const post = (message) => { try { window.webkit.messageHandlers.dxbi.postMessage(message); } catch (_) {} };
-          const ios = (window.__dxbiIos = { settings: \(Json.encode(savedSettings)), plugin: \(Json.quote(resource("dxbi.plugin.js"))), active: "", pendingClose: "", utcOffset: \(Self.utcOffset) });
+          const ios = (window.__dxbiIos = { settings: \(Json.encode(savedSettings)), plugin: \(Json.quote(resource("dxbi.plugin.js"))), active: "", pendingClose: "", utcOffset: \(Self.utcOffset), noAv1: \(!VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)) });
           window.DxbiTV = {
             pluginSource: () => ios.plugin,
             getSettings: (t, plugin) => JSON.stringify(ios.settings[plugin] || {}),

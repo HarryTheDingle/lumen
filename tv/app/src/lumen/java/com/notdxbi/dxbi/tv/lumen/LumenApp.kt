@@ -83,10 +83,16 @@ fun LumenApp(engine: Engine) {
         val account by stremio.account.collectAsState()
         val ready by stremio.ready.collectAsState()
         val guest by stremio.guest.collectAsState()
+        val swapping by stremio.swapping.collectAsState()
+        val viewers by stremio.viewers.collectAsState()
+        val chosen by stremio.profileChosen.collectAsState()
         val a = account
         when {
+            // another account is being read in: Stremio's page starts again
+            swapping -> Starting()
             a == null && !ready -> Starting()
             a != null && !a.signedIn && !guest -> SignIn(stremio)
+            viewers.size > 1 && !chosen -> ProfilePicker(stremio) { stremio.profileChosen.value = true }
             else -> Screens(stremio, scope)
         }
     }
@@ -113,6 +119,9 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
 
     // Play, everywhere: the loading screen, then the player
     val launcher = remember { Launcher(stremio, scope) }
+    // a player whose stream failed while loading: the loading screen up again behind it, for the next best
+    val retrying by LoadingHandoff.retries.collectAsState()
+    LaunchedEffect(retrying) { if (retrying != null) launcher.retry() }
     val play: (Title) -> Unit = { title -> launcher.play(title, watching.firstOrNull { it.title.id == title.id }?.videoId) }
     // what a preview card's Play, + and scores do
     val cardActions = remember {
@@ -149,7 +158,8 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
     }
 
     // Apple TV's menu down the left
-    if (nav.menuOpen) SideMenu(nav, account?.email)
+    val viewer by stremio.viewer.collectAsState()
+    if (nav.menuOpen) SideMenu(nav, account?.email, viewer)
 
     // the pages over the tab, each in its own window
     nav.pages.forEachIndexed { i, page ->
@@ -158,6 +168,8 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
                 when (page) {
                     is Page.Details -> TitlePage(stremio, nav, page.title, page.play)
                     Page.Catalogs -> CatalogBrowser(stremio, nav)
+                    is Page.Person -> PersonPage(stremio, nav, page)
+                    Page.Profiles -> PageWindow(onBack = { nav.back() }) { ProfilePicker(stremio) { nav.back() } }
                 }
             }
         }
@@ -183,6 +195,8 @@ private fun SignIn(stremio: Stremio) {
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val accounts by stremio.accounts.collectAsState()
+    val adding by stremio.addingAccount.collectAsState()
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
 
@@ -212,6 +226,12 @@ private fun SignIn(stremio: Stremio) {
                     colors = ButtonDefaults.colors(containerColor = Color.White.copy(alpha = 0.12f), contentColor = Color.White, focusedContainerColor = Color.White, focusedContentColor = Color.Black),
                 ) { Text("Browse without an account", fontSize = 16.sp) }
             }
+            // kept on this device: back in without typing
+            if (accounts.isNotEmpty()) {
+                Text("Saved on this device", fontSize = 13.sp, color = Dx.Muted, modifier = Modifier.padding(top = 8.dp))
+                accounts.forEach { a -> Pill(a.email.ifEmpty { "Stremio account" }, selected = false, onClick = { stremio.switchAccount(a.id) }) }
+            }
+            if (adding) Pill("Cancel", selected = false, onClick = { stremio.cancelAddAccount() })
         }
     }
 }

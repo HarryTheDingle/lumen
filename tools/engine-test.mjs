@@ -229,7 +229,32 @@ mark = dispatched.length;
 await ask(42, "videoWatched", { id: "tt2:1:3", value: true, upTo: true });
 assert.deepEqual(dispatched.slice(mark).map((d) => d.action.args.args[0].id).sort(), ["tt2:1:1", "tt2:1:2", "tt2:1:3"], "season 1 up to episode 3, not season 2");
 await ask(43, "videoWatched", { id: "tt2", value: false });
-assert.deepEqual(dispatched.at(-1).action.args, { action: "MarkAsWatched", args: false });
+assert.deepEqual(dispatched.at(-2).action.args, { action: "MarkAsWatched", args: false });
+assert.deepEqual(dispatched.at(-1).action, { action: "Ctx", args: { action: "RewindLibraryItem", args: "tt2" } }, "unwatched forgets the place too");
 assert.equal((await ask(44, "videoWatched", { id: "tt9:1:1", value: true })).ok, false, "not this title's");
 episodes.splice(0, episodes.length, ...savedVideos);
 console.log("PASS mark one video, or up to it, as watched");
+
+// Which episode Play starts: the last played, or the next when it was finished (under 5 minutes left)
+{
+  const content = states.meta_details.metaItem.content.content;
+  const saved = [content.videos.slice(), states.meta_details.libraryItem];
+  const ep = (s, e, extra = {}) => ({ id: `tt2:${s}:${e}`, season: s, episode: e, ...extra });
+  content.videos.splice(0, content.videos.length, ep(0, 1), ep(1, 1), ep(1, 2), ep(1, 3, { upcoming: true }), ep(2, 1));
+  let n = 60;
+  const nextFor = async (lib) => { states.meta_details.libraryItem = lib && { state: lib }; return (await ask(n++, "get", { field: "meta_details" })).data; };
+  const D = 3000000;
+  const part = await nextFor({ video_id: "tt2:1:1", timeOffset: 600000, duration: D });
+  assert.equal(part.next, "tt2:1:1", "left part-way: the same one");
+  assert.equal(part.resume.timeOffset, 600000);
+  const credits = await nextFor({ video_id: "tt2:1:1", timeOffset: D - 200000, duration: D });
+  assert.equal(credits.next, "tt2:1:2", "under 5 minutes left: the next one");
+  assert.equal(credits.resume.timeOffset, 0, "nothing to resume in the credits");
+  assert.equal((await nextFor({ video_id: "tt2:1:1", timeOffset: D - 400000, duration: D })).next, "tt2:1:1", "6 minutes left of 50 isn't finished");
+  assert.equal((await nextFor({ video_id: "tt2:1:2", timeOffset: D - 100000, duration: D })).next, "tt2:2:1", "skips the unreleased one");
+  assert.equal((await nextFor({ video_id: "tt2:1:1", timeOffset: 0, duration: 0 })).next, "tt2:1:1", "moved on already by Stremio: that one");
+  assert.equal((await nextFor(null)).next, "tt2:1:1", "no history: season 1, episode 1 (not the special)");
+  content.videos.splice(0, content.videos.length, ...saved[0]);
+  states.meta_details.libraryItem = saved[1];
+}
+console.log("PASS which episode Play starts");

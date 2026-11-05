@@ -23,6 +23,8 @@ struct PlayerScreen: View {
     @State private var scrubbing: Double?
     @State private var now = Date()
     @State private var streamsOpen = false
+    /** More's buttons out (Streams, stats, another app) */
+    @State private var moreOpen = false
 
     private let clock = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -32,14 +34,21 @@ struct PlayerScreen: View {
             VideoSurface(mpv: playback.mpv).ignoresSafeArea()
             if !playback.subtitleLine.isEmpty { subtitles }
             Gestures(handler: gestures).ignoresSafeArea()
-            if playback.buffering && seekPreview == nil { ProgressView().controlSize(.large).tint(.white).allowsHitTesting(false) }
-            if visible && !locked { controls.transition(.opacity) }
+            if playback.buffering && seekPreview == nil && stremio.launch == nil { ProgressView().controlSize(.large).tint(.white).allowsHitTesting(false) }
+            if visible && !locked && stremio.launch == nil { controls.transition(.opacity) }
             overlays
             if let target = scrubbing ?? seekPreview, let layer = playback.thumbs?.layer, playback.duration > 0 {
                 previewBox(target: target, layer: layer)
             }
             if playback.showStats, let stats = playback.stats { statsPanel(stats) }
             if let slow = playback.slow, !locked { lighterOffer(slow).transition(.move(edge: .top).combined(with: .opacity)) }
+            // The loading screen, carried on over the player until the first picture plays (one loading
+            // screen, not Lumen's and then the player's spinner)
+            if let launch = stremio.launch { LoadingScreen(screen: launch).transition(.opacity) }
+        }
+        .animation(.easeInOut(duration: 0.4), value: stremio.launch != nil)
+        .onChange(of: playback.ready, initial: true) { _, ready in
+            if ready { stremio.endLaunch() }
         }
         .animation(.spring(duration: 0.35), value: playback.slow?.options.map(\.index))
         // A mouse or trackpad (the Mac, an iPad's): moving it brings the controls back
@@ -247,29 +256,40 @@ struct PlayerScreen: View {
                 // clock every second, which made open menus jump and miss taps)
                 // (opening a menu keeps the controls up until the screen is tapped: they hid, and took
                 // the open menu with them)
-                if !playback.alternatives.isEmpty {
-                    Button {
-                        hold()
-                        streamsOpen = true
-                    } label: { Label("Streams", systemImage: "rectangle.stack.fill").frame(height: 24) }
-                        .buttonStyle(.glass)
-                        .popover(isPresented: $streamsOpen, arrowEdge: .bottom) {
-                            StreamsPanel(playback: playback) { option in
-                                streamsOpen = false
-                                stremio.switchStream(to: option)
-                            }
-                            .frame(minWidth: 380, idealWidth: 420, minHeight: 300, idealHeight: 520)
-                            .presentationCompactAdaptation(.sheet)
+                // (the rest behind More: it opens out to the left, Subtitles and Next stay)
+                if moreOpen {
+                    Group {
+                        if !playback.alternatives.isEmpty {
+                            Button {
+                                hold()
+                                streamsOpen = true
+                            } label: { Label("Streams", systemImage: "rectangle.stack.fill").frame(height: 24) }
+                                .buttonStyle(.glass)
+                                .popover(isPresented: $streamsOpen, arrowEdge: .bottom) {
+                                    StreamsPanel(playback: playback) { option in
+                                        streamsOpen = false
+                                        stremio.switchStream(to: option)
+                                    }
+                                    .frame(minWidth: 380, idealWidth: 420, minHeight: 300, idealHeight: 520)
+                                    .presentationCompactAdaptation(.sheet)
+                                }
                         }
+                        Button { playback.showStats.toggle() } label: { Image(systemName: "chart.bar.xaxis").frame(width: 24, height: 24) }
+                            .buttonStyle(.glass)
+                            .accessibilityLabel(playback.showStats ? "Hide stats" : "Show stats")
+                        Button { stremio.playExternally(playback) } label: { Image(systemName: "arrow.up.forward.app").frame(width: 24, height: 24) }
+                            .buttonStyle(.glass)
+                            .accessibilityLabel("Play with external player")
+                    }
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
-                Button { playback.showStats.toggle() } label: { Image(systemName: "chart.bar.xaxis").frame(width: 24, height: 24) }
+                Button {
+                    hold()
+                    withAnimation(.snappy) { moreOpen.toggle() }
+                } label: { Image(systemName: moreOpen ? "xmark" : "ellipsis").frame(width: 24, height: 24).contentTransition(.symbolEffect(.replace)) }
                     .buttonStyle(.glass)
-                    .accessibilityLabel(playback.showStats ? "Hide stats" : "Show stats")
-                SpeedMenu(playback: playback, onOpen: hold)
+                    .accessibilityLabel(moreOpen ? "Fewer options" : "More options")
                 TracksMenu(playback: playback, onOpen: hold)
-                Button { stremio.playExternally(playback) } label: { Image(systemName: "arrow.up.forward.app").frame(width: 24, height: 24) }
-                    .buttonStyle(.glass)
-                    .accessibilityLabel("Play with external player")
                 if playback.nextTitle != nil {
                     Button { playback.playNext() } label: { Label("Next", systemImage: "forward.end.fill").frame(height: 24) }
                         .buttonStyle(.glass)
@@ -743,42 +763,6 @@ private struct StreamsPanel: View {
             }
             .navigationTitle("Other Streams")
             .navigationBarTitleDisplayMode(.inline)
-        }
-    }
-}
-
-/**
- * Playback speed. A list in a panel, as the streams are: a menu rebuilt itself as the player updated,
- * and jumped about under the finger
- */
-private struct SpeedMenu: View {
-    let playback: Playback
-    /** The panel opened: the controls stay up while it's open */
-    var onOpen: () -> Void
-    @State private var open = false
-    var body: some View {
-        Button {
-            onOpen()
-            open = true
-        } label: {
-            Label(playback.speed == 1 ? "Speed" : "\(playback.speed.formatted())×", systemImage: "gauge.with.dots.needle.67percent").frame(height: 24)
-        }
-        .buttonStyle(.glass)
-        .popover(isPresented: $open, arrowEdge: .bottom) {
-            NavigationStack {
-                List {
-                    ForEach([0.5, 0.75, 1, 1.25, 1.5, 1.75, 2], id: \.self) { r in
-                        choice(r == 1 ? "Normal" : "\(r.formatted())×", on: playback.speed == r) {
-                            playback.mpv.setSpeed(r)
-                            open = false
-                        }
-                    }
-                }
-                .navigationTitle("Speed")
-                .navigationBarTitleDisplayMode(.inline)
-            }
-            .frame(minWidth: 320, idealWidth: 360, minHeight: 300, idealHeight: 440)
-            .presentationCompactAdaptation(.sheet)
         }
     }
 }

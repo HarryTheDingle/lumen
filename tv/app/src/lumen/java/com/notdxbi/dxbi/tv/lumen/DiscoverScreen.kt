@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -90,13 +92,14 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
     var rows by remember { mutableStateOf(built[selected].orEmpty()) }
     var loadedFor by remember { mutableStateOf(if (built.containsKey(selected)) selected else null) }
     val library by stremio.library.collectAsState()
+    val picks by stremio.picks.collectAsState()
     val platform = DiscoverFeed.platforms.firstOrNull { it.id == selected }
 
     LaunchedEffect(Unit) { if (library.isEmpty()) stremio.loadLibrary(null) }
     // (For You again once the Library's in: its "out on digital" row follows it.) The last tab's rows
     // stay until the new ones are in: a page that emptied and refilled would jump.
-    LaunchedEffect(selected, selected.isEmpty() && library.isNotEmpty()) {
-        val made = if (platform != null) platformRows(feed, platform) else forYouRows(feed, library)
+    LaunchedEffect(selected, selected.isEmpty() && library.isNotEmpty(), picks) {
+        val made = if (platform != null) platformRows(feed, platform) else picks.mapIndexed { i, r -> FeedRow("pick-$i", r.name, r.items) } + forYouRows(feed, library)
         built[selected] = made
         rows = made
         loadedFor = selected
@@ -121,7 +124,12 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
                 item(key = "top") { ScreenTag(nav) }
                 item(key = "services") {
                     LazyRow(contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        item { Pill("For You", selected = selected.isEmpty(), onClick = { choose("") }) }
+                        item {
+                            // (Lumen's own app icon)
+                            Pill("For You", selected = selected.isEmpty(), onClick = { choose("") }, leading = {
+                                Image(painterResource(com.notdxbi.dxbi.tv.R.mipmap.ic_launcher), contentDescription = null, modifier = Modifier.size(24.dp).clip(RoundedCornerShape(6.dp)))
+                            })
+                        }
                         items(DiscoverFeed.platforms, key = { it.id }) { p ->
                             Pill(p.name, selected = selected == p.id, onClick = { choose(p.id) }, tint = p.colour, leading = {
                                 AsyncImage(model = p.icon, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(24.dp).clip(RoundedCornerShape(6.dp)).background(p.colour.copy(alpha = 0.4f)))
@@ -175,11 +183,13 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
 @Composable
 private fun Header(platform: DiscoverFeed.Platform?, loading: Boolean) {
     Row(Modifier.fillMaxWidth().height(80.dp).padding(horizontal = Dx.Gutter), verticalAlignment = Alignment.CenterVertically) {
-        // a service's own icon (For You: just its name)
+        // a service's own icon (For You: Lumen's app icon)
         if (platform != null) {
             AsyncImage(model = platform.icon, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(60.dp).clip(RoundedCornerShape(14.dp)))
+        } else {
+            Image(painterResource(com.notdxbi.dxbi.tv.R.mipmap.ic_launcher), contentDescription = null, modifier = Modifier.size(60.dp).clip(RoundedCornerShape(14.dp)))
         }
-        if (platform != null) Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Text(platform?.name ?: "For You", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Text(if (platform == null) "New on digital, popular and by genre" else "What's on ${platform.name}", fontSize = 14.sp, color = Dx.Muted)

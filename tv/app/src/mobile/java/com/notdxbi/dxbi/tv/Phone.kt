@@ -104,6 +104,9 @@ object Phone {
     fun player(host: PlayerHost, stream: JSONObject): PlayerHooks? =
         if (isPhone(host.activity)) PhonePlayer(host, stream) else null
 
+    /** The phone app has no Lumen loading screen over its player */
+    fun loading(activity: PlayerActivity, root: FrameLayout): LoadingCover? = null
+
     /**
      * Installs a downloaded update through Android's package installer: from Android 12, once dx.bi
      * installed the copy it's replacing (every update after the first), it installs without asking,

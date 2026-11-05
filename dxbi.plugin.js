@@ -1,7 +1,7 @@
 /**
  * @name Lumen
  * @description The Lumen experience: cinematic billboard, Netflix-style carousels, hover previews with trailers, ratings on posters, critic reviews, skip intro and up next, anime filler guide, new episode badges, watch stats and viewers, stream sorting & filters, a Netflix-style player with black-bar removal, night mode and subtitle sync, watch parties with friends, a cinematic intro and interface sounds. Use with the Lumen theme.
- * @version 2.30.10
+ * @version 2.30.15
  * @author dx.bi
  * @updateUrl https://raw.githubusercontent.com/HarryTheDingle/lumen/main/dxbi.plugin.js
  */
@@ -19,7 +19,7 @@
   // Stremio Enhanced loads each plugin as <script id="<file name>">, which tells us our settings key
   const SCRIPT_ID = (document.currentScript && document.currentScript.id) || "dxbi.plugin.js";
   const PLUGIN_KEY = SCRIPT_ID.replace(/\.plugin\.js$/, "");
-  const PLUGIN_VERSION = "2.30.10"; // kept in step with @version by tools/bundle-theme.mjs
+  const PLUGIN_VERSION = "2.30.15"; // kept in step with @version by tools/bundle-theme.mjs
   // Recent messages and errors, kept for problem reports (see `report`)
   const recent = { logs: [], errors: [] };
   const remember = (list, text) => {
@@ -133,6 +133,7 @@
     quickPlayFallback: "best",
     quickPlaySpeed: false,
     quickPlayAddon: "",
+    preferImax: false,
     streamRows: true,
     watchedTitles: "show",
     librarySort: true,
@@ -140,6 +141,7 @@
     addonTools: true,
     // a YouTube player per card is too much for a TV stick (it can be switched on)
     trailers: !IN_TV,
+    playTrailers: true,
     upNext: "10",
     fillerGuide: true,
     blurUnwatched: false,
@@ -207,6 +209,7 @@
     { key: "quickPlayQuality", type: "select", label: "Highest quality to pick", defaultValue: DEFAULTS.quickPlayQuality, options: [{ label: "Best available", value: "best" }, { label: "4K", value: "2160" }, { label: "1080p", value: "1080" }, { label: "720p", value: "720" }] },
     { key: "quickPlayFallback", type: "select", label: "If my usual stream is missing", defaultValue: DEFAULTS.quickPlayFallback, options: [{ label: "Play the next best", value: "best" }, { label: "Show me the list", value: "ask" }] },
     { key: "quickPlaySpeed", type: "toggle", label: "Match my internet speed", description: "Before picking, Lumen checks your connection with a short download from Cloudflare's speed test (rechecked every 10 minutes) and skips streams too big for it. If a stream still buffers, Change in the player takes you back to the list.", defaultValue: DEFAULTS.quickPlaySpeed },
+    { key: "preferImax", type: "toggle", label: "Prefer IMAX", description: "When the stream list has an IMAX version at the same quality, the automatic pick takes it.", defaultValue: DEFAULTS.preferImax },
     { key: "quickPlayAddon", type: "input", label: "Preferred addon (optional)", description: "Its name as the stream list shows it, e.g. MediaFusion or Torrentio. Lumen picks from this addon whenever it has a stream that suits, and from the others when it doesn't.", defaultValue: DEFAULTS.quickPlayAddon },
     { key: "streamRows", type: "toggle", label: "Clean stream list", description: "Shows each stream as a simple row: quality, source, size and whether it's ready to play.", defaultValue: DEFAULTS.streamRows },
     { key: "builtInTheme", type: "toggle", label: "Lumen look built in", description: `Use the Lumen theme without installing it separately. Steps aside by itself when you apply another theme in Settings → ${SETTINGS_SECTION} → Themes.`, defaultValue: DEFAULTS.builtInTheme },
@@ -361,6 +364,7 @@
     { key: "reviews", type: "toggle", label: "Reviews on title pages", description: "Rotten Tomatoes and Metacritic scores next to the IMDb rating, and a Reviews button with what critics said (from Wikidata and Wikipedia, no account needed).", defaultValue: DEFAULTS.reviews },
     { key: "tmdbKey", type: "input", label: "Reviews: TMDB key (optional)", description: "Adds audience reviews. Free: sign up at themoviedb.org, then Settings → API, and paste the API key or the read access token. It's only sent to TMDB.", defaultValue: DEFAULTS.tmdbKey },
     { key: "mdblistKey", type: "input", label: "Reviews: MDBList key (optional)", description: "Adds fresher scores, including Rotten Tomatoes audience, Letterboxd and Trakt. Free (1,000 titles a day): sign in at mdblist.com, then Preferences → API key. It's only sent to MDBList.", defaultValue: DEFAULTS.mdblistKey },
+    { key: "playTrailers", type: "toggle", label: "Play Trailers", description: "A title's page fades its trailer in over the picture after a moment. Off: the picture stays. In Lumen on the iPad, phone and TV.", defaultValue: DEFAULTS.playTrailers },
     { key: "trailers", type: "toggle", label: "Trailers in hover cards", description: "Rest on a title and its trailer starts playing in the card, muted (tap the speaker for sound).", defaultValue: DEFAULTS.trailers },
     {
       key: "trailerDelay",
@@ -443,9 +447,9 @@
   const SETTING_GROUPS = [
     ["Look", ["liteMode", "accent", "posterAccent", "focusColour", "builtInTheme", "crispPosters", "ratings", "animeTitles", "wideContinue"]],
     ["Home", ["myList", "forYou", "videoRowsOnly", "billboard", "billboardSource", "billboardInterval", "newEpisodes", "airingRow", "whoIsWatching"]],
-    ["Hover cards & trailers", ["previews", "trailers", "trailerDelay"]],
+    ["Hover cards & trailers", ["previews", "trailers", "playTrailers", "trailerDelay"]],
     ["Browsing & library", ["watchedTitles", "blurUnwatched", "librarySort", "streamRows", "streamTools", "addonTools", "watchStats", "reviews", "tmdbKey", "mdblistKey"]],
-    ["Player", ["quickPlay", "quickPlayMemory", "quickPlayQuality", "quickPlayFallback", "quickPlaySpeed", "quickPlayAddon", "tvTorrents", "playerExtras", "remainingTime", "playerClock", "seekPreviews", "enhance", "pictureSound", "streamStats", "rememberPlayback", "playerKeys", "pip", "externalPlayer", "convertVideo"]],
+    ["Player", ["quickPlay", "quickPlayMemory", "quickPlayQuality", "quickPlayFallback", "quickPlaySpeed", "quickPlayAddon", "preferImax", "tvTorrents", "playerExtras", "remainingTime", "playerClock", "seekPreviews", "enhance", "pictureSound", "streamStats", "rememberPlayback", "playerKeys", "pip", "externalPlayer", "convertVideo"]],
     ["Subtitles", ["subtitleStyle", "subtitleFont", "subtitleCustomFont", "subtitlesStart", "hdrSubtitles"]],
     ["Episodes & skipping", ["skipButtons", "autoSkip", "upNext", "preloadNext", "fillerGuide", "skipFiller"]],
     ["Watch party", ["watchParty", "partyFollow", "partyActivity", "partySounds"]],
@@ -3864,7 +3868,7 @@
     else if (/\b(?:576p|480p|360p|sd|dvdrip|xvid)\b/i.test(all)) res = 480;
 
     const dv = /\b(?:dv|dovi|dolby[ .-]?vision)\b/i.test(all);
-    const hdr = dv || /\bhdr(?:10\+?)?\b/i.test(all);
+    const hdr = dv || /\bhdr(?:10\+?)?\b/i.test(all) || /\bhdr10(?:\+|[ ._-]?plus)/i.test(all);
 
     let size = 0;
     // (Meteor and others write GiB, not GB)
@@ -3890,6 +3894,13 @@
     if (!langs.size) langs.add(NOT_LISTED);
 
     // Stretched or smoothed copies claim a quality they don't have; 3D needs glasses
+    // Formats worth a badge (the file name says so): IMAX / IMAX Enhanced, Dolby Atmos, HDR10+, Open Matte (the
+    // taller, uncropped picture), 3D
+    const imax = /\bimax\b/i.test(all);
+    const atmos = /\batmos\b/i.test(all);
+    const hdr10plus = /\bhdr10(?:\+|[ ._-]?plus)/i.test(all);
+    const openMatte = /\bopen[ ._-]?matte\b/i.test(all);
+    const threeD = /\b(?:3d|h?sbs)\b/i.test(all);
     const lesser = /\b(?:ai[ ._-]?upscal\w*|upscal\w*|\d{2,3}fps|hfr|3d|h?sbs)\b/i.test(all);
 
     const site = (/(?:⚙\uFE0F?|🔎)\s*([^\s\n]+)/u.exec(all) || [])[1] || "";
@@ -3898,7 +3909,7 @@
     // A sample: a minute or two of the release, not the film
     const sample = /\bsample\b/i.test(all);
 
-    return { provider, site, codec, instant, pending, lesser, sample, res, hdr, dv, size, seeds, source, langs: [...langs] };
+    return { provider, site, codec, instant, pending, lesser, sample, res, hdr, dv, imax, atmos, hdr10plus, openMatte, threeD, size, seeds, source, langs: [...langs] };
   }
 
   function parseStream(el) {
@@ -4006,7 +4017,9 @@
     // Ready-to-play first. HDR beats Dolby Vision, which stalls on some decoders, and an encode
     // beats a huge remux: the pick has to start and keep playing.
     rank(d) {
-      return (d.instant ? 1e5 : 0) + d.res * 10 + (d.dv ? 1 : d.hdr ? 2 : 0) + (this.SOURCE[d.source] || 0) - (d.lesser ? 15000 : 0);
+      // (Prefer IMAX: worth more than anything else at the same quality, less than a step up in quality)
+      const imax = d.imax && typeof settings !== "undefined" && settings.preferImax ? 20 : 0;
+      return (d.instant ? 1e5 : 0) + d.res * 10 + (d.dv ? 1 : d.hdr ? 2 : 0) + (this.SOURCE[d.source] || 0) + imax - (d.lesser ? 15000 : 0);
     },
 
     best(list) {
@@ -4042,6 +4055,13 @@
     },
 
     // What to try if the pick won't play: at most two, each a different release
+    // Streams this device can decode in hardware (only AV1 is ever missing: the iOS app says so), else all of them
+    decodable(items) {
+      if (!(window.__dxbiIos && window.__dxbiIos.noAv1)) return items;
+      const kept = items.filter((x) => x.d.codec !== "AV1");
+      return kept.length ? kept : items;
+    },
+
     spares(items, picked, { limit = Infinity, torrents = true, speed = 0, minutes = 0 } = {}) {
       const short = this.samples(items, minutes);
       const rest = items.filter((x) => x !== picked && !short.has(x) && x.d.source !== "CAM" && !x.d.pending && (torrents || !x.torrent) && x.d.res <= limit && !streamFailures.has(x) &&
@@ -9624,6 +9644,9 @@
 
   const VIEWER_COLOURS = ["#e50914", "#2f80ff", "#1db954", "#f5a524", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
 
+  // What belongs to one Stremio account on this device (not the parental PIN, which is the device's)
+  const ACCOUNT_DATA = /^(viewers|libraryOwners|kidsAllow|(homeLayout|hidden|cwDismissed|stats|playback|quickPlay|tune|librarySort):[\w-]{1,40})$/;
+
   const viewers = {
     list() {
       const saved = store.get("viewers", null);
@@ -9642,10 +9665,11 @@
     save(v) {
       store.set("viewers", v);
     },
-    add(name) {
+    add(name, wanted) {
       const v = this.list();
       const used = new Set(v.list.map((x) => x.colour));
-      const colour = VIEWER_COLOURS.find((c) => !used.has(c)) || VIEWER_COLOURS[v.list.length % VIEWER_COLOURS.length];
+      // (the colour they chose, else the next one not used yet)
+      const colour = VIEWER_COLOURS.includes(wanted) ? wanted : VIEWER_COLOURS.find((c) => !used.has(c)) || VIEWER_COLOURS[v.list.length % VIEWER_COLOURS.length];
       const viewer = { id: "v" + Date.now().toString(36), name: name.trim().slice(0, 20), colour };
       v.list.push(viewer);
       this.save(v);
@@ -9664,6 +9688,13 @@
       const v = this.list();
       const viewer = v.list.find((x) => x.id === id);
       if (viewer && name.trim()) viewer.name = name.trim().slice(0, 20);
+      this.save(v);
+    },
+    recolour(id, colour) {
+      const v = this.list();
+      const viewer = v.list.find((x) => x.id === id);
+      if (!viewer || !VIEWER_COLOURS.includes(colour)) return;
+      viewer.colour = colour;
       this.save(v);
     },
     select(id) {
@@ -11938,6 +11969,283 @@
       if (this.el) this.el.remove();
       this.el = null;
       this.built = null;
+    },
+  };
+
+  // ---------------------------------------------------------------------------
+  // Picks for you: what this viewer actually watched (recent, finished, watched again; never what
+  // they gave up on or only added), turned into recommendations on the device. For each of their
+  // favourite titles TMDB's "recommendations" and "similar" (with a TMDB key; without one, popular
+  // titles in the genres they watch most, from Cinemeta) are gathered, and every candidate is scored by
+  // how many of their titles point to it, how well its genres fit theirs, its rating and its age. Films
+  // and series only, nothing they have watched or saved, nothing hidden. Gives a "Top Picks for You"
+  // row and "Because you watched X" rows. Kept 12 hours; nothing but title ids leaves the device.
+  // ---------------------------------------------------------------------------
+
+  // <reco-pure>
+  // The maths, with no page and no network in it (tools/recommender-test.mjs runs it on its own)
+  const recoMath = {
+    // How much a library item says about the viewer's taste (0: nothing, or they gave up on it)
+    weight(item, now) {
+      const s = (item && item.state) || {};
+      const last = s.lastWatched ? Date.parse(s.lastWatched) || 0 : 0;
+      if (!last || !item || (item.type !== "movie" && item.type !== "series")) return 0;
+      const times = s.timesWatched || 0;
+      const done = times > 0 || (s.flaggedWatched || 0) > 0;
+      const part = s.duration > 0 ? Math.min(1, (s.timeOffset || 0) / s.duration) : 0;
+      const minutes = (s.overallTimeWatched || 0) / 60000;
+      let completion;
+      if (item.type === "movie") {
+        if (!done && part < 0.3) return 0; // switched off in the first third
+        completion = done ? 1 : part;
+      } else {
+        if (!done && minutes < 20) return 0; // one episode's start isn't a taste
+        completion = Math.min(1, minutes / 120);
+      }
+      const again = 1 + 0.5 * Math.min(3, Math.max(0, times - 1));
+      const days = Math.max(0, (now - last) / 86400e3);
+      const recent = 0.15 + Math.exp(-days / 120);
+      const hours = item.type === "series" ? 1 + Math.log10(1 + minutes / 60) : 1;
+      return (0.4 + completion) * again * recent * hours;
+    },
+    // Already seen it, or started it properly (so it's not a recommendation)
+    seen(item, now) {
+      const s = (item && item.state) || {};
+      if ((s.timesWatched || 0) > 0 || (s.flaggedWatched || 0) > 0) return true;
+      const part = s.duration > 0 ? (s.timeOffset || 0) / s.duration : 0;
+      return item.type === "movie" ? part >= 0.5 : (s.overallTimeWatched || 0) >= 20 * 60000;
+    },
+    // Genres weighted by the titles they came from, 0 to 1 (genres are TMDB ids or Cinemeta names)
+    profile(seeds) {
+      const sum = {};
+      for (const { weight, genres } of seeds) for (const g of genres || []) sum[g] = (sum[g] || 0) + weight;
+      const top = Math.max(0, ...Object.values(sum));
+      const out = {};
+      if (top > 0) for (const [g, v] of Object.entries(sum)) out[g] = v / top;
+      return out;
+    },
+    // A candidate's score: pointers [{w (the seed's weight), rank, kind: "rec" | "similar"}]
+    score(c, profile, year) {
+      let pointing = 0;
+      for (const p of c.pointers || []) pointing += (p.w * (p.kind === "rec" ? 1 : 0.6)) / (1 + p.rank / 8);
+      const genres = c.genres || [];
+      const fit = genres.length ? genres.reduce((a, g) => a + (profile[g] || 0), 0) / genres.length : 0;
+      const rating = c.votes >= 50 ? Math.max(-1, Math.min(1, (c.rating - 6) / 3)) : 0;
+      const age = c.year ? year - c.year : 9;
+      const fresh = age <= 2 ? 0.3 : age <= 6 ? 0.15 : 0;
+      return 2 * pointing + 1.2 * fit + 0.8 * rating + fresh;
+    },
+  };
+  // </reco-pure>
+
+  const recommender = {
+    KEEP: 12 * 3600e3,
+    loading: null,
+    ids: new Set(),
+    TMDB_GENRES_SKIPPED: new Set([10767, 10763, 10764]), // talk shows, news, reality: not recommendations
+
+    // The titles that say the most about this viewer, strongest first
+    history() {
+      const now = Date.now();
+      return [...viewerLibrary.raw().values()]
+        .filter((i) => /^tt\d+$/.test(i._id) && viewerLibrary.mine(i._id))
+        .map((i) => ({ item: i, weight: recoMath.weight(i, now) }))
+        .filter((x) => x.weight > 0)
+        .sort((a, b) => b.weight - a.weight);
+    },
+    // Not to be recommended: seen, saved to the library, hidden or dismissed
+    skip() {
+      const now = Date.now();
+      const out = new Set((store.get(viewers.key("hidden"), null) || []).map((x) => String(x.key).split(":").slice(1).join(":")));
+      for (const i of viewerLibrary.raw().values()) {
+        if (!viewerLibrary.mine(i._id)) continue;
+        if ((!i.removed && !i.temp) || recoMath.seen(i, now)) out.add(i._id);
+      }
+      return out;
+    },
+    sig(seeds) {
+      return [viewers.current().id, settings.tmdbKey.trim() ? "t" : "c", ...seeds.slice(0, 8).map((s) => s.item._id)].join("|");
+    },
+    key: () => `dxbi.picks.${viewers.current().id}`,
+    saved() {
+      try { return JSON.parse(localStorage.getItem(this.key()) || "null"); } catch (_) { return null; }
+    },
+
+    // null while it's being worked out (ask again shortly); stale: true is the last answer, being redone
+    get() {
+      const seeds = this.history();
+      if (!seeds.length) return { rows: [] };
+      const sig = this.sig(seeds);
+      const saved = this.saved();
+      const fresh = saved && saved.sig === sig && Date.now() - saved.t < this.KEEP;
+      if (fresh) return { rows: saved.rows };
+      if (this.loading !== sig) {
+        this.loading = sig;
+        this.build(seeds, sig).catch((err) => log("picks failed", err && err.message)).finally(() => { if (this.loading === sig) this.loading = null; });
+      }
+      return saved ? { rows: saved.rows, stale: true } : null;
+    },
+
+    // The AI hook. Every candidate has been scored; this is the one place a ranker could reorder them
+    // (an on-device model, or an API the viewer chose): it gets the viewer's top titles and the scored
+    // candidates [{id, type, name, genres, score, because: [seed titles]}] and returns them in the order
+    // to show. Today it keeps the scoring's own order. Whatever it does, only these candidates may
+    // come back, so the filters above (seen, saved, hidden) can't be undone by it.
+    async rank(taste, candidates) {
+      return candidates;
+    },
+
+    async build(seeds, sig) {
+      const taste = seeds.slice(0, 12);
+      const skip = this.skip();
+      taste.forEach((s) => skip.add(s.item._id));
+      const result = settings.tmdbKey.trim() ? await this.fromTmdb(taste, skip) : await this.fromCinemeta(taste, skip);
+      try { localStorage.setItem(this.key(), JSON.stringify({ sig, t: Date.now(), rows: result })); } catch (_) { /* full */ }
+      scheduleSync();
+    },
+
+    // The rows from candidates [{id, type, name, poster, score, seeds: [seed ids]}]
+    rows(taste, scored, because) {
+      const row = (id, name, list) => ({ id, name, items: list.map((c) => ({ _id: c.id, type: c.type, name: c.name, poster: c.poster || null })) });
+      const out = [];
+      if (scored.length >= 6) out.push(row("top", "Top Picks for You", scored.slice(0, 20)));
+      const used = new Set(scored.slice(0, 6).map((c) => c.id));
+      let n = 0;
+      for (const s of taste) {
+        if (n >= 3) break;
+        const list = scored.filter((c) => c.seeds.includes(s.item._id));
+        const fresh = list.filter((c) => !used.has(c.id));
+        const pick = (fresh.length >= 6 ? fresh : list).slice(0, 14);
+        if (pick.length < 6) continue;
+        pick.forEach((c) => used.add(c.id));
+        out.push(row(`because-${s.item._id}`, `Because you watched ${s.item.name}`, pick));
+        n++;
+      }
+      return out;
+    },
+
+    // With a TMDB key: its recommendations and similar titles for each favourite, scored together
+    async fromTmdb(taste, skip) {
+      const get = (path) => api.phone.tmdbGet(path);
+      const year = new Date().getFullYear();
+      const kinds = (i) => (i.type === "movie" ? "movie" : "tv");
+      const perSeed = await Promise.all(taste.map(async (s) => {
+        const id = s.item._id;
+        const kind = kinds(s.item);
+        let tm = readCached(`reco:id:${id}`);
+        if (tm === undefined) {
+          const found = await get(`/find/${encodeURIComponent(id)}?external_source=imdb_id`);
+          const first = found && found[`${kind}_results`] && found[`${kind}_results`][0];
+          tm = first ? { id: first.id, genres: first.genre_ids || [] } : null;
+          if (found) writeCached(`reco:id:${id}`, tm);
+        }
+        if (!tm) return null;
+        const [rec, sim] = await Promise.all([get(`/${kind}/${tm.id}/recommendations?language=en-US&page=1`), get(`/${kind}/${tm.id}/similar?language=en-US&page=1`)]);
+        return { s, kind, tm, rec: (rec && rec.results) || [], sim: (sim && sim.results) || [] };
+      }));
+      const used = perSeed.filter(Boolean);
+      if (!used.length) return [];
+      const profile = recoMath.profile(used.map((u) => ({ weight: u.s.weight, genres: u.tm.genres })));
+      const cands = new Map();
+      const seedTmdb = new Set(used.map((u) => `${u.kind}:${u.tm.id}`));
+      for (const u of used) {
+        for (const [kind2, list] of [["rec", u.rec], ["similar", u.sim]]) {
+          list.slice(0, 20).forEach((r, rank) => {
+            const key = `${u.kind}:${r.id}`;
+            if (seedTmdb.has(key) || r.adult || !r.poster_path || (r.genre_ids || []).some((g) => this.TMDB_GENRES_SKIPPED.has(g))) return;
+            const c = cands.get(key) || {
+              key, kind: u.kind, tmdb: r.id, name: r.title || r.name || "", poster: `https://image.tmdb.org/t/p/w342${r.poster_path}`,
+              genres: r.genre_ids || [], rating: r.vote_average || 0, votes: r.vote_count || 0,
+              year: Number(String(r.release_date || r.first_air_date || "").slice(0, 4)) || 0, pointers: [], seeds: [],
+            };
+            c.pointers.push({ w: u.s.weight, rank, kind: kind2 });
+            if (!c.seeds.includes(u.s.item._id)) c.seeds.push(u.s.item._id);
+            cands.set(key, c);
+          });
+        }
+      }
+      const ranked = [...cands.values()]
+        .filter((c) => c.votes >= 40)
+        .map((c) => ({ ...c, score: recoMath.score(c, profile, year) }))
+        .sort((a, b) => b.score - a.score);
+      // IMDb ids are what Stremio opens (looked up for the best ones only, cached)
+      const wanted = new Set(ranked.slice(0, 30).map((c) => c.key));
+      for (const u of used.slice(0, 4)) ranked.filter((c) => c.seeds.includes(u.s.item._id)).slice(0, 14).forEach((c) => wanted.add(c.key));
+      const todo = ranked.filter((c) => wanted.has(c.key));
+      for (let i = 0; i < todo.length; i += 12) {
+        await Promise.all(todo.slice(i, i + 12).map(async (c) => {
+          let imdb = readCached(`reco:ext:${c.key}`);
+          if (imdb === undefined) {
+            const ext = await get(`/${c.kind}/${c.tmdb}/external_ids`);
+            imdb = ext && /^tt\d+$/.test(ext.imdb_id || "") ? ext.imdb_id : null;
+            if (ext) writeCached(`reco:ext:${c.key}`, imdb);
+          }
+          c.id = imdb;
+        }));
+      }
+      const seen = new Set(skip);
+      const names = new Set();
+      const scored = [];
+      for (const c of todo) {
+        const dupe = `${c.name.toLowerCase()}|${c.year}`;
+        if (!c.id || seen.has(c.id) || names.has(dupe)) continue;
+        seen.add(c.id);
+        names.add(dupe);
+        scored.push({ ...c, type: c.kind === "movie" ? "movie" : "series" });
+      }
+      const ordered = await this.rank(taste, scored);
+      const allowed = new Set(scored.map((c) => c.id));
+      return this.rows(used.map((u) => u.s), ordered.filter((c) => allowed.has(c.id)));
+    },
+
+    // Without a key: Cinemeta's popular titles in the genres they watch most, best fits first
+    async fromCinemeta(taste, skip) {
+      const json = (path) => fetch(`${forYou.BASE}${path}`, { signal: AbortSignal.timeout(10000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      const year = new Date().getFullYear();
+      const metas = await Promise.all(taste.slice(0, 8).map(async (s) => {
+        const m = await json(`/meta/${s.item.type}/${encodeURIComponent(s.item._id)}.json`);
+        const g = (m && m.meta && (m.meta.genres || m.meta.genre)) || [];
+        return { s, genres: g };
+      }));
+      const used = metas.filter((m) => m.genres.length);
+      if (!used.length) return [];
+      const profile = recoMath.profile(used.map((m) => ({ weight: m.s.weight, genres: m.genres })));
+      // the genres (with the kind) that matter most, each a popular list
+      const wants = new Map();
+      for (const m of used) for (const g of m.genres.slice(0, 3)) {
+        const k = `${m.s.item.type}|${g}`;
+        wants.set(k, (wants.get(k) || 0) + m.s.weight * (profile[g] || 0.3));
+      }
+      const lists = await Promise.all([...wants.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(async ([k]) => {
+        const [type, genre] = k.split("|");
+        const l = await json(`/catalog/${type}/top/genre=${encodeURIComponent(genre)}.json`);
+        return { type, metas: (l && l.metas) || [] };
+      }));
+      const cands = new Map();
+      for (const { type, metas: list } of lists) {
+        list.slice(0, 40).forEach((m) => {
+          if (!m || !/^tt\d+$/.test(m.id || "") || !m.poster) return;
+          const c = cands.get(m.id) || {
+            id: m.id, type, name: m.name, poster: m.poster, genres: m.genres || m.genre || [], rating: Number(m.imdbRating) || 0,
+            votes: 100, year: parseInt(m.releaseInfo, 10) || 0, pointers: [], seeds: [],
+          };
+          for (const u of used) {
+            const shared = u.genres.filter((g) => c.genres.includes(g)).length;
+            if (shared && u.s.item.type === type) {
+              c.pointers.push({ w: u.s.weight * (shared / Math.max(2, u.genres.length)), rank: list.indexOf(m), kind: "similar" });
+              if (!c.seeds.includes(u.s.item._id)) c.seeds.push(u.s.item._id);
+            }
+          }
+          cands.set(m.id, c);
+        });
+      }
+      const scored = [...cands.values()]
+        .filter((c) => !skip.has(c.id) && c.pointers.length)
+        .map((c) => ({ ...c, score: recoMath.score(c, profile, year) }))
+        .sort((a, b) => b.score - a.score);
+      const ordered = await this.rank(taste, scored);
+      const allowed = new Set(scored.map((c) => c.id));
+      return this.rows(used.map((u) => u.s), ordered.filter((c) => allowed.has(c.id)));
     },
   };
 
@@ -14748,7 +15056,7 @@
       navigate(picked.item.st.deepLinks.player);
     },
 
-    label: (d) => [QUALITY_LABEL[d.res], d.dv ? "Dolby Vision" : d.hdr ? "HDR" : "", streamRows.SOURCES[d.source]].filter(Boolean).join(" · "),
+    label: (d) => [QUALITY_LABEL[d.res], d.imax ? "IMAX" : "", d.dv ? "Dolby Vision" : d.hdr ? "HDR" : "", streamRows.SOURCES[d.source]].filter(Boolean).join(" · "),
 
     play(item) {
       this.current = item;
@@ -15583,7 +15891,7 @@
       async cast(type, imdb, names) {
         const fromTmdb = settings.tmdbKey.trim() && /^tt\d+$/.test(imdb || "") ? await this.castFromTmdb(type, imdb).catch(() => null) : null;
         const list = (fromTmdb && fromTmdb.length ? fromTmdb : (Array.isArray(names) ? names : []).map((n) => ({ name: String(n.name || n), role: n.role || "" })))
-          .map((p) => ({ name: p.name, role: p.role || "", photo: p.photo || null }));
+          .map((p) => ({ name: p.name, role: p.role || "", photo: p.photo || null, id: p.id || null }));
         const missing = list.filter((p) => !p.photo).slice(0, 16);
         const photos = await Promise.all(missing.map((p) => this.wikipediaPhoto(p.name)));
         missing.forEach((p, i) => { p.photo = photos[i]; });
@@ -15591,7 +15899,7 @@
       },
       async castFromTmdb(type, imdb) {
         const token = settings.tmdbKey.trim();
-        const key = `cast:${type}:${imdb}`;
+        const key = `cast2:${type}:${imdb}`;
         const cached = readCached(key);
         if (cached !== undefined) return cached;
         const bearer = token.startsWith("eyJ");
@@ -15609,11 +15917,91 @@
         const photo = (p) => (p ? `https://image.tmdb.org/t/p/w185${p}` : null);
         const crew = (credits.crew || []).filter((c) => c.job === "Director" || (c.jobs || []).some((j) => j.job === "Director"));
         const result = [
-          ...crew.slice(0, 2).map((c) => ({ name: c.name, role: "Director", photo: photo(c.profile_path) })),
-          ...(credits.cast || []).slice(0, 20).map((c) => ({ name: c.name, role: c.character || (c.roles && c.roles[0] && c.roles[0].character) || "", photo: photo(c.profile_path) })),
+          ...crew.slice(0, 2).map((c) => ({ id: c.id, name: c.name, role: "Director", photo: photo(c.profile_path) })),
+          ...(credits.cast || []).slice(0, 20).map((c) => ({ id: c.id, name: c.name, role: c.character || (c.roles && c.roles[0] && c.roles[0].character) || "", photo: photo(c.profile_path) })),
         ];
         writeCached(key, result);
         return result;
+      },
+      // A person's page, from TMDB (needs the TMDB key): who they are and everything they're known for, as
+      // titles Stremio can open (IMDb ids). [id]: TMDB's person id (the cast list gives it), else [name] is
+      // searched. null without a key or when TMDB has no such person.
+      async person(id, name) {
+        const token = settings.tmdbKey.trim();
+        if (!token) return null;
+        const get = (path) => this.tmdbGet(path);
+        let pid = /^\d+$/.test(String(id || "")) ? String(id) : "";
+        if (!pid && name) {
+          const found = await get(`/search/person?query=${encodeURIComponent(String(name))}&include_adult=false&language=en-US`);
+          const hit = found && (found.results || [])[0];
+          pid = hit ? String(hit.id) : "";
+        }
+        if (!pid) return null;
+        const key = `person3:${pid}`;
+        const cached = readCached(key);
+        if (cached !== undefined) return cached;
+        const [info, credits] = await Promise.all([get(`/person/${pid}?language=en-US`), get(`/person/${pid}/combined_credits?language=en-US`)]);
+        if (!info) return null;
+        const date = (x) => x.release_date || x.first_air_date || "";
+        const seen = new Set();
+        const credit = (c, role) => {
+          const kind = c.media_type;
+          if (kind !== "movie" && kind !== "tv") return null;
+          const k = `${kind}:${c.id}`;
+          if (seen.has(k) || !c.poster_path) return null;
+          const genres = c.genre_ids || [];
+          // (talk shows, news and archive clips are guest spots, not their work)
+          if (genres.includes(10767) || genres.includes(10763) || /archive|\bself\b/i.test(c.character || "")) return null;
+          seen.add(k);
+          return { kind, tmdb: c.id, name: c.title || c.name || "", date: date(c), role: role || "", pop: c.popularity || 0, poster: `https://image.tmdb.org/t/p/w342${c.poster_path}` };
+        };
+        const cast = ((credits && credits.cast) || []).map((c) => credit(c, c.character)).filter(Boolean);
+        const crewJobs = /^(Director|Creator|Writer|Screenplay|Executive Producer|Producer)$/;
+        const crew = ((credits && credits.crew) || []).filter((c) => crewJobs.test(c.job || "")).map((c) => credit(c, c.job)).filter(Boolean);
+        // (an actor's acting first, a director's directing first)
+        const works = info.known_for_department === "Acting" ? cast.concat(crew) : crew.concat(cast);
+        const known = [...works].sort((a, b) => b.pop - a.pop).slice(0, 12);
+        const newest = (kind) => works.filter((w) => w.kind === kind).sort((a, b) => (b.date || "9999").localeCompare(a.date || "9999")).slice(0, 30);
+        const films = newest("movie");
+        const shows = newest("tv");
+        // IMDb ids, which are what Stremio opens (cached a day, in small batches)
+        const todo = [...new Set([...known, ...films, ...shows])];
+        for (let i = 0; i < todo.length; i += 12) {
+          await Promise.all(todo.slice(i, i + 12).map(async (w) => {
+            const ext = await get(`/${w.kind}/${w.tmdb}/external_ids`);
+            w.id = ext && /^tt\d+$/.test(ext.imdb_id || "") ? ext.imdb_id : null;
+          }));
+        }
+        const out = (list) => list.filter((w) => w.id).map((w) => ({ id: w.id, type: w.kind === "movie" ? "movie" : "series", name: w.name, year: w.date.slice(0, 4), poster: w.poster, role: w.role }));
+        const born = info.birthday || "";
+        const died = info.deathday || "";
+        let age = null;
+        if (/^\d{4}-\d\d-\d\d$/.test(born)) {
+          const end = /^\d{4}-\d\d-\d\d$/.test(died) ? new Date(died) : new Date();
+          const b = new Date(born);
+          age = end.getFullYear() - b.getFullYear() - (end.getMonth() < b.getMonth() || (end.getMonth() === b.getMonth() && end.getDate() < b.getDate()) ? 1 : 0);
+        }
+        const result = {
+          id: pid,
+          name: info.name || name || "",
+          photo: info.profile_path ? `https://image.tmdb.org/t/p/h632${info.profile_path}` : null,
+          department: info.known_for_department || "",
+          born, died, age,
+          place: info.place_of_birth || "",
+          bio: String(info.biography || "").trim(),
+          known: out(known), films: out(films), shows: out(shows),
+        };
+        writeCached(key, result);
+        return result;
+      },
+      // A TMDB v3 request (the key or the read access token from dx.bi settings); null when it fails
+      tmdbGet(path) {
+        const token = settings.tmdbKey.trim();
+        const bearer = token.startsWith("eyJ");
+        return fetch(`https://api.themoviedb.org/3${path}${bearer ? "" : `${path.includes("?") ? "&" : "?"}api_key=${encodeURIComponent(token)}`}`, {
+          headers: bearer ? { authorization: `Bearer ${token}` } : {},
+          signal: AbortSignal.timeout(10000),
+        }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
       },
       // A person's picture from Wikipedia: only from a page about someone in film or TV (a name can
       // belong to anyone)
@@ -15649,6 +16037,16 @@
           imdb: m.imdbRating || null,
         }));
       },
+      // What Stremio's library doesn't keep for the billboard's Continue Watching titles: their story, genres,
+      // year and length, by id (Cinemeta's, cached), for [[type, id], …]
+      async describe(list) {
+        const out = {};
+        await Promise.all((Array.isArray(list) ? list : []).slice(0, 8).map(async ([type, id]) => {
+          const m = await getMeta(type, id).catch(() => null);
+          if (m) out[id] = { description: m.description || null, genres: (m.genres || []).slice(0, 3), year: m.releaseInfo ? String(m.releaseInfo) : null, runtime: formatRuntime(m.runtime) || null };
+        }));
+        return out;
+      },
       myList() {
         if (settings.myList === "off") return [];
         return myList.groups().map(([name, list]) => ({
@@ -15679,6 +16077,35 @@
           return null;
         }
         return { name: `Because you watched ${data.name}`, items: data.list.map((i) => ({ id: i._id, type: i.type, name: i.name, poster: i.poster || null })) };
+      },
+      // Picks for this viewer (the recommender above): Top Picks for You and Because you watched rows, as
+      // {rows: [{id, name, items}]}; null while the first answer is being worked out (ask again shortly);
+      // stale: true is the last answer while a fresh one is made
+      picks() {
+        if (!settings.forYou || viewers.current().kids) return { rows: [] };
+        const answer = recommender.get();
+        if (!answer) return null;
+        return { stale: !!answer.stale, rows: answer.rows.map((r) => ({ id: r.id, name: r.name, items: r.items.map((i) => ({ id: i._id, type: i.type, name: i.name, poster: i.poster })) })) };
+      },
+      // Everything that is one account's own on this device (its viewers, who has which title, hidden and
+      // dismissed titles, stats…), as {key: value}: the app keeps it with a saved account's sign-in
+      accountData() {
+        stats.flush();
+        const out = {};
+        for (const [key, entry] of Object.entries(store.data)) if (ACCOUNT_DATA.test(key) && entry && entry.v !== undefined) out[key] = entry.v;
+        return out;
+      },
+      // Another account is about to be signed in: its data replaces this one's (what the old account
+      // had is left empty where the new has none). The app reloads the page after.
+      async useAccountData(data) {
+        stats.flush();
+        const now = Date.now();
+        for (const key of Object.keys(store.data)) if (ACCOUNT_DATA.test(key)) store.put(key, { t: now });
+        for (const [key, value] of Object.entries(data && typeof data === "object" ? data : {})) {
+          if (ACCOUNT_DATA.test(key)) store.put(key, { t: now + 1, v: value });
+        }
+        await store.flush();
+        return true;
       },
       // A title's page: titles like it (TMDB's recommendations with a key, else popular ones in its genres)
       async related(type, id, genres) {
@@ -15764,7 +16191,10 @@
         // (samples aren't listed at all on the phone and iPad)
         const short = streamChoice.samples(items, options.minutes);
         if (short.size) items = items.filter((x) => !short.has(x));
-        const choice = items.length ? streamChoice.choose(items, metaId ? quickPlay.memory(metaId) : null, options) : null;
+        // (a device without an AV1 decoder plays it in software: slow at 4K, and HDR came out washed out on an
+        // older iPad. Picked, and kept as a spare, only when nothing else is there)
+        const playable = streamChoice.decodable(items);
+        const choice = playable.length ? streamChoice.choose(playable, metaId ? quickPlay.memory(metaId) : null, options) : null;
         phoneStreams = { items, options, videoId: (state && state.selected && state.selected.streamPath && state.selected.streamPath.id) || null };
         return {
           justPlay: settings.quickPlay,
@@ -15783,7 +16213,7 @@
         if (!item) return null;
         phonePlaying = item;
         quickPlay.from = location.hash;
-        quickPlay.spares = streamChoice.spares(phoneStreams.items, item, phoneStreams.options);
+        quickPlay.spares = streamChoice.spares(streamChoice.decodable(phoneStreams.items), item, phoneStreams.options);
         quickPlay.play(item);
         return item.st.deepLinks.player;
       },
@@ -15812,7 +16242,7 @@
         const item = phoneStreams && phoneStreams.items[index];
         if (!item || !item.st.url || !/^https?:/i.test(item.st.url)) return null;
         phonePlaying = item;
-        quickPlay.spares = streamChoice.spares(phoneStreams.items, item, phoneStreams.options);
+        quickPlay.spares = streamChoice.spares(streamChoice.decodable(phoneStreams.items), item, phoneStreams.options);
         const hints = item.st.behaviorHints || {};
         return { url: item.st.url, headers: (hints.proxyHeaders && hints.proxyHeaders.request) || {}, label: quickPlay.label(item.d) };
       },

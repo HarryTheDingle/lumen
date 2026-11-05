@@ -16,5 +16,6 @@ object Phone {
     fun play(activity: MainActivity, json: String) = false
     @UnstableApi
     fun player(host: PlayerHost, stream: JSONObject): PlayerHooks? = null
+    fun loading(activity: PlayerActivity, root: FrameLayout): LoadingCover? = null
     fun install(activity: MainActivity, apk: File) = false
 }

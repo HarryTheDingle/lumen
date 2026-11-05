@@ -4,7 +4,9 @@ import android.content.Context
 import android.widget.FrameLayout
 import androidx.compose.ui.platform.ComposeView
 import androidx.media3.common.util.UnstableApi
+import com.notdxbi.dxbi.tv.lumen.LoadingHandoff
 import com.notdxbi.dxbi.tv.lumen.LumenApp
+import com.notdxbi.dxbi.tv.lumen.PlayerLoading
 import com.notdxbi.dxbi.tv.phone.Engine
 import com.notdxbi.dxbi.tv.phone.StreamOption
 import org.json.JSONObject
@@ -57,6 +59,17 @@ object Phone {
 
     @UnstableApi
     fun player(host: PlayerHost, stream: JSONObject): PlayerHooks? = null
+
+    /** The loading screen carried on over the player (null: it wasn't started from one, so the player has its own cover) */
+    fun loading(activity: PlayerActivity, root: FrameLayout): LoadingCover? {
+        val info = LoadingHandoff.take() ?: return null
+        val view = ComposeView(activity)
+        val cover = PlayerLoading(info) { root.removeView(view) }
+        // (in Lumen's own theme, its font and type sizes: the app's loading screen carries on here exactly)
+        view.setContent { com.notdxbi.dxbi.tv.lumen.LumenTheme { cover.Content() } }
+        root.addView(view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        return cover
+    }
 
     fun install(activity: MainActivity, apk: File) = false
 }

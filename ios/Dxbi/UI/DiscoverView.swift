@@ -62,7 +62,7 @@ struct DiscoverView: View {
     private var tabs: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
-                chip("For You", id: "", colour: Dx.accent)
+                chip("For You", id: "", colour: Dx.accent, asset: "LumenIcon")
                 ForEach(DiscoverFeed.platforms) { p in chip(p.name, id: p.id, colour: p.colour, icon: p.icon) }
             }
             .padding(.horizontal, Dx.gutter)
@@ -71,7 +71,7 @@ struct DiscoverView: View {
         .padding(.top, 8)
     }
 
-    private func chip(_ name: String, id: String, colour: Color, icon: URL? = nil) -> some View {
+    private func chip(_ name: String, id: String, colour: Color, icon: URL? = nil, asset: String? = nil) -> some View {
         let on = selected == id
         return Button { selected = id } label: {
             HStack(spacing: 8) {
@@ -79,11 +79,14 @@ struct DiscoverView: View {
                     WebImage(url: icon) { $0.resizable().scaledToFill() } placeholder: { _ in colour.opacity(0.4) }
                         .frame(width: 22, height: 22)
                         .clipShape(.rect(cornerRadius: 5))
+                } else if let asset {
+                    // (For You: Lumen's own app icon)
+                    Image(asset).resizable().scaledToFill().frame(width: 22, height: 22).clipShape(.rect(cornerRadius: 5))
                 }
                 Text(name)
             }
                 .font(.subheadline.weight(.semibold))
-                .padding(.leading, icon == nil ? 16 : 8).padding(.trailing, 16).padding(.vertical, 9)
+                .padding(.leading, icon == nil && asset == nil ? 16 : 8).padding(.trailing, 16).padding(.vertical, 9)
                 .foregroundStyle(on ? (colour.isLight ? Color.black : .white) : .white)
                 .background(on ? colour : Color.white.opacity(0.1), in: .capsule)
         }
@@ -100,10 +103,7 @@ struct DiscoverView: View {
                 if let p = platform {
                     WebImage(url: p.icon) { $0.resizable().scaledToFill() } placeholder: { _ in p.colour.opacity(0.5) }
                 } else {
-                    ZStack {
-                        Dx.spectrum
-                        Image(systemName: "sparkles").font(.system(size: 30, weight: .semibold)).foregroundStyle(Dx.onAccent)
-                    }
+                    Image("LumenIcon").resizable().scaledToFill()
                 }
             }
             .frame(width: 72, height: 72)
@@ -207,6 +207,10 @@ struct DiscoverView: View {
         Task { await feed.scheduleAlerts(library: stremio.library, releases: all) }
 
         var rows: [Row] = []
+        // what this profile watched most points to these (the plugin's recommender)
+        for (i, pick) in stremio.picks.enumerated() {
+            rows.append(Row(id: "pick-\(i)", title: pick.name, items: pick.items))
+        }
         if !mine.isEmpty { rows.append(Row(id: "mine", title: "From Your Library: Out on Digital", items: mine.map(\.title), dates: dates)) }
         if !recent.isEmpty { rows.append(Row(id: "digital", title: "New on Digital", items: recent.prefix(30).map(\.title), dates: dates)) }
         if !coming.isEmpty { rows.append(Row(id: "coming", title: "Coming to Digital", items: coming.prefix(25).map(\.title), dates: dates)) }

@@ -18,12 +18,13 @@ struct StreamsSheet: View {
     @State private var sort = Sort.best
     @State private var quality: String?
     @State private var provider: String?
+    @State private var format: String?
     @State private var instantOnly = false
 
     private var all: [StreamOption] { choices?.items ?? [] }
 
     private var shown: [StreamOption] {
-        let kept = all.filter { (quality == nil || $0.quality == quality) && (provider == nil || $0.provider == provider) && (!instantOnly || $0.instant) }
+        let kept = all.filter { (quality == nil || $0.quality == quality) && (provider == nil || $0.provider == provider) && (format == nil || $0.formats.contains(format!)) && (!instantOnly || $0.instant) }
         switch sort {
         case .best: return kept.sorted(by: StreamOption.best)
         case .seeds: return kept.sorted { $0.seeds > $1.seeds }
@@ -93,6 +94,7 @@ struct StreamsSheet: View {
     private var filters: some View {
         let qualities = Array(Set(all.map(\.quality))).sorted { a, b in (all.first { $0.quality == a }?.res ?? 0) > (all.first { $0.quality == b }?.res ?? 0) }
         let providers = Array(Set(all.map(\.provider).filter { !$0.isEmpty })).sorted()
+        let formats = StreamOption.formatOrder.filter { f in all.contains { $0.formats.contains(f) } }
         return ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 Menu {
@@ -105,6 +107,18 @@ struct StreamsSheet: View {
                             ForEach(qualities, id: \.self) { Text($0).tag(String?.some($0)) }
                         }
                     } label: { chip(quality ?? "Any Quality") }
+                }
+                // IMAX has a chip of its own (it's the one people look for); the rest are in Format
+                if all.contains(where: \.imax) {
+                    Button { format = format == "IMAX" ? nil : "IMAX" } label: { chip("IMAX", on: format == "IMAX", menu: false) }
+                }
+                if formats.contains(where: { $0 != "IMAX" }) {
+                    Menu {
+                        Picker("Format", selection: $format) {
+                            Text("Any Format").tag(String?.none)
+                            ForEach(formats, id: \.self) { Text($0).tag(String?.some($0)) }
+                        }
+                    } label: { chip(format.flatMap { $0 == "IMAX" ? nil : $0 } ?? "Any Format", on: format != nil && format != "IMAX") }
                 }
                 if providers.count > 1 {
                     Menu {
@@ -141,7 +155,11 @@ struct StreamsSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Badge(text: s.quality, filled: true)
-                    if s.dv { Badge(text: "DOLBY VISION") } else if s.hdr { Badge(text: "HDR") }
+                    if s.imax { Badge(text: "IMAX", colour: Dx.accent) }
+                    if s.dv { Badge(text: "DOLBY VISION") } else if s.hdr10plus { Badge(text: "HDR10+") } else if s.hdr { Badge(text: "HDR") }
+                    if s.atmos { Badge(text: "ATMOS") }
+                    if s.openMatte { Badge(text: "OPEN MATTE") }
+                    if s.threeD { Badge(text: "3D") }
                     if !s.source.isEmpty && s.source != "Other" { Badge(text: s.source.uppercased(), colour: s.source == "CAM" ? .red : .white) }
                     if !s.codec.isEmpty { Badge(text: s.codec) }
                     Spacer(minLength: 0)

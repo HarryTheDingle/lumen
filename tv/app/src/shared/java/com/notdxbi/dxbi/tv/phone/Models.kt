@@ -173,7 +173,18 @@ data class StreamOption(
     val seeds: Int,
     val source: String,
     val langs: List<String>,
+    /** Formats the file name claims: IMAX, Dolby Atmos, HDR10+, Open Matte, 3D */
+    val imax: Boolean = false,
+    val atmos: Boolean = false,
+    val hdr10plus: Boolean = false,
+    val openMatte: Boolean = false,
+    val threeD: Boolean = false,
 ) {
+    /** The formats it offers, for the Format filter */
+    val formats: List<String> get() = listOfNotNull(
+        "IMAX".takeIf { imax }, "Dolby Vision".takeIf { dv }, "HDR".takeIf { hdr }, "Atmos".takeIf { atmos },
+        "Remux".takeIf { source == "Remux" }, "Open Matte".takeIf { openMatte }, "3D".takeIf { threeD },
+    )
     val quality: String get() = when (res) { 2160 -> "4K"; 1440 -> "1440p"; 1080 -> "1080p"; 720 -> "720p"; 0 -> "?"; else -> "SD" }
     val sizeText: String? get() = if (size <= 0) null else if (size >= 1e9) "%.1f GB".format(size / 1e9) else "%.0f MB".format(size / 1e6)
 
@@ -181,6 +192,7 @@ data class StreamOption(
     val score: Int get() = res * 10 + (if (dv) 3 else if (hdr) 2 else 0) + (SOURCE_RANK[source] ?: 0)
 
     companion object {
+        val FORMAT_ORDER = listOf("IMAX", "Dolby Vision", "HDR", "Atmos", "Remux", "Open Matte", "3D")
         private val SOURCE_RANK = mapOf("Remux" to 4, "BluRay" to 3, "WEB" to 2, "HDTV" to 1, "CAM" to -10)
 
         /** Best quality first; of the same quality, ready to play, then most seeds, then largest */
@@ -190,6 +202,7 @@ data class StreamOption(
             i, o.optString("play"), o.optString("addon"), o.optString("filename"), o.optString("label"), o.optBoolean("torrent"), o.optString("provider"), o.optString("site"),
             o.optString("codec"), o.optBoolean("instant"), o.optBoolean("pending"), o.optBoolean("lesser"), o.optInt("res"), o.optBoolean("hdr"),
             o.optBoolean("dv"), o.optDouble("size", 0.0), o.optInt("seeds", -1), o.optString("source"), o.optJSONArray("langs").strings(),
+            o.optBoolean("imax"), o.optBoolean("atmos"), o.optBoolean("hdr10plus"), o.optBoolean("openMatte"), o.optBoolean("threeD"),
         )
     }
 }
@@ -221,11 +234,20 @@ data class Details(
     val directors: List<String>,
     val videos: List<Video>,
     val resumeVideoId: String?,
+    // the episode Play starts (the engine works it out: dxbi-engine.js nextEpisode)
+    val nextVideoId: String? = null,
     val resumeMs: Long,
     val durationMs: Long,
     val streams: List<StreamGroup>,
 ) {
     val seasons: List<Int> get() = videos.mapNotNull { it.season }.distinct().sortedWith(compareBy({ it == 0 }, { it }))
+
+    /** A random released episode for Shuffle (specials and unreleased skipped; not the one last played, unless it's the only one) */
+    fun shuffled(): Video? {
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        val out = videos.filter { (it.season ?: 0) > 0 && !it.upcoming && (it.released.isNullOrEmpty() || it.released.take(10) <= today) }
+        return out.filter { it.id != resumeVideoId }.randomOrNull() ?: out.randomOrNull()
+    }
 
     companion object {
         fun from(o: JSONObject?): Details? {
@@ -242,6 +264,7 @@ data class Details(
                 directors = meta?.optJSONArray("directors").strings(),
                 videos = meta?.optJSONArray("videos").objects().map(Video::from),
                 resumeVideoId = resume?.text("videoId"),
+                nextVideoId = o.text("next"),
                 resumeMs = resume?.optLong("timeOffset") ?: 0,
                 durationMs = resume?.optLong("duration") ?: 0,
                 streams = o.optJSONArray("streams").objects().map { g ->

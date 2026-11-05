@@ -74,8 +74,8 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
 
     private var job: Job? = null
 
-    /** Starts [t]: [videoId] (an episode), else the one they're on, else the first that's out */
-    fun play(t: Title, videoId: String? = null) = begin(t) { run(t, videoId) }
+    /** Starts [t]: [videoId] (an episode), else the one they're on, else the first that's out. [fromStart]: from 0, not the saved place */
+    fun play(t: Title, videoId: String? = null, fromStart: Boolean = false) = begin(t) { run(t, videoId, fromStart) }
 
     /** Starts a stream chosen from the list */
     fun play(t: Title, option: StreamOption, episodeLine: String?) = begin(t) {
@@ -84,9 +84,38 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
     }
 
     fun cancel() {
+        LoadingHandoff.clear()
         job?.cancel()
         title = null
     }
+
+    /**
+     * Back from a player whose stream failed while loading: the loading screen again, while the page opens
+     * the next best (its player carries the screen on). None comes: there were no more to try
+     */
+    fun retry() {
+        val r = LoadingHandoff.takeRetry() ?: return
+        job?.cancel()
+        // (put up while the app is behind the player: it stays until the next player has opened)
+        seenFront = false
+        title = r.title
+        episode = r.episode
+        step = r.step
+        LoadingHandoff.put(r.title, r.episode, step)
+        // (the next episode's streams take a while to come; another of the same one's are ready)
+        val next = r.step.text.startsWith("Starting the next")
+        job = scope.launch {
+            delay(if (next) 45_000 else 15_000)
+            if (title != null) {
+                LoadingHandoff.clear()
+                if (next) fail("Couldn't start the next episode", "Try it from the show's page.")
+                else fail("Couldn't play a stream", "None of the best few would play here. Try … → Choose a Stream on the title's page.")
+            }
+        }
+    }
+
+    /** The app has been in front since this loading screen went up (a retry's goes up behind the player) */
+    internal var seenFront = true
 
     /** The player's up: the loading screen goes */
     fun done() {
@@ -102,7 +131,7 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
         job = scope.launch { work() }
     }
 
-    private suspend fun run(t: Title, wanted: String?) {
+    private suspend fun run(t: Title, wanted: String?, fromStart: Boolean) {
         val checkSpeed = runCatching { stremio.settings().firstOrNull { it.key == "quickPlaySpeed" }?.value == true }.getOrDefault(false)
 
         // 1. The title (and for a show, which episode)
@@ -118,6 +147,8 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
                 delay(150)
             }
         }
+        // (Start from the Beginning, or an ordinary Play clearing it)
+        stremio.startFromBeginning(video ?: d.videoId ?: t.id, fromStart)
         d.videos.firstOrNull { it.id == (video ?: d.videoId) }?.let { v ->
             if (v.season != null && v.episode != null) episode = "S${v.season}, E${v.episode}" + (if (v.title.isNotEmpty()) " · ${v.title}" else "")
         }
@@ -163,6 +194,8 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
     private suspend fun starting(option: StreamOption) {
         val what = listOfNotNull(option.quality, if (option.dv) "Dolby Vision" else if (option.hdr) "HDR" else null).joinToString(" · ")
         step = Step("Starting $what", listOf(option.provider, option.sizeText.orEmpty(), option.source).filter { it.isNotEmpty() && it != "Other" }.joinToString(" · "), 0.88f)
+        // (the player carries this screen on from here, to the video's first picture)
+        title?.let { LoadingHandoff.put(it, episode, step) }
         stremio.play(option)
         // (the player's slow to open, or didn't: either way the screen doesn't stay)
         delay(25_000)
@@ -189,66 +222,76 @@ val LocalLauncher = staticCompositionLocalOf<Launcher?> { null }
 
 /**
  * The loading screen: the title's picture, darkened, with its logo, what's happening and a bar, low on
- * the left as on its page. Back stops it. It goes once the player's up.
+ * the left as on its page. Back stops it. It goes once the player's opened, which then carries it on
+ * (see PlayerLoading.kt) until the video's first picture.
  */
 @Composable
 fun LoadingScreen(launcher: Launcher) {
     val title = launcher.title ?: return
-    val step = launcher.step
-    val progress by animateFloatAsState(step.progress, tween(500), label = "loading")
     // the player's up (this app's gone behind it): done
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val life by lifecycle.currentStateFlow.collectAsState()
-    LaunchedEffect(life) { if (!life.isAtLeast(Lifecycle.State.RESUMED)) launcher.done() }
+    // (gone once the player covers it completely, the app stopped behind it: going when the app was only paused,
+    // the player opening over it showed what was underneath for a moment)
+    LaunchedEffect(life) {
+        if (life.isAtLeast(Lifecycle.State.RESUMED)) launcher.seenFront = true
+        else if (launcher.seenFront && !life.isAtLeast(Lifecycle.State.STARTED)) launcher.done()
+    }
     val hold = androidx.compose.runtime.remember { FocusRequester() }
 
     PageWindow(onBack = { launcher.cancel() }) {
         FocusOnOpen(hold)
-        Box(
+        LoadingContent(
+            title, launcher.episode, launcher.step,
+            // (it holds the remote, so Back comes here)
             Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-                // (it holds the remote, so Back comes here)
                 .focusRequester(hold)
                 .focusable()
                 .onPreviewKeyEvent {
                     if (it.key == Key.Back && it.type == KeyEventType.KeyUp) launcher.cancel()
                     it.key == Key.Back
                 },
+        )
+    }
+}
+
+/** What the loading screen draws (here, and in the player until its first picture): [progressMs] is how slowly the bar moves */
+@Composable
+fun LoadingContent(title: Title, episode: String?, step: Launcher.Step, modifier: Modifier = Modifier, progressMs: Int = 500) {
+    val progress by animateFloatAsState(step.progress, tween(progressMs), label = "loading")
+    Box(Modifier.fillMaxSize().background(Color.Black).then(modifier)) {
+        Art(title.backdrop, Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.8f), 0.6f to Color.Black.copy(alpha = 0.35f))))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.85f))))
+        Column(
+            Modifier.align(Alignment.BottomStart).padding(start = Dx.Gutter, bottom = 56.dp).width(460.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Art(title.backdrop, Modifier.fillMaxSize())
-            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.8f), 0.6f to Color.Black.copy(alpha = 0.35f))))
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.85f))))
-            Column(
-                Modifier.align(Alignment.BottomStart).padding(start = Dx.Gutter, bottom = 56.dp).width(460.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+            TitleLogo(title, maxHeight = 96.dp, maxWidth = 360.dp, textSize = 38.sp, modifier = Modifier.padding(bottom = 6.dp))
+            episode?.let { Text(it, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.85f), maxLines = 1) }
+            Text(
+                step.text,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+                modifier = Modifier.padding(top = 18.dp),
+            )
+            step.detail?.let { Text(it, fontSize = 14.sp, color = Dx.Muted, maxLines = 2) }
+            // the bar
+            Box(
+                Modifier
+                    .padding(top = 6.dp)
+                    .fillMaxWidth()
+                    .height(5.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.22f)),
             ) {
-                TitleLogo(title, maxHeight = 96.dp, maxWidth = 360.dp, textSize = 38.sp, modifier = Modifier.padding(bottom = 6.dp))
-                launcher.episode?.let { Text(it, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.85f), maxLines = 1) }
-                Text(
-                    step.text,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.White,
-                    modifier = Modifier.padding(top = 18.dp),
-                )
-                step.detail?.let { Text(it, fontSize = 14.sp, color = Dx.Muted, maxLines = 2) }
-                // the bar
                 Box(
                     Modifier
-                        .padding(top = 6.dp)
-                        .fillMaxWidth()
-                        .height(5.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.22f)),
-                ) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth(progress.coerceIn(0f, 1f))
-                            .fillMaxHeight()
-                            .background(if (step.failed) Color(0xFFFF6B6B) else Color.White, CircleShape),
-                    )
-                }
+                        .fillMaxWidth(progress.coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .background(if (step.failed) Color(0xFFFF6B6B) else Color.White, CircleShape),
+                )
             }
         }
     }

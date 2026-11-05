@@ -160,6 +160,13 @@
                     style="@style/PlayerButton"
                     android:contentDescription="Playback speed"
                     android:src="@drawable/ic_speed" />
+                <!-- Lumen: Stats and Picture open out from here (dx.bi TV shows them all, and no More) -->
+                <ImageButton
+                    android:id="@+id/ctl_more"
+                    style="@style/PlayerButton"
+                    android:contentDescription="More"
+                    android:src="@drawable/ic_more"
+                    android:visibility="gone" />
                 <ImageButton
                     android:id="@+id/ctl_subtitles"
                     style="@style/PlayerButton"

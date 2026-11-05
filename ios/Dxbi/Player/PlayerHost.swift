@@ -72,6 +72,9 @@ final class PlayerHost: UIHostingController<AnyView> {
     }
 
     @MainActor
+    /** The loading screen is up: the player appears at once over it (it carries the same screen on) */
+    private static var quietly = false
+
     static func show(_ playback: Playback, stremio: Stremio) {
         if let old = shown {
             if let page, page.superview === old.view { PageBox.bringBack(page) }
@@ -83,6 +86,7 @@ final class PlayerHost: UIHostingController<AnyView> {
         host.playback = playback
         shown = host
         page = stremio.page.webView
+        quietly = stremio.launch != nil
         present(host, playback: playback, tries: 0)
     }
 
@@ -105,19 +109,22 @@ final class PlayerHost: UIHostingController<AnyView> {
         // (sideways only once the player is there to be sideways)
         if !AppDelegate.isPad { AppDelegate.orientations = .landscape }
         if let page { PageBox.lend(page, to: host.view) }
-        top.present(host, animated: true)
+        // (over the loading screen, at once: the player carries the same screen on, so nothing seems to change)
+        top.present(host, animated: !quietly)
     }
 
     @MainActor
     static func hide() {
         guard let host = shown else { return }
         shown = nil
-        if !AppDelegate.isPad { AppDelegate.orientations = .portrait }
+        // (upright again, unless the loading screen is up for another stream)
+        let upright = !AppDelegate.isPad && !AppDelegate.holdSideways
+        if upright { AppDelegate.orientations = .portrait }
         let presenter = host.presentingViewController
         host.dismiss(animated: true) {
             // the page back under the app's screens, unless another player has it already
             if let page, page.superview === host.view { PageBox.bringBack(page) }
-            guard !AppDelegate.isPad else { return }
+            guard upright else { return }
             presenter?.setNeedsUpdateOfSupportedInterfaceOrientations()
             (presenter?.view.window?.windowScene)?.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait)) { _ in }
         }

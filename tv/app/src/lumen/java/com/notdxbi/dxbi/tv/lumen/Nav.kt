@@ -77,6 +77,10 @@ enum class Tab(val label: String, val icon: ImageVector) {
 sealed interface Page {
     data class Details(val title: Title, val play: Boolean = false) : Page
     data object Catalogs : Page
+    /** Someone from a cast: TMDB's id for them, their name and photo (shown while it loads) */
+    data class Person(val id: String, val name: String, val photo: String?) : Page
+    /** Who's watching? and the accounts */
+    data object Profiles : Page
 }
 
 /**
@@ -211,7 +215,7 @@ fun ScreenTag(nav: Nav) {
  * Search, Home, Discover and Settings. Back or right closes it.
  */
 @Composable
-fun SideMenu(nav: Nav, email: String?) {
+fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?) {
     val chosen = remember { FocusRequester() }
     fun close() {
         nav.menuClosedAt = System.currentTimeMillis()
@@ -235,11 +239,19 @@ fun SideMenu(nav: Nav, email: String?) {
                     .padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
+                // who's watching: OK opens the profiles
+                Surface(
+                    onClick = { close(); nav.push(Page.Profiles) },
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
+                    colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, contentColor = Color.White, focusedContainerColor = Color.White, focusedContentColor = Color.Black),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+                ) {
                 Row(Modifier.padding(horizontal = 6.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(email, 28.dp)
+                    if (viewer != null) ProfileAvatar(viewer.name, viewer.colour, 28.dp) else Avatar(email, 28.dp)
                     Spacer(Modifier.width(10.dp))
-                    Text(email?.substringBefore('@') ?: "Guest", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, modifier = Modifier.weight(1f))
-                    Text(java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date()), fontSize = 13.sp, color = Dx.Muted)
+                    Text(viewer?.name ?: email?.substringBefore('@') ?: "Guest", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f))
+                    Text(java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date()), fontSize = 13.sp, color = androidx.tv.material3.LocalContentColor.current.copy(alpha = 0.6f))
+                }
                 }
                 Spacer(Modifier.height(8.dp))
                 Tab.entries.forEach { t ->

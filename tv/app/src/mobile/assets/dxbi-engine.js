@@ -104,6 +104,30 @@
     };
   }
 
+  // Credits: with less than this left (5 minutes, or a tenth of a short video) it counts as finished
+  // (dxbi-tv.js uses the same sum when the player closes)
+  const finishedAt = (offset, duration) => duration > 0 && duration - offset < Math.min(300000, duration * 0.1);
+
+  // Which episode Play starts: the one last played (the library item's video_id), or the one after it
+  // when that was finished; no history, the first of season 1. Specials (season 0) and unreleased are skipped.
+  function nextEpisode(videos, lib) {
+    const now = Date.now();
+    const out = (v) => v.season > 0 && !v.upcoming && (!v.released || Date.parse(v.released) <= now);
+    const eps = videos.filter((v) => v.season != null);
+    if (!eps.length) return null;
+    const i = lib && lib.video_id ? videos.findIndex((v) => v.id === lib.video_id) : -1;
+    if (i >= 0 && videos[i].season != null) {
+      const v = videos[i];
+      const offset = lib.timeOffset || 0;
+      const done = finishedAt(offset, lib.duration || 0) || (v.watched && !(offset > 0));
+      if (!done) return v.id;
+      const after = videos.slice(i + 1).find(out);
+      return (after || v).id;
+    }
+    const first = eps.filter(out).sort((a, b) => a.season - b.season || (a.episode || 0) - (b.episode || 0))[0];
+    return (first || eps[0]).id;
+  }
+
   const views = {
     ctx(c) {
       const auth = c.profile && c.profile.auth;
@@ -119,7 +143,8 @@
     search: catalogs,
     continue_watching_preview(s) {
       return {
-        items: (s.items || []).map((i) => ({
+        // (a film left in its credits is finished: it leaves)
+        items: (s.items || []).filter((i) => !(i.type === "movie" && i.state && finishedAt(i.state.timeOffset || 0, i.state.duration || 0))).map((i) => ({
           id: i._id,
           type: i.type,
           name: i.name,
@@ -151,11 +176,15 @@
             released: v.released || null,
             overview: v.overview || v.description || null,
             watched: !!v.watched,
-            progress: v.progress || null,
+            // (Stremio keeps how far in only for the episode last played: that one's bar, as on Home)
+            progress: v.progress || (lib && lib.video_id === v.id && lib.duration > 0 && lib.timeOffset > 0 && !finishedAt(lib.timeOffset, lib.duration)
+              ? Math.round((lib.timeOffset / lib.duration) * 1000) / 10 : null),
             upcoming: !!v.upcoming,
           })),
         }),
-        resume: lib ? { videoId: lib.video_id || null, timeOffset: lib.timeOffset || 0, duration: lib.duration || 0 } : null,
+        // (left in the credits: nothing to resume)
+        resume: lib ? { videoId: lib.video_id || null, timeOffset: finishedAt(lib.timeOffset || 0, lib.duration || 0) ? 0 : lib.timeOffset || 0, duration: lib.duration || 0 } : null,
+        next: m ? nextEpisode(m.videos || [], lib) : null,
         streams: (s.streams || []).map((g) => ({
           addon: (g.addon && g.addon.manifest && g.addon.manifest.name) || "",
           state: loadable(g.content),
@@ -246,7 +275,22 @@
   // ---------------------------------------------------------------------------
   // What native can ask for
   // ---------------------------------------------------------------------------
+  // Marked unwatched: how far it got is forgotten too (a half-seen film isn't "watched" already, but would
+  // stay in Continue Watching); Stremio's own button only clears the flags
+  async function forgetPlace() {
+    const s = await core().getState("meta_details");
+    const meta = s && s.metaItem && s.metaItem.content;
+    if (!meta || meta.type !== "Ready" || !s.libraryItem) return;
+    await core().dispatch({ action: "Ctx", args: { action: "RewindLibraryItem", args: meta.content.id } });
+  }
+
   const ops = {
+    // Start from the Beginning: the next player for this video (just the one, within a minute and a half)
+    // starts at 0 instead of the saved place, which stays until it's played over (dxbi-tv.js startHandoff).
+    // Called with no [on] before an ordinary Play, so a cancelled one can't leak into it.
+    fromStart({ videoId, on }) {
+      window.__dxbiFromStart = on === false ? null : { videoId: videoId || null, at: Date.now() };
+    },
     watch({ fields }) {
       for (const f of fields || []) {
         if (!watched.has(f)) { watched.add(f); push(f); }
@@ -276,6 +320,7 @@
     // Mark as watched / unwatched: the title open in details (a series: every episode), as Stremio's button does
     async watched({ value }) {
       await core().dispatch({ action: "MetaDetails", args: { action: "MarkAsWatched", args: !!value } }, "meta_details");
+      if (!value) await forgetPlace();
       push("meta_details");
     },
     // One video of the title open in details, watched or not (a film: the film itself). [upTo]: and
@@ -289,6 +334,7 @@
       if (!video) {
         if (id !== meta.content.id) throw new Error("that isn't this title's");
         await core().dispatch({ action: "MetaDetails", args: { action: "MarkAsWatched", args: !!value } }, "meta_details");
+        if (!value) await forgetPlace();
       } else {
         const list = upTo ? videos.filter((v) => v.season === video.season && v.episode != null && v.episode <= video.episode) : [video];
         for (const v of list) {
@@ -351,6 +397,36 @@
     },
     async signOut() {
       await core().dispatch({ action: "Ctx", args: { action: "Logout" } });
+    },
+    // Several accounts on one device: the page keeps who is signed in as "profile" in its storage (the
+    // sign-in key, addons, settings), and the app keeps a copy of each account's in its secure storage.
+    // This is the signed-in account's, or null when there's none (browsing without an account)
+    accountExport() {
+      let text = null;
+      try { text = localStorage.getItem("profile"); } catch (_) { /* no storage */ }
+      let profile = null;
+      try { profile = text ? JSON.parse(text) : null; } catch (_) { /* damaged */ }
+      const auth = profile && profile.auth;
+      if (!auth || !auth.key || !auth.user) return null;
+      return { profile: text, id: String(auth.user._id || auth.user.email || ""), email: String(auth.user.email || ""), avatar: auth.user.avatar || null };
+    },
+    // Switches the page to another account's saved profile (null: signed out, browsing without one) and
+    // starts it again, so Stremio reads it fresh. Its library is the account's own, so the saved copy of
+    // the last one is dropped and Stremio fetches this one's. (Not a Logout: that would end the session
+    // for every device.)
+    accountImport({ profile }) {
+      const text = typeof profile === "string" && profile ? profile : null;
+      const write = () => {
+        try {
+          if (text) localStorage.setItem("profile", text);
+          else localStorage.removeItem("profile");
+          for (const key of ["library", "library_recent", "notification_items", "notifications"]) localStorage.removeItem(key);
+        } catch (_) { /* no storage */ }
+      };
+      write();
+      // (written once more as the page goes: the core may have saved its own copy in between)
+      window.addEventListener("pagehide", write);
+      setTimeout(() => location.reload(), 120);
     },
     // Playing: Stremio's own player route, which dxbi-tv.js hands to the native player
     play({ link }) {

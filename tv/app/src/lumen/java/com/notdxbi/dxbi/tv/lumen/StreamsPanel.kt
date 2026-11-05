@@ -60,9 +60,10 @@ fun StreamsPanel(choices: StreamChoices?, heading: String, subheading: String?, 
     var quality by remember { mutableStateOf<String?>(null) }
     var provider by remember { mutableStateOf<String?>(null) }
     var instantOnly by remember { mutableStateOf(false) }
+    var format by remember { mutableStateOf<String?>(null) }
 
     val all = choices?.items.orEmpty()
-    val kept = all.filter { (quality == null || it.quality == quality) && (provider == null || it.provider == provider) && (!instantOnly || it.instant) }
+    val kept = all.filter { (quality == null || it.quality == quality) && (provider == null || it.provider == provider) && (!instantOnly || it.instant) && (format == null || format in it.formats) }
     val shown = when (sort) {
         Sort.Best -> kept.sortedWith(StreamOption.BEST)
         Sort.Seeds -> kept.sortedByDescending { it.seeds }
@@ -71,6 +72,7 @@ fun StreamsPanel(choices: StreamChoices?, heading: String, subheading: String?, 
         Sort.Addon -> kept
     }
     val qualities = all.sortedByDescending { it.res }.map { it.quality }.distinct()
+    val formats = StreamOption.FORMAT_ORDER.filter { f -> all.any { f in it.formats } }
     val providers = all.map { it.provider }.filter { it.isNotEmpty() }.distinct().sorted()
 
     val first = remember { FocusRequester() }
@@ -106,6 +108,14 @@ fun StreamsPanel(choices: StreamChoices?, heading: String, subheading: String?, 
                                 item { Pill(sort.label, selected = false, onClick = { sort = Sort.entries[(sort.ordinal + 1) % Sort.entries.size] }) }
                                 if (qualities.size > 1) item {
                                     Pill(quality ?: "Any Quality", selected = quality != null, onClick = { quality = cycle(qualities, quality) })
+                                }
+                                // IMAX has a chip of its own (it's the one people look for); the rest cycle in Format
+                                if ("IMAX" in formats) item {
+                                    Pill("IMAX", selected = format == "IMAX", onClick = { format = if (format == "IMAX") null else "IMAX" })
+                                }
+                                if (formats.any { it != "IMAX" }) item {
+                                    val others = formats.filter { it != "IMAX" }
+                                    Pill(format?.takeIf { it != "IMAX" } ?: "Any Format", selected = format != null && format != "IMAX", onClick = { format = cycle(others, format?.takeIf { it != "IMAX" }) })
                                 }
                                 if (providers.size > 1) item {
                                     Pill(provider ?: "Any Source", selected = provider != null, onClick = { provider = cycle(providers, provider) })
@@ -192,7 +202,11 @@ private fun StreamRow(s: StreamOption, picked: Boolean, modifier: Modifier, onCl
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Filled(s.quality)
-                if (s.dv) Badge("DOLBY VISION") else if (s.hdr) Badge("HDR")
+                if (s.imax) Filled("IMAX")
+                if (s.dv) Badge("DOLBY VISION") else if (s.hdr10plus) Badge("HDR10+") else if (s.hdr) Badge("HDR")
+                if (s.atmos) Badge("ATMOS")
+                if (s.openMatte) Badge("OPEN MATTE")
+                if (s.threeD) Badge("3D")
                 if (s.source.isNotEmpty() && s.source != "Other") Badge(s.source.uppercase(), if (s.source == "CAM") Color(0xFFFF6B6B) else Color.White)
                 if (s.codec.isNotEmpty()) Badge(s.codec)
                 Spacer(Modifier.weight(1f))

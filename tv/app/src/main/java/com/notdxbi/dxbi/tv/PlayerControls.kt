@@ -77,7 +77,7 @@ class PlayerControls(
         }
     }
 
-    private val buttons = listOf(R.id.ctl_play, R.id.ctl_rewind, R.id.ctl_forward, R.id.ctl_next, R.id.ctl_stats, R.id.ctl_picture, R.id.ctl_speed, R.id.ctl_subtitles, R.id.ctl_audio, R.id.ctl_party)
+    private val buttons = listOf(R.id.ctl_play, R.id.ctl_rewind, R.id.ctl_forward, R.id.ctl_next, R.id.ctl_stats, R.id.ctl_picture, R.id.ctl_speed, R.id.ctl_more, R.id.ctl_subtitles, R.id.ctl_audio, R.id.ctl_party)
         .map { activity.findViewById<View>(it) }
 
     override val visible get() = root.visibility == View.VISIBLE
@@ -97,6 +97,19 @@ class PlayerControls(
         click(R.id.ctl_subtitles) { showTracks(it, C.TRACK_TYPE_TEXT, "Subtitles") }
         click(R.id.ctl_audio) { showTracks(it, C.TRACK_TYPE_AUDIO, "Audio") }
         click(R.id.ctl_party) { showParty(it) }
+        // Lumen: fewer buttons. No speed; Stats and Picture open out from More, Subtitles and Audio stay
+        if (Phone.ownsKeys()) {
+            val tucked = listOf(R.id.ctl_stats, R.id.ctl_picture).map { activity.findViewById<View>(it) }
+            activity.findViewById<View>(R.id.ctl_speed).visibility = View.GONE
+            tucked.forEach { it.visibility = View.GONE }
+            activity.findViewById<View>(R.id.ctl_more).visibility = View.VISIBLE
+            click(R.id.ctl_more) {
+                val open = tucked.first().visibility != View.VISIBLE
+                tucked.forEach { v -> v.visibility = if (open) View.VISIBLE else View.GONE }
+                // (open: on to the first of them, to the left)
+                if (open) tucked.first().requestFocus()
+            }
+        }
         // Phones: a tap shows or hides them, and the bar can be touched
         playerView.setOnClickListener { if (visible) hide() else show() }
         root.setOnClickListener { hide() }

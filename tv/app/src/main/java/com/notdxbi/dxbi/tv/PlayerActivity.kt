@@ -175,7 +175,9 @@ class PlayerActivity : AppCompatActivity() {
             val exo = player
             val waiting = exo == null || exo.playbackState == Player.STATE_BUFFERING || exo.playbackState == Player.STATE_IDLE
             val text = if (torrent && waiting) TorrentEngine.status() else null
-            if (text != null) {
+            if (text != null && loading?.showing == true) {
+                loading?.detail(text)
+            } else if (text != null) {
                 seekFlash.text = text
                 seekFlash.visibility = View.VISIBLE
             } else if (seekFlash.text.contains("peer") || seekFlash.text.startsWith("Finding")) {
@@ -270,13 +272,33 @@ class PlayerActivity : AppCompatActivity() {
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
 
+        // After running dry it carries on once 15 seconds are in hand (5 when the connection is clearly
+        // quicker than the stream needs: more than 3 times its bitrate); starting out stays quick
+        val bandwidth = androidx.media3.exoplayer.upstream.DefaultBandwidthMeter.getSingletonInstance(this)
+        var exoRef: ExoPlayer? = null
+        val loadControl = object : androidx.media3.exoplayer.DefaultLoadControl() {
+            override fun shouldStartPlayback(
+                timeline: androidx.media3.common.Timeline, mediaPeriodId: androidx.media3.exoplayer.source.MediaSource.MediaPeriodId,
+                bufferedDurationUs: Long, playbackSpeed: Float, rebuffering: Boolean, targetLiveOffsetUs: Long,
+            ): Boolean {
+                if (!super.shouldStartPlayback(timeline, mediaPeriodId, bufferedDurationUs, playbackSpeed, rebuffering, targetLiveOffsetUs)) return false
+                if (!rebuffering) return true
+                val e = exoRef
+                val need = ((e?.videoFormat?.bitrate ?: -1).coerceAtLeast(0) + (e?.audioFormat?.bitrate ?: -1).coerceAtLeast(0)).toLong()
+                val fast = need > 0 && bandwidth.bitrateEstimate > need * 3
+                return fast || bufferedDurationUs >= 15_000_000L * playbackSpeed
+            }
+        }
         val exo = ExoPlayer.Builder(this, renderers)
+            .setLoadControl(loadControl)
+            .setBandwidthMeter(bandwidth)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource))
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
             .setHandleAudioBecomingNoisy(true)
             .setSeekBackIncrementMs(SEEK_STEP_MS)
             .setSeekForwardIncrementMs(SEEK_STEP_MS)
             .build()
+        exoRef = exo
         player = exo
         playerView.player = exo
         val lumen = Phone.ownsKeys()
@@ -296,7 +318,15 @@ class PlayerActivity : AppCompatActivity() {
             // the spinner in white, and the title's picture behind it until the video's first picture
             playerView.findViewById<android.widget.ProgressBar>(androidx.media3.ui.R.id.exo_buffering)
                 ?.indeterminateTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
-            cover(stream.optString("background"))
+            val root = findViewById<android.widget.FrameLayout>(android.R.id.content).getChildAt(0) as? android.widget.FrameLayout
+            // (the loading screen carried on, when it started this; else the title's picture and a spinner)
+            loading = root?.let { Phone.loading(this, it) }
+            if (loading == null) cover(stream.optString("background"))
+            // (over the app's own loading screen, at once: the same screen carries on, nothing slides)
+            else {
+                @Suppress("DEPRECATION")
+                overridePendingTransition(0, 0)
+            }
             // seeking with pictures from the lightest stream of this video (the page's previewSource)
             val preview = stream.optJSONObject("preview")
             val previewUrl = preview?.optString("url")?.takeIf { it.startsWith("http") }
@@ -366,7 +396,10 @@ class PlayerActivity : AppCompatActivity() {
 
             // A subtitle switched on mid-line only shows from its next line: a seek to where we are
             // brings the current one up straight away
-            override fun onRenderedFirstFrame() = uncover()
+            override fun onRenderedFirstFrame() {
+                uncover()
+                loading?.ready()
+            }
 
             override fun onTracksChanged(tracks: Tracks) {
                 this@PlayerActivity.tracks?.changed(tracks)
@@ -378,16 +411,37 @@ class PlayerActivity : AppCompatActivity() {
 
             override fun onPlayerError(error: PlaybackException) {
                 lastError = (if (torrent) TorrentEngine.failed() else null) ?: describe(error)
+                // (before its first picture: closed quietly, and the page tries the next best stream with
+                // the loading screen still up, so a stream that won't play is passed over, not shown failing)
+                if (loading?.showing == true) {
+                    android.util.Log.w("dxbi-player", "stream failed while loading: $lastError (${error.errorCodeName}) file=${Uri.parse(url).lastPathSegment}")
+                    loading?.retrying(lastError.orEmpty())
+                    finishWith(error = lastError)
+                    return
+                }
                 // (in the TV's log, to tell what went wrong with which file: its name, not its address)
                 android.util.Log.w("dxbi-player", "stream failed: $lastError (${error.errorCodeName}: ${error.cause?.message}) file=${Uri.parse(url).lastPathSegment}")
                 finishWith(error = lastError)
             }
 
             override fun onVideoSizeChanged(videoSize: VideoSize) { extras?.changed() }
-            override fun onIsPlayingChanged(isPlaying: Boolean) { extras?.changed() }
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                extras?.changed()
+                // (a video with no picture to wait for: playing is ready enough)
+                if (isPlaying) handler.postDelayed({ loading?.ready() }, 2500)
+            }
         })
         exo.prepare()
         exo.playWhenReady = true
+        // (no picture in 40 seconds: as good as failed, so the page moves on to the next best)
+        handler.postDelayed({
+            if (loading?.showing == true && !isFinishing) {
+                lastError = "It didn't start"
+                android.util.Log.w("dxbi-player", "stream didn't start in 40s file=${Uri.parse(url).lastPathSegment}")
+                loading?.retrying(lastError.orEmpty())
+                finishWith(error = lastError)
+            }
+        }, 40_000)
         handler.postDelayed(reportProgress, PROGRESS_INTERVAL_MS)
         if (showClock) handler.post(updateClock)
         handler.postDelayed(checkSkip, 500)
@@ -397,6 +451,10 @@ class PlayerActivity : AppCompatActivity() {
             // Back leaves the player straight away, like Netflix (the position is kept). In Lumen, Back
             // with the controls showing puts them away first, as on Apple TV
             override fun handleOnBackPressed() {
+                if (loading?.showing == true) {
+                    finishWith(error = lastError)
+                    return
+                }
                 if (scrubber?.active == true) {
                     scrubber?.cancel()
                     return
@@ -417,6 +475,11 @@ class PlayerActivity : AppCompatActivity() {
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val exo = player ?: return super.dispatchKeyEvent(event)
+        // (the loading screen's up: only Back works, to stop and go back)
+        if (loading?.showing == true) {
+            if (event.keyCode == KeyEvent.KEYCODE_BACK || event.keyCode == KeyEvent.KEYCODE_ESCAPE) return super.dispatchKeyEvent(event)
+            return true
+        }
         if (event.action == KeyEvent.ACTION_DOWN) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_SPACE -> { exo.playWhenReady = !exo.playWhenReady; controls.show(); return true }
@@ -533,6 +596,8 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private var coverView: View? = null
+    /** Lumen: its loading screen carried on over the video (null: none, as in dx.bi TV) */
+    private var loading: LoadingCover? = null
 
     /**
      * Lumen: the title's picture, darkened, with the white spinner over it, until the video's first picture
@@ -625,9 +690,17 @@ class PlayerActivity : AppCompatActivity() {
         val duration = durationMs?.takeIf { it > 0 } ?: exo?.duration?.takeIf { it != C.TIME_UNSET } ?: 0L
         val position = if (ended) duration else positionMs ?: exo?.currentPosition ?: 0L
         scrubber?.release()
+        // (on to the next episode: Lumen's loading screen comes up for it first, behind this player)
+        val toNext = next && nextTitle.isNotEmpty() && loading != null
+        if (toNext) loading?.next(nextTitle)
         if (extras?.keep(position, ended) != true) PlaybackBus.closed(position, duration, ended, error, next, measuredBps / 1_000_000.0)
         if (torrent) TorrentEngine.close()
         finish()
+        // (failed while loading: the app's loading screen is already behind it, so no slide)
+        if ((error != null && loading?.showing == true) || toNext) {
+            @Suppress("DEPRECATION")
+            overridePendingTransition(0, 0)
+        }
     }
 
     override fun onPause() {

@@ -29,6 +29,8 @@ struct TitleView: View {
     @State private var pastArt = false
     /** dx.bi settings → Blur unwatched episodes */
     @State private var blurUnwatched = false
+    /** dx.bi settings → Play Trailers (nil until read) */
+    @State private var playTrailers: Bool?
 
     private var details: Details? { stremio.details?.metaId == ref.id ? stremio.details : nil }
     private var title: Title { details?.title ?? Title(id: ref.id, type: ref.type, name: ref.name) }
@@ -80,8 +82,8 @@ struct TitleView: View {
             }
         }
         // the trailer: a moment after the page is ready (not on mobile data or Low Data Mode)
-        .task(id: "\(ref.id)-preview-\(title.trailer ?? "")") {
-            guard title.trailer != nil, !NetworkStatus.shared.saving, !previewOn else { return }
+        .task(id: "\(ref.id)-preview-\(title.trailer ?? "")-\(playTrailers.map(String.init) ?? "")") {
+            guard title.trailer != nil, playTrailers == true, !NetworkStatus.shared.saving, !previewOn else { return }
             try? await Task.sleep(for: .seconds(1.5))
             if !Task.isCancelled { previewOn = true }
         }
@@ -99,7 +101,11 @@ struct TitleView: View {
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $reviewsOpen) { ReviewsView(title: title, reviews: reviews) }
-        .task { blurUnwatched = await stremio.settings().first { $0.key == "blurUnwatched" }?.value == "true" }
+        .task {
+            let all = await stremio.settings()
+            blurUnwatched = all.first { $0.key == "blurUnwatched" }?.value == "true"
+            playTrailers = all.first { $0.key == "playTrailers" }?.value != "false"
+        }
         .task(id: ref.id) {
             if stremio.details?.metaId != ref.id { stremio.open(ref.type, ref.id) }
             reviews = await stremio.reviews(ref.type, ref.id)
@@ -118,10 +124,13 @@ struct TitleView: View {
             guard let d = details, d.state == .ready, ref.type == "series" else { return }
             if season == nil { season = nextVideo(d)?.season ?? d.seasons.first }
             if d.videoId == nil, let v = nextVideo(d) { stremio.open(ref.type, ref.id, videoId: v.id) }
-            if ref.play && !autoPlayed { autoPlayed = true; start(nextVideo(d)?.id) }
+            if (ref.play || ref.fromStart || ref.shuffle) && !autoPlayed {
+                autoPlayed = true
+                start(ref.shuffle ? d.shuffled()?.id : nextVideo(d)?.id, fromStart: ref.fromStart)
+            }
         }
         .onChange(of: details?.state == .ready && ref.type != "series", initial: true) { _, ready in
-            if ready && ref.play && !autoPlayed { autoPlayed = true; start(nil) }
+            if ready && (ref.play || ref.fromStart) && !autoPlayed { autoPlayed = true; start(nil, fromStart: ref.fromStart) }
         }
         // The episode picked shows in its season (back from the player, the page picks the next one
         // when the last was finished: dxbi-engine.js afterPlaying)
@@ -136,48 +145,83 @@ struct TitleView: View {
             justPlayIfSure()
             updateLaunch()
         }
+        // While Play waits for streams, every half second: ask again (nothing may have changed the stream
+        // list's key), move the bar, and once the addons have had a few seconds, play the pick
         .task(id: waitingFor) {
             guard waitingFor != nil else { return }
-            try? await Task.sleep(for: .seconds(6))
-            if let c = current, c.justPlay, !NetworkStatus.shared.saving, waitingFor == c.videoId, let pick = c.picked { play(pick) }
+            let began = Date()
+            while !Task.isCancelled, waitingFor != nil, stremio.launch != nil {
+                try? await Task.sleep(for: .milliseconds(500))
+                if Task.isCancelled || waitingFor == nil || stremio.launch == nil { return }
+                if details?.videoId != nil, let fresh = await stremio.streams() { choices = fresh }
+                if waitingFor == nil || stremio.launch == nil { return }
+                justPlayIfSure()
+                guard waitingFor != nil, stremio.launch != nil else { return }
+                updateLaunch(waited: Date().timeIntervalSince(began))
+                guard waitingFor != nil, stremio.launch?.failed == false else { return }
+                if let c = current, let pick = c.picked, c.settled || Date().timeIntervalSince(began) > 6 {
+                    // (the loading screen never hands over to the list: the best found plays, as on Lumen TV;
+                    // on mobile data or Low Data Mode it offers a few, the smaller ones among them, right here)
+                    if NetworkStatus.shared.saving { stremio.offerLaunch(dataChoices(c, pick)) } else { play(pick) }
+                    return
+                }
+                if Date().timeIntervalSince(began) > 20 {
+                    stremio.failLaunch("No streams found", "Your addons didn't answer in time.")
+                    return
+                }
+            }
         }
     }
 
     // MARK: - Playing
 
-    /** What Play starts: the episode they're in the middle of, else the first one that's out */
+    /** What Play starts: the episode last played if it was left part-way, the one after it if it was finished, else the first (the engine decides) */
     private func nextVideo(_ d: Details) -> Video? {
         guard ref.type == "series" else { return nil }
-        // (the one picked first: the page moves it on to the next episode after one is finished)
+        if let id = d.nextVideoId, let v = d.videos.first(where: { $0.id == id }) { return v }
         return d.videos.first { $0.id == d.videoId } ?? d.videos.first { $0.id == d.resumeVideoId } ?? d.videos.first { ($0.season ?? 0) > 0 && !$0.upcoming } ?? d.videos.first
     }
 
-    private func start(_ videoId: String?) {
+    private func start(_ videoId: String?, fromStart: Bool = false) {
         let target = videoId ?? details?.videoId ?? ref.id
+        stremio.startFromBeginning(target, on: fromStart)
         if ref.type == "series", let videoId, videoId != details?.videoId {
             choices = nil
             stremio.open(ref.type, ref.id, videoId: videoId)
         }
         waitingFor = target
-        if NetworkStatus.shared.saving {
-            // (mobile data or Low Data Mode: the list, to choose from)
+        // (always the loading screen, on mobile data too: … → Choose a Stream has the list)
+        let video = details?.videos.first { $0.id == target }
+        let line = video.flatMap { v in v.season.flatMap { s in v.episode.map { "S\(s), E\($0)" + (v.title.isEmpty ? "" : " · \(v.title)") } } }
+        stremio.beginLaunch(title, episode: line, text: "Opening \(title.name)")
+        stremio.onLaunchCancel = { waitingFor = nil }
+        stremio.onLaunchChoose = { option in play(option) }
+        stremio.onLaunchMore = {
+            waitingFor = nil
             streamsOpen = true
-        } else {
-            let video = details?.videos.first { $0.id == target }
-            let line = video.flatMap { v in v.season.flatMap { s in v.episode.map { "S\(s), E\($0)" + (v.title.isEmpty ? "" : " · \(v.title)") } } }
-            stremio.beginLaunch(title, episode: line, text: "Opening \(title.name)")
-            stremio.onLaunchCancel = { waitingFor = nil }
         }
         justPlayIfSure()
         updateLaunch()
     }
 
+    /** For mobile data: the pick, then the smallest stream of each quality (4K, 1080p, 720p…), four at most */
+    private func dataChoices(_ c: StreamChoices, _ pick: StreamOption) -> [StreamOption] {
+        var out = [pick]
+        let sized = c.items.filter { $0.size > 0 }
+        for res in Array(Set(sized.map(\.res))).sorted(by: >) {
+            guard out.count < 4, let small = sized.filter({ $0.res == res }).min(by: { $0.size < $1.size }), !out.contains(where: { $0.index == small.index }) else { continue }
+            out.append(small)
+        }
+        return out
+    }
+
     /** What the loading screen says while the streams come in */
-    private func updateLaunch() {
+    private func updateLaunch(waited: Double = 0) {
         guard waitingFor != nil, stremio.launch != nil else { return }
         guard let d = details, d.state == .ready else { return stremio.stepLaunch("Opening \(title.name)", progress: 0.1) }
         let found = current?.items.count ?? 0
-        let progress = 0.25 + 0.55 * (d.addonsAsked == 0 ? 0 : Double(d.addonsAnswered) / Double(d.addonsAsked))
+        // (and a little more every second, so the bar never stands still while addons are slow)
+        let progress = min(0.25 + 0.55 * (d.addonsAsked == 0 ? 0 : Double(d.addonsAnswered) / Double(d.addonsAsked)) + 0.01 * waited, 0.85)
         if let c = current, c.settled, c.picked == nil {
             return stremio.failLaunch("No streams found", "Your addons may not have this one yet.")
         }
@@ -188,10 +232,13 @@ struct TitleView: View {
         )
     }
 
-    /** Just press Play: the stream chosen last time plays at once, anything else once every addon has answered */
+    /**
+     * Just press Play (or the loading screen is up): the stream chosen last time plays at once, anything
+     * else once every addon has answered
+     */
     private func justPlayIfSure() {
-        guard let c = current, c.justPlay, waitingFor == c.videoId, let pick = c.picked else { return }
-        // On mobile data or Low Data Mode the stream list stays open to choose from (the best is often the biggest)
+        guard let c = current, c.justPlay || stremio.launch != nil, waitingFor == c.videoId, let pick = c.picked else { return }
+        // (on mobile data or Low Data Mode the loading screen offers a choice instead: the loop above)
         guard !NetworkStatus.shared.saving else { return }
         if c.sameAsLastTime || c.settled { play(pick) }
     }
@@ -204,6 +251,13 @@ struct TitleView: View {
             stremio.stepLaunch("Starting \(what)", detail: [option.provider, option.sizeText ?? "", option.source].filter { !$0.isEmpty && $0 != "Other" }.joined(separator: " · "), progress: 0.88)
         }
         stremio.play(option, in: target)
+    }
+
+    /** There's a saved place to go back to (the film's, or the episode Play would start's) */
+    private var hasPlace: Bool {
+        guard let d = details, d.resumeMs > 0 else { return false }
+        if ref.type == "series" { return nextVideo(d)?.id == d.resumeVideoId }
+        return d.resumeVideoId == ref.id
     }
 
     private var playLabel: String {
@@ -280,40 +334,39 @@ struct TitleView: View {
         }
     }
 
-    /** On the art's left: the logo, what it is, the story, the year and length, Play */
+    /** On the art's left: the logo, what it is, the story (the episode Play starts), the facts, Play */
     private func info(wide: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            TitleLogo(title: title, maxHeight: wide ? 120 : 100, textSize: 38, alignment: .leading)
-                .frame(maxWidth: wide ? 380 : 300, alignment: .leading)
-                .padding(.bottom, 6)
-            Text(([typeName(title.type)] + title.genres.prefix(3)).joined(separator: " · "))
-                .font(.subheadline.weight(.medium))
-            if let d = title.description {
-                Button { withAnimation(.snappy) { moreText.toggle() } } label: {
-                    Text(d)
-                        .lineLimit(moreText ? nil : 2)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .overlay(alignment: .bottomTrailing) {
-                            if !moreText {
-                                Text("MORE")
-                                    .font(.caption.weight(.bold))
-                                    .padding(.horizontal, 8).padding(.vertical, 3)
-                                    .background(.ultraThinMaterial, in: .capsule)
-                                    .background(.black.opacity(0.4), in: .capsule)
-                            }
+        let video = details.flatMap(nextVideo)
+        let label = video.flatMap { v in v.season.flatMap { s in v.episode.map { "S\(s), E\($0)" + (v.title.isEmpty ? "" : " · \(v.title)") } } }
+        return TitleInfo(
+            title: title, detailed: true, logoHeight: wide ? 120 : 100,
+            episodeLabel: label, episodeText: video?.overview ?? (label == nil ? nil : title.description),
+            more: $moreText, formats: formats
+        ) {
+            if title.watched { Badge(text: "WATCHED") }
+            if let scores = reviews?.scores, !scores.isEmpty {
+                Button { reviewsOpen = true } label: {
+                    HStack(spacing: 10) {
+                        ForEach(scores.prefix(3)) { s in
+                            (Text(s.value).fontWeight(.semibold) + Text(" \(s.name)").foregroundStyle(Dx.muted))
                         }
+                    }
+                    .lineLimit(1)
                 }
                 .buttonStyle(.plain)
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.88))
             }
-            facts
-            buttons.padding(.top, 6)
-            if !wide { credits.padding(.top, 4) }
+        } buttons: {
+            VStack(alignment: .leading, spacing: 14) {
+                buttons
+                if !wide { credits }
+            }
         }
-        .foregroundStyle(.white)
-        .shadow(color: .black.opacity(0.35), radius: 8)
+    }
+
+    /** What the best stream offers, as small badges: 4K, Dolby Vision or HDR, Dolby Atmos, IMAX */
+    private var formats: [String] {
+        guard let p = current?.picked else { return [] }
+        return [p.res >= 2160 ? "4K" : nil, p.dv ? "Dolby Vision" : p.hdr10plus ? "HDR10+" : p.hdr ? "HDR" : nil, p.atmos ? "Dolby Atmos" : nil, p.imax ? "IMAX" : nil].compactMap { $0 }
     }
 
     /** On the art's right: who's in it, and who made it */
@@ -339,8 +392,18 @@ struct TitleView: View {
                 stremio.show(inList ? "Removed from your Library" : "Added to your Library")
             }
             Menu {
-                Button { stremio.setWatched(!title.watched) } label: {
-                    Label(title.watched ? "Mark as Unwatched" : "Mark as Watched", systemImage: title.watched ? "eye.slash" : "eye")
+                if hasPlace {
+                    Button { start(details.flatMap(nextVideo)?.id, fromStart: true) } label: { Label("Start from the Beginning", systemImage: "arrow.counterclockwise") }
+                }
+                if ref.type == "series", let d = details, d.state == .ready {
+                    Button { start(d.shuffled()?.id) } label: { Label("Shuffle", systemImage: "shuffle") }
+                }
+                if !title.watched {
+                    Button { stremio.setWatched(true) } label: { Label("Mark as Watched", systemImage: "eye") }
+                }
+                // (partly seen counts: Unwatched puts it back to the start)
+                if title.watched || (details?.resumeMs ?? 0) > 0 || stremio.isStarted(title) {
+                    Button { stremio.setWatched(false) } label: { Label("Mark as Unwatched", systemImage: "eye.slash") }
                 }
                 if let trailer = title.trailer, let url = URL(string: "https://www.youtube.com/watch?v=\(trailer)") {
                     Link(destination: url) { Label("Trailer", systemImage: "film") }
@@ -372,26 +435,6 @@ struct TitleView: View {
             .buttonBorderShape(.circle)
         }
         .frame(maxWidth: 400)
-    }
-
-    /** "2026 · 47 min", then the scores (they open the reviews) */
-    private var facts: some View {
-        HStack(spacing: 10) {
-            Text([title.year, title.runtime].compactMap { $0 }.joined(separator: " · "))
-            if title.watched { Badge(text: "WATCHED") }
-            if let scores = reviews?.scores, !scores.isEmpty {
-                Button { reviewsOpen = true } label: {
-                    HStack(spacing: 10) {
-                        ForEach(scores.prefix(3)) { s in
-                            (Text(s.value).fontWeight(.semibold) + Text(" \(s.name)").foregroundStyle(Dx.muted))
-                        }
-                    }
-                    .lineLimit(1)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .font(.subheadline)
     }
 
     // MARK: - Trailers, related, about
@@ -542,10 +585,10 @@ struct TitleView: View {
                 ScrollView(.horizontal) {
                     HStack(alignment: .top, spacing: width > 600 ? 26 : 12) {
                         if let cast, !cast.isEmpty {
-                            ForEach(Array(cast.enumerated()), id: \.offset) { _, p in person(name: p.string("name"), role: p.text("role"), photo: p.text("photo"), size: size) }
+                            ForEach(Array(cast.enumerated()), id: \.offset) { _, p in person(name: p.string("name"), role: p.text("role"), photo: p.text("photo"), id: p.text("id"), size: size) }
                         } else if let d = details {
-                            ForEach(d.directors.prefix(3), id: \.self) { person(name: $0, role: "Director", photo: nil, size: size) }
-                            ForEach(d.cast.prefix(15), id: \.self) { person(name: $0, role: nil, photo: nil, size: size) }
+                            ForEach(d.directors.prefix(3), id: \.self) { person(name: $0, role: "Director", photo: nil, id: nil, size: size) }
+                            ForEach(d.cast.prefix(15), id: \.self) { person(name: $0, role: nil, photo: nil, id: nil, size: size) }
                         }
                     }
                     .padding(.horizontal, Dx.gutter)
@@ -556,25 +599,33 @@ struct TitleView: View {
         }
     }
 
-    /** Someone in it: tapping them searches for them, as on the desktop */
-    private func person(name: String, role: String?, photo: String?, size: CGFloat) -> some View {
-        Button { stremio.searchFor(name) } label: {
-            VStack(spacing: 6) {
-                ZStack {
-                    Circle().fill(Color(white: 0.45))
-                    Text(name.split(separator: " ").compactMap(\.first).prefix(2).map(String.init).joined())
-                        .font(.system(size: size * 0.36, weight: .semibold))
-                    if let photo, let url = URL(string: photo) {
-                        WebImage(url: url) { $0.resizable().scaledToFill() } placeholder: { _ in Color.clear }
-                    }
-                }
-                .frame(width: size, height: size)
-                .clipShape(.circle)
-                Text(name).font(.footnote.weight(.medium)).lineLimit(2).multilineTextAlignment(.center)
-                if let role, !role.isEmpty { Text(role).font(.caption).foregroundStyle(Dx.muted).lineLimit(2).multilineTextAlignment(.center) }
-            }
-            .frame(width: size + 16)
+    /** Someone in it: tapping them opens their page (with a TMDB key), else searches for them, as on the desktop */
+    @ViewBuilder
+    private func person(name: String, role: String?, photo: String?, id: String?, size: CGFloat) -> some View {
+        if let id, !id.isEmpty {
+            NavigationLink(value: Route.person(id: id, name: name, photo: photo)) { personFace(name: name, role: role, photo: photo, size: size) }
+                .buttonStyle(.plain)
+        } else {
+            Button { stremio.searchFor(name) } label: { personFace(name: name, role: role, photo: photo, size: size) }
+                .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+    }
+
+    private func personFace(name: String, role: String?, photo: String?, size: CGFloat) -> some View {
+        VStack(spacing: 6) {
+            ZStack {
+                Circle().fill(Color(white: 0.45))
+                Text(name.split(separator: " ").compactMap(\.first).prefix(2).map(String.init).joined())
+                    .font(.system(size: size * 0.36, weight: .semibold))
+                if let photo, let url = URL(string: photo) {
+                    WebImage(url: url) { $0.resizable().scaledToFill() } placeholder: { _ in Color.clear }
+                }
+            }
+            .frame(width: size, height: size)
+            .clipShape(.circle)
+            Text(name).font(.footnote.weight(.medium)).lineLimit(2).multilineTextAlignment(.center)
+            if let role, !role.isEmpty { Text(role).font(.caption).foregroundStyle(Dx.muted).lineLimit(2).multilineTextAlignment(.center) }
+        }
+        .frame(width: size + 16)
     }
 }

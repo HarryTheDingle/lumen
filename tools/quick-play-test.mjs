@@ -132,3 +132,23 @@ assert.equal(streamChoice.samples([lone], 120).size, 1, "far too small for the t
 assert.equal(streamChoice.samples([lone]).size, 0, "nothing to tell without the length");
 assert.ok(!labels(streamChoice.spares([fullA, named, tiny, fullB], fullA)).some((l) => l === named.label || l === tiny.label), "no sample as a spare");
 console.log("PASS samples and clips are never picked");
+
+// Formats in the file name, and Prefer IMAX (the same quality only)
+{
+  const fmt = describeStream("[RD+] Torrentio\n4k", "Film.2160p.IMAX.Enhanced.WEB-DL.DV.HDR10+.Atmos.OpenMatte 💾 20 GB");
+  assert.equal(fmt.imax, true);
+  assert.equal(fmt.atmos, true);
+  assert.equal(fmt.hdr10plus, true);
+  assert.equal(fmt.openMatte, true);
+  assert.equal(describeStream("Torrentio", "Film.1080p.WEB-DL").imax, false);
+  const imax4k = item("[RD+] Torrentio\n4k", "Film.2160p.IMAX.WEB-DL 💾 18 GB");
+  const plain4k = item("[RD+] Torrentio\n4k", "Film.2160p.BluRay.HDR 💾 30 GB");
+  const imax1080 = item("[RD+] Torrentio\n1080p", "Film.1080p.IMAX.WEB-DL 💾 6 GB");
+  const off = vm.runInNewContext(`${source.slice(start, end)}; ({ streamChoice })`, { settings: { preferImax: false } }).streamChoice;
+  const on = vm.runInNewContext(`${source.slice(start, end)}; ({ streamChoice })`, { settings: { preferImax: true } }).streamChoice;
+  const label = (c, items) => c.choose(items, null, {})?.item.label;
+  assert.equal(label(off, [imax4k, plain4k, imax1080]), plain4k.label);
+  assert.equal(label(on, [imax4k, plain4k, imax1080]), imax4k.label);
+  assert.equal(label(on, [plain4k, imax1080]), plain4k.label, "never trades quality for IMAX");
+  console.log("PASS formats are read, and Prefer IMAX only breaks ties in quality");
+}

@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.runtime.Composable
@@ -129,6 +131,8 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
     var inList by remember(title.inLibrary) { mutableStateOf(title.inLibrary) }
     /** dx.bi settings → Blur unwatched episodes */
     val blurUnwatched by androidx.compose.runtime.produceState(false) { value = stremio.blurUnwatched() }
+    /** dx.bi settings → Play Trailers (null until read) */
+    val playTrailers by androidx.compose.runtime.produceState<Boolean?>(null) { value = stremio.playTrailers() }
 
     // Open (and open again when it's back on top)
     LaunchedEffect(covered) {
@@ -164,8 +168,8 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
      * Play plays: Lumen's pick (the stream chosen last time, else the best that's ready), with the
      * loading screen saying what it's doing, and no list to choose from. (… → Choose a Stream has every stream.)
      */
-    fun start(videoId: String?) {
-        launcher?.play(title, videoId)
+    fun start(videoId: String?, fromStart: Boolean = false) {
+        launcher?.play(title, videoId, fromStart)
     }
 
     // A series: the episode they're on, ready before Play is pressed. Play pressed early (or the page
@@ -201,7 +205,7 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
     // from the top, and stays quiet.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val lifeState by lifecycle.currentStateFlow.collectAsState()
-    val trailerAllowed = title.trailer != null && !covered && !streamsOpen && launcher?.title == null && lifeState.isAtLeast(Lifecycle.State.RESUMED)
+    val trailerAllowed = title.trailer != null && playTrailers == true && !covered && !streamsOpen && launcher?.title == null && lifeState.isAtLeast(Lifecycle.State.RESUMED)
     var hushed by remember { mutableStateOf(false) }
     LaunchedEffect(atTop) { if (!atTop) hushed = true }
     var trailerOn by remember { mutableStateOf(false) }
@@ -283,6 +287,8 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                             title = title,
                             details = d,
                             reviews = reviews,
+                            episode = if (ref.type == "series") d?.let(::nextVideo) else null,
+                            badges = streamBadges(choices?.takeIf { c -> c.videoId == d?.videoId }?.let { c -> c.picked ?: c.items.minWithOrNull(StreamOption.BEST) }),
                             height = screen,
                             playLabel = playLabel(ref, d),
                             inList = inList,
@@ -314,9 +320,13 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                             },
                             onMore = {
                                 menu = title.name to buildList {
-                                    add(Action(if (title.watched) "Mark as Unwatched" else "Mark as Watched", if (title.watched) Icons.Filled.VisibilityOff else Icons.Filled.Visibility) {
-                                        stremio.setWatched(!title.watched)
-                                    })
+                                    // (a saved place to go back to: the film's, or the episode Play would start's)
+                                    val place = d != null && d.resumeMs > 0 && (if (ref.type == "series") nextVideo(d)?.id == d.resumeVideoId else d.resumeVideoId == ref.id)
+                                    if (place) add(Action("Start from the Beginning", Icons.Filled.Replay) { start(d?.let(::nextVideo)?.id, fromStart = true) })
+                                    if (ref.type == "series" && d != null && ready) add(Action("Shuffle", Icons.Filled.Shuffle) { start(d.shuffled()?.id) })
+                                    if (!title.watched) add(Action("Mark as Watched", Icons.Filled.Visibility) { stremio.setWatched(true) })
+                                    // (partly seen counts: Unwatched puts it back to the start)
+                                    if (title.watched || (d?.resumeMs ?: 0) > 0) add(Action("Mark as Unwatched", Icons.Filled.VisibilityOff) { stremio.setWatched(false) })
                                     if (d?.videoId != null) add(Action("Choose a Stream", Icons.AutoMirrored.Filled.List) {
                                         streamsOpen = true
                                     })
@@ -335,6 +345,7 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                                 onMenu = { v ->
                                     menu = episodeName(v) to buildList {
                                         add(Action("Play", Icons.Filled.PlayArrow) { start(v.id) })
+                                        if (v.id == d.resumeVideoId && d.resumeMs > 0) add(Action("Start from the Beginning", Icons.Filled.Replay) { start(v.id, fromStart = true) })
                                         add(Action("Choose a Stream", Icons.AutoMirrored.Filled.List) {
                                             choices = null
                                             stremio.open(ref.type, ref.id, v.id)
@@ -362,7 +373,7 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                                     items(related, key = { it.id }) { t -> PreviewPosterCard(t, onClick = { nav.open(t) }) }
                                 }
                             }
-                            if (d != null && (d.cast.isNotEmpty() || d.directors.isNotEmpty())) CastRow(d, cast, onPerson = { nav.search(it) })
+                            if (d != null && (d.cast.isNotEmpty() || d.directors.isNotEmpty())) CastRow(d, cast, onPerson = { name, id, photo -> if (id != null) nav.push(Page.Person(id, name, photo)) else nav.search(name) })
                             if (title.description != null || title.genres.isNotEmpty()) About(title, d)
                         }
                     }
@@ -395,10 +406,10 @@ private val PageScrolling = object : BringIntoViewSpec {
     }
 }
 
-/** What Play starts: the episode they're in the middle of (or picked), else the first one that's out */
+/** What Play starts: the episode last played if it was left part-way, the one after it if it was finished, else the first (the engine decides) */
 fun nextVideo(d: Details): Video? {
     if (d.title?.type != "series" && d.videos.none { it.season != null }) return null
-    return d.videos.firstOrNull { it.id == d.videoId } ?: d.videos.firstOrNull { it.id == d.resumeVideoId }
+    return d.videos.firstOrNull { it.id == d.nextVideoId } ?: d.videos.firstOrNull { it.id == d.videoId } ?: d.videos.firstOrNull { it.id == d.resumeVideoId }
         ?: d.videos.firstOrNull { (it.season ?: 0) > 0 && !it.upcoming } ?: d.videos.firstOrNull()
 }
 
@@ -433,6 +444,8 @@ private fun Header(
     title: Title,
     details: Details?,
     reviews: Reviews?,
+    episode: Video?,
+    badges: List<String>,
     height: Dp,
     playLabel: String,
     inList: Boolean,
@@ -444,46 +457,24 @@ private fun Header(
     onMore: () -> Unit,
 ) {
     Box(Modifier.fillMaxWidth().height(height)) {
-        Column(
-            Modifier.align(Alignment.BottomStart).padding(start = Dx.Gutter, bottom = 40.dp).widthIn(max = 470.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+        TitleInfo(
+            title,
+            detailed = true,
+            modifier = Modifier.align(Alignment.BottomStart).padding(start = Dx.Gutter, bottom = 40.dp),
+            episode = episode,
+            reviews = reviews,
+            badges = badges,
+            buttonsModifier = Modifier
+                .onFocusChanged { if (it.hasFocus) onFocused() }
+                .onPreviewKeyEvent {
+                    if (onDown == null || it.key != Key.DirectionDown) return@onPreviewKeyEvent false
+                    if (it.type == KeyEventType.KeyDown) onDown()
+                    true
+                },
         ) {
-            TitleLogo(title, maxHeight = 110.dp, maxWidth = 380.dp, textSize = 40.sp, modifier = Modifier.padding(bottom = 4.dp))
-            Text((listOf(typeName(title.type)) + title.genres.take(3)).joinToString(" · "), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.White)
-            title.description?.let {
-                Text(it, fontSize = 14.sp, color = Color.White.copy(alpha = 0.82f), maxLines = 3, overflow = TextOverflow.Ellipsis, lineHeight = 19.sp)
-            }
-            Facts(title, reviews)
-            Row(
-                Modifier
-                    .padding(top = 8.dp)
-                    .onFocusChanged { if (it.hasFocus) onFocused() }
-                    .onPreviewKeyEvent {
-                        if (onDown == null || it.key != Key.DirectionDown) return@onPreviewKeyEvent false
-                        if (it.type == KeyEventType.KeyDown) onDown()
-                        true
-                    },
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Button(
-                    onClick = onPlay,
-                    modifier = Modifier.focusRequester(playFocus),
-                    colors = ButtonDefaults.colors(
-                        containerColor = Color.White.copy(alpha = 0.88f),
-                        contentColor = Color.Black,
-                        focusedContainerColor = Color.White,
-                        focusedContentColor = Color.Black,
-                    ),
-                    scale = ButtonDefaults.scale(focusedScale = 1.08f),
-                ) {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(playLabel, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                }
-                RoundButton(if (inList) Icons.Filled.Check else Icons.Filled.Add, if (inList) "In your Library" else "Add to Library", onList)
-                RoundButton(Icons.Filled.MoreHoriz, "More", onMore)
-            }
+            PlayButton(playLabel, onPlay, Modifier.focusRequester(playFocus))
+            RoundButton(if (inList) Icons.Filled.Check else Icons.Filled.Add, if (inList) "In your Library" else "Add to Library", onList)
+            RoundButton(Icons.Filled.MoreHoriz, "More", onMore)
         }
         // who's in it, and who made it
         if (details != null && (details.cast.isNotEmpty() || details.directors.isNotEmpty())) {
@@ -516,10 +507,11 @@ private fun Credit(role: String, names: String) {
 
 /** "2026 · 47 min", Watched, and the scores */
 @Composable
-private fun Facts(title: Title, reviews: Reviews?) {
+fun Facts(title: Title, reviews: Reviews?, badges: List<String> = emptyList()) {
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         val when_ = listOfNotNull(title.year, title.runtime).joinToString(" · ")
         if (when_.isNotEmpty()) Text(when_, fontSize = 14.sp, color = Color.White)
+        badges.forEach { FormatBadge(it) }
         if (title.watched) Text("Watched", fontSize = 14.sp, color = Dx.Muted)
         reviews?.scores?.take(3)?.forEach { s ->
             Text(
@@ -536,22 +528,6 @@ private fun Facts(title: Title, reviews: Reviews?) {
                 maxLines = 1,
             )
         }
-    }
-}
-
-@Composable
-private fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    IconButton(
-        onClick = onClick,
-        colors = IconButtonDefaults.colors(
-            containerColor = Color.White.copy(alpha = 0.16f),
-            contentColor = Color.White,
-            focusedContainerColor = Color.White,
-            focusedContentColor = Color.Black,
-        ),
-        scale = IconButtonDefaults.scale(focusedScale = 1.1f),
-    ) {
-        Icon(icon, contentDescription = label)
     }
 }
 
@@ -646,25 +622,25 @@ private fun EpisodeCard(v: Video, fallbackArt: String?, isCurrent: Boolean, blur
 // ---------------------------------------------------------------------------------------------
 // Cast, about
 
-/** Who's in it: choosing someone searches for them, as on the desktop */
+/** Who's in it: choosing someone opens their page (with a TMDB key), else searches for them, as on the desktop */
 @Composable
-private fun CastRow(d: Details, photos: List<JSONObject>?, onPerson: (String) -> Unit) {
-    val people: List<Triple<String, String?, String?>> = if (!photos.isNullOrEmpty()) {
-        photos.map { Triple(it.optString("name"), it.text("role"), it.text("photo")) }
+private fun CastRow(d: Details, photos: List<JSONObject>?, onPerson: (name: String, id: String?, photo: String?) -> Unit) {
+    val people: List<List<String?>> = if (!photos.isNullOrEmpty()) {
+        photos.map { listOf(it.optString("name"), it.text("role"), it.text("photo"), it.text("id")) }
     } else {
-        d.directors.take(3).map { Triple(it, "Director", null) } + d.cast.take(15).map { Triple(it, null, null) }
+        d.directors.take(3).map { listOf(it, "Director", null, null) } + d.cast.take(15).map { listOf(it, null, null, null) }
     }
     Column(Modifier.fillMaxWidth()) {
         Text("Cast & Crew", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = Dx.Gutter))
         Spacer(Modifier.height(10.dp))
         LazyRow(contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-            items(people) { (name, role, photo) -> Person(name, role, photo) { onPerson(name) } }
+            items(people) { (name, role, photo, id) -> Person(name!!, role, photo) { onPerson(name, id, photo) } }
         }
     }
 }
 
 @Composable
-private fun Person(name: String, role: String?, photo: String?, size: Dp = 96.dp, onClick: () -> Unit) {
+fun Person(name: String, role: String?, photo: String?, size: Dp = 96.dp, onClick: () -> Unit) {
     Column(Modifier.width(size + 20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Surface(
             onClick = onClick,

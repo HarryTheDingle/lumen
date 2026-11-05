@@ -82,6 +82,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.IconButton
 import androidx.tv.material3.IconButtonDefaults
 import androidx.tv.material3.Text
+import com.notdxbi.dxbi.tv.phone.Airing
 import com.notdxbi.dxbi.tv.phone.Continue
 import com.notdxbi.dxbi.tv.phone.Load
 import com.notdxbi.dxbi.tv.phone.Stremio
@@ -105,6 +106,7 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
     val suggestions by stremio.billboard.collectAsState()
     val myList by stremio.myList.collectAsState()
     val forYou by stremio.forYou.collectAsState()
+    val picks by stremio.picks.collectAsState()
     val airing by stremio.airing.collectAsState()
     val allRows by stremio.rows.collectAsState()
     val ready by stremio.ready.collectAsState()
@@ -121,9 +123,11 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
 
     val rows = allRows.filter { it.type !in LEFT_OUT }
     // The billboard leads with what they're watching (five at most); suggestions only when nothing's in progress
-    val billboard = continueWatching.take(5).map { it.title }.ifEmpty { suggestions }
+    val described by stremio.described.collectAsState()
+    val billboard = remember(continueWatching, described, suggestions) { continueWatching.take(5).map { stremio.filledIn(it.title) }.ifEmpty { suggestions } }
         .map { t -> listMarks[t.id]?.let { t.copy(inLibrary = it) } ?: t }
     val labels = playLabels(continueWatching)
+    val statuses = statusLines(continueWatching, airing)
 
     val list = nav.homeList
     val scope = rememberCoroutineScope()
@@ -183,9 +187,10 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
                 Box {
                     if (billboard.isNotEmpty()) {
                         Billboard(
-                            billboard, labels, height = screen * 0.84f, focus = top, stremio = stremio, onOpen = onOpen, onPlay = onPlay,
+                            billboard, labels, statuses, height = screen * 0.84f, focus = top, stremio = stremio, onOpen = onOpen, onPlay = onPlay,
                             onShowing = { showing = it },
-                            trailerAllowed = trailerAllowed && list.firstVisibleItemIndex == 0,
+                            // (trailers fade in on a title's page only, not on Home)
+                            trailerAllowed = false,
                             muted = nav.menuOpen,
                             onTrailerShowing = { trailerShowing = it },
                             // back up onto its buttons: the whole billboard comes back into view, as at the start
@@ -214,7 +219,9 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
                 myList.forEachIndexed { i, row ->
                     if (row.items.isNotEmpty()) item(key = "mylist-$i") { TitleShelf(row.name, row.items, onOpen) }
                 }
-                forYou?.let { row -> item(key = "foryou") { TitleShelf(row.name, row.items, onOpen) } }
+                // Top Picks for You (made from what this profile actually watched), else popular in what they saved
+                picks.firstOrNull()?.let { row -> item(key = "picks") { TitleShelf(row.name, row.items, onOpen) } }
+                if (picks.isEmpty()) forYou?.let { row -> item(key = "foryou") { TitleShelf(row.name, row.items, onOpen) } }
                 if (airing.isNotEmpty()) {
                     item(key = "airing") {
                         Shelf("New Episodes This Week") {
@@ -222,6 +229,8 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
                         }
                     }
                 }
+                // Because you watched …
+                picks.drop(1).forEach { row -> item(key = "because-${row.name}") { TitleShelf(row.name, row.items, onOpen) } }
             }
             rows.forEachIndexed { i, row ->
                 when {
@@ -257,11 +266,25 @@ val ScreenScrolling = object : BringIntoViewSpec {
     }
 }
 
-/** Play's words for what's in progress: "Resume S2 E5", "Play S3 E1" (a new episode) */
+/** Play's words for what's in progress: "Resume", else "Play" */
 private fun playLabels(watching: List<Continue>): Map<String, String> = watching.take(5).associate { item ->
-    val verb = if (item.progress > 0.02f) "Resume" else "Play"
-    val m = item.videoId?.let { Regex(""".+:(\d+):(\d+)""").matchEntire(it) }
-    item.title.id to (if (m != null) "$verb S${m.groupValues[1]} E${m.groupValues[2]}" else verb)
+    item.title.id to (if (item.progress > 0.02f) "Resume" else "Play")
+}
+
+/**
+ * The billboard's status line, only where there's something real to say: the episode they're on
+ * ("Resume S2, E6", "Up Next S2, E6"), else a new episode of a show in their library
+ */
+private fun statusLines(watching: List<Continue>, airing: List<Airing>): Map<String, String> {
+    val out = HashMap<String, String>()
+    airing.sortedBy { it.time }.forEach { a ->
+        out.putIfAbsent(a.id, if (a.out) "New Episode Out Now" else "New Episode ${a.whenText}")
+    }
+    watching.take(5).forEach { item ->
+        val m = item.videoId?.let { Regex(""".+:(\d+):(\d+)""").matchEntire(it) } ?: return@forEach
+        out[item.title.id] = "${if (item.progress > 0.02f) "Resume" else "Up Next"} S${m.groupValues[1]}, E${m.groupValues[2]}"
+    }
+    return out
 }
 
 @Composable
@@ -282,6 +305,7 @@ private fun TitleShelf(name: String, items: List<Title>, onOpen: (Title) -> Unit
 private fun Billboard(
     titles: List<Title>,
     playLabels: Map<String, String>,
+    statuses: Map<String, String>,
     height: androidx.compose.ui.unit.Dp,
     focus: FocusRequester,
     stremio: Stremio,
@@ -353,82 +377,42 @@ private fun Billboard(
         }
         // (the trailer's under all this: its bottom fades into the black too)
         if (trailerShowing) Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.7f to Color.Transparent, 1f to Color.Black)))
-        Column(Modifier.align(Alignment.BottomStart).padding(start = Dx.Gutter, bottom = 34.dp).widthIn(max = 420.dp)) {
-            AnimatedContent(current, transitionSpec = { fadeIn(tween(500)) togetherWith fadeOut(tween(300)) }, label = "billboard-info") { t ->
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    TitleLogo(t, maxHeight = 110.dp, maxWidth = 380.dp, textSize = 40.sp)
-                    Text(
-                        (listOfNotNull(typeName(t.type)) + t.genres.take(2) + listOfNotNull(t.year)).joinToString(" · "),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color.White.copy(alpha = 0.85f),
-                    )
-                    t.description?.let {
-                        Text(it, fontSize = 14.sp, color = Color.White.copy(alpha = 0.8f), maxLines = 3, overflow = TextOverflow.Ellipsis, lineHeight = 19.sp)
-                    }
-                }
-            }
-            Spacer(Modifier.height(18.dp))
-            Row(
-                Modifier.onFocusChanged {
-                    buttonsFocused = it.hasFocus
-                    if (it.hasFocus) onFocused()
-                },
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Button(
-                    onClick = { onPlay(current) },
-                    modifier = Modifier
-                        .focusRequester(focus)
-                        .onPreviewKeyEvent {
-                            if (it.type == KeyEventType.KeyDown && it.key == Key.DirectionLeft && titles.size > 1) {
-                                go(index - 1); true
-                            } else false
-                        },
-                    colors = ButtonDefaults.colors(
-                        containerColor = Color.White.copy(alpha = 0.85f),
-                        contentColor = Color.Black,
-                        focusedContainerColor = Color.White,
-                        focusedContentColor = Color.Black,
-                    ),
-                    scale = ButtonDefaults.scale(focusedScale = 1.08f),
-                ) {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(playLabels[current.id] ?: "Play", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                }
-                IconButton(
-                    onClick = { stremio.setInList(current, !current.inLibrary) },
-                    colors = IconButtonDefaults.colors(
-                        containerColor = Color.White.copy(alpha = 0.16f),
-                        contentColor = Color.White,
-                        focusedContainerColor = Color.White,
-                        focusedContentColor = Color.Black,
-                    ),
-                    scale = IconButtonDefaults.scale(focusedScale = 1.1f),
-                ) {
-                    Icon(if (current.inLibrary) Icons.Filled.Check else Icons.Filled.Add, contentDescription = if (current.inLibrary) "In your Library" else "Add to Library")
-                }
-                // the title's page (Apple TV's ⓘ)
-                IconButton(
-                    onClick = { onOpen(current) },
-                    modifier = Modifier.onPreviewKeyEvent {
-                        if (it.type == KeyEventType.KeyDown && it.key == Key.DirectionRight && titles.size > 1) {
-                            go(index + 1); true
+        TitleInfo(
+            current,
+            detailed = false,
+            modifier = Modifier.align(Alignment.BottomStart).padding(start = Dx.Gutter, bottom = 34.dp),
+            animated = true,
+            status = { statuses[it.id] },
+            buttonsModifier = Modifier.onFocusChanged {
+                buttonsFocused = it.hasFocus
+                if (it.hasFocus) onFocused()
+            },
+        ) {
+            PlayButton(
+                playLabels[current.id] ?: "Play",
+                onClick = { onPlay(current) },
+                modifier = Modifier
+                    .focusRequester(focus)
+                    .onPreviewKeyEvent {
+                        if (it.type == KeyEventType.KeyDown && it.key == Key.DirectionLeft && titles.size > 1) {
+                            go(index - 1); true
                         } else false
                     },
-                    colors = IconButtonDefaults.colors(
-                        containerColor = Color.White.copy(alpha = 0.16f),
-                        contentColor = Color.White,
-                        focusedContainerColor = Color.White,
-                        focusedContentColor = Color.Black,
-                    ),
-                    scale = IconButtonDefaults.scale(focusedScale = 1.1f),
-                ) {
-                    Icon(Icons.Outlined.Info, contentDescription = "Details")
-                }
-            }
+            )
+            RoundButton(
+                if (current.inLibrary) Icons.Filled.Check else Icons.Filled.Add,
+                if (current.inLibrary) "In your Library" else "Add to Library",
+                onClick = { stremio.setInList(current, !current.inLibrary) },
+            )
+            // the title's page (Apple TV's ⓘ)
+            RoundButton(
+                Icons.Outlined.Info, "Details", onClick = { onOpen(current) },
+                modifier = Modifier.onPreviewKeyEvent {
+                    if (it.type == KeyEventType.KeyDown && it.key == Key.DirectionRight && titles.size > 1) {
+                        go(index + 1); true
+                    } else false
+                },
+            )
         }
         // which of them, in the middle at the bottom
         Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp)) { Dots(titles.size, index) }

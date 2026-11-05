@@ -681,7 +681,11 @@
     const videoId = state.selected.streamRequest && state.selected.streamRequest.path && state.selected.streamRequest.path.id;
     const video = (meta.videos || []).find((v) => v.id === videoId);
     const lib = state.libraryItem && state.libraryItem.state;
-    const resumeMs = lib && lib.video_id === videoId && lib.timeOffset > 0 ? lib.timeOffset : 0;
+    // (Start from the Beginning: a one-shot flag from the phone apps' engine, dxbi-engine.js fromStart)
+    const fromStart = window.__dxbiFromStart;
+    window.__dxbiFromStart = null;
+    const beginning = !!fromStart && Date.now() - fromStart.at < 90000 && (!fromStart.videoId || fromStart.videoId === videoId);
+    const resumeMs = !beginning && lib && lib.video_id === videoId && lib.timeOffset > 0 ? lib.timeOffset : 0;
     const headers = (stream.behaviorHints && stream.behaviorHints.proxyHeaders && stream.behaviorHints.proxyHeaders.request) || {};
     const episode = video && video.season != null ? `S${video.season} E${video.episode}${video.title || video.name ? ` · ${video.title || video.name}` : ""}` : "";
 
@@ -876,7 +880,8 @@
       // The phone apps: finished (played to the end, or closed past the end credits) is marked
       // watched, as Mark as watched does. Stremio only marks a video it saw 70% of playing, so one
       // with its intro skipped, or closed in the credits, moved Continue Watching on without it
-      const finished = ended || (durationMs > 0 && timeMs >= durationMs * 0.9) || (handoff.creditsAt > 0 && timeMs >= handoff.creditsAt * 1000);
+      // (or with under 5 minutes left, a tenth of a short video: the credits; dxbi-engine.js finishedAt)
+      const finished = ended || (durationMs > 0 && durationMs - timeMs < Math.min(300000, durationMs * 0.1)) || (handoff.creditsAt > 0 && timeMs >= handoff.creditsAt * 1000);
       const phone = !!window.__dxbiEngine;
       const videoId = handoff.videoId;
       if (phone && finished) {

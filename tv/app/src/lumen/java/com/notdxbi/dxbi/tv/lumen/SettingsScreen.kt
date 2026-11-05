@@ -50,7 +50,7 @@ import kotlinx.coroutines.launch
 private val WEB_ONLY = setOf(
     "liteMode", "builtInTheme", "previews", "ratings", "animeTitles", "wideContinue", "librarySort",
     "whoIsWatching", "addonTools", "posterAccent", "crispPosters", "streamTools", "streamRows", "splash", "introSound",
-    "profileSync", "uiSounds", "focusColour", "videoRowsOnly", "newEpisodes", "accent",
+    "profileSync", "uiSounds", "focusColour", "videoRowsOnly", "newEpisodes", "accent", "trailers", "trailerDelay",
 )
 
 /**
@@ -83,6 +83,8 @@ fun SettingsScreen(stremio: Stremio, nav: Nav) {
                             Text(account?.email ?: "Not signed in", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
                             Text("Stremio account", fontSize = 13.sp, color = Dx.Muted)
                         }
+                        Pill("Profiles", selected = false, onClick = { nav.push(Page.Profiles) })
+                        Spacer(Modifier.width(8.dp))
                         Pill("Sign Out", selected = false, onClick = { stremio.signOut() })
                     }
                 }

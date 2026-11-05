@@ -28,6 +28,21 @@ final class Stremio {
     var layout = HomeLayout()
     var viewers: [Viewer] = []
     var viewer: Viewer?
+    /** Top Picks for You, then Because you watched … (the plugin's recommender) */
+    var picks: [ListRow] = []
+    /** The story, genres, year and length of the Continue Watching titles (Stremio's library keeps none), by id */
+    var described: [String: JSON] = [:]
+    /** The accounts kept on this device (Keychain), the one in use (nil: none, or browsing without), and swapping to another */
+    var accounts: [SavedAccount] = AccountVault.all()
+    var currentAccountId: String? { didSet { cache.set(currentAccountId, forKey: "accounts.current") } }
+    var swapping = false
+    /** Add Account is on: the sign-in screen has Cancel */
+    var addingAccount = false
+    /** Who's watching? has been answered since the app opened (or there's only one to be) */
+    var profileChosen = false
+    @ObservationIgnored var lastRemembered = Date.distantPast
+    @ObservationIgnored var returnTo: String?
+    @ObservationIgnored var returnToGuest = false
 
     var details: Details?
     var search: [Row] = []
@@ -59,6 +74,9 @@ final class Stremio {
     /** Called when the loading screen is closed by hand (the page that was waiting for a stream stops waiting) */
     @ObservationIgnored var onLaunchCancel: (() -> Void)?
     @ObservationIgnored private var launchTimeout: Task<Void, Never>?
+    /** A stream chosen on the loading screen, and All Streams (the page waiting for a stream says what they do) */
+    @ObservationIgnored var onLaunchChoose: ((StreamOption) -> Void)?
+    @ObservationIgnored var onLaunchMore: (() -> Void)?
 
     @ObservationIgnored private var board: JSON?
     @ObservationIgnored private var nextTarget = Target.player
@@ -78,6 +96,19 @@ final class Stremio {
         billboard = (savedList("x.billboard") ?? []).map(Title.init)
         myList = (savedList("x.myList") ?? []).map(ListRow.init)
         forYou = savedList("x.forYou")?.first.map(ListRow.init).flatMap { $0.items.isEmpty ? nil : $0 }
+        picks = (savedList("x.picks") ?? []).map(ListRow.init).filter { !$0.items.isEmpty }
+        viewers = (savedList("x.viewers") ?? []).map(Viewer.init)
+        viewer = viewers.first { $0.id == cache.string(forKey: "x.viewer") } ?? viewers.first
+        currentAccountId = cache.string(forKey: "accounts.current")
+        #if DEBUG
+        // (for testing the account list without signing in: a made-up account with a made-up session, and its own people)
+        if ProcessInfo.processInfo.arguments.contains("-fakeAccount") {
+            let profile = Json.encode(["auth": ["key": "fake-test-key", "user": ["_id": "fake1", "email": "fake@example.invalid"]], "settings": [String: Any]()] as JSON)
+            let data = Json.encode(["viewers": ["list": [["id": "main", "name": "Fake A", "colour": "#2f80ff"], ["id": "b", "name": "Fake B", "colour": "#ec4899"]], "current": "main"]] as JSON)
+            AccountVault.save(SavedAccount(id: "fake1", email: "fake@example.invalid", avatar: nil, profile: profile, data: data))
+            accounts = AccountVault.all()
+        }
+        #endif
         airing = (savedList("x.airing") ?? []).map(Airing.init)
         layout = HomeLayout(cache.string(forKey: "x.layout").flatMap { Json.decode($0) as? JSON })
         rows = layout.arrange(Row.list(board))
@@ -85,12 +116,37 @@ final class Stremio {
         page.onState = { [weak self] field, data in self?.apply(field, data, save: true) }
         page.onReady = { [weak self] in self?.started() }
         page.onGone = { [weak self] in self?.ready = false }
-        page.onToast = { [weak self] text in self?.show(text) }
+        page.onToast = { [weak self] text in self?.toast(text) }
         page.onPlay = { [weak self] json in self?.handOver(json) }
         page.onControl = { [weak self] c in self?.playback?.control(c) }
         Downloads.shared.stremio = self
         for field in ["ctx", "board", "continue_watching_preview", "meta_details", "search", "discover", "library", "installed_addons", "remote_addons", "streaming_server"] {
             page.watch(field)
+        }
+    }
+
+    /**
+     * The page's words. While the loading screen is up they go on it: a stream that wouldn't play is
+     * passed over for the next best (the page's "Trying …") without leaving the loading screen
+     */
+    private func toast(_ text: String) {
+        guard launch != nil else { return show(text) }
+        if text.hasPrefix("That stream didn't play") {
+            launch?.failed = false
+            stepLaunch("Trying another stream", detail: text.replacingOccurrences(of: "That stream didn't play. ", with: ""), progress: 0.9)
+            restartLaunchTimeout()
+        } else if text.hasPrefix("This stream couldn't play") {
+            failLaunch("Couldn't play a stream", "None of the best few would play here. Try Choose a Stream on the title's page.")
+        } else {
+            show(text)
+        }
+    }
+
+    private func restartLaunchTimeout() {
+        launchTimeout?.cancel()
+        launchTimeout = Task {
+            try? await Task.sleep(for: .seconds(45))
+            if !Task.isCancelled, launch?.failed == false { failLaunch("Couldn't start a stream", "Try Choose a Stream on the title's page.") }
         }
     }
 
@@ -148,6 +204,7 @@ final class Stremio {
     private func started() {
         ready = true
         Task {
+            defer { swapping = false }
             // The page itself waits on an empty screen: its own Home would keep working away out of sight
             await ask("go", ["hash": Self.parked])
             try? await Task.sleep(for: .milliseconds(400))
@@ -181,9 +238,14 @@ final class Stremio {
         extrasTask = Task {
             await refreshMarks()
             if let v = await dx("phone.viewers") as? JSON {
-                viewers = v.objects("list").map { Viewer(id: $0.string("id"), name: $0.string("name")) }
+                viewers = v.objects("list").map(Viewer.init)
                 viewer = viewers.first { $0.id == v.string("current") } ?? viewers.first
+                cache.set(Json.encode(v.objects("list")), forKey: "x.viewers")
+                cache.set(viewer?.id, forKey: "x.viewer")
+                // (one person to be: nothing to ask)
+                if viewers.count < 2 { profileChosen = true }
             }
+            await rememberAccount()
             if let l = await dx("phone.layout") as? JSON {
                 layout = HomeLayout(l)
                 rows = layout.arrange(allRows)
@@ -192,6 +254,9 @@ final class Stremio {
             if let list = await dx("phone.myList") as? [Any] {
                 myList = list.compactMap { $0 as? JSON }.map(ListRow.init)
                 cache.set(Json.encode(list), forKey: "x.myList")
+            }
+            if let o = await dx("phone.describe", continueWatching.prefix(5).map { [$0.title.type, $0.title.id] }) as? JSON {
+                described = o.compactMapValues { $0 as? JSON }
             }
             if let list = await dx("phone.airing") as? [Any] {
                 airing = list.compactMap { $0 as? JSON }.map(Airing.init)
@@ -202,6 +267,22 @@ final class Stremio {
                 billboard = list.compactMap { $0 as? JSON }.map(Title.init)
                 cache.set(Json.encode(list), forKey: "x.billboard")
             }
+            // Top Picks and Because you watched: made on the device, so the first answer can take a few seconds
+            // (a stale one is the last answer while a fresh one is made)
+            for _ in 0..<14 {
+                if Task.isCancelled { return }
+                if let answer = await dx("phone.picks") as? JSON {
+                    let rows = answer.objects("rows").map(ListRow.init).filter { !$0.items.isEmpty }
+                    // (changed only when there's something new: swapped every time, or for an empty
+                    // answer while a fresh one was made, the rows on Home kept vanishing and coming back)
+                    if rows != picks && (!rows.isEmpty || !answer.bool("stale")) { picks = rows }
+                    cache.set(Json.encode(answer.objects("rows")), forKey: "x.picks")
+                    if !answer.bool("stale") { break }
+                }
+                try? await Task.sleep(for: .seconds(1.5))
+            }
+            if !picks.isEmpty { forYou = nil; return }
+            // nothing watched yet to go on: popular titles in the genres of what was saved last
             for _ in 0..<10 {
                 if Task.isCancelled { return }
                 if let answer = await dx("phone.forYou") as? JSON {
@@ -219,6 +300,9 @@ final class Stremio {
 
     func beginLaunch(_ title: Title, episode: String? = nil, text: String, detail: String? = nil, progress: Double = 0.03) {
         launch = LaunchScreen(title: title, episode: episode, text: text, detail: detail, progress: progress)
+        // (sideways already, as the player will be)
+        AppDelegate.holdSideways = true
+        AppDelegate.turn(sideways: true)
         launchTimeout?.cancel()
         // (the player is slow to open, or never does: the screen doesn't stay for ever)
         launchTimeout = Task {
@@ -228,10 +312,13 @@ final class Stremio {
     }
 
     func stepLaunch(_ text: String, detail: String? = nil, progress: Double) {
-        guard launch?.failed == false else { return }
-        launch?.text = text
-        launch?.detail = detail
-        launch?.progress = max(progress, launch?.progress ?? 0)
+        // (not while it's offering streams to choose from: that stays until one is chosen)
+        guard var now = launch, !now.failed, now.choices.isEmpty else { return }
+        // (changed as a whole: reading it while writing a part of it is what crashed)
+        now.text = text
+        now.detail = detail
+        now.progress = max(progress, now.progress)
+        launch = now
     }
 
     func failLaunch(_ text: String, _ detail: String) {
@@ -245,11 +332,48 @@ final class Stremio {
     func endLaunch() {
         launchTimeout?.cancel()
         launch = nil
+        onLaunchChoose = nil
+        onLaunchMore = nil
+        AppDelegate.holdSideways = false
+        // (nothing played: upright again)
+        if playback == nil { AppDelegate.turn(sideways: false) }
+    }
+
+    /** Mobile data or Low Data Mode: the loading screen offers [options] instead of starting one itself */
+    func offerLaunch(_ options: [StreamOption]) {
+        guard var now = launch, !now.failed else { return }
+        now.text = "\(NetworkStatus.shared.reason): choose a stream"
+        now.detail = "A smaller file uses less data."
+        now.choices = options
+        launch = now
+        // (it waits for a choice: no giving up meanwhile)
+        launchTimeout?.cancel()
+    }
+
+    func chooseLaunch(_ option: StreamOption) {
+        guard var now = launch else { return }
+        now.choices = []
+        launch = now
+        launchTimeout?.cancel()
+        launchTimeout = Task {
+            try? await Task.sleep(for: .seconds(45))
+            if !Task.isCancelled, launch?.failed == false { failLaunch("Couldn't start a stream", "Try Choose a Stream on the title's page.") }
+        }
+        onLaunchChoose?(option)
+    }
+
+    func moreLaunchChoices() {
+        let more = onLaunchMore
+        endLaunch()
+        onLaunchCancel = nil
+        more?()
     }
 
     /** Closed by hand */
     func cancelLaunch() {
         endLaunch()
+        // (over the player, before its first picture: the player closes too)
+        playback?.finish(ended: false)
         onLaunchCancel?()
         onLaunchCancel = nil
     }
@@ -293,7 +417,7 @@ final class Stremio {
         Task {
             await ask("watched", ["value": watched])
             try? await Task.sleep(for: .seconds(1))
-            await refreshMarks()
+            refreshExtras()
         }
     }
 
@@ -304,8 +428,11 @@ final class Stremio {
     }
 
     /** In the Library, or watched: from [inLibrary] and [watchedIds], else what the title came with */
-    func isInLibrary(_ title: Title) -> Bool { marksKnown ? inLibrary.contains(title.id) : title.inLibrary }
+    /** (a title in the Library tab is in it, whatever the marks say: a just-played film is saved only for a while, and couldn't be removed) */
+    func isInLibrary(_ title: Title) -> Bool { marksKnown ? inLibrary.contains(title.id) || library.contains { $0.id == title.id } : title.inLibrary }
     func isWatched(_ title: Title) -> Bool { marksKnown ? watchedIds.contains(title.id) : title.watched }
+    /** Partly seen (it's in Continue Watching): Mark as Unwatched is offered too, and puts it back to the start */
+    func isStarted(_ title: Title) -> Bool { continueWatching.contains { $0.title.id == title.id } }
 
     func refreshMarks() async {
         guard let marks = await dx("phone.marks") as? JSON else { return }
@@ -419,23 +546,36 @@ final class Stremio {
         play(option)
     }
 
+    /** What's playing, as a title for the loading screen (the open title's own when it's that one: it has the logo) */
+    private func playingTitle(_ payload: JSON) -> Title {
+        let video = payload.string("videoId")
+        let meta = video.wholeMatch(of: /(.+):\d+:\d+/).map { String($0.1) } ?? video
+        if details?.metaId == meta, let title = details?.title { return title }
+        var t = Title(id: meta, type: meta == video ? "movie" : "series", name: payload.string("title"))
+        t.poster = payload.text("poster")
+        t.background = payload.text("background")
+        return t
+    }
+
+    /** A title from the library, with what it didn't keep filled in (for the billboard) */
+    func filledIn(_ title: Title) -> Title {
+        guard let d = described[title.id] else { return title }
+        var t = title
+        if t.description == nil { t.description = d.text("description") }
+        if t.genres.isEmpty { t.genres = d.strings("genres") }
+        if t.year == nil { t.year = d.text("year") }
+        if t.runtime == nil { t.runtime = d.text("runtime") }
+        return t
+    }
+
     /** A torrent: the player closes and the other stream opens through Stremio's, where this one was */
     private func reopen(_ option: StreamOption) {
         // (Stremio's own saved place lags behind, and was sometimes the start: the player hands it over)
         if let p = playback {
             switching = (p.payload.string("videoId"), p.position, Date())
             // (the loading screen goes up first, so the page under the player never shows)
-            let video = p.payload.string("videoId")
-            let meta = video.wholeMatch(of: /(.+):\d+:\d+/).map { String($0.1) } ?? video
-            var title = details?.metaId == meta ? details?.title : nil
-            if title == nil {
-                var t = Title(id: meta, type: meta == video ? "movie" : "series", name: p.payload.string("title"))
-                t.poster = p.payload.text("poster")
-                t.background = p.payload.text("background")
-                title = t
-            }
             beginLaunch(
-                title!,
+                playingTitle(p.payload),
                 episode: p.payload.text("subtitle"),
                 text: "Switching stream",
                 detail: option.label,
@@ -543,12 +683,20 @@ final class Stremio {
             }
         }
         guard let answer else { return "Stremio didn't answer. Check your connection and try again." }
-        if answer.0 == "UserAuthenticated" { return nil }
+        if answer.0 == "UserAuthenticated" {
+            didSignIn()
+            return nil
+        }
         return answer.1?.object("error")?.text("message") ?? "That email and password didn't work."
     }
 
     func signOut() {
         guest = false
+        addingAccount = false
+        // (the session ends for good: the kept copy would be a dead key)
+        if let id = currentAccountId { AccountVault.remove(id) }
+        currentAccountId = nil
+        accounts = AccountVault.all()
         Task { await ask("signOut") }
     }
 
@@ -584,6 +732,16 @@ final class Stremio {
 
     func updateSettings(_ changes: JSON) { Task { await ask("updateSettings", ["changes": changes]) } }
 
+    /** dx.bi settings → Play Trailers (on unless switched off): a title's page fades its trailer in */
+    func playTrailers() async -> Bool {
+        await settings().first { $0.key == "playTrailers" }?.value != "false"
+    }
+
+    /** Start from the Beginning: the next player for [videoId] starts at 0 (on), or not (off: an ordinary Play clears it) */
+    func startFromBeginning(_ videoId: String?, on: Bool) {
+        Task { await ask("fromStart", ["videoId": videoId ?? NSNull(), "on": on]) }
+    }
+
     func settings() async -> [Setting] {
         ((await ask("settings")) as? [Any] ?? []).compactMap { $0 as? JSON }.map(Setting.init)
     }
@@ -603,10 +761,54 @@ final class Stremio {
         }
     }
 
+    /** Who's watching: their own Continue Watching, watched marks and picks follow */
     func chooseViewer(_ id: String) {
+        profileChosen = true
+        if let v = viewers.first(where: { $0.id == id }) { viewer = v }
         Task {
             await dx("viewers.select", id)
+            // (Home waits on the page: this person's rows come from the same page)
+            continueWatching = []
+            picks = []
+            forYou = nil
             refreshExtras()
+        }
+    }
+
+    func addViewer(name: String, colour: String) {
+        Task {
+            await dx("viewers.add", name, colour)
+            refreshExtras()
+        }
+    }
+
+    func editViewer(_ id: String, name: String, colour: String) {
+        Task {
+            await dx("viewers.rename", id, name)
+            await dx("viewers.recolour", id, colour)
+            refreshExtras()
+        }
+    }
+
+    func removeViewer(_ id: String) {
+        Task {
+            await dx("viewers.remove", id)
+            refreshExtras()
+        }
+    }
+
+    /** For Accounts.swift: asking the page (those two are private to this file) */
+    func askPublic(_ op: String, _ args: JSON = [:]) async -> Any? { await ask(op, args) }
+    func askDx(_ method: String, _ args: Any...) async -> Any? { await ask("dx", ["method": method, "args": args]) }
+
+    /** Everything on show belongs to the account being left: gone while the page starts again with the other */
+    func clearScreens() {
+        account = nil
+        continueWatching = []; rows = []; allRows = []; billboard = []; myList = []; forYou = nil; picks = []; airing = []
+        library = []; inLibrary = []; watchedIds = []; marksKnown = false; viewers = []; viewer = nil; details = nil
+        profileChosen = false
+        for key in ["state.ctx", "state.board", "state.continue_watching_preview", "x.billboard", "x.myList", "x.forYou", "x.picks", "x.airing", "x.layout", "x.viewers", "x.viewer"] {
+            cache.removeObject(forKey: key)
         }
     }
 
@@ -653,10 +855,13 @@ final class Stremio {
         // while it covers them, so it never closed)
         PlayerHost.show(playback, stremio: self)
         // (the loading screen stays until the player has covered it)
+        // (the loading screen carries on over the player, and goes when the first picture plays: PlayerScreen)
+        stepLaunch("Loading the video", detail: launch?.detail, progress: 0.94)
+        // (no picture in 40 seconds: as good as failed, so the page moves on to the next best)
         if launch != nil {
             Task {
-                try? await Task.sleep(for: .seconds(0.8))
-                if self.playback === playback { endLaunch() }
+                try? await Task.sleep(for: .seconds(40))
+                if self.playback === playback, !playback.ready, launch != nil { playback.finish(ended: false, error: "It didn't start") }
             }
         }
     }
@@ -685,6 +890,11 @@ final class Stremio {
     /** The cast with their photos (TMDB, with a key in dx.bi settings), or nil */
     func cast(_ type: String, _ imdb: String, names: [JSON]) async -> [JSON]? {
         (await ask("dx", ["method": "phone.cast", "args": [type, imdb, names]], timeout: 25) as? [Any])?.compactMap { $0 as? JSON }
+    }
+
+    /** Someone's page (TMDB, with a key in dx.bi settings): by TMDB's id from the cast list, else by name. nil without a key */
+    func person(id: String?, name: String) async -> JSON? {
+        await ask("dx", ["method": "phone.person", "args": [id ?? "", name]], timeout: 40) as? JSON
     }
 
     /** Titles like this one, for its page's Related row */
@@ -739,6 +949,20 @@ final class Stremio {
     /** The player closed: the page records where it got to, and goes on to the next episode when asked */
     func closed(position: Double, duration: Double, ended: Bool, error: String?, next: Bool = false) {
         let active = playback?.payload
+        // On to the next episode: the loading screen first (it stays until the next one's picture plays)
+        if next, launch == nil, let active, let upNext = active.object("next") {
+            beginLaunch(playingTitle(active), episode: upNext.text("title"), text: "Starting the next episode", progress: 0.3)
+        }
+        // closed before its first picture (it wouldn't play): the loading screen says so, unless it's a stream change
+        // (with an error the page tries the next best stream, and says so: toast above)
+        if launch != nil, switching == nil {
+            if error != nil {
+                stepLaunch("That stream didn't play", detail: "Looking for another…", progress: 0.9)
+                restartLaunchTimeout()
+            } else {
+                failLaunch("Couldn't play this stream", "Try Choose a Stream on the title's page.")
+            }
+        }
         // a download: it keeps its own place (the page didn't hand it over, so there's nothing to tell it)
         if let id = active?.text("offline") {
             Downloads.shared.leftAt(id, ms: position * 1000, ended: ended)

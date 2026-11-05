@@ -28,6 +28,20 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
      (Split View and Stage Manager need every way up) */
     static let isPad = UIDevice.current.userInterfaceIdiom == .pad
     static var orientations: UIInterfaceOrientationMask = isPad ? .all : .portrait
+    /** The loading screen is up: the phone stays sideways for the player that follows (a stream change too) */
+    static var holdSideways = false
+
+    /** A phone turned sideways (the loading screen, the player) or back upright */
+    @MainActor
+    static func turn(sideways: Bool) {
+        guard !isPad else { return }
+        orientations = sideways ? .landscape : .portrait
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        var top = scene?.windows.first { $0.isKeyWindow }?.rootViewController
+        while let next = top?.presentedViewController { top = next }
+        top?.setNeedsUpdateOfSupportedInterfaceOrientations()
+        scene?.requestGeometryUpdate(.iOS(interfaceOrientations: orientations)) { _ in }
+    }
 
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         Self.orientations
@@ -47,6 +61,8 @@ enum Route: Hashable {
     /** A row's See All: a Discover link and the row's name */
     case browse(link: String, name: String)
     case library
+    /** A cast or crew member's page: TMDB's person id, their name and photo (shown while it loads) */
+    case person(id: String, name: String, photo: String?)
 }
 
 struct RootView: View {
@@ -65,8 +81,17 @@ struct RootView: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
                 .ignoresSafeArea()
-            if stremio.account?.signedIn == true || stremio.guest {
-                tabs
+            if stremio.swapping {
+                // another account is being read in: Stremio's page starts again
+                VStack(spacing: 16) { Logo(size: 54); ProgressView().tint(.white) }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if stremio.account?.signedIn == true || stremio.guest {
+                if !stremio.profileChosen && stremio.viewers.count > 1 {
+                    ProfilePicker { stremio.profileChosen = true }
+                        .transition(.opacity)
+                } else {
+                    tabs
+                }
             } else {
                 WelcomeView()
             }
@@ -159,6 +184,8 @@ struct Stack<Content: View>: View {
                             BrowseView(link: link, name: name)
                         case .library:
                             LibraryView()
+                        case .person(let id, let name, let photo):
+                            PersonView(id: id, name: name, photo: photo)
                         }
                     }
                 }
