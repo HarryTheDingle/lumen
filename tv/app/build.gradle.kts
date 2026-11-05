@@ -40,19 +40,36 @@ android {
     // Two apps from this code, each released and updated on its own:
     //  - tv: dx.bi TV for Android TV, Google TV and Fire TV (Stremio's page, worked by remote)
     //  - mobile: dx.bi for Android phones and tablets (native screens over Stremio's page)
+    //  - lumen: Lumen for Android TV and Google TV (native screens worked by remote, over the same page)
     flavorDimensions += "device"
     productFlavors {
         create("tv") {
             dimension = "device"
             buildConfigField("boolean", "PHONE_UI", "false")
             buildConfigField("String", "APK_NAME", "\"dxbi-tv.apk\"")
+            // dx.bi's intro film as it opens
+            buildConfigField("boolean", "INTRO", "true")
+            buildConfigField("boolean", "OWN_INTRO", "false")
         }
         create("mobile") {
             dimension = "device"
             applicationId = "com.notdxbi.dxbi.mobile"
             buildConfigField("boolean", "PHONE_UI", "true")
             buildConfigField("String", "APK_NAME", "\"dxbi-mobile.apk\"")
+            buildConfigField("boolean", "INTRO", "false")
+            buildConfigField("boolean", "OWN_INTRO", "false")
             proguardFiles("proguard-mobile.pro")
+        }
+        create("lumen") {
+            dimension = "device"
+            applicationId = "com.harrythedingle.lumen.tv"
+            buildConfigField("boolean", "PHONE_UI", "false")
+            buildConfigField("String", "APK_NAME", "\"lumen-tv.apk\"")
+            // Lumen's own intro film (src/lumen/res/raw/intro.mp4, from tools/render_lumen_intro.py), in its own colours
+            buildConfigField("boolean", "INTRO", "true")
+            buildConfigField("boolean", "OWN_INTRO", "true")
+            // no releases of its own yet: it runs the plugin it was built with
+            buildConfigField("boolean", "SELF_UPDATE", "false")
         }
     }
 
@@ -114,6 +131,13 @@ android {
 
     // The built-in dx.bi plugin is the one at the repository root, copied in at build time
     sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/dxbiAssets"))
+    // What the phone app and Lumen share: Stremio as native screens see it (src/shared), and the
+    // script that lets them (dxbi-engine.js, in the phone app's assets)
+    for (flavor in listOf("mobile", "lumen")) {
+        sourceSets[flavor].java.srcDir("src/shared/java")
+        sourceSets[flavor].res.srcDir("src/shared/res")
+    }
+    sourceSets["lumen"].assets.srcDir("src/mobile/assets")
 }
 
 androidComponents {
@@ -127,6 +151,7 @@ androidComponents {
     }
     // (the preview build is the phone app's)
     beforeVariants(selector().withFlavor("device" to "tv").withBuildType("preview")) { it.enable = false }
+    beforeVariants(selector().withFlavor("device" to "lumen").withBuildType("preview")) { it.enable = false }
 }
 
 val copyPlugin by tasks.registering(Copy::class) {
@@ -176,6 +201,17 @@ dependencies {
     "mobileImplementation"("io.coil-kt.coil3:coil-compose:3.0.4")
     "mobileImplementation"("io.coil-kt.coil3:coil-network-okhttp:3.0.4")
     "mobileImplementation"("androidx.compose.ui:ui-tooling-preview")
+    // Lumen: its screens drawn with Compose for TV (focus, the remote's D-pad, cards that grow when chosen)
+    "lumenImplementation"(platform("androidx.compose:compose-bom:2024.12.01"))
+    "lumenImplementation"("androidx.compose.ui:ui")
+    "lumenImplementation"("androidx.compose.foundation:foundation")
+    "lumenImplementation"("androidx.tv:tv-material:1.0.0")
+    "lumenImplementation"("androidx.compose.material:material-icons-extended")
+    "lumenImplementation"("androidx.navigation:navigation-compose:2.8.5")
+    "lumenImplementation"("androidx.activity:activity-compose:1.9.3")
+    "lumenImplementation"("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    "lumenImplementation"("io.coil-kt.coil3:coil-compose:3.0.4")
+    "lumenImplementation"("io.coil-kt.coil3:coil-network-okhttp:3.0.4")
     // (the Compose compiler wants its runtime in every build: dx.bi TV uses none of it, and its release leaves it out)
     "tvImplementation"(platform("androidx.compose:compose-bom:2024.12.01"))
     "tvImplementation"("androidx.compose.runtime:runtime")

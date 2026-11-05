@@ -66,6 +66,12 @@ private fun load(o: JSONObject, key: String = "state") = when (o.optString(key))
 }
 
 data class Row(val index: Int, val key: String, val name: String, val type: String, val addon: String, val discover: String?, val state: Load, val items: List<Title>) {
+    /** Its name with its kind, so two "Popular" rows read "Popular Movies" and "Popular Series" */
+    val heading: String get() {
+        val kind = when (type) { "movie" -> "Movies"; "series" -> "Series"; else -> type.replaceFirstChar { it.uppercase() } }
+        return if (kind.isEmpty() || name.contains(kind, ignoreCase = true)) name else "$name $kind"
+    }
+
     companion object {
         fun from(o: JSONObject) = Row(
             index = o.optInt("index"),

@@ -1,7 +1,6 @@
 package com.notdxbi.dxbi.tv.phone
 
 import android.content.Context
-import com.notdxbi.dxbi.tv.Cast
 import com.notdxbi.dxbi.tv.Phone
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -190,6 +189,35 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
         refreshExtras()
     }
 
+    /** Titles added to or taken out of the Library here, before Stremio's own lists catch up */
+    val listMarks = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+
+    /** Adds a title that isn't open (Home's +): Stremio wants the whole title, so it's opened first */
+    fun setInList(title: Title, add: Boolean) {
+        listMarks.value = listMarks.value + (title.id to add)
+        billboard.value = billboard.value.map { if (it.id == title.id) it.copy(inLibrary = add) else it }
+        withOpened(title) { ask("library", JSONObject().put("add", add)) }
+    }
+
+    /**
+     * Opens [title] to change it (Stremio changes the title open in details), then opens again what
+     * was open before
+     */
+    private fun withOpened(title: Title, change: suspend () -> Unit) = scope.launch {
+        val before = details.value?.let { d -> d.metaId?.let { Triple(d.title?.type.orEmpty(), it, d.videoId) } }
+        open(title.type, title.id)
+        for (attempt in 0 until 40) {
+            val d = details.value
+            if (d?.metaId == title.id && d.state == Load.Ready) break
+            delay(150)
+        }
+        if (details.value?.metaId != title.id) return@launch
+        change()
+        if (before != null && before.second != title.id && before.first.isNotEmpty()) open(before.first, before.second, before.third)
+        delay(1000)
+        refreshExtras()
+    }
+
     fun setWatched(watched: Boolean) = scope.launch { ask("watched", JSONObject().put("value", watched)) }
 
     /** One video of the open title watched or not (a film: its own id); [upTo]: and the episodes before it in its season */
@@ -213,15 +241,10 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
 
     /**
      * Plays one of [streams] (dx.bi keeps the next best ready in case it won't play): in dx.bi's
-     * player, another app, on a Chromecast (where Play goes anyway while one is connected) or as a download
+     * player, or wherever the app sends it instead ([Phone.route]: the phone app's other apps, Chromecast, downloads)
      */
     fun play(option: StreamOption, target: Phone.Target = Phone.Target.Player) = scope.launch {
-        Phone.nextTarget = when {
-            target != Phone.Target.Player -> target
-            !option.torrent && Cast.connected(app) -> Phone.Target.Cast
-            playInOtherApp.value -> Phone.Target.External
-            else -> target
-        }
+        Phone.route(app, option, target, playInOtherApp.value)
         val link = dx("phone.play", option.index) as? String ?: option.play
         ask("play", JSONObject().put("link", link))
     }

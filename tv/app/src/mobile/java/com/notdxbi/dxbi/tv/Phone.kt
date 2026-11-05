@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.media3.common.util.UnstableApi
 import com.notdxbi.dxbi.tv.phone.Engine
 import com.notdxbi.dxbi.tv.phone.PhoneApp
+import com.notdxbi.dxbi.tv.phone.StreamOption
 import org.json.JSONObject
 import java.io.File
 
@@ -35,6 +36,16 @@ object Phone {
 
     @Volatile
     var nextTarget = Target.Player
+
+    /** Where [Stremio.play] sends a stream: [target] when it's chosen, else a connected Chromecast or the other app they play in */
+    fun route(context: Context, option: StreamOption, target: Target, otherApp: Boolean) {
+        nextTarget = when {
+            target != Target.Player -> target
+            !option.torrent && Cast.connected(context) -> Target.Cast
+            otherApp -> Target.External
+            else -> target
+        }
+    }
 
     /** The screens' way into the page (null on a TV) */
     private var engine: Engine? = null
@@ -57,6 +68,9 @@ object Phone {
         val screens = ComposeView(activity).apply { setContent { PhoneApp(engine) } }
         root.addView(screens, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
     }
+
+    /** Whether native screens take the keys rather than the page (a phone is worked by touch: no) */
+    fun ownsKeys() = false
 
     /** dxbi-engine.js, run in the page after dxbi-tv.js (only when the screens are there) */
     fun pageScript(context: Context): String =

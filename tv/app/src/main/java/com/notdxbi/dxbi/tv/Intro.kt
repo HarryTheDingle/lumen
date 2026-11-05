@@ -35,11 +35,13 @@ class Intro(private val activity: MainActivity, private val parent: FrameLayout)
         val settings = try {
             JSONObject(activity.getSharedPreferences("plugin-settings", Context.MODE_PRIVATE).getString("dxbi", "{}") ?: "{}")
         } catch (_: Exception) { JSONObject() }
-        if (!settings.optBoolean("splash", true)) return
+        // (Lumen's film is its own: dx.bi's Intro animation setting, off in Lumen's plugin, is about dx.bi's)
+        if (!BuildConfig.OWN_INTRO && !settings.optBoolean("splash", true)) return
 
         val box = FrameLayout(activity).apply { setBackgroundColor(0xFF000000.toInt()) }
         val video = TextureView(activity)
-        accentPaint(settings.optString("accent", "red"))?.let { video.setLayerPaint(it) }
+        // (dx.bi's film is red, turned to the chosen accent; Lumen's is in the logo's own colours)
+        if (!BuildConfig.OWN_INTRO) accentPaint(settings.optString("accent", "red"))?.let { video.setLayerPaint(it) }
         this.video = video
         box.addView(video, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER))
         // The film is 16:9: letterbox it on anything else (a phone held upright)
