@@ -19,7 +19,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
@@ -39,7 +47,9 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import androidx.tv.material3.darkColorScheme
+import androidx.compose.ui.platform.LocalContext
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
 import com.notdxbi.dxbi.tv.R
 import com.notdxbi.dxbi.tv.phone.Title
 
@@ -103,11 +113,11 @@ fun Art(url: String?, modifier: Modifier = Modifier, contentScale: ContentScale 
 /** A title's logo (its name drawn as on the poster), or its name in large type when it has none */
 @Composable
 fun TitleLogo(title: Title, maxHeight: Dp, maxWidth: Dp, textSize: TextUnit, modifier: Modifier = Modifier, centred: Boolean = false) {
-    var missing by remember(title.logo) { mutableStateOf(title.logo == null) }
+    var missing by remember(title.logoUrl) { mutableStateOf(title.logoUrl == null) }
     Box(modifier.fillMaxWidth(), contentAlignment = if (centred) Alignment.Center else Alignment.CenterStart) {
         if (!missing) {
             AsyncImage(
-                model = title.logo,
+                model = title.logoUrl,
                 contentDescription = title.name,
                 contentScale = ContentScale.Fit,
                 alignment = if (centred) Alignment.Center else Alignment.CenterStart,
@@ -198,3 +208,35 @@ fun typeName(type: String) = when (type) {
     "tv" -> "Live TV"
     else -> type.replaceFirstChar { it.uppercase() }
 }
+
+/**
+ * Apple TV's backdrop below the big picture: the title's art as a soft wash of its colours, darkened.
+ * (A tiny copy of the art stretched over the screen: as soft as a blur, and nothing for a TV to work out
+ * as the page moves.)
+ */
+@Composable
+fun Wash(url: String?, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    Box(modifier.background(Color.Black)) {
+        if (url != null) {
+            Crossfade(url, animationSpec = tween(900), label = "wash") { u ->
+                val request = remember(u) { ImageRequest.Builder(context).data(u).size(24, 14).build() }
+                AsyncImage(
+                    model = request,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().alpha(0.85f),
+                )
+            }
+        }
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.35f), 1f to Color.Black.copy(alpha = 0.7f))))
+    }
+}
+
+/** Fades what's drawn out to nothing at the bottom (the big picture into the wash under it) */
+fun Modifier.fadeBottom(from: Float = 0.62f): Modifier = this
+    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+    .drawWithContent {
+        drawContent()
+        drawRect(Brush.verticalGradient(from to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
+    }

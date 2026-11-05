@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,7 +25,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -47,8 +56,8 @@ import com.notdxbi.dxbi.tv.phone.Continue
 import com.notdxbi.dxbi.tv.phone.Title
 
 /**
- * A card the remote can choose, the Apple TV way: it grows a little when chosen, with a white edge
- * and a soft glow in Lumen's cyan
+ * A card the remote can choose, the Apple TV way: it lifts towards you when chosen, larger, casting a
+ * soft shadow down under it, with a faint white edge
  */
 @Composable
 fun FocusCard(
@@ -59,18 +68,32 @@ fun FocusCard(
     content: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(corner)
+    var focused by remember { mutableStateOf(false) }
+    val lift by animateFloatAsState(if (focused) 1f else 0f, tween(180), label = "lift")
     Card(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = modifier,
+        // (grown and lifted here rather than by the card, so the shadow grows with it: Android's light
+        // sits above the screen, so a lifted card's shadow falls below it)
+        modifier = modifier
+            .onFocusChanged { focused = it.isFocused || it.hasFocus }
+            .graphicsLayer {
+                val s = 1f + 0.1f * lift
+                scaleX = s
+                scaleY = s
+                this.shape = shape
+                shadowElevation = 26.dp.toPx() * lift
+                ambientShadowColor = Color.Black
+                spotShadowColor = Color.Black
+            },
         shape = CardDefaults.shape(shape),
         colors = CardDefaults.colors(containerColor = Dx.Raised, focusedContainerColor = Dx.Raised),
-        scale = CardDefaults.scale(focusedScale = 1.08f),
+        scale = CardDefaults.scale(focusedScale = 1f),
         border = CardDefaults.border(
-            border = Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)), shape = shape),
-            focusedBorder = Border(BorderStroke(2.5.dp, Color.White), shape = shape),
+            border = Border.None,
+            focusedBorder = Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.5f)), shape = shape),
         ),
-        glow = CardDefaults.glow(focusedGlow = Glow(elevationColor = Dx.Accent.copy(alpha = 0.45f), elevation = 14.dp)),
+        glow = CardDefaults.glow(focusedGlow = Glow.None),
     ) {
         content()
     }
@@ -115,10 +138,13 @@ fun Shelf(title: String, modifier: Modifier = Modifier, content: LazyListScope.(
     }
 }
 
-/** A title in a row: its poster, and (Netflix's Top 10) a large number in the corner */
+/**
+ * A title in a row: its poster, and (Netflix's Top 10) a large number in the corner. [fill]: as wide as
+ * the space it's given (a grid's), keeping the poster's shape
+ */
 @Composable
-fun PosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, width: Dp = Dx.Poster) {
-    FocusCard(onClick = onClick, modifier = Modifier.size(width, width * 1.5f)) {
+fun PosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, width: Dp = Dx.Poster, fill: Boolean = false) {
+    FocusCard(onClick = onClick, modifier = if (fill) Modifier.fillMaxWidth().aspectRatio(2f / 3f) else Modifier.size(width, width * 1.5f)) {
         Box(Modifier.fillMaxSize()) {
             Art(title.art, Modifier.fillMaxSize())
             if (rank != null) {
@@ -189,7 +215,7 @@ fun AiringCard(item: Airing, onClick: () -> Unit, width: Dp = 300.dp) {
                     if (item.out) "NEW EPISODE" else item.countdown.uppercase(),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (item.out) Dx.Accent else Dx.Muted,
+                    color = if (item.out) Color.White else Dx.Muted,
                 )
                 Text(item.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(

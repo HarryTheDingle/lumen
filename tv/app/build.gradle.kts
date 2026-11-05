@@ -149,9 +149,12 @@ androidComponents {
         variant.buildConfigFields.put("SELF_UPDATE", com.android.build.api.variant.BuildConfigField("boolean", "false", null))
         variant.outputs.forEach { it.versionName.set("$dxbiVersion-dev") }
     }
-    // (the preview build is the phone app's)
+    // (the preview build is the phone app's, and Lumen TV's: there it's what goes on the TV, as fast as a
+    // release, and installs over the debug build, so you stay signed in)
     beforeVariants(selector().withFlavor("device" to "tv").withBuildType("preview")) { it.enable = false }
-    beforeVariants(selector().withFlavor("device" to "lumen").withBuildType("preview")) { it.enable = false }
+    onVariants(selector().withFlavor("device" to "lumen").withBuildType("preview")) { variant ->
+        variant.applicationId.set("com.harrythedingle.lumen.tv")
+    }
 }
 
 val copyPlugin by tasks.registering(Copy::class) {

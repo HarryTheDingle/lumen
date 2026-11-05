@@ -383,6 +383,22 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
         refreshExtras()
     }
 
+    /** The cast with their photos (TMDB, with a key in dx.bi settings), or null */
+    suspend fun cast(type: String, imdb: String, names: JSONArray): List<JSONObject>? =
+        (engine.runCatching { call("dx", JSONObject().put("method", "phone.cast").put("args", JSONArray().put(type).put(imdb).put(names)), 25_000) }.getOrNull() as? JSONArray)?.objects()
+
+    /** Titles like this one, for its page's Related row */
+    suspend fun related(type: String, id: String, genres: List<String>): List<Title> =
+        (engine.runCatching { call("dx", JSONObject().put("method", "phone.related").put("args", JSONArray().put(type).put(id).put(JSONArray(genres))), 25_000) }.getOrNull() as? JSONArray)
+            .objects().map(Title::from)
+
+    /** The catalog browser's first catalog (films, if there are any), unless one's already open */
+    fun discoverStart() {
+        if (discover.value?.request != null) return
+        val rows = allRows.value
+        (rows.firstOrNull { it.type == "movie" }?.discover ?: rows.firstOrNull()?.discover)?.let { discover(it) }
+    }
+
     /** A title's scores and reviews (dx.bi's Reviews: MDBList, Wikidata, Wikipedia, TMDB with the keys set) */
     suspend fun reviews(type: String, id: String): Reviews? =
         (engine.runCatching { call("dx", JSONObject().put("method", "phone.reviews").put("args", JSONArray().put(type).put(id)), 40_000) }.getOrNull() as? JSONObject)?.let(Reviews::from)
@@ -401,6 +417,9 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
 
     /** dx.bi settings, as the TV lists them */
     suspend fun settings(): List<Setting> = (ask("settings") as? JSONArray).objects().map(Setting::from)
+
+    /** dx.bi settings → Blur unwatched episodes: episode pictures hidden until they're watched or started */
+    suspend fun blurUnwatched(): Boolean = settings().firstOrNull { it.key == "blurUnwatched" }?.value == true
 
     /** Your stats (dx.bi's Watch stats), or null when they're switched off */
     suspend fun stats(): JSONObject? = dx("phone.stats") as? JSONObject

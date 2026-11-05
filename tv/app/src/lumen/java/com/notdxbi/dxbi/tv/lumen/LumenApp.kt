@@ -22,7 +22,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -60,6 +63,9 @@ import com.notdxbi.dxbi.tv.phone.Title
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -90,44 +96,76 @@ fun LumenApp(engine: Engine) {
 private fun Screens(stremio: Stremio, scope: CoroutineScope) {
     val context = LocalContext.current
     val watching by stremio.continueWatching.collectAsState()
-    HomeScreen(
-        stremio,
-        // (title pages are the next step)
-        onOpen = { Toast.makeText(context, it.name, Toast.LENGTH_SHORT).show() },
-        onPlay = { title ->
-            val videoId = watching.firstOrNull { it.title.id == title.id }?.videoId
-            if (title.type == "series" && videoId == null) {
-                Toast.makeText(context, "Choose an episode on ${title.name}'s page", Toast.LENGTH_SHORT).show()
-            } else {
-                scope.launch { playNow(stremio, title, videoId) { message -> withContext(Dispatchers.Main) { Toast.makeText(context, message, Toast.LENGTH_SHORT).show() } } }
-            }
-        },
-    )
-}
+    val account by stremio.account.collectAsState()
+    val nav = remember { Nav() }
+    val feed = remember { DiscoverFeed(context.cacheDir) }
 
-/**
- * Plays a title straight away (Home's Play): opens it, waits for the addons' streams and plays Lumen's
- * pick (the plugin's Just press Play, which remembers what played last time)
- */
-private suspend fun playNow(stremio: Stremio, title: Title, videoId: String?, say: suspend (String) -> Unit) {
-    stremio.open(title.type, title.id, videoId)
-    for (attempt in 0 until 60) {
-        val d = stremio.details.value
-        if (d?.metaId == title.id && d.state == Load.Ready) break
-        delay(150)
+    // Back on Discover, Search or Settings: to Home (Home's own Back goes to its top, then leaves)
+    BackHandler(enabled = nav.tab != Tab.Home) { nav.tab = Tab.Home }
+    // a new screen: the remote starts on its name in the corner
+    var lastTab by remember { mutableStateOf(nav.tab) }
+    LaunchedEffect(nav.tab) {
+        if (nav.tab == lastTab) return@LaunchedEffect
+        lastTab = nav.tab
+        delay(60)
+        runCatching { nav.tabFocus.requestFocus() }
     }
-    // the addons answer one by one: the pick once they all have, or once there's a good one after a while
-    for (attempt in 0 until 40) {
-        val choices = stremio.streams()
-        val pick = choices?.picked
-        if (pick != null && (choices.settled || attempt >= 10)) {
-            stremio.play(pick)
-            return
+
+    // Play, everywhere: the loading screen, then the player
+    val launcher = remember { Launcher(stremio, scope) }
+    val play: (Title) -> Unit = { title -> launcher.play(title, watching.firstOrNull { it.title.id == title.id }?.videoId) }
+    // what a preview card's Play, + and scores do
+    val cardActions = remember {
+        CardActions(
+            play = { play(it) },
+            setInList = { title, add ->
+                stremio.setInList(title, add)
+                Toast.makeText(context, if (add) "Added to your Library" else "Removed from your Library", Toast.LENGTH_SHORT).show()
+            },
+            // (what's in My List already, then what's been added or taken out here)
+            listMarks = combine(stremio.myList, stremio.listMarks) { rows, marks -> rows.flatMap { it.items }.associate { it.id to true } + marks }
+                .stateIn(scope, SharingStarted.Eagerly, stremio.listMarks.value),
+            scores = { t -> stremio.reviews(t.type, t.id)?.scores.orEmpty() },
+            trailer = { t -> feed.trailer(t.type, t.id) },
+        )
+    }
+
+    CompositionLocalProvider(LocalCardActions provides cardActions, LocalLauncher provides launcher) {
+    // (noted, so the corner opens the menu only when the remote moves onto it)
+    Box(Modifier.fillMaxSize().onPreviewKeyEvent {
+        if (it.type == KeyEventType.KeyDown && (it.key == Key.DirectionUp || it.key == Key.DirectionLeft)) nav.movedAt = System.currentTimeMillis()
+        false
+    }) {
+    when (nav.tab) {
+        Tab.Home -> HomeScreen(
+            stremio,
+            nav,
+            onPlay = { play(it) },
+        )
+        Tab.Discover -> DiscoverScreen(stremio, nav, feed)
+        Tab.Search -> SearchScreen(stremio, nav)
+        Tab.Settings -> SettingsScreen(stremio, nav)
+    }
+    }
+
+    // Apple TV's menu down the left
+    if (nav.menuOpen) SideMenu(nav, account?.email)
+
+    // the pages over the tab, each in its own window
+    nav.pages.forEachIndexed { i, page ->
+        key(page, i) {
+            CompositionLocalProvider(LocalCovered provides (i < nav.pages.lastIndex)) {
+                when (page) {
+                    is Page.Details -> TitlePage(stremio, nav, page.title, page.play)
+                    Page.Catalogs -> CatalogBrowser(stremio, nav)
+                }
+            }
         }
-        if (choices != null && choices.settled && choices.items.isEmpty()) break
-        delay(500)
     }
-    say("No streams found for ${title.name}")
+
+    // over everything while a title's starting
+    if (launcher.title != null) LoadingScreen(launcher)
+    }
 }
 
 @Composable
@@ -183,7 +221,7 @@ private fun SignIn(stremio: Stremio) {
  * again. (A text field that's simply moved onto would open the keyboard at once, and keep the arrows.)
  */
 @Composable
-private fun Field(label: String, value: String, onChange: (String) -> Unit, type: KeyboardType, modifier: Modifier = Modifier) {
+fun Field(label: String, value: String, onChange: (String) -> Unit, type: KeyboardType, modifier: Modifier = Modifier) {
     var editing by remember { mutableStateOf(false) }
     val box = remember { FocusRequester() }
     val input = remember { FocusRequester() }
@@ -201,7 +239,7 @@ private fun Field(label: String, value: String, onChange: (String) -> Unit, type
             onValueChange = onChange,
             singleLine = true,
             textStyle = TextStyle(color = Color.White, fontSize = 18.sp),
-            cursorBrush = SolidColor(Dx.Accent),
+            cursorBrush = SolidColor(Color.White),
             keyboardOptions = KeyboardOptions(keyboardType = type, imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { done() }),
             visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
@@ -212,7 +250,7 @@ private fun Field(label: String, value: String, onChange: (String) -> Unit, type
                     if (it.type == KeyEventType.KeyUp && it.key == Key.Back) { done(); true } else false
                 }
                 .background(Color.White.copy(alpha = 0.16f), shape)
-                .border(2.dp, Dx.Accent, shape)
+                .border(1.5.dp, Color.White.copy(alpha = 0.6f), shape)
                 .padding(horizontal = 16.dp, vertical = 14.dp),
         )
     } else {
@@ -223,17 +261,17 @@ private fun Field(label: String, value: String, onChange: (String) -> Unit, type
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = Color.White.copy(alpha = 0.08f),
                 contentColor = Color.White,
-                focusedContainerColor = Color.White.copy(alpha = 0.16f),
-                focusedContentColor = Color.White,
+                focusedContainerColor = Color.White,
+                focusedContentColor = Color.Black,
             ),
-            border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(2.dp, Dx.Accent), shape = shape)),
+            
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
         ) {
             val shown = if (password) "•".repeat(value.length) else value
             Text(
                 shown.ifEmpty { label },
                 fontSize = 18.sp,
-                color = if (value.isEmpty()) Dx.Faint else Color.White,
+                color = if (value.isEmpty()) androidx.tv.material3.LocalContentColor.current.copy(alpha = 0.5f) else Color.Unspecified,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
             )
         }

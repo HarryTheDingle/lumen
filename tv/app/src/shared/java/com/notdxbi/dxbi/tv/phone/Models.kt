@@ -34,6 +34,8 @@ data class Title(
     /** Art for a card: the poster, or for titles without one the backdrop */
     val art: String? get() = poster ?: background ?: if (id.startsWith("tt")) "https://images.metahub.space/poster/small/$id/img" else null
     val backdrop: String? get() = background ?: if (id.startsWith("tt")) "https://images.metahub.space/background/medium/$id/img" else poster
+    /** The title's logo (its name as drawn on the poster), else Metahub's for its IMDb id, as the iPad does */
+    val logoUrl: String? get() = logo ?: if (id.startsWith("tt")) "https://images.metahub.space/logo/medium/$id/img" else null
 
     companion object {
         fun from(o: JSONObject) = Title(
@@ -192,13 +194,18 @@ data class StreamOption(
     }
 }
 
-data class StreamChoices(val justPlay: Boolean, val settled: Boolean, val videoId: String?, val pick: Int, val sameAsLastTime: Boolean, val items: List<StreamOption>) {
+data class StreamChoices(
+    val justPlay: Boolean, val settled: Boolean, val videoId: String?, val pick: Int, val sameAsLastTime: Boolean, val items: List<StreamOption>,
+    /** The connection's speed in Mbps, when dx.bi's Match my internet speed measured it (else 0) */
+    val speed: Double = 0.0,
+) {
     val picked: StreamOption? get() = items.getOrNull(pick)
 
     companion object {
         fun from(o: JSONObject) = StreamChoices(
             o.optBoolean("justPlay"), o.optBoolean("settled"), o.text("videoId"), o.optInt("pick", -1), o.optString("how") == "same",
             o.optJSONArray("items").objects().mapIndexed(StreamOption::from),
+            o.optDouble("speed", 0.0),
         )
     }
 }

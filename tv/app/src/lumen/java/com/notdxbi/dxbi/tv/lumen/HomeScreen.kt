@@ -7,6 +7,11 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -39,6 +44,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -56,6 +62,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -83,7 +90,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Kinds of catalog Lumen leaves out: films and TV only (no YouTube or live TV channels) */
-private val LEFT_OUT = setOf("channel", "tv")
+val LEFT_OUT = setOf("channel", "tv")
 
 /**
  * Home, the Apple TV way (as on the iPad: ios/Dxbi/UI/HomeView.swift): a tall billboard that leads with
@@ -92,7 +99,8 @@ private val LEFT_OUT = setOf("channel", "tv")
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun HomeScreen(stremio: Stremio, onOpen: (Title) -> Unit, onPlay: (Title) -> Unit) {
+fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
+    val onOpen: (Title) -> Unit = { nav.open(it) }
     val continueWatching by stremio.continueWatching.collectAsState()
     val suggestions by stremio.billboard.collectAsState()
     val myList by stremio.myList.collectAsState()
@@ -102,7 +110,14 @@ fun HomeScreen(stremio: Stremio, onOpen: (Title) -> Unit, onPlay: (Title) -> Uni
     val ready by stremio.ready.collectAsState()
     val account by stremio.account.collectAsState()
     val listMarks by stremio.listMarks.collectAsState()
-    var kind by remember { mutableStateOf<String?>(null) }
+    var showing by remember { mutableStateOf<Title?>(null) }
+    /** The billboard's trailer is showing (it plays under Home, which leaves the billboard clear for it) */
+    var trailerShowing by remember { mutableStateOf(false) }
+    // it plays while Home's what's on screen: no page or menu over it, nothing starting, the app showing
+    val launcher = LocalLauncher.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val life by lifecycle.currentStateFlow.collectAsState()
+    val trailerAllowed = nav.pages.isEmpty() && launcher?.title == null && life.isAtLeast(Lifecycle.State.RESUMED)
 
     val rows = allRows.filter { it.type !in LEFT_OUT }
     // The billboard leads with what they're watching (five at most); suggestions only when nothing's in progress
@@ -110,13 +125,19 @@ fun HomeScreen(stremio: Stremio, onOpen: (Title) -> Unit, onPlay: (Title) -> Uni
         .map { t -> listMarks[t.id]?.let { t.copy(inLibrary = it) } ?: t }
     val labels = playLabels(continueWatching)
 
-    val list = rememberLazyListState()
+    val list = nav.homeList
     val scope = rememberCoroutineScope()
     val top = remember { FocusRequester() }
     val context = LocalContext.current
     var lastBack by remember { mutableLongStateOf(0L) }
 
-    LaunchedEffect(billboard.isNotEmpty()) { if (billboard.isNotEmpty()) runCatching { top.requestFocus() } }
+    // the remote starts on Play, the first time Home has something to show
+    LaunchedEffect(billboard.isNotEmpty()) {
+        if (billboard.isNotEmpty() && !nav.homeStarted) {
+            nav.homeStarted = true
+            runCatching { top.requestFocus() }
+        }
+    }
 
     // Back: down the page, to the top; at the top, twice to leave
     BackHandler {
@@ -135,16 +156,38 @@ fun HomeScreen(stremio: Stremio, onOpen: (Title) -> Unit, onPlay: (Title) -> Uni
         }
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(Dx.Background)) {
+    // the billboard's trailer to itself after a few seconds of the remote being still
+    val still = rememberStillness(trailerShowing && list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset == 0)
+    val uiAlpha = still.alpha()
+
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .onPreviewKeyEvent { still.key(it) }
+            // black, but for the billboard while its trailer plays under it (darkening as the page moves
+            // up over it)
+            .drawBehind {
+                if (!trailerShowing) return@drawBehind drawRect(Color.Black)
+                val billboardBottom = size.height * 0.84f
+                val up = if (list.firstVisibleItemIndex == 0) list.firstVisibleItemScrollOffset.toFloat() else billboardBottom
+                val edge = (billboardBottom - up).coerceAtLeast(0f)
+                drawRect(Color.Black.copy(alpha = (up / (billboardBottom * 0.7f)).coerceIn(0f, 1f)), size = androidx.compose.ui.geometry.Size(size.width, edge))
+                drawRect(Color.Black, topLeft = androidx.compose.ui.geometry.Offset(0f, edge))
+            },
+    ) {
         val screen = maxHeight
-        CompositionLocalProvider(LocalBringIntoViewSpec provides HomeScrolling) {
-        LazyColumn(state = list, contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        CompositionLocalProvider(LocalBringIntoViewSpec provides ScreenScrolling) {
+        LazyColumn(state = list, modifier = Modifier.graphicsLayer { alpha = uiAlpha }, contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             item(key = "billboard") {
-                // Lumen and who's signed in, over the billboard (they scroll away with it)
+                // the screen's name in the corner, over the billboard (it scrolls away with it)
                 Box {
                     if (billboard.isNotEmpty()) {
                         Billboard(
-                            billboard, labels, height = screen * 0.86f, focus = top, stremio = stremio, onOpen = onOpen, onPlay = onPlay,
+                            billboard, labels, height = screen * 0.84f, focus = top, stremio = stremio, onOpen = onOpen, onPlay = onPlay,
+                            onShowing = { showing = it },
+                            trailerAllowed = trailerAllowed && list.firstVisibleItemIndex == 0,
+                            muted = nav.menuOpen,
+                            onTrailerShowing = { trailerShowing = it },
                             // back up onto its buttons: the whole billboard comes back into view, as at the start
                             // (a moment later: the focus move's own scrolling would otherwise cancel it)
                             onFocused = {
@@ -157,18 +200,17 @@ fun HomeScreen(stremio: Stremio, onOpen: (Title) -> Unit, onPlay: (Title) -> Uni
                     } else {
                         Spacer(Modifier.height(96.dp))
                     }
-                    TopBar(account?.email)
+                    ScreenTag(nav)
                 }
             }
-            item(key = "kinds") { Kinds(rows.map { it.type }.distinct(), kind) { kind = it } }
-            if (kind == null && continueWatching.isNotEmpty()) {
+            if (continueWatching.isNotEmpty()) {
                 item(key = "continue") {
                     Shelf("Continue Watching") {
                         items(continueWatching, key = { it.title.id }) { item -> ContinueCard(item, onClick = { onOpen(item.title) }) }
                     }
                 }
             }
-            if (kind == null) {
+            run {
                 myList.forEachIndexed { i, row ->
                     if (row.items.isNotEmpty()) item(key = "mylist-$i") { TitleShelf(row.name, row.items, onOpen) }
                 }
@@ -181,8 +223,7 @@ fun HomeScreen(stremio: Stremio, onOpen: (Title) -> Unit, onPlay: (Title) -> Uni
                     }
                 }
             }
-            val shown = rows.filter { kind == null || it.type == kind }
-            shown.forEachIndexed { i, row ->
+            rows.forEachIndexed { i, row ->
                 when {
                     // Netflix's Top 10: the first row is numbered
                     row.state == Load.Ready && row.items.isNotEmpty() -> item(key = "row-${row.key}") { TitleShelf(row.heading, row.items, onOpen, rank = i == 0) }
@@ -209,19 +250,10 @@ fun HomeScreen(stremio: Stremio, onOpen: (Title) -> Unit, onPlay: (Title) -> Uni
  * whole while its buttons are chosen), else so it sits a quarter of the way down, with the row above in view
  */
 @OptIn(ExperimentalFoundationApi::class)
-private val HomeScrolling = object : BringIntoViewSpec {
+val ScreenScrolling = object : BringIntoViewSpec {
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
         if (offset >= 0f && offset + size <= containerSize) return 0f
         return offset - containerSize * 0.25f
-    }
-}
-
-@Composable
-private fun TopBar(email: String?) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = Dx.Gutter, vertical = 24.dp), verticalAlignment = Alignment.CenterVertically) {
-        Logo(44.dp)
-        Spacer(Modifier.weight(1f))
-        email?.let { Avatar(it) }
     }
 }
 
@@ -241,35 +273,6 @@ private fun TitleShelf(name: String, items: List<Title>, onOpen: (Title) -> Unit
     }
 }
 
-/** Netflix's Movies · TV Shows chips: Home with only that kind */
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun Kinds(types: List<String>, chosen: String?, choose: (String?) -> Unit) {
-    val kinds = listOf("movie", "series", "anime").filter { it in types }
-    if (kinds.size < 2) return
-    LazyRow(contentPadding = PaddingValues(horizontal = Dx.Gutter), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        items(kinds) { t ->
-            val on = chosen == t
-            FilterChip(
-                selected = on,
-                onClick = { choose(if (on) null else t) },
-                colors = FilterChipDefaults.colors(
-                    containerColor = Color.White.copy(alpha = 0.1f),
-                    contentColor = Color.White,
-                    focusedContainerColor = Color.White,
-                    focusedContentColor = Color.Black,
-                    selectedContainerColor = Dx.Accent.copy(alpha = 0.25f),
-                    selectedContentColor = Dx.Accent,
-                    focusedSelectedContainerColor = Dx.Accent,
-                    focusedSelectedContentColor = Dx.OnAccent,
-                ),
-            ) {
-                Text(if (t == "movie") "Movies" else if (t == "series") "TV Shows" else typeName(t), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            }
-        }
-    }
-}
-
 /**
  * The tall billboard at the top of Home: one title at a time, fading into the next by itself every few
  * seconds. Left from Play and right from + change it too (and the wait starts again). Enter on the
@@ -284,6 +287,10 @@ private fun Billboard(
     stremio: Stremio,
     onOpen: (Title) -> Unit,
     onPlay: (Title) -> Unit,
+    onShowing: (Title) -> Unit,
+    trailerAllowed: Boolean,
+    muted: Boolean,
+    onTrailerShowing: (Boolean) -> Unit,
     onFocused: () -> Unit,
 ) {
     var index by remember { mutableIntStateOf(0) }
@@ -291,39 +298,82 @@ private fun Billboard(
     fun go(i: Int) {
         index = (i + titles.size) % titles.size
     }
-    // turns by itself; any change starts the wait again
-    LaunchedEffect(index, titles.size) {
-        delay(8000)
-        if (titles.size > 1) go(index + 1)
+    LaunchedEffect(current) { onShowing(current) }
+
+    // Its trailer, as on Apple TV: a few seconds after a title comes up, with sound while the remote's on
+    // the billboard's buttons (quiet once it's moved down into the rows), playing to the end before the
+    // next title comes up
+    val actions = LocalCardActions.current
+    var trailer by remember(current.id) { mutableStateOf(current.trailer) }
+    var trailerOn by remember(current.id) { mutableStateOf(false) }
+    var trailerShowing by remember(current.id) { mutableStateOf(false) }
+    var buttonsFocused by remember { mutableStateOf(false) }
+    LaunchedEffect(current.id, trailerAllowed) {
+        if (!trailerAllowed) {
+            trailerOn = false
+            trailerShowing = false
+            return@LaunchedEffect
+        }
+        if (trailer == null) trailer = actions?.trailer?.invoke(current)
+        if (trailer == null) return@LaunchedEffect
+        delay(2500)
+        trailerOn = true
     }
+    LaunchedEffect(trailerShowing) { onTrailerShowing(trailerShowing) }
+    // turns by itself; any change starts the wait again (not while a trailer plays: its end turns it)
+    LaunchedEffect(index, titles.size, trailerOn) {
+        if (trailerOn) return@LaunchedEffect
+        delay(8000)
+        if (titles.size > 1 && !trailerOn) go(index + 1)
+    }
+    val artAlpha by animateFloatAsState(if (trailerShowing) 0f else 1f, tween(900), label = "billboard-art")
 
     Box(Modifier.fillMaxWidth().height(height)) {
+        if (trailerOn) trailer?.let {
+            Trailer(
+                it,
+                Modifier.fillMaxSize(),
+                muted = muted || !buttonsFocused,
+                loop = false,
+                onPlaying = { trailerShowing = true },
+                onEnded = {
+                    trailerOn = false
+                    trailerShowing = false
+                    if (titles.size > 1) go(index + 1)
+                },
+            )
+        }
         Crossfade(current, animationSpec = tween(700), label = "billboard") { t ->
-            Box(Modifier.fillMaxSize()) {
-                Art(t.backdrop, Modifier.fillMaxSize())
-                // dark to the left (for the words) and to the bottom (into the rows)
-                Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.85f), 0.45f to Color.Black.copy(alpha = 0.35f), 0.7f to Color.Transparent)))
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.35f), 0.2f to Color.Transparent, 0.6f to Color.Transparent, 1f to Color.Black)))
+            // dark to the left (for the words), and fading at the bottom into the black under the rows
+            Box(Modifier.fillMaxSize().fadeBottom(0.7f)) {
+                Art(t.backdrop, Modifier.fillMaxSize().alpha(artAlpha))
+                Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.7f), 0.45f to Color.Black.copy(alpha = 0.2f), 0.7f to Color.Transparent)))
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.3f), 0.18f to Color.Transparent)))
             }
         }
-        Column(Modifier.align(Alignment.BottomStart).padding(start = Dx.Gutter, bottom = 40.dp).widthIn(max = 420.dp)) {
+        // (the trailer's under all this: its bottom fades into the black too)
+        if (trailerShowing) Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.7f to Color.Transparent, 1f to Color.Black)))
+        Column(Modifier.align(Alignment.BottomStart).padding(start = Dx.Gutter, bottom = 34.dp).widthIn(max = 420.dp)) {
             AnimatedContent(current, transitionSpec = { fadeIn(tween(500)) togetherWith fadeOut(tween(300)) }, label = "billboard-info") { t ->
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    t.year?.let { Badge(it) }
                     TitleLogo(t, maxHeight = 110.dp, maxWidth = 380.dp, textSize = 40.sp)
                     Text(
-                        (listOf(typeName(t.type)) + t.genres.take(2)).joinToString(" · "),
+                        (listOfNotNull(typeName(t.type)) + t.genres.take(2) + listOfNotNull(t.year)).joinToString(" · "),
                         fontSize = 14.sp,
-                        color = Dx.Muted,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White.copy(alpha = 0.85f),
                     )
                     t.description?.let {
-                        Text(it, fontSize = 13.sp, color = Dx.Faint, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 18.sp)
+                        Text(it, fontSize = 14.sp, color = Color.White.copy(alpha = 0.8f), maxLines = 3, overflow = TextOverflow.Ellipsis, lineHeight = 19.sp)
                     }
                 }
             }
             Spacer(Modifier.height(18.dp))
             Row(
-                Modifier.onFocusChanged { if (it.hasFocus) onFocused() },
+                Modifier.onFocusChanged {
+                    buttonsFocused = it.hasFocus
+                    if (it.hasFocus) onFocused()
+                },
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -348,15 +398,21 @@ private fun Billboard(
                     Spacer(Modifier.width(6.dp))
                     Text(playLabels[current.id] ?: "Play", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 }
-                Button(
-                    onClick = { onOpen(current) },
-                    colors = glassColours(),
-                    scale = ButtonDefaults.scale(focusedScale = 1.08f),
-                ) {
-                    Text("Details", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                }
                 IconButton(
                     onClick = { stremio.setInList(current, !current.inLibrary) },
+                    colors = IconButtonDefaults.colors(
+                        containerColor = Color.White.copy(alpha = 0.16f),
+                        contentColor = Color.White,
+                        focusedContainerColor = Color.White,
+                        focusedContentColor = Color.Black,
+                    ),
+                    scale = IconButtonDefaults.scale(focusedScale = 1.1f),
+                ) {
+                    Icon(if (current.inLibrary) Icons.Filled.Check else Icons.Filled.Add, contentDescription = if (current.inLibrary) "In your Library" else "Add to Library")
+                }
+                // the title's page (Apple TV's ⓘ)
+                IconButton(
+                    onClick = { onOpen(current) },
                     modifier = Modifier.onPreviewKeyEvent {
                         if (it.type == KeyEventType.KeyDown && it.key == Key.DirectionRight && titles.size > 1) {
                             go(index + 1); true
@@ -370,30 +426,22 @@ private fun Billboard(
                     ),
                     scale = IconButtonDefaults.scale(focusedScale = 1.1f),
                 ) {
-                    Icon(if (current.inLibrary) Icons.Filled.Check else Icons.Filled.Add, contentDescription = if (current.inLibrary) "In your Library" else "Add to Library")
+                    Icon(Icons.Outlined.Info, contentDescription = "Details")
                 }
             }
-            Spacer(Modifier.height(18.dp))
-            Dots(titles.size, index)
         }
+        // which of them, in the middle at the bottom
+        Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp)) { Dots(titles.size, index) }
     }
 }
 
 @Composable
-private fun glassColours() = ButtonDefaults.colors(
-    containerColor = Color.White.copy(alpha = 0.16f),
-    contentColor = Color.White,
-    focusedContainerColor = Color.White,
-    focusedContentColor = Color.Black,
-)
-
-@Composable
 private fun Dots(count: Int, index: Int) {
     if (count < 2) return
-    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         repeat(count) { i ->
-            val width by animateDpAsState(if (i == index) 20.dp else 7.dp, label = "dot")
-            Box(Modifier.size(width, 7.dp).background(if (i == index) Color.White else Color.White.copy(alpha = 0.4f), CircleShape))
+            val width by animateDpAsState(if (i == index) 18.dp else 6.dp, label = "dot")
+            Box(Modifier.size(width, 6.dp).background(if (i == index) Color.White else Color.White.copy(alpha = 0.4f), CircleShape))
         }
     }
 }

@@ -2134,6 +2134,13 @@ body:not(.dx-discover-picked) #app [class*="discover-content"] [class*="meta-ite
     color: #46d369;
 }
 
+/* Blur unwatched episodes (Settings → Browsing & library): the picture of an episode that's neither
+   watched nor started. ("upcoming-watched-container" holds both marks, so it doesn't count.) */
+body.dx-blur-unwatched [class*="videos-list"] [class*="video-container"]:not(:has([class*="watched-container"]:not([class*="upcoming-watched"]), [class*="progress-bar"])) [class*="thumbnail-container"] img {
+    filter: blur(14px) brightness(0.8);
+    transform: scale(1.15);
+}
+
 #app [class*="streams-list-container"] [class*="select-choices-wrapper"] {
     padding: 0.5rem 0.75rem;
     border-bottom: 1px solid var(--dx-line);
