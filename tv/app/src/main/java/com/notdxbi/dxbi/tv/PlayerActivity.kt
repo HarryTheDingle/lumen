@@ -143,6 +143,13 @@ class PlayerActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var closed = false
     private var lastError: String? = null
+    /** The subtitles to start with have been chosen (the file's own, when it has them in the language) */
+    private var subtitlesChosen = false
+    // Lumen: its seeking (pause, choose, OK), and each show's sound and subtitles remembered
+    private var scrubber: Scrubber? = null
+    private var tracks: TrackMemory? = null
+    /** How fast the stream came, as the player measured it while loading (bits a second) */
+    private var measuredBps = 0L
     private var lastText: List<String?> = emptyList()
 
     private val reportProgress = object : Runnable {
@@ -272,7 +279,9 @@ class PlayerActivity : AppCompatActivity() {
             .build()
         player = exo
         playerView.player = exo
-        val accent = try { Color.parseColor(stream.optString("accent")) } catch (_: Exception) { Color.parseColor("#E50914") }
+        val lumen = Phone.ownsKeys()
+        // (Lumen: white, as Apple TV's player)
+        val accent = if (lumen) Color.WHITE else try { Color.parseColor(stream.optString("accent")) } catch (_: Exception) { Color.parseColor("#E50914") }
         zoom = PictureZoom(playerView)
         val next = stream.optJSONObject("next")
         nextTitle = next?.optString("title").orEmpty()
@@ -283,6 +292,26 @@ class PlayerActivity : AppCompatActivity() {
             ?: PlayerControls(this, playerView, exo, sound, zoom, ::shiftSubtitles, accent, clock.takeIf { showClock }, next != null, ::seek, { PlaybackBus.listener?.onPartyLeave() }) { go -> finishWith(next = go) }
         PlaybackBus.player = this
         extras?.started(exo, controls)
+        if (lumen) {
+            // the spinner in white, and the title's picture behind it until the video's first picture
+            playerView.findViewById<android.widget.ProgressBar>(androidx.media3.ui.R.id.exo_buffering)
+                ?.indeterminateTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            cover(stream.optString("background"))
+            // seeking with pictures from the lightest stream of this video (the page's previewSource)
+            val preview = stream.optJSONObject("preview")
+            val previewUrl = preview?.optString("url")?.takeIf { it.startsWith("http") }
+            val previewHeaders = mutableMapOf<String, String>()
+            preview?.optJSONObject("headers")?.let { h -> h.keys().forEach { k -> previewHeaders[k] = h.optString(k) } }
+            android.util.Log.i("dxbi-player", "seek pictures from ${if (previewUrl != null) "the lightest stream" else "the stream playing"}")
+            scrubber = Scrubber(this, exo, findViewById(R.id.seek_line), previewUrl ?: url, if (previewUrl != null) previewHeaders else headers) { controls }
+            tracks = TrackMemory(this, exo, stream.optString("videoId").substringBefore(':'))
+        }
+        // how fast the stream comes (not a torrent's: that's the TV's own server), for the network's memory
+        exo.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+            override fun onBandwidthEstimate(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, totalLoadTimeMs: Int, totalBytesLoaded: Long, bitrateEstimate: Long) {
+                if (!torrent && totalBytesLoaded > 4_000_000) measuredBps = bitrateEstimate
+            }
+        })
         fitControls()
         findViewById<View>(R.id.up_next_play).setOnClickListener { finishWith(next = true) }
         findViewById<View>(R.id.up_next_cancel).setOnClickListener {
@@ -296,25 +325,31 @@ class PlayerActivity : AppCompatActivity() {
         // Files with several audio tracks (dual-audio releases) start in Stremio's audio language
         // (Settings → Player), when they have it
         val audioLanguage = stream.optString("audioLanguage").ifEmpty { null }
-        val subtitleLanguage = stream.optString("subtitleLanguage").ifEmpty { null }
+        // (Lumen: subtitles always start off, even a track the file marks to show; English only, in the
+        // subtitles menu)
+        val subtitleLanguage = if (lumen) null else stream.optString("subtitleLanguage").ifEmpty { null }
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, lumen)
             .setPreferredTextLanguage(subtitleLanguage)
             .setSelectUndeterminedTextLanguage(false)
             .apply { if (audioLanguage != null) setPreferredAudioLanguage(audioLanguage) }
             .build()
 
         val subtitles = mutableListOf<MediaItem.SubtitleConfiguration>()
+        val sideloaded = mutableSetOf<String>()
         stream.optJSONArray("subtitles")?.let { list ->
             for (i in 0 until list.length()) {
                 val s = list.optJSONObject(i) ?: continue
                 val subUrl = s.optString("url").takeIf { it.isNotEmpty() } ?: continue
+                if (lumen && !isEnglish(s.optString("lang"))) continue
+                val id = extras?.subtitleId(s.optString("source", "addon"), i) ?: "sub-${s.optString("source", "addon")}-$i"
+                sideloaded += id
                 subtitles += MediaItem.SubtitleConfiguration.Builder(Uri.parse(subUrl))
-                    .setId(extras?.subtitleId(s.optString("source", "addon"), i))
+                    .setId(id)
                     .setMimeType(subtitleMime(subUrl))
                     .setLanguage(s.optString("lang").ifEmpty { null })
                     .setLabel(s.optString("label").ifEmpty { s.optString("lang") })
-                    .setSelectionFlags(if (s.optBoolean("start")) C.SELECTION_FLAG_DEFAULT else 0)
+                    .setSelectionFlags(if (s.optBoolean("start") && !lumen) C.SELECTION_FLAG_DEFAULT else 0)
                     .build()
             }
         }
@@ -331,7 +366,11 @@ class PlayerActivity : AppCompatActivity() {
 
             // A subtitle switched on mid-line only shows from its next line: a seek to where we are
             // brings the current one up straight away
+            override fun onRenderedFirstFrame() = uncover()
+
             override fun onTracksChanged(tracks: Tracks) {
+                this@PlayerActivity.tracks?.changed(tracks)
+                if (!subtitlesChosen && subtitleLanguage != null) subtitlesChosen = preferOwnSubtitles(tracks, subtitleLanguage, sideloaded)
                 val text = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }.flatMap { g -> (0 until g.length).filter { g.isTrackSelected(it) }.map { i -> g.getTrackFormat(i).id } }
                 if (text.isNotEmpty() && text != lastText) exo.seekTo(exo.currentPosition)
                 lastText = text
@@ -339,6 +378,8 @@ class PlayerActivity : AppCompatActivity() {
 
             override fun onPlayerError(error: PlaybackException) {
                 lastError = (if (torrent) TorrentEngine.failed() else null) ?: describe(error)
+                // (in the TV's log, to tell what went wrong with which file: its name, not its address)
+                android.util.Log.w("dxbi-player", "stream failed: $lastError (${error.errorCodeName}: ${error.cause?.message}) file=${Uri.parse(url).lastPathSegment}")
                 finishWith(error = lastError)
             }
 
@@ -353,9 +394,19 @@ class PlayerActivity : AppCompatActivity() {
         if (torrent) handler.post(torrentStatus)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            // Back leaves the player straight away, like Netflix (the position is kept)
+            // Back leaves the player straight away, like Netflix (the position is kept). In Lumen, Back
+            // with the controls showing puts them away first, as on Apple TV
             override fun handleOnBackPressed() {
-                if (!controls.closePanel()) finishWith()
+                if (scrubber?.active == true) {
+                    scrubber?.cancel()
+                    return
+                }
+                if (controls.closePanel()) return
+                if (Phone.ownsKeys() && controls.visible) {
+                    controls.hide()
+                    return
+                }
+                finishWith()
             }
         })
     }
@@ -373,6 +424,22 @@ class PlayerActivity : AppCompatActivity() {
                 KeyEvent.KEYCODE_MEDIA_PAUSE -> { exo.pause(); controls.show(); return true }
                 KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { seek(+1); return true }
                 KeyEvent.KEYCODE_MEDIA_REWIND -> { seek(-1); return true }
+            }
+            // Lumen: left/right choose where to go (paused), OK goes there, up/down let it be
+            val scrub = scrubber
+            if (scrub != null && !controls.panelOpen && upNextCard.visibility != View.VISIBLE) {
+                val onBar = findViewById<View>(R.id.seek_line).isFocused
+                when (event.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> if (scrub.active || !controls.visible || onBar) {
+                        scrub.step(if (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) +1 else -1, event.repeatCount)
+                        return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> if (scrub.active) {
+                        scrub.commit()
+                        return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> if (scrub.active) scrub.cancel()
+                }
             }
             // OK presses Skip while it's up (and the controls aren't)
             if (showing != null && !controls.visible && (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) {
@@ -465,6 +532,41 @@ class PlayerActivity : AppCompatActivity() {
         playerView.requestFocus()
     }
 
+    private var coverView: View? = null
+
+    /**
+     * Lumen: the title's picture, darkened, with the white spinner over it, until the video's first picture
+     * (carrying on from the loading screen, instead of black)
+     */
+    private fun cover(art: String) {
+        val root = findViewById<android.widget.FrameLayout>(android.R.id.content).getChildAt(0) as? android.widget.FrameLayout ?: return
+        val frame = android.widget.FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        val image = android.widget.ImageView(this).apply {
+            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+            alpha = 0f
+        }
+        frame.addView(image, android.widget.FrameLayout.LayoutParams(-1, -1))
+        frame.addView(View(this).apply { setBackgroundColor(Color.argb(150, 0, 0, 0)) }, android.widget.FrameLayout.LayoutParams(-1, -1))
+        val size = (44 * resources.displayMetrics.density).toInt()
+        frame.addView(android.widget.ProgressBar(this).apply {
+            isIndeterminate = true
+            indeterminateTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+        }, android.widget.FrameLayout.LayoutParams(size, size, android.view.Gravity.CENTER))
+        // (over the picture, under the controls)
+        root.addView(frame, 1, android.widget.FrameLayout.LayoutParams(-1, -1))
+        coverView = frame
+        if (art.startsWith("http")) Thread {
+            val bitmap = try { java.net.URL(art).openStream().use { BitmapFactory.decodeStream(it) } } catch (_: Exception) { null }
+            if (bitmap != null) runOnUiThread { image.setImageBitmap(bitmap); image.animate().alpha(1f).setDuration(300).start() }
+        }.start()
+    }
+
+    private fun uncover() {
+        val view = coverView ?: return
+        coverView = null
+        view.animate().alpha(0f).setDuration(400).withEndAction { (view.parent as? android.view.ViewGroup)?.removeView(view) }.start()
+    }
+
     /** Moves the subtitles by [byMs] and returns where they are now */
     private fun shiftSubtitles(byMs: Long): Long {
         if (byMs != 0L) {
@@ -522,7 +624,8 @@ class PlayerActivity : AppCompatActivity() {
         val exo = player
         val duration = durationMs?.takeIf { it > 0 } ?: exo?.duration?.takeIf { it != C.TIME_UNSET } ?: 0L
         val position = if (ended) duration else positionMs ?: exo?.currentPosition ?: 0L
-        if (extras?.keep(position, ended) != true) PlaybackBus.closed(position, duration, ended, error, next)
+        scrubber?.release()
+        if (extras?.keep(position, ended) != true) PlaybackBus.closed(position, duration, ended, error, next, measuredBps / 1_000_000.0)
         if (torrent) TorrentEngine.close()
         finish()
     }
@@ -642,6 +745,34 @@ class PlayerActivity : AppCompatActivity() {
             else -> MimeTypes.APPLICATION_SUBRIP
         }
     }
+
+    /**
+     * Subtitles start in the file's own track when it has one in [language]: made for this release, it's
+     * in sync, where a subtitle addon's (found by searching the title) is often for another release and
+     * drifts. Forced (signs-only) tracks don't count. True once the tracks were there to choose from.
+     */
+    private fun preferOwnSubtitles(tracks: Tracks, language: String, sideloaded: Set<String>): Boolean {
+        val groups = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+        if (groups.isEmpty()) return false
+        val want = iso3(language)
+        val own = groups.firstNotNullOfOrNull { g ->
+            (0 until g.length).firstOrNull { i ->
+                val f = g.getTrackFormat(i)
+                g.isTrackSupported(i) && f.id !in sideloaded && f.language?.let(::iso3) == want && f.selectionFlags and C.SELECTION_FLAG_FORCED == 0
+            }?.let { g to it }
+        } ?: return true
+        val exo = player ?: return true
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setOverrideForType(androidx.media3.common.TrackSelectionOverride(own.first.mediaTrackGroup, own.second))
+            .build()
+        return true
+    }
+
+    /** English, or no language given (a file's own track without one is most often English) */
+    private fun isEnglish(code: String?): Boolean = code.isNullOrEmpty() || iso3(code).let { it == "eng" || it == "und" }
+
+    /** "en", "eng", "en-GB": the same three letters */
+    private fun iso3(code: String): String = runCatching { java.util.Locale(code.substringBefore('-').substringBefore('_')).isO3Language }.getOrDefault(code).lowercase()
 
     private fun describe(error: PlaybackException): String = when (error.errorCode) {
         PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "the server refused it"

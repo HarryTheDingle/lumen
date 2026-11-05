@@ -302,6 +302,12 @@ class PlayerControls(
         focusFirst()
     }
 
+    private fun englishOrUnsaid(code: String?): Boolean {
+        if (code.isNullOrEmpty()) return true
+        val three = runCatching { java.util.Locale(code.substringBefore('-').substringBefore('_')).isO3Language }.getOrDefault(code).lowercase()
+        return three == "eng" || three == "und"
+    }
+
     private fun showTracks(from: View, type: Int, title: String) {
         openPanel(from, title)
         val groups = exo.currentTracks.groups.filter { it.type == type }
@@ -325,8 +331,10 @@ class PlayerControls(
             val supported = group.isTrackSupported(i)
             // (a sound track that can't play stays listed, so it's clear why there's no sound)
             if (!supported && type != C.TRACK_TYPE_AUDIO) continue
-            number++
             val format = group.getTrackFormat(i)
+            // (Lumen: English subtitles only, and a file's own tracks that don't say)
+            if (type == C.TRACK_TYPE_TEXT && com.notdxbi.dxbi.tv.Phone.ownsKeys() && !englishOrUnsaid(format.language)) continue
+            number++
             val name = format.label ?: format.language?.let { java.util.Locale.forLanguageTag(it).displayLanguage }?.takeIf { it.isNotEmpty() } ?: "Track $number"
             val channels = if (type == C.TRACK_TYPE_AUDIO && format.channelCount > 0) " · ${channelName(format.channelCount)}" else ""
             val kind = if (type == C.TRACK_TYPE_AUDIO) audioKind(format.sampleMimeType) else ""

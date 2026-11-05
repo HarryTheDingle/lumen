@@ -544,7 +544,10 @@
     const count = {};
     const out = [];
     let started = false;
-    for (const sub of list.filter((x) => x && x.url).sort((a, b) => rank(a.lang || "") - rank(b.lang || ""))) {
+    // (in each language, the stream's own subtitles first: they're made for this release, so they're in
+    // sync; an addon's, found by searching the title, are often for another release and drift)
+    const fromStream = (x) => (x.source === "stream" ? 0 : 1);
+    for (const sub of list.filter((x) => x && x.url).sort((a, b) => rank(a.lang || "") - rank(b.lang || "") || fromStream(a) - fromStream(b))) {
       const lang = sub.lang || "";
       count[lang] = (count[lang] || 0) + 1;
       if (count[lang] > 3) continue;
@@ -705,9 +708,14 @@
     handoff = { hash, videoId, started: Date.now(), creditsAt: credits && credits.start > 0 ? credits.start : 0 };
     tv.partyVideo = new NativeVideo();
     partySeen = "";
+    // (the seek bar's pictures: the lightest web stream of this video, as the iPad's, when the phone
+    // apps' stream list has one; else they come from the stream playing)
+    let preview = null;
+    try { preview = dx && dx.phone && dx.phone.previewSource ? dx.phone.previewSource(videoId) : null; } catch (_) { /* none */ }
     native.play(JSON.stringify({
       hash,
       videoId,
+      preview,
       skips,
       torrent,
       autoSkip: (dx && dx.settings && dx.settings.autoSkip) || "off",
@@ -894,7 +902,8 @@
     const dx = window.__dxbi;
     if (error && dx && dx.quickPlayNext) {
       await new Promise((r) => setTimeout(r, 500));
-      const label = dx.quickPlayNext();
+      // (the one that failed is remembered with why, so it isn't picked again)
+      const label = dx.quickPlayNext(typeof error === "string" ? error : "");
       if (label) return toast(`That stream didn't play. Trying ${label}.`, 5000);
     }
     if (error) toast(`This stream couldn't play: ${error}. Try another one.`, 7000);
@@ -908,6 +917,9 @@
     if (!raw) return;
     try {
       const c = JSON.parse(raw);
+      // what the player got from the server: how fast this network really is (Match my internet speed)
+      const dx = window.__dxbi;
+      if (c.mbps > 0 && dx && dx.phone && dx.phone.networkSample) dx.phone.networkSample(c.mbps);
       closeHandoff(c.timeMs, c.durationMs, c.ended, c.error, c.next);
     } catch (err) {
       console.warn("[dx.bi TV] couldn't read how the player closed", err);
