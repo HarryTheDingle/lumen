@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
+import com.notdxbi.dxbi.tv.phone.Continue
 import com.notdxbi.dxbi.tv.phone.Title
 import kotlinx.coroutines.delay
 
@@ -211,6 +212,121 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
                                     Icon(if (inList) Icons.Filled.Check else Icons.Filled.Add, contentDescription = if (inList) "In your Library" else "Add to Library", modifier = Modifier.size(16.dp))
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Continue Watching, as the preview cards: wide art with the name in plain type and how far they got; rest on it
+ * and it opens out sideways, with the year, genre and scores, and Resume and + in it (down to Resume, right to +,
+ * up back to the card). OK on the card opens the title's page.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 300.dp) {
+    val title = item.title
+    val height = width * 0.56f
+    val actions = LocalCardActions.current
+    var focused by remember { mutableStateOf(false) }
+    var open by remember { mutableStateOf(false) }
+    var scores by remember(title.id) { mutableStateOf(scoreMemory[title.id]) }
+    val reveal = remember { BringIntoViewRequester() }
+
+    LaunchedEffect(focused) {
+        if (!focused) {
+            open = false
+            return@LaunchedEffect
+        }
+        delay(OPEN_AFTER_MS)
+        open = true
+        delay(320)
+        runCatching { reveal.bringIntoView() }
+    }
+    LaunchedEffect(open) {
+        if (open && scores == null && actions != null) {
+            scores = actions.scores(title).also { scoreMemory[title.id] = it }
+        }
+    }
+    val cardWidth by animateDpAsState(if (open) width * 1.5f else width, tween(300), label = "continue-width")
+    val marks = actions?.listMarks?.collectAsState()?.value.orEmpty()
+    val inList = marks[title.id] ?: title.inLibrary
+
+    var lit by remember { mutableIntStateOf(0) }
+    LaunchedEffect(open) { if (!open) lit = 0 }
+    val buttons = open && actions != null
+    FocusCard(
+        onClick = {
+            when (lit) {
+                1 -> actions?.play?.invoke(title)
+                2 -> actions?.setInList?.invoke(title, !inList)
+                else -> onClick()
+            }
+        },
+        corner = 16.dp,
+        modifier = Modifier
+            .width(cardWidth)
+            .height(height)
+            .bringIntoViewRequester(reveal)
+            .onFocusChanged { focused = it.isFocused || it.hasFocus }
+            .onPreviewKeyEvent {
+                if (!buttons || it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (it.key) {
+                    Key.DirectionDown -> if (lit == 0) { lit = 1; true } else false
+                    Key.DirectionUp -> if (lit != 0) { lit = 0; true } else false
+                    Key.DirectionRight -> if (lit == 1) { lit = 2; true } else false
+                    Key.DirectionLeft -> if (lit == 2) { lit = 1; true } else false
+                    else -> false
+                }
+            },
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            Art(title.backdrop, Modifier.fillMaxSize())
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.25f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.92f))))
+            Column(
+                Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                // (the name in plain type, as the preview cards: a logo this small is hard to read)
+                Text(
+                    title.name,
+                    style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold, shadow = Shadow(Color.Black, blurRadius = 8f)),
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (open) {
+                    val facts = listOfNotNull(title.year, typeName(title.type), title.genres.firstOrNull()) +
+                        scores.orEmpty().take(3).map { "${scoreName(it, short = true)} ${it.value}" }
+                    Text(
+                        facts.joinToString(" · "),
+                        style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium, shadow = Shadow(Color.Black, blurRadius = 6f)),
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (item.progress > 0f) ProgressLine(item.progress, Modifier.width(56.dp))
+                    val words = listOfNotNull(
+                        episodeLabel(item.videoId),
+                        if (item.newEpisodes > 0) "${item.newEpisodes} new" else null,
+                    ).joinToString(" · ").ifEmpty { if (open) "" else typeName(title.type) }
+                    // (open, the facts line already says Movie)
+                    if (words.isNotEmpty()) Text(words, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1)
+                }
+                if (buttons) {
+                    Row(Modifier.padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        InCardButton(lit == 1) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(if (item.progress > 0f) "Resume" else "Play", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        InCardButton(lit == 2, round = true) {
+                            Icon(if (inList) Icons.Filled.Check else Icons.Filled.Add, contentDescription = if (inList) "In your Library" else "Add to Library", modifier = Modifier.size(16.dp))
                         }
                     }
                 }

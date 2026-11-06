@@ -98,12 +98,30 @@ final class PlayerHost: UIHostingController<AnyView> {
     private static func present(_ host: PlayerHost, playback: Playback, tries: Int) {
         guard shown === host, host.presentingViewController == nil else { return }
         guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
-              var top = scene.keyWindow?.rootViewController else { return }
+              var top = scene.keyWindow?.rootViewController else {
+            Log.note("player: no window to open in (try \(tries))")
+            if tries < 40 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { present(host, playback: playback, tries: tries + 1) } }
+            return
+        }
         while let next = top.presentedViewController, !next.isBeingDismissed { top = next }
         let busy = top.transitionCoordinator != nil || top.isBeingDismissed || top.isBeingPresented || top.presentedViewController != nil
         if busy {
-            guard tries < 40 else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { present(host, playback: playback, tries: tries + 1) }
+            if tries < 40 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { present(host, playback: playback, tries: tries + 1) }
+                return
+            }
+            // (still busy after 6 seconds: whatever's in the way goes, and the player opens. Giving up left the
+            // video playing unseen under the loading screen, for ever)
+            Log.note("player: still busy after 6 s (\(type(of: top))), clearing the way")
+            if let root = scene.keyWindow?.rootViewController {
+                root.dismiss(animated: false) {
+                    guard shown === host, host.presentingViewController == nil else { return }
+                    if !AppDelegate.isPad { AppDelegate.orientations = .landscape }
+                    if let page { PageBox.lend(page, to: host.view) }
+                    root.present(host, animated: false)
+                    Log.note("player: opened after clearing the way")
+                }
+            }
             return
         }
         // (sideways only once the player is there to be sideways)
@@ -111,7 +129,11 @@ final class PlayerHost: UIHostingController<AnyView> {
         if let page { PageBox.lend(page, to: host.view) }
         // (over the loading screen, at once: the player carries the same screen on, so nothing seems to change)
         top.present(host, animated: !quietly)
+        Log.note("player: opened\(tries > 0 ? " after \(tries) tries" : "")")
     }
+
+    /** The player is up, on the screen */
+    static var onScreen: Bool { shown?.viewIfLoaded?.window != nil }
 
     @MainActor
     static func hide() {

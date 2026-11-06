@@ -251,7 +251,7 @@ final class Playback: Identifiable {
         if position != mpv.position { position = mpv.position }
         if duration != mpv.duration { duration = mpv.duration }
         // (whole seconds: the seek bar only needs to move when it's loaded a little more)
-        let loaded = (mpv.number("demuxer-cache-time") ?? 0).rounded(.down)
+        let loaded = mpv.cachedUntil.rounded(.down)
         if buffered != loaded { buffered = loaded }
         if paused != mpv.paused { paused = mpv.paused; nowPlaying() }
         if buffering != mpv.buffering { buffering = mpv.buffering }
@@ -277,7 +277,7 @@ final class Playback: Identifiable {
         if !ready, mpv.started, !mpv.buffering {
             let from = readyFrom ?? mpv.position
             readyFrom = from
-            if mpv.position - from >= 0.8 { ready = true }
+            if mpv.position - from >= 0.8 { ready = true; Log.note("playing (the first picture)") }
         }
         if ready, !pictureTold, playingSince != nil, let w = mpv.number("video-params/w"), w > 0 {
             pictureTold = true
@@ -661,6 +661,7 @@ final class Playback: Identifiable {
     func finish(ended: Bool, error: String? = nil, next: Bool = false) {
         guard !closing else { return }
         closing = true
+        Log.note("player closed (ended: \(ended), next: \(next)\(error.map { ", error: \($0)" } ?? ""))")
         timer?.invalidate()
         let at = position, length = duration
         thumbs?.stop()

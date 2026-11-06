@@ -161,3 +161,15 @@ console.log("PASS samples and clips are never picked");
   assert.equal(film("4k HDR", "Spider-Man IMAX WEB-DL\n💾 20 GB").d.res, 2160, "the label when the file says nothing");
   console.log("PASS the file's own quality beats the addon's label");
 }
+
+{
+  // Chosen by hand: played again, even when the speed check says it's heavy
+  const fourK = item("[RD+] Torrentio\n4k", "Film.2160p.WEB-DL\n💾 40 GB", { infoHash: "aaa" });
+  const hd = item("[RD+] Torrentio\n1080p", "Film.1080p.WEB-DL\n💾 8 GB", { infoHash: "bbb" });
+  const slowish = { speed: 25, minutes: 120 };
+  assert.equal(pick([fourK, hd], null, slowish), hd.label);
+  assert.equal(pick([fourK, hd], { infoHash: "aaa" }, slowish), fourK.label, "the release chosen by hand");
+  assert.equal(pick([fourK, hd], { res: 2160, langs: [] }, slowish), fourK.label, "the quality chosen by hand");
+  assert.equal(pick([fourK, hd], { langs: ["English"] }, { speed: 200, minutes: 120 }), fourK.label, "only a language from other titles");
+  console.log("PASS a stream chosen by hand beats the speed check");
+}

@@ -170,7 +170,9 @@ struct TitleView: View {
                 guard waitingFor != nil, stremio.launch != nil else { return }
                 updateLaunch(waited: Date().timeIntervalSince(began))
                 guard waitingFor != nil, stremio.launch?.failed == false else { return }
-                if let c = current, let pick = c.picked, c.settled || Date().timeIntervalSince(began) > 6 {
+                // (checked while the rest answer, so Play needn't wait for it)
+                if let pick = current?.picked, !NetworkStatus.shared.saving { stremio.probeAhead(pick) }
+                if let c = current, let pick = c.picked, c.settled || Date().timeIntervalSince(began) > 6 || soonEnough(pick) {
                     // (the loading screen never hands over to the list: the best found plays, as on Lumen TV;
                     // on mobile data or Low Data Mode it offers a few, the smaller ones among them, right here)
                     if NetworkStatus.shared.saving { stremio.offerLaunch(dataChoices(c, pick)) } else { play(pick) }
@@ -227,6 +229,15 @@ struct TitleView: View {
             out.append(small)
         }
         return out
+    }
+
+    /**
+     * Good enough not to wait for the slower addons: ready to play at once (cached) and 4K, or most addons have
+     * answered. Waiting for every addon (or 6 seconds) made most of the time on the loading screen.
+     */
+    private func soonEnough(_ pick: StreamOption) -> Bool {
+        guard pick.instant, let d = details, d.addonsAsked > 0 else { return false }
+        return pick.res >= 2160 || d.addonsAnswered * 3 >= d.addonsAsked * 2
     }
 
     /** What the loading screen says while the streams come in */

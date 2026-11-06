@@ -206,7 +206,12 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
             )
             val pick = c?.picked
             val waited = System.currentTimeMillis() - began
-            if (pick != null && (c.sameAsLastTime || c.settled || waited > 6_000)) return starting(pick)
+            // (checked while the rest answer, so Play needn't wait for it)
+            if (pick != null) stremio.probeAhead(pick)
+            // Good enough not to wait for the slower addons: ready at once (cached) and 4K, or most have answered
+            // (waiting for every addon, or 6 seconds, was most of the time on the loading screen)
+            val soon = pick != null && pick.instant && groups.isNotEmpty() && (pick.res >= 2160 || answered * 3 >= groups.size * 2)
+            if (pick != null && (c.sameAsLastTime || c.settled || waited > 6_000 || soon)) return starting(pick)
             if (c != null && c.settled && pick == null) return fail("No streams found", "Your addons may not have this one yet.")
             delay(400)
         }

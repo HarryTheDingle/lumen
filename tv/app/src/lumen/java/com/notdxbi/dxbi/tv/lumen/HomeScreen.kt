@@ -211,7 +211,7 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
             if (continueWatching.isNotEmpty()) {
                 item(key = "continue") {
                     Shelf("Continue Watching") {
-                        items(continueWatching, key = { it.title.id }) { item -> ContinueCard(item, onClick = { onOpen(item.title) }) }
+                        items(continueWatching, key = { it.title.id }) { item -> PreviewContinueCard(item, onClick = { onOpen(item.title) }) }
                     }
                 }
             }

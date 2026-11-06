@@ -171,38 +171,6 @@ fun PosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, width: Dp =
     }
 }
 
-/** Continue Watching: wide art with the logo, and a strip with how far they got */
-@Composable
-fun ContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 300.dp) {
-    val title = item.title
-    FocusCard(onClick = onClick, corner = 16.dp, modifier = Modifier.size(width, width * 0.56f)) {
-        Box(Modifier.fillMaxSize()) {
-            Art(title.backdrop, Modifier.fillMaxSize())
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.85f))))
-            TitleLogo(
-                title,
-                maxHeight = width * 0.16f,
-                maxWidth = width * 0.7f,
-                textSize = 20.sp,
-                centred = true,
-                modifier = Modifier.align(Alignment.Center).padding(horizontal = width * 0.15f).padding(bottom = 24.dp),
-            )
-            Row(
-                Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                if (item.progress > 0f) ProgressLine(item.progress, Modifier.width(56.dp))
-                val words = listOfNotNull(
-                    episodeLabel(item.videoId),
-                    if (item.newEpisodes > 0) "${item.newEpisodes} new" else null,
-                ).joinToString(" · ").ifEmpty { typeName(title.type) }
-                Text(words, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1)
-            }
-        }
-    }
-}
-
 /** New episodes this week: the episode's picture, the show and when */
 @Composable
 fun AiringCard(item: Airing, onClick: () -> Unit, width: Dp = 300.dp) {

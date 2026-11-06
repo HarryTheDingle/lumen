@@ -299,6 +299,7 @@ final class Stremio {
     // MARK: - The loading screen
 
     func beginLaunch(_ title: Title, episode: String? = nil, text: String, detail: String? = nil, progress: Double = 0.03) {
+        Log.note("launch: \(title.name) \(episode ?? "") · \(text)")
         launch = LaunchScreen(title: title, episode: episode, text: text, detail: detail, progress: progress)
         // (sideways already, as the player will be)
         AppDelegate.holdSideways = true
@@ -318,11 +319,13 @@ final class Stremio {
         now.text = text
         now.detail = detail
         now.progress = max(progress, now.progress)
+        if now.text != launch?.text { Log.note("step: \(text) · \(detail ?? "")") }
         launch = now
     }
 
     func failLaunch(_ text: String, _ detail: String) {
         guard launch != nil else { return }
+        Log.note("failed: \(text) · \(detail)")
         launch?.text = text
         launch?.detail = detail
         launch?.progress = 1
@@ -330,6 +333,7 @@ final class Stremio {
     }
 
     func endLaunch() {
+        if launch != nil { Log.note("loading screen gone") }
         launchTimeout?.cancel()
         launch = nil
         onLaunchChoose = nil
@@ -605,6 +609,7 @@ final class Stremio {
             if target == .player {
                 for _ in 0..<4 {
                     guard let why = await whyNotVideo(chosen) else { break }
+                    Log.note("passed over before playing: \(why)")
                     _ = await dx("phone.reject", chosen.index, why)
                     if launch != nil { stepLaunch("That stream isn't available", detail: "Trying another…", progress: 0.85) }
                     guard let next = await streams()?.picked else {
@@ -623,10 +628,21 @@ final class Stremio {
      * A look at a web stream before it's played: why it isn't a video (the addon's server errored, or sent a clip
      * saying so), or nil when it looks fine or can't be told. Asks for the first bytes only; torrents aren't looked at.
      */
+    /** Checks the likely pick while the addons are still answering, so Play doesn't wait for it (and the debrid server has the file ready) */
+    func probeAhead(_ option: StreamOption) {
+        guard probes[option.play] == nil else { return }
+        if probes.count > 20 { probes = [:] }
+        probes[option.play] = Task { await self.probe(option) }
+    }
+
+    @ObservationIgnored private var probes: [String: Task<String?, Never>] = [:]
+
     private func whyNotVideo(_ option: StreamOption) async -> String? {
+        let check = probes[option.play] ?? Task { await self.probe(option) }
+        probes[option.play] = nil
         // (never a long wait: a slow or odd server counts as fine, and the player decides)
-        await withTaskGroup(of: String?.self) { group in
-            group.addTask { await self.probe(option) }
+        return await withTaskGroup(of: String?.self) { group in
+            group.addTask { await check.value }
             group.addTask { try? await Task.sleep(for: .seconds(8)); return nil }
             let first = await group.next() ?? nil
             group.cancelAll()
@@ -925,6 +941,7 @@ final class Stremio {
         }
         let playback = Playback(payload: payload, stremio: self)
         self.playback = playback
+        Log.note("player: \(payload.text("title") ?? "") \(payload.text("videoId") ?? "")")
         // (from here, not from a screen watching for it: the screens under the player don't update
         // while it covers them, so it never closed)
         PlayerHost.show(playback, stremio: self)
@@ -935,7 +952,12 @@ final class Stremio {
         if launch != nil {
             Task {
                 try? await Task.sleep(for: .seconds(40))
-                if self.playback === playback, !playback.ready, launch != nil { playback.finish(ended: false, error: "It didn't start") }
+                // (or it started but the player never came up over the loading screen: it stayed for ever)
+                guard self.playback === playback, launch != nil else { return }
+                if !playback.ready || !PlayerHost.onScreen {
+                    Log.note("no picture in 40 seconds (ready: \(playback.ready), player on screen: \(PlayerHost.onScreen))")
+                    playback.finish(ended: false, error: "It didn't start")
+                }
             }
         }
     }

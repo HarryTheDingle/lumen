@@ -4,6 +4,7 @@ import android.content.Context
 import com.notdxbi.dxbi.tv.Phone
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -621,6 +622,21 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
      * saying so), or null when it looks fine or can't be told. Torrents aren't looked at.
      */
     suspend fun whyNotVideo(option: StreamOption): String? {
+        val ahead = probes.remove(option.play)
+        if (ahead != null) return kotlinx.coroutines.withTimeoutOrNull(8_000) { ahead.await() }
+        return kotlinx.coroutines.withTimeoutOrNull(8_000) { probe(option) }
+    }
+
+    /** Checks the likely pick while the addons are still answering, so Play doesn't wait for it (and the debrid server has the file ready) */
+    fun probeAhead(option: StreamOption) {
+        if (probes.containsKey(option.play)) return
+        if (probes.size > 20) probes.clear()
+        probes[option.play] = scope.async { probe(option) }
+    }
+
+    private val probes = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<String?>>()
+
+    private suspend fun probe(option: StreamOption): String? {
         val p = dx("phone.probe", option.index) as? JSONObject ?: return null
         val headers = p.optJSONObject("headers")?.let { h -> h.keys().asSequence().associateWith { h.optString(it) } }.orEmpty()
         return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { StreamProbe.check(p.optString("url"), headers, p.optDouble("size", 0.0)) }

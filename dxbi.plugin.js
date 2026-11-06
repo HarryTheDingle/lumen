@@ -1,7 +1,7 @@
 /**
  * @name Lumen
  * @description The Lumen experience: cinematic billboard, Netflix-style carousels, hover previews with trailers, ratings on posters, critic reviews, skip intro and up next, anime filler guide, new episode badges, watch stats and viewers, stream sorting & filters, a Netflix-style player with black-bar removal, night mode and subtitle sync, watch parties with friends, a cinematic intro and interface sounds. Use with the Lumen theme.
- * @version 2.30.18
+ * @version 2.30.20
  * @author dx.bi
  * @updateUrl https://raw.githubusercontent.com/HarryTheDingle/lumen/main/dxbi.plugin.js
  */
@@ -19,7 +19,7 @@
   // Stremio Enhanced loads each plugin as <script id="<file name>">, which tells us our settings key
   const SCRIPT_ID = (document.currentScript && document.currentScript.id) || "dxbi.plugin.js";
   const PLUGIN_KEY = SCRIPT_ID.replace(/\.plugin\.js$/, "");
-  const PLUGIN_VERSION = "2.30.18"; // kept in step with @version by tools/bundle-theme.mjs
+  const PLUGIN_VERSION = "2.30.20"; // kept in step with @version by tools/bundle-theme.mjs
   // Recent messages and errors, kept for problem reports (see `report`)
   const recent = { logs: [], errors: [] };
   const remember = (list, text) => {
@@ -4077,15 +4077,18 @@
     // items: [{ hint, d, torrent }]. memory: what this viewer chose last. Returns { item, how } or null.
     choose(items, memory, { limit = Infinity, fallback = "best", torrents = true, ...fit } = {}) {
       const short = this.samples(items, fit.minutes);
-      const usable = this.suited(items.filter((x) => !short.has(x) && x.d.source !== "CAM" && !x.d.pending && (torrents || !x.torrent) && !streamFailures.has(x)), fit);
-      if (!usable.length) return null;
+      const playable = items.filter((x) => !short.has(x) && x.d.source !== "CAM" && !x.d.pending && (torrents || !x.torrent) && !streamFailures.has(x));
       const m = memory || null;
+      // What the viewer chose for this title themselves: theirs, even when the speed check says it's heavy (a 4K
+      // stream picked by hand went back to 1080p the next time)
       if (m) {
-        const same = usable.find((x) => m.infoHash && x.hint.infoHash === m.infoHash) ||
-          usable.find((x) => m.filename && x.hint.filename === m.filename) ||
-          usable.find((x) => m.bingeGroup && x.hint.bingeGroup === m.bingeGroup);
+        const same = playable.find((x) => m.infoHash && x.hint.infoHash === m.infoHash) ||
+          playable.find((x) => m.filename && x.hint.filename === m.filename) ||
+          playable.find((x) => m.bingeGroup && x.hint.bingeGroup === m.bingeGroup);
         if (same) return { item: same, how: "same" };
       }
+      const usable = this.suited(playable, fit);
+      if (!usable.length) return null;
       const allowed = usable.filter((x) => x.d.res <= limit);
       const lowest = Math.min(...usable.map((x) => x.d.res));
       let pool = allowed.length ? allowed : usable.filter((x) => x.d.res === lowest);
@@ -4093,7 +4096,10 @@
         const spoken = (m.langs || []).filter((l) => l !== NOT_LISTED);
         const heard = pool.filter((x) => x.d.langs.some((l) => spoken.includes(l)));
         if (heard.length) pool = heard;
-        const quality = pool.filter((x) => x.d.res === m.res);
+        if (!m.res) return { item: this.best(pool), how: "best" };
+        // (the quality chosen by hand, at the speed or not)
+        const chosen = playable.filter((x) => x.d.res === m.res && x.d.res <= limit && (!heard.length || x.d.langs.some((l) => spoken.includes(l))));
+        const quality = chosen.length ? chosen : pool.filter((x) => x.d.res === m.res);
         const provider = quality.filter((x) => x.d.provider === m.provider);
         if (provider.length) return { item: this.best(provider), how: "similar" };
         if (quality.length) return { item: this.best(quality), how: "similar" };
@@ -14778,12 +14784,12 @@
     get() {
       if (this.at && Date.now() - this.at < 600000) return Promise.resolve(this.mbps);
       if (!this.pending) this.pending = (async () => {
-        // A network it knows (and trusts what it learnt there): no speed test
-        const known = await netMemory.estimate();
-        if (known > 0) return known;
+        // Measured every time (once in 10 minutes), while the addons answer: what it learnt on this network
+        // alone kept it to what the player had read, and the best stream for the line was never tried
         const m = await this.measure();
-        if (m > 0) netMemory.add(m, "test");
-        return m;
+        if (m > 0) await netMemory.add(m, "test");
+        const known = await netMemory.estimate();
+        return known > 0 ? known : m;
       })().then((m) => {
         this.pending = null;
         if (m > 0) { this.mbps = m; this.at = Date.now(); }
@@ -14858,14 +14864,24 @@
       try { localStorage.setItem(this.KEY, JSON.stringify(list)); } catch (_) { /* full: it'll test instead */ }
     },
 
-    // The middle of what playback got (the speed test only when there's no playback yet)
+    // What the line can do: the speed test's reading, or the player's when it filled its buffer faster; less only
+    // when the player buffered recently ("stall": what it really got). A player reads about as fast as its stream
+    // needs, so its smooth readings say "at least this": taken as the speed, they kept a fast line on 1080p (the
+    // 1080p stream it then played read slowly again, and 4K never fitted)
+    STALL_KEEP: 3 * 86400000,
     speed(rec) {
-      const played = (rec.samples || []).filter((x) => x.from === "play").map((x) => x.mbps);
-      const list = played.length ? played : (rec.samples || []).map((x) => x.mbps);
-      if (!list.length) return 0;
+      const samples = rec.samples || [];
       // (the lower middle: better a little light than buffering)
-      const sorted = [...list].sort((a, b) => a - b);
-      return sorted[Math.floor((sorted.length - 1) / 2)];
+      const middle = (list) => {
+        if (!list.length) return 0;
+        const sorted = [...list].sort((a, b) => a - b);
+        return sorted[Math.floor((sorted.length - 1) / 2)];
+      };
+      const of = (test) => samples.filter(test).map((x) => x.mbps);
+      // ("play" is what both were called before 2.30.19: read as filling)
+      const line = Math.max(middle(of((x) => x.from === "test")), middle(of((x) => x.from === "fill" || x.from === "play")));
+      const stalls = of((x) => x.from === "stall" && Date.now() - (x.t || 0) < this.STALL_KEEP);
+      return stalls.length ? Math.min(line || Infinity, middle(stalls)) : line;
     },
     trusted(rec) {
       const n = (rec.samples || []).length;
@@ -14939,6 +14955,15 @@
       const saved = store.get(viewers.key("quickPlay"), {});
       if (settings.quickPlayMemory === "global") return saved.global || null;
       return (saved.series && saved.series[id]) || saved.global || null;
+    },
+
+    // The phone apps and Lumen TV: what was chosen for this title; from other titles only the language (the
+    // last stream chosen anywhere set the quality for every title, so one 1080p choice made them all 1080p)
+    titleMemory(id) {
+      const saved = store.get(viewers.key("quickPlay"), {});
+      const own = saved.series && saved.series[id];
+      if (own) return own;
+      return saved.global && saved.global.langs ? { langs: saved.global.langs } : null;
     },
 
     remember(id, entry) {
@@ -15895,6 +15920,11 @@
   });
   // The stream the phone or iPad is playing (from phoneStreams), for lighter ones if it buffers
   let phonePlaying = null;
+  // A stream the viewer chose themselves (the phone apps' and Lumen TV's lists): played again for this title
+  const rememberChoice = (x) => {
+    if (!phoneStreams || !phoneStreams.metaId || !x || !x.hint) return;
+    quickPlay.remember(phoneStreams.metaId, { infoHash: x.hint.infoHash, filename: x.hint.filename, bingeGroup: x.hint.bingeGroup, res: x.d.res, provider: x.d.provider, langs: x.d.langs });
+  };
   // The show being shuffled (its id): Next episode, and what plays after one ends, is another random episode
   let phoneShuffle = null;
   const api = {
@@ -16244,8 +16274,8 @@
         // (a device without an AV1 decoder plays it in software: slow at 4K, and HDR came out washed out on an
         // older iPad. Picked, and kept as a spare, only when nothing else is there)
         const playable = streamChoice.decodable(items);
-        const choice = playable.length ? streamChoice.choose(playable, metaId ? quickPlay.memory(metaId) : null, options) : null;
-        phoneStreams = { items, options, videoId: (state && state.selected && state.selected.streamPath && state.selected.streamPath.id) || null };
+        const choice = playable.length ? streamChoice.choose(playable, metaId ? quickPlay.titleMemory(metaId) : null, options) : null;
+        phoneStreams = { items, options, metaId, pick: choice ? choice.item : null, videoId: (state && state.selected && state.selected.streamPath && state.selected.streamPath.id) || null };
         return {
           justPlay: settings.quickPlay,
           settled: groups.length > 0 && !groups.some((g) => g && g.content && g.content.type === "Loading"),
@@ -16262,6 +16292,8 @@
       play(index) {
         const item = phoneStreams && phoneStreams.items[index];
         if (!item) return null;
+        // (one chosen from the list, not Lumen's own pick: remembered for this title)
+        if (item !== phoneStreams.pick) rememberChoice(item);
         phonePlaying = item;
         quickPlay.from = location.hash;
         quickPlay.spares = streamChoice.spares(streamChoice.decodable(phoneStreams.items), item, phoneStreams.options);
@@ -16273,7 +16305,7 @@
       // best first, three at most. The measured speed also stands in for the speed test's for a while,
       // so the next pick fits it too.
       lighter(mbps, nowMbps) {
-        if (mbps > 0) netMemory.add(mbps, "play");
+        if (mbps > 0) netMemory.add(mbps, "stall");
         if (!phoneStreams || !phonePlaying) return [];
         const { items, options } = phoneStreams;
         const was = phonePlaying.st;
@@ -16294,6 +16326,8 @@
         if (!item || !item.st.url || !/^https?:/i.test(item.st.url)) return null;
         phonePlaying = item;
         quickPlay.current = item;
+        // (switched to in the player: chosen, so remembered)
+        rememberChoice(item);
         quickPlay.spares = streamChoice.spares(streamChoice.decodable(phoneStreams.items), item, phoneStreams.options);
         const hints = item.st.behaviorHints || {};
         return { url: item.st.url, headers: (hints.proxyHeaders && hints.proxyHeaders.request) || {}, label: quickPlay.label(item.d) };
@@ -16327,7 +16361,7 @@
       },
       // What the player got from the server on this network (it measures while filling its buffer)
       networkSample(mbps) {
-        netMemory.add(Number(mbps) || 0, "play");
+        netMemory.add(Number(mbps) || 0, "fill");
         return true;
       },
       // Settings → Networks: what it's learnt about each, and their quality caps

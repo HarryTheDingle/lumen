@@ -39,6 +39,8 @@ final class MPV {
     private(set) var speed: Double = 1
     private(set) var tracks: [Track] = []
     private(set) var started = false
+    /** How far the video's loaded (seconds into it), as mpv tells it (asking it outright waits while mpv is busy opening a stream, and froze the app) */
+    private(set) var cachedUntil: Double = 0
     /** Waiting for the network while playing (not loading, not a seek: those set [buffering] too) */
     private(set) var stalled = false
     /** The subtitle line showing now (text subtitles, which Lumen draws itself) */
@@ -119,7 +121,8 @@ final class MPV {
         mpv_initialize(mpv)
         for (name, format) in [("time-pos", MPV_FORMAT_DOUBLE), ("duration", MPV_FORMAT_DOUBLE), ("pause", MPV_FORMAT_FLAG),
                                ("paused-for-cache", MPV_FORMAT_FLAG), ("speed", MPV_FORMAT_DOUBLE), ("track-list", MPV_FORMAT_NONE),
-                               ("seeking", MPV_FORMAT_FLAG), ("core-idle", MPV_FORMAT_FLAG), ("sub-text", MPV_FORMAT_STRING)] {
+                               ("seeking", MPV_FORMAT_FLAG), ("core-idle", MPV_FORMAT_FLAG), ("sub-text", MPV_FORMAT_STRING),
+                               ("demuxer-cache-time", MPV_FORMAT_DOUBLE)] {
             mpv_observe_property(mpv, 0, name, format)
         }
         mpv_set_wakeup_callback(mpv, { context in
@@ -337,6 +340,7 @@ final class MPV {
                         case "seeking": if let flag { if flag { self.buffering = true; self.lastSeek = Date() } else { self.buffering = self.stalled } }
                         case "core-idle": if let flag, !flag { self.buffering = false }
                         case "speed": if let double { self.speed = double }
+                        case "demuxer-cache-time": if let double { self.cachedUntil = double }
                         case "sub-text": self.subtitleText = text ?? ""
                         case "track-list": if let tracks { self.tracks = tracks }
                         default: break
