@@ -1,10 +1,10 @@
 package com.notdxbi.dxbi.tv.phone
 
 import android.content.Context
-import com.notdxbi.dxbi.tv.Cast
 import com.notdxbi.dxbi.tv.Phone
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -62,9 +62,27 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
     val myList = MutableStateFlow(saved("x.myList").objects().map { ListRow(it.optString("name"), it.optJSONArray("items").objects().map(Title::from)) })
     val forYou = MutableStateFlow<ListRow?>(saved("x.forYou").objects().firstOrNull()?.let { ListRow(it.optString("name"), it.optJSONArray("items").objects().map(Title::from)) })
     val airing = MutableStateFlow(saved("x.airing").objects().map(Airing::from))
+    /** The story, genres, year and length of the Continue Watching titles (Stremio's library keeps none), by id */
+    val described = MutableStateFlow<Map<String, JSONObject>>(emptyMap())
     val layout = MutableStateFlow(HomeLayout.from(cache.getString("x.layout", null)?.let { runCatching { JSONObject(it) }.getOrNull() }))
-    val viewers = MutableStateFlow<List<Viewer>>(emptyList())
-    val viewer = MutableStateFlow<Viewer?>(null)
+    val viewers = MutableStateFlow(saved("x.viewers").objects().map(::viewerOf))
+    val viewer = MutableStateFlow(viewers.value.let { list -> list.firstOrNull { it.id == cache.getString("x.viewer", null) } ?: list.firstOrNull() })
+    /** Top Picks for You, then Because you watched … (the plugin's recommender) */
+    val picks = MutableStateFlow(saved("x.picks").objects().map { ListRow(it.optString("name"), it.optJSONArray("items").objects().map(Title::from)) }.filter { it.items.isNotEmpty() })
+    /** Who's watching? has been answered since the app opened (or there's only one to be) */
+    val profileChosen = MutableStateFlow(false)
+
+    // The accounts kept on this device, the one in use (null: none, or browsing without one), and swapping to another
+    private val vault = AccountVault(app)
+    val accounts = MutableStateFlow(vault.all())
+    val currentAccountId = MutableStateFlow(cache.getString("accounts.current", null))
+    val swapping = MutableStateFlow(false)
+    /** Add Account is on: the sign-in screen has Cancel */
+    val addingAccount = MutableStateFlow(false)
+    private var lastRemembered = 0L
+    private var returnTo: String? = null
+
+    private fun viewerOf(it: JSONObject) = Viewer(it.optString("id"), it.optString("name"), it.text("colour"), it.optBoolean("kids"))
 
     /** Home's catalog rows, in the viewer's order */
     val rows: StateFlow<List<Row>> = combine(boardState, layout) { board, layout -> layout.arrange(Row.list(board).orEmpty()) }
@@ -98,6 +116,7 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
                 ask("go", JSONObject().put("hash", PARKED))
                 delay(400)
                 loadHome()
+                swapping.value = false
                 refreshExtras()
             }
         }
@@ -119,6 +138,17 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
         null
     }
 
+    /** A title from the library, with what it didn't keep filled in (for the billboard) */
+    fun filledIn(title: Title): Title {
+        val d = described.value[title.id] ?: return title
+        return title.copy(
+            description = title.description ?: d.optString("description").takeIf { it.isNotEmpty() && it != "null" },
+            genres = title.genres.ifEmpty { d.optJSONArray("genres")?.let { a -> (0 until a.length()).map { a.optString(it) } }.orEmpty() },
+            year = title.year ?: d.optString("year").takeIf { it.isNotEmpty() && it != "null" },
+            runtime = title.runtime ?: d.optString("runtime").takeIf { it.isNotEmpty() && it != "null" },
+        )
+    }
+
     private suspend fun dx(method: String, vararg args: Any?): Any? =
         ask("dx", JSONObject().put("method", method).put("args", JSONArray(args.toList())))
 
@@ -133,10 +163,14 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
         extrasJob?.cancel()
         extrasJob = scope.launch {
             (dx("phone.viewers") as? JSONObject)?.let { v ->
-                val list = v.optJSONArray("list").objects().map { Viewer(it.optString("id"), it.optString("name"), it.text("colour"), it.optBoolean("kids")) }
+                val list = v.optJSONArray("list").objects().map(::viewerOf)
                 viewers.value = list
                 viewer.value = list.firstOrNull { it.id == v.optString("current") } ?: list.firstOrNull()
+                cache.edit().putString("x.viewers", v.optJSONArray("list").toString()).putString("x.viewer", viewer.value?.id).apply()
+                // (one person to be: nothing to ask)
+                if (list.size < 2) profileChosen.value = true
             }
+            rememberAccount()
             (dx("phone.layout") as? JSONObject)?.let {
                 layout.value = HomeLayout.from(it)
                 cache.edit().putString("x.layout", it.toString()).apply()
@@ -144,6 +178,9 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
             (dx("phone.myList") as? JSONArray)?.let {
                 myList.value = it.objects().map { r -> ListRow(r.optString("name"), r.optJSONArray("items").objects().map(Title::from)) }
                 cache.edit().putString("x.myList", it.toString()).apply()
+            }
+            (dx("phone.describe", JSONArray(continueWatching.value.take(5).map { JSONArray(listOf(it.title.type, it.title.id)) })) as? JSONObject)?.let { o ->
+                described.value = o.keys().asSequence().mapNotNull { k -> o.optJSONObject(k)?.let { k to it } }.toMap()
             }
             (dx("phone.airing") as? JSONArray)?.let {
                 airing.value = it.objects().map(Airing::from)
@@ -156,6 +193,25 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
                     cache.edit().putString("x.billboard", it.toString()).apply()
                 }
             }
+            // Top Picks and Because you watched: made on the device, so the first answer can take a few seconds
+            // (a stale one is the last answer while a fresh one is made)
+            var tries = 0
+            while (tries++ < 14) {
+                val answer = dx("phone.picks")
+                if (answer is JSONObject) {
+                    val rows = answer.optJSONArray("rows").objects().map { r -> ListRow(r.optString("name"), r.optJSONArray("items").objects().map(Title::from)) }.filter { r -> r.items.isNotEmpty() }
+                    // (changed only when there's something new: swapped every time, the rows on Home kept vanishing and coming back)
+                    if (rows != picks.value && (rows.isNotEmpty() || !answer.optBoolean("stale"))) picks.value = rows
+                    cache.edit().putString("x.picks", answer.optJSONArray("rows").toString()).apply()
+                    if (!answer.optBoolean("stale")) break
+                }
+                delay(1500)
+            }
+            if (picks.value.isNotEmpty()) {
+                forYou.value = null
+                return@launch
+            }
+            // nothing watched yet to go on: popular titles in the genres of what was saved last
             repeat(10) {
                 val answer = dx("phone.forYou")
                 if (answer is JSONObject) {
@@ -190,6 +246,35 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
         refreshExtras()
     }
 
+    /** Titles added to or taken out of the Library here, before Stremio's own lists catch up */
+    val listMarks = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+
+    /** Adds a title that isn't open (Home's +): Stremio wants the whole title, so it's opened first */
+    fun setInList(title: Title, add: Boolean) {
+        listMarks.value = listMarks.value + (title.id to add)
+        billboard.value = billboard.value.map { if (it.id == title.id) it.copy(inLibrary = add) else it }
+        withOpened(title) { ask("library", JSONObject().put("add", add)) }
+    }
+
+    /**
+     * Opens [title] to change it (Stremio changes the title open in details), then opens again what
+     * was open before
+     */
+    private fun withOpened(title: Title, change: suspend () -> Unit) = scope.launch {
+        val before = details.value?.let { d -> d.metaId?.let { Triple(d.title?.type.orEmpty(), it, d.videoId) } }
+        open(title.type, title.id)
+        for (attempt in 0 until 40) {
+            val d = details.value
+            if (d?.metaId == title.id && d.state == Load.Ready) break
+            delay(150)
+        }
+        if (details.value?.metaId != title.id) return@launch
+        change()
+        if (before != null && before.second != title.id && before.first.isNotEmpty()) open(before.first, before.second, before.third)
+        delay(1000)
+        refreshExtras()
+    }
+
     fun setWatched(watched: Boolean) = scope.launch { ask("watched", JSONObject().put("value", watched)) }
 
     /** One video of the open title watched or not (a film: its own id); [upTo]: and the episodes before it in its season */
@@ -213,15 +298,10 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
 
     /**
      * Plays one of [streams] (dx.bi keeps the next best ready in case it won't play): in dx.bi's
-     * player, another app, on a Chromecast (where Play goes anyway while one is connected) or as a download
+     * player, or wherever the app sends it instead ([Phone.route]: the phone app's other apps, Chromecast, downloads)
      */
     fun play(option: StreamOption, target: Phone.Target = Phone.Target.Player) = scope.launch {
-        Phone.nextTarget = when {
-            target != Phone.Target.Player -> target
-            !option.torrent && Cast.connected(app) -> Phone.Target.Cast
-            playInOtherApp.value -> Phone.Target.External
-            else -> target
-        }
+        Phone.route(app, option, target, playInOtherApp.value)
         val link = dx("phone.play", option.index) as? String ?: option.play
         ask("play", JSONObject().put("link", link))
     }
@@ -280,15 +360,130 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
         val answer = withTimeoutOrNull(20_000) {
             engine.events.filter { it.first == "UserAuthenticated" || it.first == "Error" }.first()
         } ?: return "Stremio didn't answer. Check your connection and try again."
-        if (answer.first == "UserAuthenticated") return null
+        if (answer.first == "UserAuthenticated") {
+            didSignIn()
+            return null
+        }
         return answer.second?.optJSONObject("error")?.text("message") ?: "That email and password didn't work."
     }
 
     fun signOut() = scope.launch {
         guest.value = false
         cache.edit().putBoolean("guest", false).apply()
+        addingAccount.value = false
+        // (the session ends for good: the kept copy would be a dead key)
+        currentAccountId.value?.let { vault.remove(it) }
+        setCurrent(null)
+        accounts.value = vault.all()
         ask("signOut")
     }
+
+    private fun setCurrent(id: String?) {
+        currentAccountId.value = id
+        cache.edit().putString("accounts.current", id).apply()
+    }
+
+    /** Keeps the signed-in account (its session and people) so it can be switched back to without a password */
+    suspend fun rememberAccount(force: Boolean = false) {
+        if (swapping.value) return
+        val a = account.value
+        if (a?.signedIn == true) {
+            if (!force && System.currentTimeMillis() - lastRemembered < 300_000) return
+            val export = ask("accountExport") as? JSONObject ?: return
+            val profile = export.text("profile") ?: return
+            val id = export.optString("id").ifEmpty { return }
+            val data = dx("phone.accountData") as? JSONObject ?: JSONObject()
+            vault.save(SavedAccount(id, export.optString("email"), export.text("avatar"), profile, data.toString()))
+            setCurrent(id)
+        } else if (guest.value) {
+            val data = dx("phone.accountData") as? JSONObject ?: JSONObject()
+            vault.save(SavedAccount(SavedAccount.GUEST, "", null, "", data.toString()))
+            setCurrent(null)
+        } else return
+        lastRemembered = System.currentTimeMillis()
+        accounts.value = vault.all()
+    }
+
+    /** Switches to a kept account, or (null) to browsing without one: nothing to type */
+    fun switchAccount(id: String?) {
+        if (swapping.value || (id == currentAccountId.value && (id != null || guest.value))) return
+        if (id != null && vault.load(id) == null) {
+            accounts.value = vault.all()
+            return
+        }
+        addingAccount.value = false
+        swap(if (id == null) vault.load(SavedAccount.GUEST) else vault.load(id), signedOut = false, toGuest = id == null)
+    }
+
+    /** Add Account: the sign-in screen, with Cancel to come back to this one */
+    fun beginAddAccount() {
+        if (swapping.value) return
+        returnTo = currentAccountId.value
+        addingAccount.value = true
+        swap(null, signedOut = true, toGuest = false)
+    }
+
+    fun cancelAddAccount() {
+        addingAccount.value = false
+        val back = returnTo?.let { vault.load(it) }
+        if (back != null) swap(back, signedOut = false, toGuest = false) else swap(vault.load(SavedAccount.GUEST), signedOut = false, toGuest = true)
+    }
+
+    /** Takes a kept account off this device (the account itself, and its Stremio session elsewhere, stay) */
+    fun forgetAccount(id: String) {
+        if (id == currentAccountId.value) { signOut(); return }
+        vault.remove(id)
+        accounts.value = vault.all()
+    }
+
+    /** Signed in a new account: kept from now on */
+    private fun didSignIn() {
+        addingAccount.value = false
+        scope.launch { rememberAccount(force = true) }
+    }
+
+    /**
+     * The swap: the account being left is kept first, then its data and session are replaced by [target]'s
+     * (nothing: the sign-in screen, or guest) and Stremio's page starts again to read them.
+     */
+    private fun swap(target: SavedAccount?, signedOut: Boolean, toGuest: Boolean) {
+        scope.launch {
+            rememberAccount(force = true)
+            swapping.value = true
+            clearScreens()
+            dx("phone.useAccountData", target?.dataObject ?: JSONObject())
+            guest.value = toGuest
+            cache.edit().putBoolean("guest", toGuest).apply()
+            setCurrent(if (signedOut || toGuest) null else target?.id)
+            lastRemembered = 0
+            // (so the page saying it's ready again is noticed as a change)
+            engine.ready.value = false
+            ask("accountImport", JSONObject().put("profile", if (signedOut || toGuest) JSONObject.NULL else target?.profile ?: JSONObject.NULL))
+            // (the page says it's ready when it has started again; if it never does, the screen doesn't stay)
+            delay(30_000)
+            swapping.value = false
+        }
+    }
+
+    /** Everything on show belongs to the account being left: gone while the page starts again with the other */
+    private fun clearScreens() {
+        billboard.value = emptyList(); myList.value = emptyList(); forYou.value = null; picks.value = emptyList(); airing.value = emptyList()
+        viewers.value = emptyList(); viewer.value = null
+        profileChosen.value = false
+        (ctxState as MutableStateFlow).value = null
+        (boardState as MutableStateFlow).value = null
+        (continueState as MutableStateFlow).value = null
+        cache.edit().remove("ctx").remove("board").remove("continue_watching_preview")
+            .remove("x.billboard").remove("x.myList").remove("x.forYou").remove("x.picks").remove("x.airing").remove("x.layout").remove("x.viewers").remove("x.viewer").apply()
+    }
+
+    fun addViewer(name: String, colour: String) = scope.launch { dx("viewers.add", name, colour); refreshExtras() }
+    fun editViewer(id: String, name: String, colour: String) = scope.launch {
+        dx("viewers.rename", id, name)
+        dx("viewers.recolour", id, colour)
+        refreshExtras()
+    }
+    fun removeViewer(id: String) = scope.launch { dx("viewers.remove", id); refreshExtras() }
 
     /** dx.bi settings → Play videos in: another app (VLC, mpv…) rather than dx.bi's player */
     val playInOtherApp = MutableStateFlow(cache.getBoolean("playInOtherApp", false))
@@ -334,6 +529,23 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
     }
 
     // ---------------------------------------------------------------------------------------------
+    // Speed per network (Settings → Networks)
+
+    suspend fun networks(): List<NetworkInfo> = (dx("phone.networks") as? JSONArray).objects().map(NetworkInfo::from)
+
+    suspend fun setNetwork(id: String, name: String? = null, cap: Int? = null, relearn: Boolean = false) {
+        val changes = JSONObject()
+        name?.let { changes.put("name", it) }
+        cap?.let { changes.put("cap", it) }
+        if (relearn) changes.put("relearn", true)
+        dx("phone.setNetwork", id, changes)
+    }
+
+    suspend fun forgetNetwork(id: String) {
+        dx("phone.forgetNetwork", id)
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // Library (My List's See All)
 
     fun loadLibrary(type: String?) = scope.launch {
@@ -360,6 +572,26 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
         refreshExtras()
     }
 
+    /** The cast with their photos (TMDB, with a key in dx.bi settings), or null */
+    suspend fun cast(type: String, imdb: String, names: JSONArray): List<JSONObject>? =
+        (engine.runCatching { call("dx", JSONObject().put("method", "phone.cast").put("args", JSONArray().put(type).put(imdb).put(names)), 25_000) }.getOrNull() as? JSONArray)?.objects()
+
+    /** Someone's page (TMDB, with a key in dx.bi settings): by TMDB's id from the cast list, else by name. null without a key */
+    suspend fun person(id: String?, name: String): JSONObject? =
+        engine.runCatching { call("dx", JSONObject().put("method", "phone.person").put("args", JSONArray().put(id ?: "").put(name)), 40_000) }.getOrNull() as? JSONObject
+
+    /** Titles like this one, for its page's Related row */
+    suspend fun related(type: String, id: String, genres: List<String>): List<Title> =
+        (engine.runCatching { call("dx", JSONObject().put("method", "phone.related").put("args", JSONArray().put(type).put(id).put(JSONArray(genres))), 25_000) }.getOrNull() as? JSONArray)
+            .objects().map(Title::from)
+
+    /** The catalog browser's first catalog (films, if there are any), unless one's already open */
+    fun discoverStart() {
+        if (discover.value?.request != null) return
+        val rows = allRows.value
+        (rows.firstOrNull { it.type == "movie" }?.discover ?: rows.firstOrNull()?.discover)?.let { discover(it) }
+    }
+
     /** A title's scores and reviews (dx.bi's Reviews: MDBList, Wikidata, Wikipedia, TMDB with the keys set) */
     suspend fun reviews(type: String, id: String): Reviews? =
         (engine.runCatching { call("dx", JSONObject().put("method", "phone.reviews").put("args", JSONArray().put(type).put(id)), 40_000) }.getOrNull() as? JSONObject)?.let(Reviews::from)
@@ -379,6 +611,52 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
     /** dx.bi settings, as the TV lists them */
     suspend fun settings(): List<Setting> = (ask("settings") as? JSONArray).objects().map(Setting::from)
 
+    /** dx.bi settings → Blur unwatched episodes: episode pictures hidden until they're watched or started */
+    suspend fun blurUnwatched(): Boolean = settings().firstOrNull { it.key == "blurUnwatched" }?.value == true
+
+    /** dx.bi settings → Play Trailers (on unless switched off): a title's page fades its trailer in */
+    suspend fun playTrailers(): Boolean = settings().firstOrNull { it.key == "playTrailers" }?.value != false
+
+    /**
+     * A look at a web stream before it's played: why it isn't a video (the addon's server errored, or sent a clip
+     * saying so), or null when it looks fine or can't be told. Torrents aren't looked at.
+     */
+    suspend fun whyNotVideo(option: StreamOption): String? {
+        val ahead = probes.remove(option.play)
+        if (ahead != null) return kotlinx.coroutines.withTimeoutOrNull(8_000) { ahead.await() }
+        return kotlinx.coroutines.withTimeoutOrNull(8_000) { probe(option) }
+    }
+
+    /** Checks the likely pick while the addons are still answering, so Play doesn't wait for it (and the debrid server has the file ready) */
+    fun probeAhead(option: StreamOption) {
+        if (probes.containsKey(option.play)) return
+        if (probes.size > 20) probes.clear()
+        probes[option.play] = scope.async { probe(option) }
+    }
+
+    private val probes = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<String?>>()
+
+    private suspend fun probe(option: StreamOption): String? {
+        val p = dx("phone.probe", option.index) as? JSONObject ?: return null
+        val headers = p.optJSONObject("headers")?.let { h -> h.keys().asSequence().associateWith { h.optString(it) } }.orEmpty()
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { StreamProbe.check(p.optString("url"), headers, p.optDouble("size", 0.0)) }
+    }
+
+    /** That stream isn't a video: the page won't pick it again by itself for a month */
+    suspend fun reject(option: StreamOption, why: String) {
+        dx("phone.reject", option.index, why)
+    }
+
+    /** Shuffle: [metaId]'s next episodes are random ones ([on]), until anything else is played (an ordinary Play clears it) */
+    fun shuffling(metaId: String, on: Boolean) = scope.launch {
+        dx("phone.shuffle", metaId, on)
+    }
+
+    /** Start from the Beginning: the next player for [videoId] starts at 0 ([on]), or not (an ordinary Play clears it) */
+    fun startFromBeginning(videoId: String?, on: Boolean) = scope.launch {
+        ask("fromStart", JSONObject().put("videoId", videoId ?: JSONObject.NULL).put("on", on))
+    }
+
     /** Your stats (dx.bi's Watch stats), or null when they're switched off */
     suspend fun stats(): JSONObject? = dx("phone.stats") as? JSONObject
 
@@ -387,8 +665,13 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
         refreshExtras()
     }
 
+    /** Who's watching: their own Continue Watching, watched marks and picks follow */
     fun chooseViewer(id: String) = scope.launch {
+        profileChosen.value = true
+        viewers.value.firstOrNull { it.id == id }?.let { viewer.value = it }
         dx("viewers.select", id)
+        picks.value = emptyList()
+        forYou.value = null
         refreshExtras()
     }
 }

@@ -90,3 +90,86 @@ assert.equal(details.site, "RARBG");
 assert.equal(details.codec, "HEVC");
 assert.equal(details.provider, "Torrentio");
 console.log("PASS seeds, provider, site and codec are read");
+
+assert.equal(streamChoice.minutes("2h 28min"), 148);
+assert.equal(streamChoice.minutes("148 min"), 148);
+assert.equal(streamChoice.minutes("45"), 45);
+assert.equal(streamChoice.minutes(""), 0);
+console.log("PASS runtimes are read");
+
+// 18 GB over 120 minutes is 20 Mbps; 4 GB is about 4.4 Mbps
+assert.equal(Math.round(streamChoice.mbps(cached4k.d, 120)), 20);
+assert.equal(streamChoice.mbps(describeStream("Comet", "Film.1080p.mkv"), 120), 8, "no size: a guess from the quality");
+assert.equal(pick([cached4k, cached1080], null, { speed: 100, minutes: 120 }), cached4k.label, "fast line: 4K");
+assert.equal(pick([cached4k, cached1080], null, { speed: 20, minutes: 120 }), cached1080.label, "20 Mbps: not a 20 Mbps stream");
+assert.equal(pick([cached4k, cached1080], null, { speed: 2, minutes: 120 }), cached1080.label, "nothing fits: the lightest");
+assert.equal(pick([cached4k, cached1080], null, { speed: 0, minutes: 120 }), cached4k.label, "unmeasured: as before");
+assert.equal(pick([remux, cached1080], { infoHash: "r" }, { speed: 30, minutes: 120 }), cached1080.label, "a remembered stream must fit too");
+assert.deepEqual(labels(streamChoice.spares([cached4k, spareA, spareB], spareB, { speed: 20, minutes: 120 })), [spareA.label], "spares fit the speed");
+console.log("PASS streams are matched to the internet speed");
+
+const fusion = { ...item("[RD+] MediaFusion\n1080p", "Film.1080p.WEB 💾 3 GB"), addon: "MediaFusion | ElfHosted" };
+const torrentio4k = { ...cached4k, addon: "Torrentio" };
+assert.equal(pick([torrentio4k, fusion], null, { addon: "mediafusion" }), fusion.label, "the preferred addon first");
+assert.equal(pick([torrentio4k], null, { addon: "mediafusion" }), torrentio4k.label, "others when it has nothing");
+const fusion4k = { ...item("[RD+] MediaFusion\n4k", "Film.2160p.REMUX 💾 70 GB"), addon: "MediaFusion" };
+assert.equal(pick([fusion4k, torrentio4k], null, { addon: "MediaFusion", speed: 40, minutes: 120 }), torrentio4k.label, "speed before the preferred addon");
+console.log("PASS preferred addon");
+
+const film = (name, desc) => item(`[RD+] Torrentio\n${name}`, desc);
+const fullA = film("1080p", "Film.2024.1080p.WEB-DL 💾 6 GB");
+const fullB = film("1080p", "Film.2024.1080p.BluRay 💾 9 GB");
+const fullC = film("1080p", "Film.2024.1080p.WEB 💾 4.5 GB");
+const named = film("1080p", "Film.2024.1080p.WEB-DL.Sample 💾 120 MB");
+const tiny = film("1080p", "Film.2024.1080p.WEB-DL 💾 300 MB");
+assert.equal(describeStream("[RD+] X", "Film.Sample.mkv").sample, true);
+assert.equal(describeStream("[RD+] X", "Film.Sampled.Edition.mkv").sample, false);
+assert.equal(streamChoice.samples([fullA, fullB, fullC, named, tiny]).size, 2, "a sample by name, and one 5 times smaller than usual");
+assert.equal(pick([named, tiny, fullC], null, { speed: 6, minutes: 120 }), fullC.label, "a slow line still gets the film, not a clip");
+assert.equal(pick([named, fullA], null, {}), fullA.label);
+const lone = film("1080p", "Film.2024.1080p.WEB 💾 250 MB");
+assert.equal(streamChoice.samples([lone], 120).size, 1, "far too small for the title's length");
+assert.equal(streamChoice.samples([lone]).size, 0, "nothing to tell without the length");
+assert.ok(!labels(streamChoice.spares([fullA, named, tiny, fullB], fullA)).some((l) => l === named.label || l === tiny.label), "no sample as a spare");
+console.log("PASS samples and clips are never picked");
+
+// Formats in the file name, and Prefer IMAX (the same quality only)
+{
+  const fmt = describeStream("[RD+] Torrentio\n4k", "Film.2160p.IMAX.Enhanced.WEB-DL.DV.HDR10+.Atmos.OpenMatte 💾 20 GB");
+  assert.equal(fmt.imax, true);
+  assert.equal(fmt.atmos, true);
+  assert.equal(fmt.hdr10plus, true);
+  assert.equal(fmt.openMatte, true);
+  assert.equal(describeStream("Torrentio", "Film.1080p.WEB-DL").imax, false);
+  const imax4k = item("[RD+] Torrentio\n4k", "Film.2160p.IMAX.WEB-DL 💾 18 GB");
+  const plain4k = item("[RD+] Torrentio\n4k", "Film.2160p.BluRay.HDR 💾 30 GB");
+  const imax1080 = item("[RD+] Torrentio\n1080p", "Film.1080p.IMAX.WEB-DL 💾 6 GB");
+  const off = vm.runInNewContext(`${source.slice(start, end)}; ({ streamChoice })`, { settings: { preferImax: false } }).streamChoice;
+  const on = vm.runInNewContext(`${source.slice(start, end)}; ({ streamChoice })`, { settings: { preferImax: true } }).streamChoice;
+  const label = (c, items) => c.choose(items, null, {})?.item.label;
+  assert.equal(label(off, [imax4k, plain4k, imax1080]), plain4k.label);
+  assert.equal(label(on, [imax4k, plain4k, imax1080]), imax4k.label);
+  assert.equal(label(on, [plain4k, imax1080]), plain4k.label, "never trades quality for IMAX");
+  console.log("PASS formats are read, and Prefer IMAX only breaks ties in quality");
+}
+
+{
+  // The file's name over the addon's label; two qualities named, the lower
+  assert.equal(film("4k", "Spider-Man.Brand.New.Day.IMAX.1080p.WEB-DL\n💾 9 GB").d.res, 1080);
+  assert.equal(film("4k", "Spider-Man IMAX 4K (1080p)\n💾 9 GB").d.res, 1080);
+  assert.equal(film("1080p", "Spider-Man.2160p.WEB-DL\n💾 20 GB").d.res, 2160);
+  assert.equal(film("4k HDR", "Spider-Man IMAX WEB-DL\n💾 20 GB").d.res, 2160, "the label when the file says nothing");
+  console.log("PASS the file's own quality beats the addon's label");
+}
+
+{
+  // Chosen by hand: played again, even when the speed check says it's heavy
+  const fourK = item("[RD+] Torrentio\n4k", "Film.2160p.WEB-DL\n💾 40 GB", { infoHash: "aaa" });
+  const hd = item("[RD+] Torrentio\n1080p", "Film.1080p.WEB-DL\n💾 8 GB", { infoHash: "bbb" });
+  const slowish = { speed: 25, minutes: 120 };
+  assert.equal(pick([fourK, hd], null, slowish), hd.label);
+  assert.equal(pick([fourK, hd], { infoHash: "aaa" }, slowish), fourK.label, "the release chosen by hand");
+  assert.equal(pick([fourK, hd], { res: 2160, langs: [] }, slowish), fourK.label, "the quality chosen by hand");
+  assert.equal(pick([fourK, hd], { langs: ["English"] }, { speed: 200, minutes: 120 }), fourK.label, "only a language from other titles");
+  console.log("PASS a stream chosen by hand beats the speed check");
+}

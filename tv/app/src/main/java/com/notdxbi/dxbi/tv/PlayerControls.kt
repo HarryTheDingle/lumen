@@ -77,7 +77,7 @@ class PlayerControls(
         }
     }
 
-    private val buttons = listOf(R.id.ctl_play, R.id.ctl_rewind, R.id.ctl_forward, R.id.ctl_next, R.id.ctl_stats, R.id.ctl_picture, R.id.ctl_speed, R.id.ctl_subtitles, R.id.ctl_audio, R.id.ctl_party)
+    private val buttons = listOf(R.id.ctl_play, R.id.ctl_rewind, R.id.ctl_forward, R.id.ctl_next, R.id.ctl_streams, R.id.ctl_stats, R.id.ctl_picture, R.id.ctl_speed, R.id.ctl_more, R.id.ctl_subtitles, R.id.ctl_audio, R.id.ctl_party)
         .map { activity.findViewById<View>(it) }
 
     override val visible get() = root.visibility == View.VISIBLE
@@ -91,12 +91,26 @@ class PlayerControls(
         click(R.id.ctl_forward) { seek(+1); paint() }
         click(R.id.ctl_next) { leave(true) }
         activity.findViewById<View>(R.id.ctl_next).visibility = if (hasNext) View.VISIBLE else View.GONE
+        click(R.id.ctl_streams) { showStreams(it) }
         click(R.id.ctl_stats) { showStats(it) }
         click(R.id.ctl_picture) { showPicture(it) }
         click(R.id.ctl_speed) { showSpeed(it) }
         click(R.id.ctl_subtitles) { showTracks(it, C.TRACK_TYPE_TEXT, "Subtitles") }
         click(R.id.ctl_audio) { showTracks(it, C.TRACK_TYPE_AUDIO, "Audio") }
         click(R.id.ctl_party) { showParty(it) }
+        // Lumen: fewer buttons. No speed; Streams, Stats and Picture open out from More, Subtitles and Audio stay
+        if (Phone.ownsKeys()) {
+            val tucked = listOf(R.id.ctl_streams, R.id.ctl_stats, R.id.ctl_picture).map { activity.findViewById<View>(it) }
+            activity.findViewById<View>(R.id.ctl_speed).visibility = View.GONE
+            tucked.forEach { it.visibility = View.GONE }
+            activity.findViewById<View>(R.id.ctl_more).visibility = View.VISIBLE
+            click(R.id.ctl_more) {
+                val open = tucked.first().visibility != View.VISIBLE
+                tucked.forEach { v -> v.visibility = if (open) View.VISIBLE else View.GONE }
+                // (open: on to the first of them, to the left)
+                if (open) tucked.first().requestFocus()
+            }
+        }
         // Phones: a tap shows or hides them, and the bar can be touched
         playerView.setOnClickListener { if (visible) hide() else show() }
         root.setOnClickListener { hide() }
@@ -208,6 +222,7 @@ class PlayerControls(
     override fun closePanel(): Boolean {
         if (!panelOpen) return false
         panel.visibility = View.GONE
+        streamsFor++
         stats = null
         panelRows.removeAllViews()
         opener?.requestFocus()
@@ -215,7 +230,11 @@ class PlayerControls(
         return true
     }
 
-    private fun openPanel(from: View, title: String) {
+    private fun openPanel(from: View, title: String, wide: Boolean = false) {
+        streamsFor++
+        // (the streams' names and facts need more room than a menu's choices)
+        val widthDp = activity.resources.configuration.screenWidthDp
+        panel.layoutParams = (panel.layoutParams as android.widget.FrameLayout.LayoutParams).apply { width = minOf(dp(if (wide) 520 else 340), dp(widthDp - 24)) }
         opener = from
         panelTitle.text = title
         panelRows.removeAllViews()
@@ -277,6 +296,73 @@ class PlayerControls(
         focusFirst()
     }
 
+    /** The streams being listed: changes when the panel closes or opens again, so a late answer is dropped */
+    private var streamsFor = 0
+
+    /** Lumen: the other streams of what's playing; choosing one plays it from here */
+    private fun showStreams(from: View) {
+        openPanel(from, "Streams", wide = true)
+        val mine = streamsFor
+        val waiting = TextView(activity).apply {
+            text = "Finding streams…"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextColor(Color.argb(204, 255, 255, 255))
+            setPadding(dp(12), dp(8), dp(12), dp(10))
+            isFocusable = true
+        }
+        panelRows.addView(waiting)
+        waiting.requestFocus()
+        activity.loadStreams { list ->
+            if (mine != streamsFor || !panelOpen) return@loadStreams
+            panelRows.removeAllViews()
+            if (list.isNullOrEmpty()) {
+                panelRows.addView(TextView(activity).apply {
+                    text = if (list == null) "Couldn't get the streams just now" else "No other streams"
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                    setTextColor(Color.argb(204, 255, 255, 255))
+                    setPadding(dp(12), dp(8), dp(12), dp(10))
+                    isFocusable = true
+                }.also { it.requestFocus() })
+                return@loadStreams
+            }
+            for (alt in list) streamRow(alt)
+            // (on the playing one, else the first)
+            val rows = (0 until panelRows.childCount).map { panelRows.getChildAt(it) }.filter { it.isFocusable }
+            (rows.firstOrNull { it.tag == "on" } ?: rows.firstOrNull())?.requestFocus()
+        }
+    }
+
+    private fun streamRow(alt: StreamAlt) {
+        TextView(activity).apply {
+            val facts = (if (alt.playing) listOf("Playing") else emptyList()) + alt.facts.takeIf { it.isNotEmpty() }.let { listOfNotNull(it) }
+            val second = facts.joinToString(" · ")
+            text = android.text.SpannableStringBuilder(alt.title).apply {
+                if (second.isNotEmpty()) {
+                    append("\n")
+                    val from = length
+                    append(second)
+                    setSpan(android.text.style.RelativeSizeSpan(0.8f), from, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+            }
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            gravity = Gravity.CENTER_VERTICAL
+            minHeight = dp(42)
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            setBackgroundResource(R.drawable.panel_row)
+            setTextColor(if (alt.playing) Color.WHITE else Color.argb(204, 255, 255, 255))
+            isFocusable = true
+            setOnFocusChangeListener { view, has ->
+                (view as TextView).setTextColor(if (has) Color.BLACK else if (alt.playing) Color.WHITE else Color.argb(204, 255, 255, 255))
+            }
+            setOnClickListener {
+                closePanel()
+                activity.switchStream(alt)
+            }
+            panelRows.addView(this, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            tag = if (alt.playing) "on" else null
+        }
+    }
+
     private fun showSpeed(from: View) {
         openPanel(from, "Playback speed")
         for (speed in listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)) {
@@ -302,6 +388,12 @@ class PlayerControls(
         focusFirst()
     }
 
+    private fun englishOrUnsaid(code: String?): Boolean {
+        if (code.isNullOrEmpty()) return true
+        val three = runCatching { java.util.Locale(code.substringBefore('-').substringBefore('_')).isO3Language }.getOrDefault(code).lowercase()
+        return three == "eng" || three == "und"
+    }
+
     private fun showTracks(from: View, type: Int, title: String) {
         openPanel(from, title)
         val groups = exo.currentTracks.groups.filter { it.type == type }
@@ -325,8 +417,10 @@ class PlayerControls(
             val supported = group.isTrackSupported(i)
             // (a sound track that can't play stays listed, so it's clear why there's no sound)
             if (!supported && type != C.TRACK_TYPE_AUDIO) continue
-            number++
             val format = group.getTrackFormat(i)
+            // (Lumen: English subtitles only, and a file's own tracks that don't say)
+            if (type == C.TRACK_TYPE_TEXT && com.notdxbi.dxbi.tv.Phone.ownsKeys() && !englishOrUnsaid(format.language)) continue
+            number++
             val name = format.label ?: format.language?.let { java.util.Locale.forLanguageTag(it).displayLanguage }?.takeIf { it.isNotEmpty() } ?: "Track $number"
             val channels = if (type == C.TRACK_TYPE_AUDIO && format.channelCount > 0) " · ${channelName(format.channelCount)}" else ""
             val kind = if (type == C.TRACK_TYPE_AUDIO) audioKind(format.sampleMimeType) else ""

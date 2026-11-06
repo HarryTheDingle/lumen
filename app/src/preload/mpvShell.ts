@@ -161,7 +161,7 @@ function mainWorld(): void {
             }
         } catch (err) { if (debug.errors.length < 5) debug.errors.push(String(err)); }
         for (const fn of listeners) {
-            try { fn({ data: message }); } catch (err) { console.error("[dx.bi] shell listener", err); }
+            try { fn({ data: message }); } catch (err) { console.error("[Lumen] shell listener", err); }
         }
     });
 

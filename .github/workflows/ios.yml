@@ -1,6 +1,6 @@
 name: iPhone app
 
-# Builds dx.bi for iPhone (ios/) on a Mac and keeps dxbi.ipa as a workflow artifact; publishing a
+# Builds Lumen for iPad and iPhone (ios/) on a Mac and keeps Lumen.ipa as a workflow artifact; publishing a
 # release attaches it to the release. The IPA isn't signed: SideStore, AltStore or Sideloadly sign it
 # with your own Apple ID when they install it.
 on:
@@ -63,7 +63,7 @@ jobs:
           version=$(grep -m1 -oE '@version[[:space:]]+[0-9.]+' ../dxbi.plugin.js | awk '{print $2}')
           xcodegen generate
           xcodebuild build \
-            -project Dxbi.xcodeproj -scheme Dxbi -configuration Release \
+            -project Lumen.xcodeproj -scheme Lumen -configuration Release \
             -destination 'generic/platform=iOS' -derivedDataPath build \
             -clonedSourcePackagesDirPath build/SourcePackages \
             MARKETING_VERSION="$version" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
@@ -71,18 +71,18 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             | xcbeautify --renderer github-actions
           mkdir -p Payload
-          cp -R build/Build/Products/Release-iphoneos/Dxbi.app Payload/
-          zip -qry dxbi.ipa Payload
-          ls -lh dxbi.ipa
+          cp -R build/Build/Products/Release-iphoneos/Lumen.app Payload/
+          zip -qry Lumen.ipa Payload
+          ls -lh Lumen.ipa
 
       - uses: actions/upload-artifact@v4
         with:
           name: dxbi-ios
-          path: ios/dxbi.ipa
+          path: ios/Lumen.ipa
           if-no-files-found: error
 
       - name: Attach to the release
         if: github.event_name == 'release'
-        run: gh release upload "${{ github.event.release.tag_name }}" dxbi.ipa --clobber
+        run: gh release upload "${{ github.event.release.tag_name }}" Lumen.ipa --clobber
         env:
           GH_TOKEN: ${{ github.token }}

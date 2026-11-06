@@ -37,18 +37,18 @@ jobs:
             # what is new: the notes without their Download list, kept within Discord limits
             (.body | split("\n## Download")[0] | gsub("\r"; "") | gsub("^\\s+|\\s+$"; "")) as $notes
             | {
-                username: "dx.bi",
+                username: "Lumen",
                 # the release role is pinged (and only it: never @everyone or anyone named in the notes)
                 content: (if $role != "" then "<@&\($role)>" else null end),
                 allowed_mentions: { parse: [], roles: (if $role != "" then [$role] else [] end) },
                 embeds: [{
-                  title: ("dx.bi " + (.tagName | ltrimstr("v")) + " is out"),
+                  title: ("Lumen " + (.tagName | ltrimstr("v")) + " is out"),
                   url: .url,
                   color: 15010068,
                   description: (if ($notes | length) > 3800 then $notes[0:3800] + "…" else $notes end),
                   fields: [{
                     name: "Download",
-                    value: ("[Windows](\($base)/dxbi-Setup-x64.exe) · [Mac (Apple chip)](\($base)/dxbi-mac-arm64.dmg) · [Mac (Intel)](\($base)/dxbi-mac-x64.dmg) · [Linux](\($base)/dxbi-linux-x86_64.AppImage) · [TV](\($base)/dxbi-tv.apk)\nThe app updates itself on Windows and Linux.")
+                    value: ("[Windows](\($base)/Lumen-Setup-x64.exe) · [Mac (Apple chip)](\($base)/Lumen-mac-arm64.dmg) · [Mac (Intel)](\($base)/Lumen-mac-x64.dmg) · [Linux](\($base)/Lumen-linux-x86_64.AppImage) · [TV](\($base)/dxbi-tv.apk)\nThe app updates itself on Windows and Linux.")
                   }],
                   footer: { text: "Full notes on GitHub" }
                 }]

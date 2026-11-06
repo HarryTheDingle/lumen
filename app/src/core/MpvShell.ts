@@ -40,7 +40,7 @@ function keepInSwitcher(win: BrowserWindow): void {
         const style = BigInt(getLong(hwnd, GWL_EXSTYLE));
         setLong(hwnd, GWL_EXSTYLE, style | BigInt(WS_EX_APPWINDOW));
     } catch (err) {
-        logger.warn(`Couldn't keep dx.bi in the taskbar and Alt+Tab: ${err}`);
+        logger.warn(`Couldn't keep Lumen in the taskbar and Alt+Tab: ${err}`);
     }
 }
 const DEBUG = process.env.DXBI_MPV_DEBUG === "1";
@@ -96,7 +96,7 @@ body.drag { cursor: grabbing; }
 body:hover .bar { opacity: 1; }
 button { border: 0; border-radius: 6px; padding: 6px 10px; background: rgba(20,20,20,.85); color: #fff; font: inherit; cursor: pointer; }
 button:hover { background: #fff; color: #000; }
-</style><div class="bar"><button data-say="pause" title="Play / pause">⏯</button><button data-say="back" title="Back to dx.bi">⤢ Back to dx.bi</button></div>
+</style><div class="bar"><button data-say="pause" title="Play / pause">⏯</button><button data-say="back" title="Back to Lumen">⤢ Back to Lumen</button></div>
 <script>
 let n = 0;
 const say = (what) => { document.title = what + "-" + (++n); };
@@ -274,7 +274,7 @@ export default class MpvShell {
 
     private static followMainWindow(): void {
         if (!this.mainWindow || !this.videoWindow || this.mainWindow.isDestroyed() || this.pip) return;
-        if (HYPRLAND) return this.hyprFollow(); // in full screen it only checks dx.bi wasn't dragged off
+        if (HYPRLAND) return this.hyprFollow(); // in full screen it only checks Lumen wasn't dragged off
         this.videoWindow.setBounds(this.mainWindow.getContentBounds());
     }
 
@@ -341,7 +341,7 @@ export default class MpvShell {
     // windows are drawn above full screen ones), covering the same monitor. Resize before move: a
     // resize keeps the window's centre.
     private static hyprSaved: { at: [number, number]; size: [number, number] } | null = null;
-    private static hyprFullAt: [number, number] | null = null; // where dx.bi was put to cover the monitor
+    private static hyprFullAt: [number, number] | null = null; // where Lumen was put to cover the monitor
     private static hyprDropped: [number, number] | null = null; // where it was dragged to
     private static async hyprFullScreen(on: boolean): Promise<void> {
         const videoWindow = this.videoWindow;
@@ -414,7 +414,7 @@ export default class MpvShell {
             "--config=no",
             "--demuxer-max-bytes=300MiB",
             "--demuxer-readahead-secs=60",
-            `--user-agent=dx.bi/${app.getVersion()}`,
+            `--user-agent=Lumen/${app.getVersion()}`,
             // Kept for problem reports (replaced on every start)
             `--log-file=${join(app.getPath("userData"), "mpv.log")}`,
         ];
@@ -527,7 +527,7 @@ export default class MpvShell {
     private static onPageMessage(msg: { type: number; args?: unknown[] }): void {
         if (msg.type === INIT) {
             const properties = [
-                [0, "shellVersion", 0, `${this.appVersion()} (dx.bi)`],
+                [0, "shellVersion", 0, `${this.appVersion()} (Lumen)`],
                 [0, "gpuVideoProcessing", 0, "false"],
                 [0, "nativeAssSubtitles", 0, "false"],
                 [0, "cacheDirectoryPicker", 0, "false"],
@@ -613,7 +613,7 @@ export default class MpvShell {
             const area = screen.getDisplayMatching(main.getBounds()).workArea;
             const width = Math.round(area.width * 0.28);
             const height = Math.round(width * 9 / 16);
-            main.setParentWindow(null); // the video window no longer drags dx.bi along
+            main.setParentWindow(null); // the video window no longer drags Lumen along
             video.setAlwaysOnTop(true, "floating");
             video.setBounds({ x: area.x + area.width - width - 24, y: area.y + area.height - height - 24, width, height });
             video.showInactive();

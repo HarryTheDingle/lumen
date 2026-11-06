@@ -1,7 +1,7 @@
 {
 	"name": "dxbi",
-	"version": "2.30.0",
-	"description": "dx.bi: a Netflix-style desktop app for Stremio, with the dx.bi experience built in.",
+	"version": "2.30.20",
+	"description": "Lumen: a Netflix-style desktop app for Stremio, based on dx.bi.",
 	"main": "./dist/main.js",
 	"scripts": {
 		"dist": "node ./copyComponents.js --plugin-only && tsc && node ./copyComponents.js",
@@ -17,7 +17,7 @@
 		"build:win:arm64": "npm run dist && electron-builder --win --arm64",
 		"build:win": "npm run dist && electron-builder --win"
 	},
-	"repository": "https://github.com/notdxbi/dxbi-stremio.git",
+	"repository": "https://github.com/HarryTheDingle/lumen.git",
 	"publish": {
 		"provider": "github",
 		"releaseType": "release"
@@ -44,8 +44,8 @@
 		"dmg-license": "^1.0.11"
 	},
 	"build": {
-		"appId": "com.notdxbi.dxbi",
-		"productName": "dx.bi",
+		"appId": "com.harrythedingle.lumen",
+		"productName": "Lumen",
 		"asar": true,
 		"icon": "images/icon",
 		"directories": {
@@ -53,8 +53,8 @@
 		},
 		"publish": {
 			"provider": "github",
-			"owner": "notdxbi",
-			"repo": "dxbi-stremio"
+			"owner": "HarryTheDingle",
+			"repo": "lumen"
 		},
 		"asarUnpack": [
 			"**/register-scheme/build/Release/*.node",
@@ -85,14 +85,14 @@
 			"target": "AppImage",
 			"icon": "images/icon.png",
 			"category": "AudioVideo",
-			"executableName": "dxbi"
+			"executableName": "lumen"
 		},
-		"artifactName": "dxbi-${os}-${arch}.${ext}",
+		"artifactName": "Lumen-${os}-${arch}.${ext}",
 		"nsis": {
-			"artifactName": "dxbi-Setup-${arch}.${ext}"
+			"artifactName": "Lumen-Setup-${arch}.${ext}"
 		},
 		"portable": {
-			"artifactName": "dxbi-portable-${arch}.${ext}"
+			"artifactName": "Lumen-portable-${arch}.${ext}"
 		},
 		"protocols": [
 			{

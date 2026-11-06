@@ -11,6 +11,9 @@ fun JSONArray?.objects(): List<JSONObject> =
 fun JSONArray?.strings(): List<String> =
     if (this == null) emptyList() else (0 until length()).mapNotNull { opt(it) as? String }
 
+/** Names come with their HTML escapes ("Ed O&apos;Neill") */
+fun unescaped(s: String): String = s.replace("&apos;", "'").replace("&#39;", "'").replace("&quot;", "\"").replace("&amp;", "&")
+
 /** A string that's really there: null for missing, JSON null and "" */
 fun JSONObject.text(key: String): String? = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
 
@@ -34,6 +37,8 @@ data class Title(
     /** Art for a card: the poster, or for titles without one the backdrop */
     val art: String? get() = poster ?: background ?: if (id.startsWith("tt")) "https://images.metahub.space/poster/small/$id/img" else null
     val backdrop: String? get() = background ?: if (id.startsWith("tt")) "https://images.metahub.space/background/medium/$id/img" else poster
+    /** The title's logo (its name as drawn on the poster), else Metahub's for its IMDb id, as the iPad does */
+    val logoUrl: String? get() = logo ?: if (id.startsWith("tt")) "https://images.metahub.space/logo/medium/$id/img" else null
 
     companion object {
         fun from(o: JSONObject) = Title(
@@ -66,6 +71,12 @@ private fun load(o: JSONObject, key: String = "state") = when (o.optString(key))
 }
 
 data class Row(val index: Int, val key: String, val name: String, val type: String, val addon: String, val discover: String?, val state: Load, val items: List<Title>) {
+    /** Its name with its kind, so two "Popular" rows read "Popular Movies" and "Popular Series" */
+    val heading: String get() {
+        val kind = when (type) { "movie" -> "Movies"; "series" -> "Series"; else -> type.replaceFirstChar { it.uppercase() } }
+        return if (kind.isEmpty() || name.contains(kind, ignoreCase = true)) name else "$name $kind"
+    }
+
     companion object {
         fun from(o: JSONObject) = Row(
             index = o.optInt("index"),
@@ -165,14 +176,32 @@ data class StreamOption(
     val seeds: Int,
     val source: String,
     val langs: List<String>,
+    /** Formats the file name claims: IMAX, Dolby Atmos, HDR10+, Open Matte, 3D */
+    val imax: Boolean = false,
+    val atmos: Boolean = false,
+    val hdr10plus: Boolean = false,
+    val openMatte: Boolean = false,
+    val threeD: Boolean = false,
+    /** The stream's bitrate in Mbit/s (0 when unknown), and the quality its name claimed when it has played lower (0 otherwise) */
+    val mbps: Double = 0.0,
+    val claimed: Int = 0,
 ) {
-    val quality: String get() = when (res) { 2160 -> "4K"; 1440 -> "1440p"; 1080 -> "1080p"; 720 -> "720p"; 0 -> "?"; else -> "SD" }
+    val bitrateText: String? get() = if (mbps > 0) "%.0f Mbps".format(mbps) else null
+    val claimNote: String? get() = if (claimed > res && res > 0) "Named ${qualityOf(claimed)}, plays ${qualityOf(res)}" else null
+    /** The formats it offers, for the Format filter */
+    val formats: List<String> get() = listOfNotNull(
+        "IMAX".takeIf { imax }, "Dolby Vision".takeIf { dv }, "HDR".takeIf { hdr }, "Atmos".takeIf { atmos },
+        "Remux".takeIf { source == "Remux" }, "Open Matte".takeIf { openMatte }, "3D".takeIf { threeD },
+    )
+    val quality: String get() = qualityOf(res)
+    private fun qualityOf(r: Int) = when (r) { 2160 -> "4K"; 1440 -> "1440p"; 1080 -> "1080p"; 720 -> "720p"; 0 -> "?"; else -> "SD" }
     val sizeText: String? get() = if (size <= 0) null else if (size >= 1e9) "%.1f GB".format(size / 1e9) else "%.0f MB".format(size / 1e6)
 
     /** The picture's quality, as the desktop's Best quality sort scores it: resolution, then Dolby Vision or HDR, then the source */
     val score: Int get() = res * 10 + (if (dv) 3 else if (hdr) 2 else 0) + (SOURCE_RANK[source] ?: 0)
 
     companion object {
+        val FORMAT_ORDER = listOf("IMAX", "Dolby Vision", "HDR", "Atmos", "Remux", "Open Matte", "3D")
         private val SOURCE_RANK = mapOf("Remux" to 4, "BluRay" to 3, "WEB" to 2, "HDTV" to 1, "CAM" to -10)
 
         /** Best quality first; of the same quality, ready to play, then most seeds, then largest */
@@ -182,17 +211,24 @@ data class StreamOption(
             i, o.optString("play"), o.optString("addon"), o.optString("filename"), o.optString("label"), o.optBoolean("torrent"), o.optString("provider"), o.optString("site"),
             o.optString("codec"), o.optBoolean("instant"), o.optBoolean("pending"), o.optBoolean("lesser"), o.optInt("res"), o.optBoolean("hdr"),
             o.optBoolean("dv"), o.optDouble("size", 0.0), o.optInt("seeds", -1), o.optString("source"), o.optJSONArray("langs").strings(),
+            o.optBoolean("imax"), o.optBoolean("atmos"), o.optBoolean("hdr10plus"), o.optBoolean("openMatte"), o.optBoolean("threeD"),
+            o.optDouble("mbps", 0.0), o.optInt("claimed", 0),
         )
     }
 }
 
-data class StreamChoices(val justPlay: Boolean, val settled: Boolean, val videoId: String?, val pick: Int, val sameAsLastTime: Boolean, val items: List<StreamOption>) {
+data class StreamChoices(
+    val justPlay: Boolean, val settled: Boolean, val videoId: String?, val pick: Int, val sameAsLastTime: Boolean, val items: List<StreamOption>,
+    /** The connection's speed in Mbps, when dx.bi's Match my internet speed measured it (else 0) */
+    val speed: Double = 0.0,
+) {
     val picked: StreamOption? get() = items.getOrNull(pick)
 
     companion object {
         fun from(o: JSONObject) = StreamChoices(
             o.optBoolean("justPlay"), o.optBoolean("settled"), o.text("videoId"), o.optInt("pick", -1), o.optString("how") == "same",
             o.optJSONArray("items").objects().mapIndexed(StreamOption::from),
+            o.optDouble("speed", 0.0),
         )
     }
 }
@@ -208,11 +244,20 @@ data class Details(
     val directors: List<String>,
     val videos: List<Video>,
     val resumeVideoId: String?,
+    // the episode Play starts (the engine works it out: dxbi-engine.js nextEpisode)
+    val nextVideoId: String? = null,
     val resumeMs: Long,
     val durationMs: Long,
     val streams: List<StreamGroup>,
 ) {
     val seasons: List<Int> get() = videos.mapNotNull { it.season }.distinct().sortedWith(compareBy({ it == 0 }, { it }))
+
+    /** A random released episode for Shuffle (specials and unreleased skipped; not the one last played, unless it's the only one) */
+    fun shuffled(): Video? {
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        val out = videos.filter { (it.season ?: 0) > 0 && !it.upcoming && (it.released.isNullOrEmpty() || it.released.take(10) <= today) }
+        return out.filter { it.id != resumeVideoId }.randomOrNull() ?: out.randomOrNull()
+    }
 
     companion object {
         fun from(o: JSONObject?): Details? {
@@ -225,10 +270,11 @@ data class Details(
                 metaId = selected?.optJSONObject("metaPath")?.text("id"),
                 videoId = selected?.optJSONObject("streamPath")?.text("id"),
                 title = meta?.let(Title::from),
-                cast = meta?.optJSONArray("cast").strings(),
-                directors = meta?.optJSONArray("directors").strings(),
+                cast = meta?.optJSONArray("cast").strings().map(::unescaped),
+                directors = meta?.optJSONArray("directors").strings().map(::unescaped),
                 videos = meta?.optJSONArray("videos").objects().map(Video::from),
                 resumeVideoId = resume?.text("videoId"),
+                nextVideoId = o.text("next"),
                 resumeMs = resume?.optLong("timeOffset") ?: 0,
                 durationMs = resume?.optLong("duration") ?: 0,
                 streams = o.optJSONArray("streams").objects().map { g ->
@@ -305,6 +351,16 @@ data class Addon(
             o.optJSONArray("types").strings(), o.optBoolean("official"), o.optBoolean("protected"), o.optBoolean("configurable"),
             o.optBoolean("configurationRequired"), o.optBoolean("installed"),
         )
+    }
+}
+
+/** An internet connection Lumen has learnt the speed of (Settings → Networks) */
+data class NetworkInfo(val id: String, val name: String, val cap: Int, val current: Boolean, val trusted: Boolean, val mbps: Double, val readings: Int) {
+    /** Its own name, or where it's from */
+    val title: String get() = name.ifEmpty { if (current) "This network" else "Network ${id.takeLast(4)}" }
+
+    companion object {
+        fun from(o: JSONObject) = NetworkInfo(o.optString("id"), o.optString("name"), o.optInt("cap"), o.optBoolean("current"), o.optBoolean("trusted"), o.optDouble("mbps"), o.optInt("readings"))
     }
 }
 

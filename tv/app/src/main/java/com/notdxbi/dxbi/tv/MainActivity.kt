@@ -77,11 +77,12 @@ class MainActivity : AppCompatActivity() {
         // dx.bi for phones: its own screens over the page (nothing in dx.bi TV: see PhoneHooks.kt)
         Phone.attach(this, root, ::js)
         // Only when dx.bi is opened, not when the screen is rebuilt (after a page crash, a turned phone).
-        // (not in the phone app: the film is made for a TV screen)
-        if (savedInstanceState == null && !BuildConfig.PHONE_UI) intro = Intro(this, root).also { it.start() }
+        // (not in the phone app: the film is made for a TV screen. Lumen plays its own)
+        if (savedInstanceState == null && BuildConfig.INTRO) intro = Intro(this, root).also { it.start() }
         web.setBackgroundColor(getColor(R.color.background))
-        web.isFocusable = true
-        web.isFocusableInTouchMode = true
+        // (Lumen's own screens take the remote's keys: the page underneath never has them)
+        web.isFocusable = !Phone.ownsKeys()
+        web.isFocusableInTouchMode = !Phone.ownsKeys()
 
         web.settings.apply {
             javaScriptEnabled = true

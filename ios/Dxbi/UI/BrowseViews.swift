@@ -2,11 +2,12 @@ import SwiftUI
 
 /** Posters in a grid that fits the screen */
 struct PosterGrid: View {
+    @Environment(Stremio.self) private var stremio
     var items: [Title]
     var onEnd: (() -> Void)?
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 108, maximum: 170), spacing: 12)], spacing: 14) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: Dx.pad ? 150 : 108, maximum: Dx.pad ? 210 : 170), spacing: Dx.pad ? 18 : 12)], spacing: Dx.pad ? 22 : 14) {
             ForEach(items) { title in
                 NavigationLink(value: Route.title(title.ref)) {
                     Color.clear
@@ -14,14 +15,14 @@ struct PosterGrid: View {
                         .overlay { Art(url: title.art) }
                         .clipShape(.rect(cornerRadius: 14))
                         .overlay(alignment: .topTrailing) {
-                            if title.watched {
+                            if stremio.isWatched(title) {
                                 Image(systemName: "checkmark.circle.fill").symbolRenderingMode(.palette).foregroundStyle(.black, .white).padding(6)
                             }
                         }
                         .zoomSource(title.id)
                 }
                 .buttonStyle(.plain)
-                .contextMenu { TitleMenu(title: title) }
+                .titleMenu(title)
                 .onAppear { if title.id == items.last?.id { onEnd?() } }
             }
         }
@@ -67,9 +68,10 @@ struct SearchView: View {
                         Shelf(title: row.heading, see: row.discover.map { .browse(link: $0, name: row.heading) }) {
                             ForEach(row.items) { title in
                                 NavigationLink(value: Route.title(title.ref)) {
-                                    PosterCard(title: title, width: 130).zoomSource(title.id)
+                                    PosterCard(title: title, width: Dx.pad ? 160 : Dx.poster).zoomSource(title.id)
                                 }
                                 .buttonStyle(.plain)
+                                .titleMenu(title)
                             }
                         }
                     }
@@ -110,7 +112,7 @@ struct SearchView: View {
         VStack(spacing: 30) {
             Text("You can search anything…").font(.title3).foregroundStyle(Dx.muted)
             HStack(alignment: .top, spacing: 12) {
-                ForEach([("film.stack", "Movies, series & anime"), ("person.fill", "Actors, directors & writers"), ("tv", "Channels & TV from your addons")], id: \.0) { icon, label in
+                ForEach([("film.stack", "Movies"), ("tv", "TV shows & anime"), ("person.fill", "Actors, directors & writers")], id: \.0) { icon, label in
                     VStack(spacing: 12) {
                         Image(systemName: icon).font(.system(size: 34)).frame(height: 40)
                         Text(label).font(.footnote).multilineTextAlignment(.center)
@@ -134,8 +136,8 @@ struct SearchView: View {
 
 // MARK: - Discover
 
-/** Every catalog the addons have, by type, catalog and genre */
-struct DiscoverView: View {
+/** Every catalog the addons have, by type, catalog and genre (Discover's "Browse All Catalogs") */
+struct CatalogBrowserView: View {
     @Environment(Stremio.self) private var stremio
 
     var body: some View {
@@ -153,7 +155,7 @@ struct DiscoverView: View {
             .padding(.bottom, 30)
         }
         .screenBackground()
-        .navigationTitle("Discover")
+        .navigationTitle("All Catalogs")
         .onAppear { stremio.discoverStart() }
         .onChange(of: stremio.allRows.count) { stremio.discoverStart() }
     }

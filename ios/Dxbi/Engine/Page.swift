@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import WebKit
+import VideoToolbox
 
 /**
  * Stremio's web app, running out of sight: it does Stremio's work (account, addons, library, finding
@@ -102,7 +103,7 @@ final class Page: NSObject {
         let device: JSON = [
             "app": Self.version,
             // (reports show this: the model, e.g. iPhone17,1, and that it's the iPhone app)
-            "device": "\(Self.model) · dx.bi for iPhone",
+            "device": "\(Self.model) · Lumen for iPad and iPhone",
             "ios": UIDevice.current.systemVersion,
             "phone": true,
         ]
@@ -117,7 +118,7 @@ final class Page: NSObject {
             try { Object.defineProperty(window, name, { value: undefined, configurable: false, writable: false }); } catch (_) {}
           }
           const post = (message) => { try { window.webkit.messageHandlers.dxbi.postMessage(message); } catch (_) {} };
-          const ios = (window.__dxbiIos = { settings: \(Json.encode(savedSettings)), plugin: \(Json.quote(resource("dxbi.plugin.js"))), active: "", pendingClose: "", utcOffset: \(Self.utcOffset) });
+          const ios = (window.__dxbiIos = { settings: \(Json.encode(savedSettings)), plugin: \(Json.quote(resource("dxbi.plugin.js"))), active: "", pendingClose: "", utcOffset: \(Self.utcOffset), noAv1: \(!VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)) });
           window.DxbiTV = {
             pluginSource: () => ios.plugin,
             getSettings: (t, plugin) => JSON.stringify(ios.settings[plugin] || {}),

@@ -57,7 +57,7 @@ struct PartyView: View {
             VStack(spacing: 6) {
                 Text(s.string("code")).font(.system(size: 34, weight: .bold, design: .monospaced))
                 Text(s.bool("connected") ? "Connected" : "Connecting…").font(.footnote).foregroundStyle(Dx.muted)
-                if let code = s.text("code") { ShareLink(item: "Join my dx.bi watch party: \(code)") { Label("Invite", systemImage: "square.and.arrow.up") }.padding(.top, 4) }
+                if let code = s.text("code") { ShareLink(item: "Join my Lumen watch party: \(code)") { Label("Invite", systemImage: "square.and.arrow.up") }.padding(.top, 4) }
             }
             .frame(maxWidth: .infinity)
         }

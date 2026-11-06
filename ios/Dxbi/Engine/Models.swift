@@ -25,6 +25,8 @@ struct Title: Identifiable, Hashable {
     var backdrop: URL? { URL(string: background ?? (id.hasPrefix("tt") ? "https://images.metahub.space/background/large/\(id)/img" : poster ?? "")) }
     var logoURL: URL? { URL(string: logo ?? (id.hasPrefix("tt") ? "https://images.metahub.space/logo/medium/\(id)/img" : "")) }
     var ref: TitleRef { TitleRef(type: type, id: id, name: name) }
+    /** Lumen is for films and shows: YouTube channels and live TV catalogs are left out everywhere */
+    static let watchable: Set<String> = ["movie", "series", "anime"]
 
     init(id: String, type: String, name: String) {
         self.id = id
@@ -58,6 +60,10 @@ struct TitleRef: Hashable {
     var name: String = ""
     /** Start playing as soon as it's open (Play on Home) */
     var play = false
+    /** ...from 0 rather than the saved place (Start from the Beginning) */
+    var fromStart = false
+    /** ...a series' random episode (Shuffle) */
+    var shuffle = false
 }
 
 enum Load {
@@ -94,7 +100,7 @@ struct Row: Identifiable {
         items = o.objects("items").map(Title.init)
     }
 
-    static func list(_ state: JSON?) -> [Row] { state?.objects("catalogs").map(Row.init) ?? [] }
+    static func list(_ state: JSON?) -> [Row] { state?.objects("catalogs").map(Row.init).filter { Title.watchable.contains($0.type) } ?? [] }
 
     /** "Popular · Movies": Stremio names rows by catalog and type */
     var heading: String {
@@ -113,7 +119,7 @@ struct Continue: Identifiable {
     static func list(_ state: JSON?) -> [Continue] {
         state?.objects("items").map { o in
             Continue(title: Title(o), progress: min(max(o.double("progress") / 100, 0), 1), videoId: o.text("videoId"), newEpisodes: o.int("notifications"))
-        } ?? []
+        }.filter { Title.watchable.contains($0.title.type) } ?? []
     }
 }
 
@@ -173,10 +179,20 @@ struct StreamOption: Identifiable, Hashable {
     var res: Int
     var hdr: Bool
     var dv: Bool
+    /** Formats the file name claims: IMAX, Dolby Atmos, HDR10+, Open Matte, 3D */
+    var imax: Bool
+    var atmos: Bool
+    var hdr10plus: Bool
+    var openMatte: Bool
+    var threeD: Bool
     var size: Double
     var seeds: Int
     var source: String
     var langs: [String]
+    /** The bitrate it needs (Mbit/s): its size over the title's length, 0 when either isn't known */
+    var mbps: Double
+    /** The quality its name claimed, when it's played before at less (res is then the real one), else 0 */
+    var claimed: Int
     var id: Int { index }
 
     init(_ i: Int, _ o: JSON) {
@@ -195,13 +211,25 @@ struct StreamOption: Identifiable, Hashable {
         res = o.int("res")
         hdr = o.bool("hdr")
         dv = o.bool("dv")
+        imax = o.bool("imax")
+        atmos = o.bool("atmos")
+        hdr10plus = o.bool("hdr10plus")
+        openMatte = o.bool("openMatte")
+        threeD = o.bool("threeD")
         size = o.double("size")
+        mbps = o.double("mbps")
+        claimed = o.int("claimed")
         seeds = o.int("seeds", -1)
         source = o.string("source")
         langs = o.strings("langs")
     }
 
-    var quality: String {
+    /** "38 Mbps", when it's known */
+    var mbpsText: String? { mbps > 0 ? "\(mbps.formatted()) Mbps" : nil }
+
+    var quality: String { Self.qualityName(res) }
+
+    static func qualityName(_ res: Int) -> String {
         switch res {
         case 2160: "4K"
         case 1440: "1440p"
@@ -211,6 +239,20 @@ struct StreamOption: Identifiable, Hashable {
         default: "SD"
         }
     }
+
+    /** The formats it offers, for the Format filter */
+    var formats: [String] {
+        var f: [String] = []
+        if imax { f.append("IMAX") }
+        if dv { f.append("Dolby Vision") }
+        if hdr { f.append("HDR") }
+        if atmos { f.append("Atmos") }
+        if source == "Remux" { f.append("Remux") }
+        if openMatte { f.append("Open Matte") }
+        if threeD { f.append("3D") }
+        return f
+    }
+    static let formatOrder = ["IMAX", "Dolby Vision", "HDR", "Atmos", "Remux", "Open Matte", "3D"]
 
     var sizeText: String? {
         guard size > 0 else { return nil }
@@ -231,16 +273,74 @@ struct StreamOption: Identifiable, Hashable {
     }
 }
 
+/** A network Lumen has learnt the speed of (Settings → Networks) */
+struct NetworkInfo: Identifiable, Hashable {
+    var id: String
+    var name: String
+    var cap: Int
+    var current: Bool
+    var trusted: Bool
+    var mbps: Double
+    var readings: Int
+    var at: Date
+
+    init(_ o: JSON) {
+        id = o.string("id")
+        name = o.string("name")
+        cap = o.int("cap")
+        current = o.bool("current")
+        trusted = o.bool("trusted")
+        mbps = o.double("mbps")
+        readings = o.int("readings")
+        at = Date(timeIntervalSince1970: o.double("at") / 1000)
+    }
+
+    /** Its own name, or where it's from */
+    var title: String { name.isEmpty ? (current ? "This network" : "Network \(id.suffix(4))") : name }
+}
+
+extension StreamOption {
+    /**
+     * Download's three sizes from a title's streams: High (the biggest at the best resolution), Medium (a
+     * typical 1080p) and Small (the smallest that's 720p or better). Only ready, sized files; each once.
+     */
+    static func downloadSizes(_ items: [StreamOption]) -> [(name: String, option: StreamOption)] {
+        let ready = items.filter { !$0.pending && $0.size > 0 && !$0.lesser }
+        guard !ready.isEmpty else { return [] }
+        let top = ready.map(\.res).max() ?? 0
+        let high = ready.filter { $0.res == top }.max { $0.size < $1.size }
+        let hd = ready.filter { $0.res == 1080 }.sorted { $0.size < $1.size }
+        let medium = hd.isEmpty ? ready.sorted { $0.size < $1.size }[ready.count / 2] : hd[hd.count / 2]
+        let decent = ready.filter { $0.res >= 720 }
+        let small = (decent.isEmpty ? ready : decent).min { $0.size < $1.size }
+        var out: [(name: String, option: StreamOption)] = []
+        for (name, option) in [("High", high), ("Medium", Optional(medium)), ("Small", small)] {
+            if let option, !out.contains(where: { $0.option.index == option.index }) { out.append((name, option)) }
+        }
+        return out
+    }
+}
+
+/** Streams offered in the player, under what they change (lower resolution, lighter, HDR…) */
+struct StreamGroup: Identifiable {
+    var title: String
+    var options: [StreamOption]
+    var id: String { title }
+}
+
 struct StreamChoices {
     var justPlay: Bool
     var settled: Bool
     var videoId: String?
     var pick: Int
     var sameAsLastTime: Bool
+    /** The connection's speed in Mbps, when Match my internet speed measured it (else 0) */
+    var speed: Double
     var items: [StreamOption]
     var picked: StreamOption? { items.indices.contains(pick) ? items[pick] : nil }
 
     init(_ o: JSON) {
+        speed = o.double("speed")
         justPlay = o.bool("justPlay")
         settled = o.bool("settled")
         videoId = o.text("videoId")
@@ -259,10 +359,15 @@ struct Details {
     var directors: [String]
     var videos: [Video]
     var resumeVideoId: String?
+    /** The episode Play starts (the engine works it out: dxbi-engine.js nextEpisode) */
+    var nextVideoId: String?
     var resumeMs: Double
     var durationMs: Double
     /** Changes as addons answer with streams (the stream list is asked for again) */
     var streamsKey: String
+    /** How many addons were asked for streams, and how many have answered */
+    var addonsAsked = 0
+    var addonsAnswered = 0
 
     init(_ o: JSON) {
         let meta = o.object("meta")
@@ -276,9 +381,20 @@ struct Details {
         directors = (meta?.strings("directors") ?? []).map(\.unescaped)
         videos = meta?.objects("videos").map(Video.init) ?? []
         resumeVideoId = resume?.text("videoId")
+        nextVideoId = o.text("next")
         resumeMs = resume?.double("timeOffset") ?? 0
         durationMs = resume?.double("duration") ?? 0
+        let groups = o.objects("streams")
+        addonsAsked = groups.count
+        addonsAnswered = groups.filter { $0.string("state") != "Loading" }.count
         streamsKey = (selected?.object("streamPath")?.string("id") ?? "") + o.objects("streams").map { "\($0.string("state")):\($0.objects("items").count)" }.joined(separator: ",")
+    }
+
+    /** A random released episode for Shuffle (specials and unreleased skipped; not the one last played, unless it's the only one) */
+    func shuffled() -> Video? {
+        let now = Date()
+        let out = videos.filter { ($0.season ?? 0) > 0 && !$0.upcoming && ($0.releaseDate.map { $0 <= now } ?? true) }
+        return out.filter { $0.id != resumeVideoId }.randomElement() ?? out.randomElement()
     }
 
     /** Seasons in order, specials (season 0) last */
@@ -307,6 +423,7 @@ struct Discover {
     init(_ o: JSON) {
         request = o.object("request")
         types = o.objects("types").map { Pickable(name: $0.string("type"), selected: $0.bool("selected"), link: $0.text("link")) }
+            .filter { Title.watchable.contains($0.name) }
         catalogs = o.objects("catalogs").map { c in
             let addon = c.string("addon")
             let name = !addon.isEmpty && addon != "Cinemeta" ? "\(c.string("name")) · \(addon)" : c.string("name")
@@ -339,7 +456,7 @@ struct Account {
 }
 
 /** dx.bi's own Home rows (window.__dxbi.phone) */
-struct ListRow {
+struct ListRow: Equatable {
     var name: String
     var items: [Title]
     init(_ o: JSON) {
@@ -483,6 +600,22 @@ struct Setting: Identifiable {
 struct Viewer: Identifiable, Hashable {
     var id: String
     var name: String
+    /** dx.bi's viewer colour (hex) */
+    var colour: String?
+    var kids = false
+
+    init(id: String, name: String, colour: String? = nil, kids: Bool = false) {
+        self.id = id
+        self.name = name
+        self.colour = colour
+        self.kids = kids
+    }
+
+    init(_ o: JSON) {
+        self.init(id: o.string("id"), name: o.string("name"), colour: o.text("colour"), kids: o.bool("kids"))
+    }
+
+    var initial: String { String(name.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased() }
 }
 
 struct HomeLayout {

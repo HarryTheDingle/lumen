@@ -1,11 +1,14 @@
 import SwiftUI
 
-/** A title in a row: its poster, and (Netflix's Top 10) a large number in the corner */
+/** A title in a row: its poster, and (a Top 10) a frosted number in the corner, as on Apple TV */
 struct PosterCard: View {
+    @Environment(Stremio.self) private var stremio
     var title: Title
     var width: CGFloat = 150
     var rank: Int?
     var progress: Double?
+
+    private var corner: CGFloat { min(18, width * 0.12) }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -19,22 +22,31 @@ struct PosterCard: View {
         .frame(width: width, height: width * 1.5)
         .overlay(alignment: .topLeading) {
             if let rank {
-                Text("\(rank)")
-                    .font(.system(size: width * 0.3, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.6), radius: 6)
-                    .padding(.leading, 10)
-                    .padding(.top, 2)
+                // frosted glass in the number's shape: the poster shows through, blurred and lightened
+                let number = Text("\(rank)").font(.system(size: width * 0.22, weight: .bold))
+                number.hidden()
+                    .overlay {
+                        ZStack {
+                            Rectangle().fill(.ultraThinMaterial)
+                            Color.white.opacity(0.55)
+                        }
+                        .mask(number)
+                    }
+                    .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
+                    .padding(.leading, width * 0.09)
+                    .padding(.top, width * 0.04)
             }
         }
         .overlay(alignment: .topTrailing) {
-            if title.watched {
-                Image(systemName: "checkmark.circle.fill").font(.title3).symbolRenderingMode(.palette).foregroundStyle(.black, .white).padding(8)
+            if stremio.isWatched(title) {
+                Image(systemName: "checkmark.circle.fill").font(width < 130 ? .body : .title3).symbolRenderingMode(.palette).foregroundStyle(.black, .white).padding(width < 130 ? 6 : 8)
             }
         }
-        .clipShape(.rect(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.1)))
-        .contentShape(.rect(cornerRadius: 18))
+        .clipShape(.rect(cornerRadius: corner))
+        // a glass rim, catching the light at the top
+        .overlay(RoundedRectangle(cornerRadius: corner).strokeBorder(LinearGradient(colors: [.white.opacity(0.32), .white.opacity(0.06), .white.opacity(0.14)], startPoint: .top, endPoint: .bottom), lineWidth: 1))
+        .contentShape(.rect(cornerRadius: corner))
+        .contentShape(.contextMenuPreview, .rect(cornerRadius: corner))
     }
 }
 
@@ -53,8 +65,8 @@ struct ContinueCard: View {
                 .frame(maxHeight: .infinity)
                 .padding(.bottom, 40)
             HStack(spacing: 10) {
-                if item.progress > 0 { ProgressLine(value: item.progress).frame(width: 44) }
-                Text([episodeLabel(item.videoId), item.newEpisodes > 0 ? "\(item.newEpisodes) new" : nil].compactMap { $0 }.joined(separator: " · ").ifEmpty(typeName(title.type)))
+                if item.progress > 0 { ProgressLine(value: item.progress, colour: Dx.accent).frame(width: 64) }
+                Text([episodeLabel(item.videoId), timeLeft(item), item.newEpisodes > 0 ? "\(item.newEpisodes) new" : nil].compactMap { $0 }.joined(separator: " · ").ifEmpty(typeName(title.type)))
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)
                 Spacer(minLength: 0)
@@ -100,13 +112,20 @@ struct EpisodeCard: View {
     var width: CGFloat
     var fallbackArt: URL?
     var playing = false
+    /** Blur unwatched episodes (dx.bi settings): the picture hidden until it's watched or started */
+    var blurUnwatched = false
+
+    private var hidden: Bool { blurUnwatched && !video.watched && (video.progress ?? 0) <= 0 }
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Art(url: URL(string: video.thumbnail ?? "") ?? fallbackArt)
-                .frame(width: width, height: width * 0.92)
-            BlurFade(url: URL(string: video.thumbnail ?? "") ?? fallbackArt, from: 0.36)
-                .frame(width: width, height: width * 0.92)
+            Group {
+                Art(url: URL(string: video.thumbnail ?? "") ?? fallbackArt)
+                    .frame(width: width, height: width * 0.92)
+                BlurFade(url: URL(string: video.thumbnail ?? "") ?? fallbackArt, from: 0.36)
+                    .frame(width: width, height: width * 0.92)
+            }
+            .blur(radius: hidden ? 22 : 0, opaque: true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(video.episode.map { "EPISODE \($0)" } ?? "SPECIAL")
                     .font(.caption.weight(.semibold))
@@ -163,4 +182,16 @@ struct BlurFade: View {
             .overlay(LinearGradient(stops: [.init(color: .clear, location: from), .init(color: .black.opacity(0.4), location: 1)], startPoint: .top, endPoint: .bottom))
             .allowsHitTesting(false)
     }
+}
+
+/** "28m left", "1h 12m left": from the title's length and how far in it is (nothing when the length isn't known) */
+func timeLeft(_ item: Continue) -> String? {
+    guard item.progress > 0.02, item.progress < 0.98, let runtime = item.title.runtime else { return nil }
+    let h = runtime.firstMatch(of: /(\d+)\s*h/).flatMap { Int($0.1) } ?? 0
+    let m = runtime.firstMatch(of: /(\d+)\s*m/).flatMap { Int($0.1) } ?? (h == 0 ? Int(runtime.prefix { $0.isNumber }) ?? 0 : 0)
+    let total = h * 60 + m
+    guard total > 0 else { return nil }
+    let left = Int((Double(total) * (1 - item.progress)).rounded())
+    guard left > 0 else { return nil }
+    return left >= 60 ? "\(left / 60)h \(left % 60)m left" : "\(left)m left"
 }
