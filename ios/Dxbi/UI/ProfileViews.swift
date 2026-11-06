@@ -82,10 +82,13 @@ struct ProfilePicker: View {
                     }
                 }
                 .padding(.horizontal, 28)
+                // (room for the chosen one's ring, drawn outside its picture: the top of the list cut it off)
+                .padding(.vertical, 10)
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity)
             }
             .scrollBounceBehavior(.basedOnSize)
+            .scrollEdgeEffectHidden(true, for: [.top, .bottom])
             .frame(maxHeight: 420)
             Spacer(minLength: 0)
             Button { accountsSheet = true } label: {

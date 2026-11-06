@@ -255,7 +255,9 @@ final class Stremio {
                 myList = list.compactMap { $0 as? JSON }.map(ListRow.init)
                 cache.set(Json.encode(list), forKey: "x.myList")
             }
-            if let o = await dx("phone.describe", continueWatching.prefix(5).map { [$0.title.type, $0.title.id] }) as? JSON {
+            // (and the Top Picks the billboard suggests: picks can come without their story)
+            let toDescribe = continueWatching.prefix(5).map(\.title) + (picks.first?.items.prefix(8) ?? [])
+            if let o = await dx("phone.describe", toDescribe.map { [$0.type, $0.id] }) as? JSON {
                 described = o.compactMapValues { $0 as? JSON }
             }
             if let list = await dx("phone.airing") as? [Any] {
@@ -417,7 +419,10 @@ final class Stremio {
     }
 
     func setWatched(_ watched: Bool) {
-        if let id = details?.metaId { mark(id, watched: watched) }
+        if let id = details?.metaId {
+            mark(id, watched: watched)
+            if !watched, let i = continueWatching.firstIndex(where: { $0.title.id == id }) { continueWatching[i].progress = 0 }
+        }
         Task {
             await ask("watched", ["value": watched])
             try? await Task.sleep(for: .seconds(1))
@@ -428,7 +433,13 @@ final class Stremio {
     /** Marks a title that isn't open as watched or not (a series: every episode) */
     func setWatched(_ title: Title, _ watched: Bool) {
         mark(title.id, watched: watched)
-        withOpened(title) { await self.ask("watched", ["value": watched]) }
+        // (unwatched goes back to the start: Play, not Resume, at once; then what Stremio says)
+        if !watched, let i = continueWatching.firstIndex(where: { $0.title.id == title.id }) { continueWatching[i].progress = 0 }
+        withOpened(title) {
+            await self.ask("watched", ["value": watched])
+            try? await Task.sleep(for: .seconds(1))
+            self.refreshExtras()
+        }
     }
 
     /** In the Library, or watched: from [inLibrary] and [watchedIds], else what the title came with */

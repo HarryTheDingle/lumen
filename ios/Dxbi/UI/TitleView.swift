@@ -339,8 +339,8 @@ struct TitleView: View {
         }
         .frame(width: width)
         .background(alignment: .top) {
-            // the page scrolls up over the art, which stays where it is and fades as it's covered (and
-            // grows when the page is pulled down). Darkened, no colour: low and on the left, under the text
+            // the page scrolls up over the art, which moves up at half its speed (parallax, as Apple TV's) and
+            // fades as it's covered (and grows when the page is pulled down). Darkened, no colour: low and on the left, under the text
             // (the trailer plays under the art, which fades away once it's going: WebKit won't start a
             // video in a view that can't be seen)
             ZStack {
@@ -360,7 +360,7 @@ struct TitleView: View {
                     let covered = min(max(-y / (artHeight * 0.8), 0), 1)
                     return content
                         .scaleEffect(y > 0 ? 1 + y / artHeight : 1, anchor: .bottom)
-                        .offset(y: y < 0 ? -y : 0)
+                        .offset(y: y < 0 ? -y * 0.5 : 0)
                         .opacity(1 - covered * 0.9)
                 }
         }
