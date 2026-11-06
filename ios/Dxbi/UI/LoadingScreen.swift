@@ -86,7 +86,7 @@ struct LoadingScreen: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text([o.quality, o.dv ? "Dolby Vision" : o.hdr ? "HDR" : nil, o.imax ? "IMAX" : nil].compactMap { $0 }.joined(separator: " · "))
                             .font(.subheadline.weight(.semibold))
-                        Text([o.sizeText, o.provider.isEmpty ? nil : o.provider].compactMap { $0 }.joined(separator: " · "))
+                        Text([o.sizeText, o.mbpsText, o.provider.isEmpty ? nil : o.provider].compactMap { $0 }.joined(separator: " · "))
                             .font(.caption).foregroundStyle(Dx.muted).lineLimit(1)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)

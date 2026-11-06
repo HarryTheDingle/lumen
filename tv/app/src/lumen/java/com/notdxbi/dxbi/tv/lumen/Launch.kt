@@ -70,6 +70,8 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
     var episode by mutableStateOf<String?>(null)
         private set
     var step by mutableStateOf(Step(""))
+    /** "Your internet: 120 Mbps", once Match my internet speed has measured it (kept on the later steps) */
+    private var internet: String? = null
         private set
 
     private var job: Job? = null
@@ -172,13 +174,17 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
             val groups = dd?.takeIf { it.metaId == t.id }?.streams.orEmpty()
             val answered = groups.count { it.state != Load.Loading }
             val found = c?.items?.size ?: 0
+            if (c != null && c.speed > 0) internet = "Your internet: ${c.speed.toInt()} Mbps"
             step = Step(
                 "Finding the best stream",
-                when {
-                    groups.isEmpty() -> "Asking your addons"
-                    found == 0 -> "$answered of ${groups.size} addons answered"
-                    else -> "$found streams from $answered of ${groups.size} addons"
-                },
+                listOfNotNull(
+                    when {
+                        groups.isEmpty() -> "Asking your addons"
+                        found == 0 -> "$answered of ${groups.size} addons answered"
+                        else -> "$found streams from $answered of ${groups.size} addons"
+                    },
+                    internet,
+                ).joinToString(" · "),
                 0.25f + 0.55f * (if (groups.isEmpty()) 0f else answered.toFloat() / groups.size),
             )
             val pick = c?.picked
@@ -193,7 +199,7 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
     /** 4. The stream chosen: off to the player (the loading screen goes once it's up) */
     private suspend fun starting(option: StreamOption) {
         val what = listOfNotNull(option.quality, if (option.dv) "Dolby Vision" else if (option.hdr) "HDR" else null).joinToString(" · ")
-        step = Step("Starting $what", listOf(option.provider, option.sizeText.orEmpty(), option.source).filter { it.isNotEmpty() && it != "Other" }.joinToString(" · "), 0.88f)
+        step = Step("Starting $what", listOf(option.provider, option.sizeText.orEmpty(), option.bitrateText?.let { "$it stream" }.orEmpty(), internet.orEmpty(), option.source).filter { it.isNotEmpty() && it != "Other" }.joinToString(" · "), 0.88f)
         // (the player carries this screen on from here, to the video's first picture)
         title?.let { LoadingHandoff.put(it, episode, step) }
         stremio.play(option)

@@ -100,6 +100,8 @@ object Phone {
         return true
     }
 
+    fun realPicture(width: Int) = Unit
+
     @UnstableApi
     fun player(host: PlayerHost, stream: JSONObject): PlayerHooks? =
         if (isPhone(host.activity)) PhonePlayer(host, stream) else null

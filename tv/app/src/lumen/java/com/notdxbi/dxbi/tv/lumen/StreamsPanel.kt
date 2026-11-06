@@ -167,7 +167,7 @@ private fun Best(best: StreamOption, sameAsLastTime: Boolean, modifier: Modifier
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(if (sameAsLastTime) "Play · Same as Last Time" else "Play the Best Stream", fontSize = 17.sp, fontWeight = FontWeight.Bold)
                 Text(
-                    listOfNotNull(best.label, best.provider, best.sizeText).filter { it.isNotEmpty() }.joinToString(" · "),
+                    listOfNotNull(best.label, best.provider, best.sizeText, best.bitrateText).filter { it.isNotEmpty() }.joinToString(" · "),
                     fontSize = 13.sp,
                     color = Color.Black.copy(alpha = 0.7f),
                     maxLines = 1,
@@ -230,11 +230,13 @@ private fun StreamRow(s: StreamOption, picked: Boolean, modifier: Modifier, onCl
             }
             val facts = listOfNotNull(
                 s.sizeText,
+                s.bitrateText,
                 if (s.seeds >= 0) "${s.seeds} seeds" else null,
                 s.langs.filter { !it.startsWith("Not listed") }.joinToString(", ").ifEmpty { null },
                 if (s.addon != s.provider) s.addon else null,
             ).filter { it.isNotEmpty() }
             if (facts.isNotEmpty()) Text(facts.joinToString(" · "), fontSize = 12.sp, color = Dx.Muted, maxLines = 2)
+            s.claimNote?.let { Text(it, fontSize = 11.sp, color = Dx.Muted) }
             if (s.lesser) Text("Upscaled, high frame rate or 3D: may not look as good as it says", fontSize = 11.sp, color = Dx.Faint)
         }
     }

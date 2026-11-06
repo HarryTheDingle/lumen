@@ -152,3 +152,12 @@ console.log("PASS samples and clips are never picked");
   assert.equal(label(on, [plain4k, imax1080]), plain4k.label, "never trades quality for IMAX");
   console.log("PASS formats are read, and Prefer IMAX only breaks ties in quality");
 }
+
+{
+  // The file's name over the addon's label; two qualities named, the lower
+  assert.equal(film("4k", "Spider-Man.Brand.New.Day.IMAX.1080p.WEB-DL\n💾 9 GB").d.res, 1080);
+  assert.equal(film("4k", "Spider-Man IMAX 4K (1080p)\n💾 9 GB").d.res, 1080);
+  assert.equal(film("1080p", "Spider-Man.2160p.WEB-DL\n💾 20 GB").d.res, 2160);
+  assert.equal(film("4k HDR", "Spider-Man IMAX WEB-DL\n💾 20 GB").d.res, 2160, "the label when the file says nothing");
+  console.log("PASS the file's own quality beats the addon's label");
+}

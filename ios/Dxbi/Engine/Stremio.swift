@@ -499,6 +499,11 @@ final class Stremio {
         Task { await dx("phone.networkSample", mbps) }
     }
 
+    /** The playing file's real picture width: a stream whose name claimed more is read at its real quality after */
+    func realPicture(width: Double) {
+        Task { await dx("phone.realPicture", width) }
+    }
+
     func networks() async -> [NetworkInfo] {
         ((await dx("phone.networks") as? [Any]) ?? []).compactMap { $0 as? JSON }.map(NetworkInfo.init)
     }

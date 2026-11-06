@@ -10,6 +10,7 @@ import java.io.File
 object Phone {
     fun attach(activity: MainActivity, root: FrameLayout, js: (String) -> Unit) = Unit
     fun pageScript(context: Context) = ""
+    fun realPicture(width: Int) = Unit
     fun ownsKeys() = false
     fun pageMessage(json: String) = Unit
     fun pageGone() = Unit

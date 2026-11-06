@@ -150,6 +150,7 @@ class PlayerActivity : AppCompatActivity() {
     private var tracks: TrackMemory? = null
     /** How fast the stream came, as the player measured it while loading (bits a second) */
     private var measuredBps = 0L
+    private var pictureReported = false
     private var lastText: List<String?> = emptyList()
 
     private val reportProgress = object : Runnable {
@@ -397,6 +398,11 @@ class PlayerActivity : AppCompatActivity() {
             // A subtitle switched on mid-line only shows from its next line: a seek to where we are
             // brings the current one up straight away
             override fun onRenderedFirstFrame() {
+                // (Lumen: the picture's real width, once per stream (each stream is its own player), so the page learns a stream that plays lower than its name)
+                if (!pictureReported && Phone.ownsKeys() && exo.videoSize.width > 0) {
+                    pictureReported = true
+                    Phone.realPicture(exo.videoSize.width)
+                }
                 uncover()
                 loading?.ready()
             }

@@ -1,6 +1,6 @@
 {
 	"name": "dxbi",
-	"version": "2.30.15",
+	"version": "2.30.16",
 	"description": "Lumen: a Netflix-style desktop app for Stremio, based on dx.bi.",
 	"main": "./dist/main.js",
 	"scripts": {

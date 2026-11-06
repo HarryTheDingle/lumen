@@ -101,16 +101,20 @@ enum Pictures {
             return true
         }
         guard drawn else { return false }
-        var light = 0.0, weight = 0.0
+        // (black and dark grey only: a dark but coloured logo, Spider-Man's red and blue, keeps its colours and
+        // would come out a flat white shape)
+        var black = 0.0, weight = 0.0
         for i in stride(from: 0, to: pixels.count, by: 4) {
             let a = Double(pixels[i + 3]) / 255
             guard a > 0.2 else { continue }
             // (premultiplied: back to the colour itself)
             let r = Double(pixels[i]) / 255 / a, g = Double(pixels[i + 1]) / 255 / a, b = Double(pixels[i + 2]) / 255 / a
-            light += (0.299 * r + 0.587 * g + 0.114 * b) * a
+            let light = 0.299 * r + 0.587 * g + 0.114 * b
+            let colour = max(r, g, b) - min(r, g, b)
+            if light < 0.3, colour < 0.15 { black += a }
             weight += a
         }
-        let dark = weight > 0 && light / weight < 0.3
+        let dark = weight > 0 && black / weight > 0.7
         darkness[url] = dark
         return dark
     }

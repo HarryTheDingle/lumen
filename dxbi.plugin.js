@@ -1,7 +1,7 @@
 /**
  * @name Lumen
  * @description The Lumen experience: cinematic billboard, Netflix-style carousels, hover previews with trailers, ratings on posters, critic reviews, skip intro and up next, anime filler guide, new episode badges, watch stats and viewers, stream sorting & filters, a Netflix-style player with black-bar removal, night mode and subtitle sync, watch parties with friends, a cinematic intro and interface sounds. Use with the Lumen theme.
- * @version 2.30.15
+ * @version 2.30.16
  * @author dx.bi
  * @updateUrl https://raw.githubusercontent.com/HarryTheDingle/lumen/main/dxbi.plugin.js
  */
@@ -19,7 +19,7 @@
   // Stremio Enhanced loads each plugin as <script id="<file name>">, which tells us our settings key
   const SCRIPT_ID = (document.currentScript && document.currentScript.id) || "dxbi.plugin.js";
   const PLUGIN_KEY = SCRIPT_ID.replace(/\.plugin\.js$/, "");
-  const PLUGIN_VERSION = "2.30.15"; // kept in step with @version by tools/bundle-theme.mjs
+  const PLUGIN_VERSION = "2.30.16"; // kept in step with @version by tools/bundle-theme.mjs
   // Recent messages and errors, kept for problem reports (see `report`)
   const recent = { logs: [], errors: [] };
   const remember = (list, text) => {
@@ -3860,12 +3860,19 @@
     // A debrid service tag without its "cached" mark: playing it starts a download on the account
     const pending = !instant && /\[(?:RD|AD|PM|TB|DL|ED|OC)\b[^\]]*\]/i.test(firstLine);
 
-    let res = 0;
-    if (/\b(?:2160p|4k|uhd)\b/i.test(all)) res = 2160;
-    else if (/\b1440p\b/i.test(all)) res = 1440;
-    else if (/\b(?:1080p|fhd)\b/i.test(all)) res = 1080;
-    else if (/\b720p\b/i.test(all)) res = 720;
-    else if (/\b(?:576p|480p|360p|sd|dvdrip|xvid)\b/i.test(all)) res = 480;
+    // The quality: what the file's name and description say, the addon's own label ("Torrentio 4k") only when
+    // they say nothing; and when they name two ("4K IMAX … 1080p"), the lower (a label that claimed more than
+    // the file had picked a 1080p IMAX copy as 4K)
+    const qualities = (text) => [
+      /\b(?:2160p|4k|uhd)\b/i.test(text) && 2160,
+      /\b1440p\b/i.test(text) && 1440,
+      /\b(?:1080p|fhd)\b/i.test(text) && 1080,
+      /\b720p\b/i.test(text) && 720,
+      /\b(?:576p|480p|360p|sd|dvdrip|xvid)\b/i.test(text) && 480,
+    ].filter(Boolean);
+    const rest = all.startsWith(name) ? all.slice(name.length) : all;
+    const said = qualities(rest).length ? qualities(rest) : qualities(name);
+    const res = said.length ? Math.min(...said) : 0;
 
     const dv = /\b(?:dv|dovi|dolby[ .-]?vision)\b/i.test(all);
     const hdr = dv || /\bhdr(?:10\+?)?\b/i.test(all) || /\bhdr10(?:\+|[ ._-]?plus)/i.test(all);
@@ -3954,6 +3961,47 @@
     has(x) {
       const k = this.key(x);
       return !!k && !!this.load()[k];
+    },
+  };
+
+  // Streams whose picture turned out smaller than their name said (a "4K" that played at 1920 wide): read at
+  // the quality they really are for a month, in the list and the automatic pick. Known the way failures are.
+  const streamTruth = {
+    KEY: "dxbi.realQuality",
+    KEEP: 30 * 86400000,
+    list: null,
+    load() {
+      if (this.list) return this.list;
+      try { this.list = JSON.parse(localStorage.getItem(this.KEY) || "{}") || {}; } catch (_) { this.list = {}; }
+      const now = Date.now();
+      for (const [k, v] of Object.entries(this.list)) if (!v || now - v.at > this.KEEP) delete this.list[k];
+      return this.list;
+    },
+    // The quality a picture this wide is (wide films are short, so not the height)
+    res(width) {
+      return width >= 3200 ? 2160 : width >= 2200 ? 1440 : width >= 1700 ? 1080 : width >= 1100 ? 720 : 480;
+    },
+    // The player's picture, once it plays: remembered only when it's less than the name said
+    add(x, width) {
+      const k = streamFailures.key(x);
+      if (!k || !(width > 0) || !x.d.res) return false;
+      const real = this.res(width);
+      if (real >= x.d.res) return false;
+      const list = this.load();
+      list[k] = { at: Date.now(), res: real };
+      const keys = Object.keys(list);
+      if (keys.length > 400) keys.sort((a, b) => list[a].at - list[b].at).slice(0, keys.length - 400).forEach((old) => delete list[old]);
+      try { localStorage.setItem(this.KEY, JSON.stringify(list)); } catch (_) { /* full */ }
+      x.d.claimed = x.d.res;
+      x.d.res = real;
+      return true;
+    },
+    // A stream as it really is, when it's been played before
+    apply(x) {
+      const k = streamFailures.key(x);
+      const known = k && this.load()[k];
+      if (known && known.res < x.d.res) x.d = { ...x.d, claimed: x.d.res, res: known.res };
+      return x;
     },
   };
 
@@ -16176,7 +16224,7 @@
         let items = groups.flatMap((g) => (g && g.content && g.content.type === "Ready" && Array.isArray(g.content.content)
           ? g.content.content.map((st) => ({ st, addon: (g.addon && g.addon.manifest && g.addon.manifest.name) || "" })) : []))
           .filter((x) => x.st && x.st.deepLinks && x.st.deepLinks.player && !x.st.ytId)
-          .map((x) => ({ ...x, torrent: !!x.st.infoHash && !x.st.url, hint: watchParty.streamHints(x.st), d: describeStream(String(x.st.name || ""), `${x.st.name || ""}\n${x.st.description || x.st.title || ""}`) }));
+          .map((x) => streamTruth.apply({ ...x, torrent: !!x.st.infoHash && !x.st.url, hint: watchParty.streamHints(x.st), d: describeStream(String(x.st.name || ""), `${x.st.name || ""}\n${x.st.description || x.st.title || ""}`) }));
         const server = await core().getState("streaming_server").catch(() => null);
         const options = {
           limit: Math.min(streamChoice.limit(settings.quickPlayQuality), streamChoice.limit(await netMemory.cap())),
@@ -16204,7 +16252,8 @@
           how: choice ? choice.how : null,
           // the connection's speed in Mbps, when Match my internet speed measured it (else 0)
           speed: options.speed || 0,
-          items: items.map(phoneItem),
+          // (mbps: the bitrate, its size over the title's length; 0 when either isn't known, never a guess)
+          items: items.map((x) => ({ ...phoneItem(x), mbps: x.d.size > 0 && options.minutes > 0 ? Math.round(streamChoice.mbps(x.d, options.minutes) * 10) / 10 : 0 })),
         };
       },
       // Playing one of those: like Just press Play, the next best are kept in case it won't play
@@ -16242,9 +16291,17 @@
         const item = phoneStreams && phoneStreams.items[index];
         if (!item || !item.st.url || !/^https?:/i.test(item.st.url)) return null;
         phonePlaying = item;
+        quickPlay.current = item;
         quickPlay.spares = streamChoice.spares(streamChoice.decodable(phoneStreams.items), item, phoneStreams.options);
         const hints = item.st.behaviorHints || {};
         return { url: item.st.url, headers: (hints.proxyHeaders && hints.proxyHeaders.request) || {}, label: quickPlay.label(item.d) };
+      },
+      // The picture the player is really showing (its width in pixels), once it plays: a stream whose name
+      // claimed more is read at its real quality from then on. True when it was less than claimed.
+      realPicture(width) {
+        // (the quiet skip moves quickPlay's on to a spare; the phone's stays on what was chosen)
+        const x = quickPlay.current || phonePlaying;
+        return !!x && !!x.d && streamTruth.add(x, Number(width) || 0);
       },
       // What the player got from the server on this network (it measures while filling its buffer)
       networkSample(mbps) {

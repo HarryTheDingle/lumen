@@ -189,8 +189,10 @@ struct StreamOption: Identifiable, Hashable {
     var seeds: Int
     var source: String
     var langs: [String]
-    /** The bitrate it needs (Mbit/s), when it's offered as lighter than the one playing */
+    /** The bitrate it needs (Mbit/s): its size over the title's length, 0 when either isn't known */
     var mbps: Double
+    /** The quality its name claimed, when it's played before at less (res is then the real one), else 0 */
+    var claimed: Int
     var id: Int { index }
 
     init(_ i: Int, _ o: JSON) {
@@ -216,12 +218,18 @@ struct StreamOption: Identifiable, Hashable {
         threeD = o.bool("threeD")
         size = o.double("size")
         mbps = o.double("mbps")
+        claimed = o.int("claimed")
         seeds = o.int("seeds", -1)
         source = o.string("source")
         langs = o.strings("langs")
     }
 
-    var quality: String {
+    /** "38 Mbps", when it's known */
+    var mbpsText: String? { mbps > 0 ? "\(mbps.formatted()) Mbps" : nil }
+
+    var quality: String { Self.qualityName(res) }
+
+    static func qualityName(_ res: Int) -> String {
         switch res {
         case 2160: "4K"
         case 1440: "1440p"
@@ -326,10 +334,13 @@ struct StreamChoices {
     var videoId: String?
     var pick: Int
     var sameAsLastTime: Bool
+    /** The connection's speed in Mbps, when Match my internet speed measured it (else 0) */
+    var speed: Double
     var items: [StreamOption]
     var picked: StreamOption? { items.indices.contains(pick) ? items[pick] : nil }
 
     init(_ o: JSON) {
+        speed = o.double("speed")
         justPlay = o.bool("justPlay")
         settled = o.bool("settled")
         videoId = o.text("videoId")

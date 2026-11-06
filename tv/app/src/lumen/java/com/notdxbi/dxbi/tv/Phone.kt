@@ -9,6 +9,7 @@ import com.notdxbi.dxbi.tv.lumen.LumenApp
 import com.notdxbi.dxbi.tv.lumen.PlayerLoading
 import com.notdxbi.dxbi.tv.phone.Engine
 import com.notdxbi.dxbi.tv.phone.StreamOption
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.File
 
@@ -58,6 +59,17 @@ object Phone {
     fun play(activity: MainActivity, json: String): Boolean {
         nextTarget = Target.Player
         return false
+    }
+
+    /** The picture's real width, as the player first showed it: the page notes a stream that plays lower than its name said */
+    fun realPicture(width: Int) {
+        val engine = engine ?: return
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+            val lower = try {
+                engine.call("dx", JSONObject().put("method", "phone.realPicture").put("args", org.json.JSONArray().put(width)))
+            } catch (e: Exception) { null }
+            android.util.Log.i("dxbi-player", "real picture $width wide, lower than its name: $lower")
+        }
     }
 
     @UnstableApi

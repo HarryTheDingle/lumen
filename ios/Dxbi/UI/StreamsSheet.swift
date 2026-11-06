@@ -175,9 +175,10 @@ struct StreamsSheet: View {
                     .font(s.filename.isEmpty ? .headline : .footnote.weight(.semibold))
                     .foregroundStyle(s.filename.isEmpty ? .white : Dx.muted)
                     .lineLimit(1)
-                let facts = [s.sizeText, s.seeds >= 0 ? "\(s.seeds) seeds" : nil, s.langs.filter { !$0.hasPrefix("Not listed") }.joined(separator: ", ").ifEmpty("-"), s.addon != s.provider ? s.addon : nil]
+                let facts = [s.sizeText, s.mbpsText, s.seeds >= 0 ? "\(s.seeds) seeds" : nil, s.langs.filter { !$0.hasPrefix("Not listed") }.joined(separator: ", ").ifEmpty("-"), s.addon != s.provider ? s.addon : nil]
                     .compactMap { $0 }.filter { !$0.isEmpty && $0 != "-" }
                 if !facts.isEmpty { Text(facts.joined(separator: " · ")).font(.footnote).foregroundStyle(Dx.muted).lineLimit(2) }
+                if s.claimed > s.res { Text("Named \(StreamOption.qualityName(s.claimed)), played at \(s.quality)").font(.caption).foregroundStyle(Dx.faint) }
                 if s.lesser { Text("Upscaled, high frame rate or 3D: may not look as good as it says").font(.caption).foregroundStyle(Dx.faint) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

@@ -234,11 +234,18 @@ struct TitleView: View {
         if let c = current, c.settled, c.picked == nil {
             return stremio.failLaunch("No streams found", "Your addons may not have this one yet.")
         }
+        let addons = d.addonsAsked == 0 ? "Asking your addons" : found == 0 ? "\(d.addonsAnswered) of \(d.addonsAsked) addons answered" : "\(found) streams from \(d.addonsAnswered) of \(d.addonsAsked) addons"
         stremio.stepLaunch(
             "Finding the best stream",
-            detail: d.addonsAsked == 0 ? "Asking your addons" : found == 0 ? "\(d.addonsAnswered) of \(d.addonsAsked) addons answered" : "\(found) streams from \(d.addonsAnswered) of \(d.addonsAsked) addons",
+            detail: [addons, internetText].compactMap { $0 }.joined(separator: " · "),
             progress: progress
         )
+    }
+
+    /** "Your internet: 120 Mbps", once Match my internet speed has measured it */
+    private var internetText: String? {
+        guard let s = current?.speed, s > 0 else { return nil }
+        return "Your internet: \(Int(s)) Mbps"
     }
 
     /**
@@ -257,7 +264,7 @@ struct TitleView: View {
         streamsOpen = false
         if stremio.launch != nil {
             let what = [option.quality, option.dv ? "Dolby Vision" : option.hdr ? "HDR" : nil].compactMap { $0 }.joined(separator: " · ")
-            stremio.stepLaunch("Starting \(what)", detail: [option.provider, option.sizeText ?? "", option.source].filter { !$0.isEmpty && $0 != "Other" }.joined(separator: " · "), progress: 0.88)
+            stremio.stepLaunch("Starting \(what)", detail: [option.provider, option.sizeText ?? "", option.mbpsText.map { "\($0) stream" } ?? "", internetText ?? "", option.source].filter { !$0.isEmpty && $0 != "Other" }.joined(separator: " · "), progress: 0.88)
         }
         stremio.play(option, in: target)
     }

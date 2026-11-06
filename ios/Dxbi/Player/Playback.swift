@@ -54,11 +54,15 @@ final class Playback: Identifiable {
     // what the screen shows (copied from mpv as it changes)
     var position: Double = 0
     var duration: Double = 0
+    /** How far the video's loaded (seconds into it), for the seek bar's lighter part ahead of the playhead */
+    var buffered: Double = 0
     var paused = false
     var buffering = true
     /** The first picture is playing: the loading screen over the player goes */
     var ready = false
     @ObservationIgnored private var readyFrom: Double?
+    /** The playing file's real picture width has been told to the page (once per file: a "4K" that's 1080p) */
+    @ObservationIgnored private var pictureTold = false
     var speed: Double = 1
     var tracks: [MPV.Track] = []
     var fit = Fit.fit {
@@ -211,6 +215,7 @@ final class Playback: Identifiable {
         alternatives = []
         subtitlesDecided = false
         compositing = false
+        pictureTold = false
         mpv.property("cache-pause-wait", "1")
         mpv.load(url, start: at, headers: headers, audioLanguage: payload.text("audioLanguage"), subtitleLanguage: payload.text("subtitleLanguage"))
         thumbs?.change(url: url, headers: headers)
@@ -245,6 +250,9 @@ final class Playback: Identifiable {
         // (only what changed: each change redraws what shows it, open menus included)
         if position != mpv.position { position = mpv.position }
         if duration != mpv.duration { duration = mpv.duration }
+        // (whole seconds: the seek bar only needs to move when it's loaded a little more)
+        let loaded = (mpv.number("demuxer-cache-time") ?? 0).rounded(.down)
+        if buffered != loaded { buffered = loaded }
         if paused != mpv.paused { paused = mpv.paused; nowPlaying() }
         if buffering != mpv.buffering { buffering = mpv.buffering }
         if speed != mpv.speed { speed = mpv.speed; nowPlaying() }
@@ -270,6 +278,10 @@ final class Playback: Identifiable {
             let from = readyFrom ?? mpv.position
             readyFrom = from
             if mpv.position - from >= 0.8 { ready = true }
+        }
+        if ready, !pictureTold, playingSince != nil, let w = mpv.number("video-params/w"), w > 0 {
+            pictureTold = true
+            stremio?.realPicture(width: w)
         }
         if mpv.stalled { if stalledSince == nil, settledIn, Date().timeIntervalSince(mpv.lastSeek) > 4 { stallCount += 1 }; stalledSince = stalledSince ?? Date() } else { stalledSince = nil }
         if !subtitlesDecided, mpv.started { decideSubtitles() }

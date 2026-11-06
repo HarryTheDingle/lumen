@@ -238,7 +238,7 @@ struct PlayerScreen: View {
 
     private var bottomBar: some View {
         VStack(spacing: 10) {
-            Scrubber(position: scrubbing ?? seekPreview ?? playback.position, duration: playback.duration, accent: Color(playback.accent), segments: playback.segments) { value, done in
+            Scrubber(position: scrubbing ?? seekPreview ?? playback.position, duration: playback.duration, accent: Color(playback.accent), segments: playback.segments, buffered: playback.buffered) { value, done in
                 if done {
                     playback.mpv.seek(to: value)
                     scrubbing = nil
@@ -552,14 +552,18 @@ private struct Scrubber: View {
     var duration: Double
     var accent: Color
     var segments: [Playback.Segment]
+    /** How far it's loaded (seconds): drawn lighter ahead of the playhead, like the TV's */
+    var buffered: Double = 0
     var onScrub: (Double, Bool) -> Void
     @State private var dragging = false
 
     var body: some View {
         GeometryReader { g in
             let fraction = duration > 0 ? min(max(position / duration, 0), 1) : 0
+            let loaded = duration > 0 ? min(max(buffered / duration, 0), 1) : 0
             ZStack(alignment: .leading) {
                 Capsule().fill(.white.opacity(0.25)).frame(height: dragging ? 10 : 6)
+                Capsule().fill(.white.opacity(0.45)).frame(width: g.size.width * loaded, height: dragging ? 10 : 6)
                 ForEach(Array(segments.enumerated()), id: \.offset) { _, s in
                     if duration > 0 {
                         let end = s.end > 0 ? s.end : duration

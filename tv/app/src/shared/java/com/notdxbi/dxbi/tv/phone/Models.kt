@@ -179,13 +179,19 @@ data class StreamOption(
     val hdr10plus: Boolean = false,
     val openMatte: Boolean = false,
     val threeD: Boolean = false,
+    /** The stream's bitrate in Mbit/s (0 when unknown), and the quality its name claimed when it has played lower (0 otherwise) */
+    val mbps: Double = 0.0,
+    val claimed: Int = 0,
 ) {
+    val bitrateText: String? get() = if (mbps > 0) "%.0f Mbps".format(mbps) else null
+    val claimNote: String? get() = if (claimed > res && res > 0) "Named ${qualityOf(claimed)}, plays ${qualityOf(res)}" else null
     /** The formats it offers, for the Format filter */
     val formats: List<String> get() = listOfNotNull(
         "IMAX".takeIf { imax }, "Dolby Vision".takeIf { dv }, "HDR".takeIf { hdr }, "Atmos".takeIf { atmos },
         "Remux".takeIf { source == "Remux" }, "Open Matte".takeIf { openMatte }, "3D".takeIf { threeD },
     )
-    val quality: String get() = when (res) { 2160 -> "4K"; 1440 -> "1440p"; 1080 -> "1080p"; 720 -> "720p"; 0 -> "?"; else -> "SD" }
+    val quality: String get() = qualityOf(res)
+    private fun qualityOf(r: Int) = when (r) { 2160 -> "4K"; 1440 -> "1440p"; 1080 -> "1080p"; 720 -> "720p"; 0 -> "?"; else -> "SD" }
     val sizeText: String? get() = if (size <= 0) null else if (size >= 1e9) "%.1f GB".format(size / 1e9) else "%.0f MB".format(size / 1e6)
 
     /** The picture's quality, as the desktop's Best quality sort scores it: resolution, then Dolby Vision or HDR, then the source */
@@ -203,6 +209,7 @@ data class StreamOption(
             o.optString("codec"), o.optBoolean("instant"), o.optBoolean("pending"), o.optBoolean("lesser"), o.optInt("res"), o.optBoolean("hdr"),
             o.optBoolean("dv"), o.optDouble("size", 0.0), o.optInt("seeds", -1), o.optString("source"), o.optJSONArray("langs").strings(),
             o.optBoolean("imax"), o.optBoolean("atmos"), o.optBoolean("hdr10plus"), o.optBoolean("openMatte"), o.optBoolean("threeD"),
+            o.optDouble("mbps", 0.0), o.optInt("claimed", 0),
         )
     }
 }
