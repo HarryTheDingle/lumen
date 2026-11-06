@@ -497,7 +497,8 @@ final class Playback: Identifiable {
     /** The end credits of an episode with another after it: Up Next shows (from the credits, or the last seconds) */
     var upNextDue: Bool {
         guard nextTitle != nil, upNextSeconds > 0, duration > 60 else { return false }
-        if let credits = segments.first(where: { $0.type == "credits" }) { return position >= credits.start }
+        // (credits are in the second half: a time from the start of the episode is wrong data, and Up Next showed at once)
+        if let credits = segments.first(where: { $0.type == "credits" && $0.start > duration / 2 && $0.start < duration }) { return position >= credits.start }
         return duration - position <= Double(upNextSeconds) + 20
     }
 

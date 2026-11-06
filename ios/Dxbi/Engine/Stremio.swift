@@ -624,6 +624,17 @@ final class Stremio {
      * saying so), or nil when it looks fine or can't be told. Asks for the first bytes only; torrents aren't looked at.
      */
     private func whyNotVideo(_ option: StreamOption) async -> String? {
+        // (never a long wait: a slow or odd server counts as fine, and the player decides)
+        await withTaskGroup(of: String?.self) { group in
+            group.addTask { await self.probe(option) }
+            group.addTask { try? await Task.sleep(for: .seconds(8)); return nil }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
+
+    private func probe(_ option: StreamOption) async -> String? {
         guard let p = await dx("phone.probe", option.index) as? [String: Any],
               let address = p["url"] as? String, var url = URL(string: address) else { return nil }
         let headers = p["headers"] as? [String: String] ?? [:]
@@ -633,7 +644,9 @@ final class Stremio {
             var request = URLRequest(url: url, timeoutInterval: 5)
             for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
             request.setValue("bytes=0-2047", forHTTPHeaderField: "Range")
-            guard let (_, response) = try? await session.data(for: request), let http = response as? HTTPURLResponse else { return nil }
+            // (the answer's headers only: a server that ignores the range would send the whole file)
+            guard let (bytes, response) = try? await session.bytes(for: request), let http = response as? HTTPURLResponse else { return nil }
+            defer { bytes.task.cancel() }
             if (300..<400).contains(http.statusCode) {
                 guard let to = http.value(forHTTPHeaderField: "Location"), let next = URL(string: to, relativeTo: url)?.absoluteURL else { return nil }
                 url = next

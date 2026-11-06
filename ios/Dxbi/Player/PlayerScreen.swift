@@ -20,6 +20,7 @@ struct PlayerScreen: View {
     @State private var seekPreview: Double?
     @State private var heldSpeed: Double?
     @State private var level: (icon: String, value: Double, left: Bool)?
+    @State private var hideLevel: Task<Void, Never>?
     @State private var scrubbing: Double?
     @State private var now = Date()
     @State private var streamsOpen = false
@@ -71,6 +72,18 @@ struct PlayerScreen: View {
         .onAppear {
             poke()
             SystemVolume.prepare()
+        }
+        // The volume buttons: the system's own bar is hidden over a player (its slider is in the window), so this one shows
+        .onReceive(AVAudioSession.sharedInstance().publisher(for: \.outputVolume).dropFirst()) { v in showVolume(Double(v)) }
+    }
+
+    private func showVolume(_ v: Double) {
+        guard level == nil || level?.left == false else { return }
+        level = (v <= 0 ? "speaker.slash.fill" : "speaker.wave.2.fill", v, false)
+        hideLevel?.cancel()
+        hideLevel = Task {
+            try? await Task.sleep(for: .seconds(1))
+            if !Task.isCancelled { level = nil }
         }
     }
 
