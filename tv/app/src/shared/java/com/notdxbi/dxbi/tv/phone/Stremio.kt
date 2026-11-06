@@ -616,6 +616,26 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
     /** dx.bi settings → Play Trailers (on unless switched off): a title's page fades its trailer in */
     suspend fun playTrailers(): Boolean = settings().firstOrNull { it.key == "playTrailers" }?.value != false
 
+    /**
+     * A look at a web stream before it's played: why it isn't a video (the addon's server errored, or sent a clip
+     * saying so), or null when it looks fine or can't be told. Torrents aren't looked at.
+     */
+    suspend fun whyNotVideo(option: StreamOption): String? {
+        val p = dx("phone.probe", option.index) as? JSONObject ?: return null
+        val headers = p.optJSONObject("headers")?.let { h -> h.keys().asSequence().associateWith { h.optString(it) } }.orEmpty()
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { StreamProbe.check(p.optString("url"), headers, p.optDouble("size", 0.0)) }
+    }
+
+    /** That stream isn't a video: the page won't pick it again by itself for a month */
+    suspend fun reject(option: StreamOption, why: String) {
+        dx("phone.reject", option.index, why)
+    }
+
+    /** Shuffle: [metaId]'s next episodes are random ones ([on]), until anything else is played (an ordinary Play clears it) */
+    fun shuffling(metaId: String, on: Boolean) = scope.launch {
+        dx("phone.shuffle", metaId, on)
+    }
+
     /** Start from the Beginning: the next player for [videoId] starts at 0 ([on]), or not (an ordinary Play clears it) */
     fun startFromBeginning(videoId: String?, on: Boolean) = scope.launch {
         ask("fromStart", JSONObject().put("videoId", videoId ?: JSONObject.NULL).put("on", on))

@@ -104,6 +104,7 @@ class PlayerActivity : AppCompatActivity() {
     private val refreshSubtitles = Runnable { player?.let { it.seekTo(it.currentPosition) } }
     // Up next: what's after this episode, how long the card counts down (0: never), the card's state
     private var nextTitle = ""
+    private var nextId = ""
     private var nextArt = ""
     private var upNextSeconds = 0
     private var upNextLeft = 0
@@ -151,6 +152,19 @@ class PlayerActivity : AppCompatActivity() {
     /** How fast the stream came, as the player measured it while loading (bits a second) */
     private var measuredBps = 0L
     private var pictureReported = false
+    private var clipChecked = false
+    // Lumen's Streams list: the sources a swap changes headers on, the subtitles to keep, which stream plays, and
+    // where a stream chosen from the list goes back to if it won't play
+    private var onlineSource: OkHttpDataSource.Factory? = null
+    private var subtitleItems: List<MediaItem.SubtitleConfiguration> = emptyList()
+    private var currentUrl = ""
+    private var playKey = ""
+    private var playIndex = -1
+    private var videoRoute: List<String> = emptyList()
+    private class Return(val url: String, val headers: Map<String, String>, val key: String, val index: Int)
+    private var returnTo: Return? = null
+    private var currentHeaders: Map<String, String> = emptyMap()
+    private var switchingAway = false
     private var lastText: List<String?> = emptyList()
 
     private val reportProgress = object : Runnable {
@@ -247,6 +261,12 @@ class PlayerActivity : AppCompatActivity() {
         stream.optJSONObject("subtitleStyle")?.let { styleSubtitles(it) }
 
         val url = stream.optString("url")
+        currentUrl = url
+        // (the player's address says which stream, and which video of which title)
+        val route = stream.optString("hash").substringBefore("?").split("/")
+        playKey = StreamAlt.keyOf(stream.optString("hash"))
+        if (route.size > 7 && route[1] == "player") videoRoute = listOf(route[5], route[6], route[7]).map { runCatching { Uri.decode(it) }.getOrDefault(it) }
+        if (Phone.ownsKeys()) currentHeaders = stream.optJSONObject("headers")?.let { h -> h.keys().asSequence().associateWith { k -> h.optString(k) } } ?: emptyMap()
         if (url.isEmpty()) {
             finishWith(error = "no stream address")
             return
@@ -266,6 +286,7 @@ class PlayerActivity : AppCompatActivity() {
         val online = OkHttpDataSource.Factory(http)
             .setUserAgent(if (ownAgent) null else "dxbi-tv/${BuildConfigVersion.name(this)}")
             .setDefaultRequestProperties(headers)
+        onlineSource = online
         val dataSource = extras?.dataSource(online) ?: online
 
         // The TV's own decoders first, falling back to software ones when a format isn't supported
@@ -308,6 +329,7 @@ class PlayerActivity : AppCompatActivity() {
         zoom = PictureZoom(playerView)
         val next = stream.optJSONObject("next")
         nextTitle = next?.optString("title").orEmpty()
+        nextId = next?.optString("id").orEmpty()
         nextArt = next?.optString("thumbnail").orEmpty()
         upNextSeconds = if (next == null) 0 else stream.optString("upNext", "10").toIntOrNull() ?: 0
         upNextCard = findViewById(R.id.up_next)
@@ -385,13 +407,25 @@ class PlayerActivity : AppCompatActivity() {
             }
         }
 
-        val item = MediaItem.Builder()
-            .setUri(Uri.parse(url))
-            .setSubtitleConfigurations(subtitles)
-            .build()
-        exo.setMediaItem(item, stream.optLong("startMs", 0L).coerceAtLeast(0L))
+        subtitleItems = subtitles
+        exo.setMediaItem(mediaItem(url), stream.optLong("startMs", 0L).coerceAtLeast(0L))
         exo.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
+                // (Lumen: a video of a few seconds, for a film or an episode, is an addon's error clip (ElfHosted's
+                // "Couldn't fetch this release"): passed over like a stream that won't play, not counted as watched)
+                if ((state == Player.STATE_READY || state == Player.STATE_ENDED) && Phone.ownsKeys() && !clipChecked && returnTo == null) {
+                    val length = exo.duration
+                    if (length != C.TIME_UNSET) {
+                        clipChecked = true
+                        if (length in 1..30_000L && stream.optLong("startMs", 0L) == 0L) {
+                            lastError = "It's only ${length / 1000} seconds long: an error clip"
+                            android.util.Log.w("dxbi-player", "stream is a short clip: $lastError file=${Uri.parse(currentUrl).lastPathSegment}")
+                            if (loading?.showing == true) loading?.retrying(lastError.orEmpty())
+                            finishWith(error = lastError)
+                            return
+                        }
+                    }
+                }
                 if (state == Player.STATE_ENDED) finishWith(ended = true, next = upNextSeconds > 0 && !upNextDismissed)
             }
 
@@ -405,6 +439,7 @@ class PlayerActivity : AppCompatActivity() {
                 }
                 uncover()
                 loading?.ready()
+                returnTo = null
             }
 
             override fun onTracksChanged(tracks: Tracks) {
@@ -416,17 +451,26 @@ class PlayerActivity : AppCompatActivity() {
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                // (a stream chosen from the Streams list that won't play: back to the one that was, where it was)
+                returnTo?.let { back ->
+                    returnTo = null
+                    android.util.Log.w("dxbi-player", "chosen stream failed: ${describe(error)} (${error.errorCodeName}) file=${Uri.parse(currentUrl).lastPathSegment}")
+                    putStream(back.url, back.headers, back.key, back.index, exo.currentPosition, null)
+                    flashText("That stream didn't play")
+                    if (back.index >= 0) Phone.pageCall("phone.source", org.json.JSONArray().put(back.index)) {}
+                    return
+                }
                 lastError = (if (torrent) TorrentEngine.failed() else null) ?: describe(error)
                 // (before its first picture: closed quietly, and the page tries the next best stream with
                 // the loading screen still up, so a stream that won't play is passed over, not shown failing)
                 if (loading?.showing == true) {
-                    android.util.Log.w("dxbi-player", "stream failed while loading: $lastError (${error.errorCodeName}) file=${Uri.parse(url).lastPathSegment}")
+                    android.util.Log.w("dxbi-player", "stream failed while loading: $lastError (${error.errorCodeName}) file=${Uri.parse(currentUrl).lastPathSegment}")
                     loading?.retrying(lastError.orEmpty())
                     finishWith(error = lastError)
                     return
                 }
                 // (in the TV's log, to tell what went wrong with which file: its name, not its address)
-                android.util.Log.w("dxbi-player", "stream failed: $lastError (${error.errorCodeName}: ${error.cause?.message}) file=${Uri.parse(url).lastPathSegment}")
+                android.util.Log.w("dxbi-player", "stream failed: $lastError (${error.errorCodeName}: ${error.cause?.message}) file=${Uri.parse(currentUrl).lastPathSegment}")
                 finishWith(error = lastError)
             }
 
@@ -443,7 +487,7 @@ class PlayerActivity : AppCompatActivity() {
         handler.postDelayed({
             if (loading?.showing == true && !isFinishing) {
                 lastError = "It didn't start"
-                android.util.Log.w("dxbi-player", "stream didn't start in 40s file=${Uri.parse(url).lastPathSegment}")
+                android.util.Log.w("dxbi-player", "stream didn't start in 40s file=${Uri.parse(currentUrl).lastPathSegment}")
                 loading?.retrying(lastError.orEmpty())
                 finishWith(error = lastError)
             }
@@ -533,6 +577,79 @@ class PlayerActivity : AppCompatActivity() {
             }
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    private fun mediaItem(url: String) = MediaItem.Builder()
+        .setUri(Uri.parse(url))
+        .setSubtitleConfigurations(subtitleItems)
+        .build()
+
+    private fun flashText(text: String) {
+        seekFlash.text = text
+        seekFlash.visibility = View.VISIBLE
+        handler.removeCallbacks(hideFlash)
+        handler.postDelayed(hideFlash, 2500)
+    }
+
+    /** Lumen's Streams list: this video's streams (null: the page didn't give them), the playing one first */
+    fun loadStreams(done: (List<StreamAlt>?) -> Unit) {
+        val (type, id, videoId) = videoRoute.takeIf { it.size == 3 } ?: return done(null)
+        Phone.playerStreams(type, id, videoId) { page ->
+            val list = page?.let { StreamAlt.list(it, playKey) }
+            list?.firstOrNull { it.playing }?.let { playIndex = it.index }
+            done(list)
+        }
+    }
+
+    /**
+     * Lumen's Streams list: plays [alt] from where this one is. A web stream is swapped in the player at once (the
+     * page's phone.source notes it as the one playing); a torrent, or any that can't be, closes this player and
+     * the page opens it, with the loading screen up as when a stream is retried
+     */
+    fun switchStream(alt: StreamAlt) {
+        if (alt.playing || closed) return
+        controls.hide()
+        Phone.pageCall("phone.source", org.json.JSONArray().put(alt.index)) { answer ->
+            if (closed) return@pageCall
+            val source = answer as? JSONObject
+            val url = source?.optString("url").orEmpty()
+            if (url.isEmpty()) {
+                loading?.switching()
+                switchingAway = true
+                Phone.playOther(alt.index)
+                finishWith()
+                return@pageCall
+            }
+            val headers = source?.optJSONObject("headers")?.let { h -> h.keys().asSequence().associateWith { k -> h.optString(k) } } ?: emptyMap()
+            val exo = player ?: return@pageCall
+            // (a torrent that was playing can't be gone back to in place)
+            returnTo = if (torrent) null else Return(currentUrl, currentHeaders, playKey, playIndex)
+            if (torrent) {
+                TorrentEngine.close()
+                torrent = false
+            }
+            putStream(url, headers, alt.key, alt.index, exo.currentPosition, source?.optString("label"))
+            tracks?.again()
+            pictureReported = false
+        }
+    }
+
+    /** [url] in the player, from [positionMs] (its sound and subtitle choices carried over by the track memory) */
+    private fun putStream(url: String, headers: Map<String, String>, key: String, index: Int, positionMs: Long, label: String?) {
+        val exo = player ?: return
+        onlineSource?.apply {
+            // (an addon's own User-Agent replaces ours, as at the start)
+            setUserAgent(if (headers.keys.any { it.equals("User-Agent", ignoreCase = true) }) null else "dxbi-tv/${BuildConfigVersion.name(this@PlayerActivity)}")
+            setDefaultRequestProperties(headers)
+        }
+        currentUrl = url
+        currentHeaders = headers
+        playKey = key
+        playIndex = index
+        exo.setMediaItem(mediaItem(url), positionMs)
+        exo.prepare()
+        exo.playWhenReady = true
+        if (!label.isNullOrEmpty()) flashText("Playing $label")
     }
 
     private fun segmentEnd(s: Segment, durationMs: Long): Long =
@@ -697,13 +814,14 @@ class PlayerActivity : AppCompatActivity() {
         val position = if (ended) duration else positionMs ?: exo?.currentPosition ?: 0L
         scrubber?.release()
         // (on to the next episode: Lumen's loading screen comes up for it first, behind this player)
-        val toNext = next && nextTitle.isNotEmpty() && loading != null
-        if (toNext) loading?.next(nextTitle)
-        if (extras?.keep(position, ended) != true) PlaybackBus.closed(position, duration, ended, error, next, measuredBps / 1_000_000.0)
+        val toNext = next && nextTitle.isNotEmpty() && nextId.isNotEmpty() && loading != null
+        if (toNext) loading?.next(nextTitle, nextId)
+        // (Lumen starts the next episode itself, as Play does: the page just goes back, as for any close)
+        if (extras?.keep(position, ended) != true) PlaybackBus.closed(position, duration, ended, error, next && !toNext, measuredBps / 1_000_000.0)
         if (torrent) TorrentEngine.close()
         finish()
         // (failed while loading: the app's loading screen is already behind it, so no slide)
-        if ((error != null && loading?.showing == true) || toNext) {
+        if ((error != null && loading?.showing == true) || toNext || switchingAway) {
             @Suppress("DEPRECATION")
             overridePendingTransition(0, 0)
         }

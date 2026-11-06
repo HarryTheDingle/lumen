@@ -11,6 +11,9 @@ object Phone {
     fun attach(activity: MainActivity, root: FrameLayout, js: (String) -> Unit) = Unit
     fun pageScript(context: Context) = ""
     fun realPicture(width: Int) = Unit
+    fun playerStreams(type: String, id: String, videoId: String, done: (JSONObject?) -> Unit) = done(null)
+    fun pageCall(method: String, args: org.json.JSONArray, done: (Any?) -> Unit) = done(null)
+    fun playOther(index: Int) = Unit
     fun ownsKeys() = false
     fun pageMessage(json: String) = Unit
     fun pageGone() = Unit

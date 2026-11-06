@@ -77,7 +77,15 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
     private var job: Job? = null
 
     /** Starts [t]: [videoId] (an episode), else the one they're on, else the first that's out. [fromStart]: from 0, not the saved place */
-    fun play(t: Title, videoId: String? = null, fromStart: Boolean = false) = begin(t) { run(t, videoId, fromStart) }
+    /** Started from Shuffle: the next episode, from the player's Next, is the player's pick (the page's, random) either way */
+    private var shuffling = false
+
+    fun play(t: Title, videoId: String? = null, fromStart: Boolean = false, shuffle: Boolean = false) = begin(t) {
+        // (Shuffle carries on with random episodes after this one; any other Play ends it)
+        shuffling = shuffle
+        stremio.shuffling(t.id, shuffle)
+        run(t, videoId, fromStart)
+    }
 
     /** Starts a stream chosen from the list */
     fun play(t: Title, option: StreamOption, episodeLine: String?) = begin(t) {
@@ -106,6 +114,15 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
         LoadingHandoff.put(r.title, r.episode, step)
         // (the next episode's streams take a while to come; another of the same one's are ready)
         val next = r.step.text.startsWith("Starting the next")
+        // The next episode: started as Play starts one, once the page has gone back from the player (it was
+        // opened by the page itself before, and Back from it brought the stream up again)
+        if (next && r.nextVideo != null) {
+            job = scope.launch {
+                delay(1300)
+                play(r.title, r.nextVideo, shuffle = shuffling)
+            }
+            return
+        }
         job = scope.launch {
             delay(if (next) 45_000 else 15_000)
             if (title != null) {
@@ -197,7 +214,17 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
     }
 
     /** 4. The stream chosen: off to the player (the loading screen goes once it's up) */
-    private suspend fun starting(option: StreamOption) {
+    private suspend fun starting(first: StreamOption) {
+        var option = first
+        // A stream whose server answers with an error, or with a clip saying so (ElfHosted's "Couldn't fetch this
+        // release"), is passed over before it's played: the next best goes in its place
+        for (tried in 0 until 4) {
+            val why = stremio.whyNotVideo(option) ?: break
+            android.util.Log.w("dxbi-player", "stream passed over before playing: $why")
+            stremio.reject(option, why)
+            step = Step("That stream isn't available", "Trying another…", 0.85f)
+            option = stremio.streams()?.picked ?: return fail("Couldn't find a stream that plays", "Try … → Choose a Stream on the title's page.")
+        }
         val what = listOfNotNull(option.quality, if (option.dv) "Dolby Vision" else if (option.hdr) "HDR" else null).joinToString(" · ")
         step = Step("Starting $what", listOf(option.provider, option.sizeText.orEmpty(), option.bitrateText?.let { "$it stream" }.orEmpty(), internet.orEmpty(), option.source).filter { it.isNotEmpty() && it != "Other" }.joinToString(" · "), 0.88f)
         // (the player carries this screen on from here, to the video's first picture)

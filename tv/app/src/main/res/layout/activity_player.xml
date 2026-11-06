@@ -145,6 +145,13 @@
                     android:layout_height="wrap_content"
                     android:layout_gravity="end|center_vertical"
                     android:orientation="horizontal">
+                <!-- Lumen: the title's other streams, out from More (dx.bi TV never shows it) -->
+                <ImageButton
+                    android:id="@+id/ctl_streams"
+                    style="@style/PlayerButton"
+                    android:contentDescription="Streams"
+                    android:src="@drawable/ic_streams"
+                    android:visibility="gone" />
                 <ImageButton
                     android:id="@+id/ctl_stats"
                     style="@style/PlayerButton"

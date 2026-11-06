@@ -18,7 +18,7 @@ import kotlinx.coroutines.delay
  * taken once by the player. It goes stale after a minute (a player opened some other way shows none).
  */
 object LoadingHandoff {
-    class Info(val title: Title, val episode: String?, val step: Launcher.Step, val at: Long)
+    class Info(val title: Title, val episode: String?, val step: Launcher.Step, val at: Long, val nextVideo: String? = null)
 
     @Volatile
     private var info: Info? = null
@@ -43,9 +43,14 @@ object LoadingHandoff {
         retries.value = Info(title, episode, Launcher.Step("Trying another stream", why.ifEmpty { null }?.let { "The last one didn't play: $it" }, 0.9f), System.currentTimeMillis())
     }
 
-    /** The next episode: the same screen, while the page finds its stream */
-    fun next(title: Title, episode: String) {
-        retries.value = Info(title, episode, Launcher.Step("Starting the next episode", null, 0.3f), System.currentTimeMillis())
+    /** The next episode: the same screen, while it's started the way Play starts one (see Launcher.retry) */
+    fun next(title: Title, episode: String, videoId: String) {
+        retries.value = Info(title, episode, Launcher.Step("Starting the next episode", null, 0.3f), System.currentTimeMillis(), videoId)
+    }
+
+    /** Another stream of the same video, chosen from the player's list: the same screen, while the page opens it */
+    fun switching(title: Title, episode: String?) {
+        retries.value = Info(title, episode, Launcher.Step("Switching stream", null, 0.9f), System.currentTimeMillis())
     }
 
     fun takeRetry(): Info? = retries.value.also { retries.value = null }?.takeIf { System.currentTimeMillis() - it.at < 30_000 }
@@ -72,8 +77,12 @@ class PlayerLoading(private val info: LoadingHandoff.Info, private val onGone: (
         if (!step.failed) ready = true
     }
 
-    override fun next(episode: String) {
-        LoadingHandoff.next(info.title, episode)
+    override fun next(episode: String, videoId: String) {
+        LoadingHandoff.next(info.title, episode, videoId)
+    }
+
+    override fun switching() {
+        LoadingHandoff.switching(info.title, info.episode)
     }
 
     override fun retrying(message: String) {

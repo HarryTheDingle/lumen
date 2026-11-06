@@ -709,7 +709,8 @@
     ], subtitleLanguage);
     // (where the end credits start, in seconds: stopped past there counts as finished)
     const credits = (skips || []).find((s) => s && s.type === "credits");
-    handoff = { hash, videoId, started: Date.now(), creditsAt: credits && credits.start > 0 ? credits.start : 0 };
+    const shuffled = shufflePick(state);
+    handoff = { hash, videoId, started: Date.now(), creditsAt: credits && credits.start > 0 ? credits.start : 0, shuffled };
     tv.partyVideo = new NativeVideo();
     partySeen = "";
     // (the seek bar's pictures: the lightest web stream of this video, as the iPad's, when the phone
@@ -725,7 +726,7 @@
       autoSkip: (dx && dx.settings && dx.settings.autoSkip) || "off",
       clock: !(dx && dx.settings) || dx.settings.playerClock !== false,
       accent: await accentFor(meta),
-      next: nextLink(state) ? { id: state.nextVideo.id, title: nextTitle(state.nextVideo), thumbnail: state.nextVideo.thumbnail || "" } : null,
+      next: nextLink(state, shuffled) ? { id: nextOf(state, shuffled).id, title: nextTitle(nextOf(state, shuffled)), thumbnail: nextOf(state, shuffled).thumbnail || "" } : null,
       upNext: (dx && dx.settings && dx.settings.upNext) || "10",
       audioLanguage: profile.audioLanguage || "",
       // (empty: subtitles start off)
@@ -840,23 +841,45 @@
 
   const nextTitle = (v) => `S${v.season} · E${v.episode}${v.title || v.name ? ` · ${v.title || v.name}` : ""}`;
 
-  // The next episode's list of streams, or its own player screen
-  function nextLink(state) {
-    const links = state && state.nextVideo && state.nextVideo.deepLinks;
-    return links && (links.player || links.metaDetailsStreams);
-  }
-
-  // Straight into the next episode with the same release, as on a computer, when one is found quickly
-  async function nextLinkFor(state) {
+  // Shuffle (started from a show's Shuffle button): the next episode is another random one, not the next in
+  // order. Picked once when the player opens, so the Up next card and Next episode agree on which.
+  function shufflePick(state) {
     const dx = window.__dxbi;
     const sel = state && state.selected;
     const mp = sel && sel.metaRequest && sel.metaRequest.path;
-    if (dx && dx.findStream && mp && state.nextVideo) {
-      const media = { type: mp.type, metaId: mp.id, videoId: state.nextVideo.id, hints: dx.streamHints(sel.stream) };
+    const meta = state && state.metaItem && state.metaItem.content;
+    if (!(dx && dx.phone && dx.phone.shuffling && mp && dx.phone.shuffling() === mp.id && meta && Array.isArray(meta.videos))) return null;
+    const now = Date.now();
+    const playing = sel.streamPath && sel.streamPath.id;
+    const out = meta.videos.filter((v) => v && v.season > 0 && v.id !== playing && (!v.released || new Date(v.released).getTime() <= now));
+    const v = out[Math.floor(Math.random() * out.length)];
+    return v ? { ...v, type: mp.type, metaId: mp.id } : null;
+  }
+
+  // The episode Next goes to: the shuffled one, else Stremio's next in order
+  const nextOf = (state, picked) => picked || (state && state.nextVideo);
+
+  // The next episode's list of streams, or its own player screen
+  function nextLink(state, picked) {
+    const v = nextOf(state, picked);
+    const links = v && v.deepLinks;
+    if (links && (links.player || links.metaDetailsStreams)) return links.player || links.metaDetailsStreams;
+    // (a shuffled episode from the show's list may not carry them: its streams page)
+    return picked && picked.metaId ? `#/detail/${picked.type}/${encodeURIComponent(picked.metaId)}/${encodeURIComponent(picked.id)}` : undefined;
+  }
+
+  // Straight into the next episode with the same release, as on a computer, when one is found quickly
+  async function nextLinkFor(state, picked) {
+    const dx = window.__dxbi;
+    const sel = state && state.selected;
+    const mp = sel && sel.metaRequest && sel.metaRequest.path;
+    const upNext = nextOf(state, picked);
+    if (dx && dx.findStream && mp && upNext) {
+      const media = { type: mp.type, metaId: mp.id, videoId: upNext.id, hints: dx.streamHints(sel.stream) };
       const found = await Promise.race([dx.findStream(media, () => true), new Promise((r) => setTimeout(r, 8000))]).catch(() => null);
       if (found && found.link) return found.link.startsWith("#") ? found.link : `#${found.link}`;
     }
-    return nextLink(state);
+    return nextLink(state, picked);
   }
 
   // An episode: its watched tag (on its own: the season's others stay as they are). A film: marked
@@ -890,8 +913,9 @@
         if (durationMs > 0 && timeMs < durationMs * 0.9) tv.onProgress(Math.ceil(durationMs * 0.95), durationMs, true);
         await markFinished(videoId);
       }
+      const shuffled = handoff.shuffled;
       handoff = null;
-      const link = next && await nextLinkFor(await playerState());
+      const link = next && await nextLinkFor(await playerState(), shuffled);
       console.info("[dx.bi TV] player closed", JSON.stringify({ videoId, timeMs, durationMs, ended, next, finished, link: link || null }));
       if (link) location.replace(link);
       else history.back();

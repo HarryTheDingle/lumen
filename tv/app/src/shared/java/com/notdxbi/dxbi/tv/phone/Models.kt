@@ -11,6 +11,9 @@ fun JSONArray?.objects(): List<JSONObject> =
 fun JSONArray?.strings(): List<String> =
     if (this == null) emptyList() else (0 until length()).mapNotNull { opt(it) as? String }
 
+/** Names come with their HTML escapes ("Ed O&apos;Neill") */
+fun unescaped(s: String): String = s.replace("&apos;", "'").replace("&#39;", "'").replace("&quot;", "\"").replace("&amp;", "&")
+
 /** A string that's really there: null for missing, JSON null and "" */
 fun JSONObject.text(key: String): String? = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
 
@@ -267,8 +270,8 @@ data class Details(
                 metaId = selected?.optJSONObject("metaPath")?.text("id"),
                 videoId = selected?.optJSONObject("streamPath")?.text("id"),
                 title = meta?.let(Title::from),
-                cast = meta?.optJSONArray("cast").strings(),
-                directors = meta?.optJSONArray("directors").strings(),
+                cast = meta?.optJSONArray("cast").strings().map(::unescaped),
+                directors = meta?.optJSONArray("directors").strings().map(::unescaped),
                 videos = meta?.optJSONArray("videos").objects().map(Video::from),
                 resumeVideoId = resume?.text("videoId"),
                 nextVideoId = o.text("next"),

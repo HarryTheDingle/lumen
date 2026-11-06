@@ -20,6 +20,8 @@ struct TitleView: View {
     @State private var reviewsOpen = false
     @State private var moreText = false
     @State private var autoPlayed = false
+    /** Started from Shuffle: Next episode carries on with random ones */
+    @State private var shuffling = false
     /** The cast with photos (TMDB, with a key in dx.bi settings), else nil */
     @State private var cast: [JSON]?
     /** The trailer, fading in over the art a moment after the page opens */
@@ -126,7 +128,7 @@ struct TitleView: View {
             if d.videoId == nil, let v = nextVideo(d) { stremio.open(ref.type, ref.id, videoId: v.id) }
             if (ref.play || ref.fromStart || ref.shuffle) && !autoPlayed {
                 autoPlayed = true
-                start(ref.shuffle ? d.shuffled()?.id : nextVideo(d)?.id, fromStart: ref.fromStart)
+                start(ref.shuffle ? d.shuffled()?.id : nextVideo(d)?.id, fromStart: ref.fromStart, shuffle: ref.shuffle)
             }
         }
         .onChange(of: details?.state == .ready && ref.type != "series", initial: true) { _, ready in
@@ -144,7 +146,7 @@ struct TitleView: View {
             stremio.nextEpisode = nil
             Task {
                 try? await Task.sleep(for: .seconds(1.3))
-                start(n.videoId)
+                start(n.videoId, shuffle: shuffling)
             }
         }
         // dx.bi's reading of the streams, again as more addons answer
@@ -191,9 +193,12 @@ struct TitleView: View {
         return d.videos.first { $0.id == d.videoId } ?? d.videos.first { $0.id == d.resumeVideoId } ?? d.videos.first { ($0.season ?? 0) > 0 && !$0.upcoming } ?? d.videos.first
     }
 
-    private func start(_ videoId: String?, fromStart: Bool = false) {
+    private func start(_ videoId: String?, fromStart: Bool = false, shuffle: Bool = false) {
         let target = videoId ?? details?.videoId ?? ref.id
         stremio.startFromBeginning(target, on: fromStart)
+        // (Shuffle carries on with random episodes after this one, Next episode included; any other Play ends it)
+        shuffling = shuffle
+        stremio.shuffling(ref.id, on: shuffle)
         if ref.type == "series", let videoId, videoId != details?.videoId {
             choices = nil
             stremio.open(ref.type, ref.id, videoId: videoId)
@@ -412,7 +417,7 @@ struct TitleView: View {
                     Button { start(details.flatMap(nextVideo)?.id, fromStart: true) } label: { Label("Start from the Beginning", systemImage: "arrow.counterclockwise") }
                 }
                 if ref.type == "series", let d = details, d.state == .ready {
-                    Button { start(d.shuffled()?.id) } label: { Label("Shuffle", systemImage: "shuffle") }
+                    Button { start(d.shuffled()?.id, shuffle: true) } label: { Label("Shuffle", systemImage: "shuffle") }
                 }
                 if !title.watched {
                     Button { stremio.setWatched(true) } label: { Label("Mark as Watched", systemImage: "eye") }

@@ -599,9 +599,60 @@ final class Stremio {
     func play(_ option: StreamOption, in target: Target = .player) {
         nextTarget = target == .player && otherApp != nil ? .otherApp : target
         Task {
-            let link = await dx("phone.play", option.index) as? String ?? option.play
+            var chosen = option
+            // A stream whose server answers with an error, or with a clip saying so (ElfHosted's "Couldn't fetch
+            // this release"), is passed over before it's played: the next best goes in its place
+            if target == .player {
+                for _ in 0..<4 {
+                    guard let why = await whyNotVideo(chosen) else { break }
+                    _ = await dx("phone.reject", chosen.index, why)
+                    if launch != nil { stepLaunch("That stream isn't available", detail: "Trying another…", progress: 0.85) }
+                    guard let next = await streams()?.picked else {
+                        if launch != nil { failLaunch("Couldn't find a stream that plays", "Try … → Choose a Stream on the title's page.") }
+                        return
+                    }
+                    chosen = next
+                }
+            }
+            let link = await dx("phone.play", chosen.index) as? String ?? chosen.play
             await ask("play", ["link": link])
         }
+    }
+
+    /**
+     * A look at a web stream before it's played: why it isn't a video (the addon's server errored, or sent a clip
+     * saying so), or nil when it looks fine or can't be told. Asks for the first bytes only; torrents aren't looked at.
+     */
+    private func whyNotVideo(_ option: StreamOption) async -> String? {
+        guard let p = await dx("phone.probe", option.index) as? [String: Any],
+              let address = p["url"] as? String, var url = URL(string: address) else { return nil }
+        let headers = p["headers"] as? [String: String] ?? [:]
+        let listed = (p["size"] as? Double) ?? 0
+        let session = URLSession(configuration: .ephemeral, delegate: NoRedirects(), delegateQueue: nil)
+        for _ in 0..<6 {
+            var request = URLRequest(url: url, timeoutInterval: 5)
+            for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
+            request.setValue("bytes=0-2047", forHTTPHeaderField: "Range")
+            guard let (_, response) = try? await session.data(for: request), let http = response as? HTTPURLResponse else { return nil }
+            if (300..<400).contains(http.statusCode) {
+                guard let to = http.value(forHTTPHeaderField: "Location"), let next = URL(string: to, relativeTo: url)?.absoluteURL else { return nil }
+                url = next
+                continue
+            }
+            if http.statusCode >= 400 { return "The server answered \(http.statusCode)" }
+            let type = (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
+            if type.hasPrefix("text/") || type.contains("json") || type.contains("xml") { return "It isn't a video (\(type))" }
+            let name = url.lastPathComponent
+            if name.range(of: "(fail|error|unavail|not[_-]?found|denied|expired|blocked)[^/]*\\.(mp4|mkv|webm|ts)$", options: [.regularExpression, .caseInsensitive]) != nil {
+                return "The server sent an error video (\(name))"
+            }
+            var total: Int64?
+            if let range = http.value(forHTTPHeaderField: "Content-Range"), let n = range.split(separator: "/").last { total = Int64(n) }
+            else if http.statusCode == 200, http.expectedContentLength > 0 { total = http.expectedContentLength }
+            if let total, total < 30 * 1024 * 1024, listed <= 0 || listed > Double(total) * 10 { return "It's only \(total / 1024 / 1024) MB: an error clip" }
+            return nil
+        }
+        return nil
     }
 
     /** Continue Watching: Stremio's own player link for where they left off */
@@ -740,6 +791,11 @@ final class Stremio {
     /** dx.bi settings → Play Trailers (on unless switched off): a title's page fades its trailer in */
     func playTrailers() async -> Bool {
         await settings().first { $0.key == "playTrailers" }?.value != "false"
+    }
+
+    /** Shuffle: [metaId]'s next episodes are random ones (on), until anything else is played (an ordinary Play clears it) */
+    func shuffling(_ metaId: String, on: Bool) {
+        Task { await dx("phone.shuffle", metaId, on) }
     }
 
     /** Start from the Beginning: the next player for [videoId] starts at 0 (on), or not (off: an ordinary Play clears it) */
@@ -995,5 +1051,12 @@ final class Stremio {
         page.js("window.__dxbiIos.active = ''; window.__dxbiIos.pendingClose = \(Json.quote(Json.encode(close))); window.__dxbiTv && window.__dxbiTv.playerClosed && window.__dxbiTv.playerClosed()")
         playback = nil
         PlayerHost.hide()
+    }
+}
+
+/** Answers a redirect with itself, so the probe can look at where it goes */
+private final class NoRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }

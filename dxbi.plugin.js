@@ -1,7 +1,7 @@
 /**
  * @name Lumen
  * @description The Lumen experience: cinematic billboard, Netflix-style carousels, hover previews with trailers, ratings on posters, critic reviews, skip intro and up next, anime filler guide, new episode badges, watch stats and viewers, stream sorting & filters, a Netflix-style player with black-bar removal, night mode and subtitle sync, watch parties with friends, a cinematic intro and interface sounds. Use with the Lumen theme.
- * @version 2.30.16
+ * @version 2.30.18
  * @author dx.bi
  * @updateUrl https://raw.githubusercontent.com/HarryTheDingle/lumen/main/dxbi.plugin.js
  */
@@ -19,7 +19,7 @@
   // Stremio Enhanced loads each plugin as <script id="<file name>">, which tells us our settings key
   const SCRIPT_ID = (document.currentScript && document.currentScript.id) || "dxbi.plugin.js";
   const PLUGIN_KEY = SCRIPT_ID.replace(/\.plugin\.js$/, "");
-  const PLUGIN_VERSION = "2.30.16"; // kept in step with @version by tools/bundle-theme.mjs
+  const PLUGIN_VERSION = "2.30.18"; // kept in step with @version by tools/bundle-theme.mjs
   // Recent messages and errors, kept for problem reports (see `report`)
   const recent = { logs: [], errors: [] };
   const remember = (list, text) => {
@@ -15895,6 +15895,8 @@
   });
   // The stream the phone or iPad is playing (from phoneStreams), for lighter ones if it buffers
   let phonePlaying = null;
+  // The show being shuffled (its id): Next episode, and what plays after one ends, is another random episode
+  let phoneShuffle = null;
   const api = {
     settings,
     sync,
@@ -16296,6 +16298,26 @@
         const hints = item.st.behaviorHints || {};
         return { url: item.st.url, headers: (hints.proxyHeaders && hints.proxyHeaders.request) || {}, label: quickPlay.label(item.d) };
       },
+      // A web stream's address and headers, to look at it before it's played (null for a torrent); the size
+      // is what its listing said (0 when it didn't). See reject.
+      probe(index) {
+        const item = phoneStreams && phoneStreams.items[index];
+        if (!item || !item.st.url || !/^https?:/i.test(item.st.url)) return null;
+        const hints = item.st.behaviorHints || {};
+        return { url: item.st.url, headers: (hints.proxyHeaders && hints.proxyHeaders.request) || {}, size: item.d.size || 0 };
+      },
+      // A stream that turned out not to be a video (an addon's error): never picked again by itself, for a month
+      reject(index, why) {
+        const item = phoneStreams && phoneStreams.items[index];
+        if (item) streamFailures.add(item, why);
+        return !!item;
+      },
+      // A show started from Shuffle carries on shuffling (on), until anything else is played (off)
+      shuffle(metaId, on) {
+        phoneShuffle = on && metaId ? String(metaId) : null;
+        return true;
+      },
+      shuffling: () => phoneShuffle,
       // The picture the player is really showing (its width in pixels), once it plays: a stream whose name
       // claimed more is read at its real quality from then on. True when it was less than claimed.
       realPicture(width) {

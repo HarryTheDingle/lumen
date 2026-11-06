@@ -15,11 +15,21 @@ import org.json.JSONObject
  */
 class TrackMemory(context: Context, private val exo: ExoPlayer, private val show: String) {
     private val prefs = context.getSharedPreferences("lumen-tracks", Context.MODE_PRIVATE)
-    private val saved = prefs.getString(show, null)?.let { runCatching { JSONObject(it) }.getOrNull() }
+    private var saved = load()
     private var audioDone = saved?.optString("audioLang").isNullOrEmpty()
     /** The remembered subtitles: chosen once they're there (an addon's arrive a moment after the video's own) */
     private var subtitlesDone = saved?.optBoolean("subOn") != true
-    private val since = System.currentTimeMillis()
+    private var since = System.currentTimeMillis()
+
+    private fun load() = prefs.getString(show, null)?.let { runCatching { JSONObject(it) }.getOrNull() }
+
+    /** Another stream of the same video is loading: the sound and subtitles chosen so far are chosen again on it */
+    fun again() {
+        saved = load()
+        audioDone = saved?.optString("audioLang").isNullOrEmpty()
+        subtitlesDone = saved?.optBoolean("subOn") != true
+        since = System.currentTimeMillis()
+    }
 
     /** The video's tracks changed: the remembered ones chosen (once), else what's chosen now remembered */
     fun changed(tracks: Tracks) {

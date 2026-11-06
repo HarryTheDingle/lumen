@@ -183,7 +183,14 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
                         Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        TitleLogo(title, maxHeight = 30.dp, maxWidth = 170.dp, textSize = 17.sp)
+                        // (the name in plain type: a logo this small is hard to read)
+                        Text(
+                            title.name,
+                            style = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold, shadow = Shadow(Color.Black, blurRadius = 8f)),
+                            color = Color.White,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                         val facts = listOfNotNull(title.year, typeName(title.type), title.genres.firstOrNull(), title.runtime) +
                             scores.orEmpty().take(3).map { "${scoreName(it, short = true)} ${it.value}" }
                         Text(

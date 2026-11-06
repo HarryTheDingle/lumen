@@ -72,6 +72,66 @@ object Phone {
         }
     }
 
+    /**
+     * The player's Streams list: the playing video's streams from the page (reopening its details first when the page
+     * has another video open, as after Up next), as {items: every stream, all: the ones worth listing, without the playing
+     * one, samples, cinema recordings and not-yet-cached ones}. Null when the page doesn't answer
+     */
+    fun playerStreams(type: String, id: String, videoId: String, done: (JSONObject?) -> Unit) {
+        val engine = engine ?: return done(null)
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+            suspend fun dx(method: String, vararg args: Any?): Any? = try {
+                engine.call("dx", JSONObject().put("method", method).put("args", org.json.JSONArray(args.toList())), 8_000)
+            } catch (e: Exception) { null }
+            fun path(resource: String, kind: String, key: String) =
+                JSONObject().put("resource", resource).put("type", kind).put("id", key).put("extra", org.json.JSONArray())
+            var found: JSONObject? = null
+            var opened = false
+            val began = System.currentTimeMillis()
+            while (System.currentTimeMillis() - began < 14_000) {
+                val c = dx("phone.streams") as? JSONObject
+                if (c != null && c.optString("videoId") == videoId) {
+                    // (the addons answer one by one: the list as it is once there's something in it, and a moment for more)
+                    if ((c.optJSONArray("items")?.length() ?: 0) > 0 && (c.optBoolean("settled") || System.currentTimeMillis() - began > 4_000)) { found = c; break }
+                } else if (!opened) {
+                    opened = true
+                    val args = JSONObject().put("metaPath", path("meta", type, id)).put("streamPath", path("stream", type, videoId)).put("guessStream", false)
+                    try { engine.call("load", JSONObject().put("field", "meta_details").put("model", "MetaDetails").put("args", args), 8_000) } catch (_: Exception) {}
+                }
+                kotlinx.coroutines.delay(500)
+            }
+            val c = found ?: return@launch done(null)
+            val groups = (dx("phone.alternatives", 0) as? JSONObject)?.optJSONArray("groups")
+            var all = org.json.JSONArray()
+            if (groups != null) for (i in 0 until groups.length()) {
+                val g = groups.optJSONObject(i) ?: continue
+                if (g.optString("title") == "All streams") all = g.optJSONArray("options") ?: all
+            }
+            done(JSONObject().put("items", c.optJSONArray("items")).put("all", all))
+        }
+    }
+
+    /** A page call from the player, for its answer (null when the page doesn't give one) */
+    fun pageCall(method: String, args: org.json.JSONArray, done: (Any?) -> Unit) {
+        val engine = engine ?: return done(null)
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+            done(try { engine.call("dx", JSONObject().put("method", method).put("args", args), 8_000) } catch (e: Exception) { null })
+        }
+    }
+
+    /** A stream that can't be swapped in at once (a torrent): once the player has closed, the page plays it, as from the title's page */
+    fun playOther(index: Int) {
+        val engine = engine ?: return
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+            // (the page goes back from the player first)
+            kotlinx.coroutines.delay(1300)
+            val link = try {
+                engine.call("dx", JSONObject().put("method", "phone.play").put("args", org.json.JSONArray().put(index)), 8_000) as? String
+            } catch (e: Exception) { null } ?: return@launch
+            try { engine.call("play", JSONObject().put("link", link), 8_000) } catch (_: Exception) {}
+        }
+    }
+
     @UnstableApi
     fun player(host: PlayerHost, stream: JSONObject): PlayerHooks? = null
 

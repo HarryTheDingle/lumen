@@ -168,8 +168,8 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
      * Play plays: Lumen's pick (the stream chosen last time, else the best that's ready), with the
      * loading screen saying what it's doing, and no list to choose from. (… → Choose a Stream has every stream.)
      */
-    fun start(videoId: String?, fromStart: Boolean = false) {
-        launcher?.play(title, videoId, fromStart)
+    fun start(videoId: String?, fromStart: Boolean = false, shuffle: Boolean = false) {
+        launcher?.play(title, videoId, fromStart, shuffle)
     }
 
     // A series: the episode they're on, ready before Play is pressed. Play pressed early (or the page
@@ -323,7 +323,7 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                                     // (a saved place to go back to: the film's, or the episode Play would start's)
                                     val place = d != null && d.resumeMs > 0 && (if (ref.type == "series") nextVideo(d)?.id == d.resumeVideoId else d.resumeVideoId == ref.id)
                                     if (place) add(Action("Start from the Beginning", Icons.Filled.Replay) { start(d?.let(::nextVideo)?.id, fromStart = true) })
-                                    if (ref.type == "series" && d != null && ready) add(Action("Shuffle", Icons.Filled.Shuffle) { start(d.shuffled()?.id) })
+                                    if (ref.type == "series" && d != null && ready) add(Action("Shuffle", Icons.Filled.Shuffle) { start(d.shuffled()?.id, shuffle = true) })
                                     if (!title.watched) add(Action("Mark as Watched", Icons.Filled.Visibility) { stremio.setWatched(true) })
                                     // (partly seen counts: Unwatched puts it back to the start)
                                     if (title.watched || (d?.resumeMs ?: 0) > 0) add(Action("Mark as Unwatched", Icons.Filled.VisibilityOff) { stremio.setWatched(false) })

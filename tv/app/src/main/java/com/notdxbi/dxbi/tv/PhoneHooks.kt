@@ -53,6 +53,8 @@ interface LoadingCover {
     fun failed(message: String)
     /** The stream failed before then, and the player is closing for the next best: the screen stays up for it */
     fun retrying(message: String) {}
-    /** On to the next episode ([episode]: "S2, E7 · Its Name"): the loading screen comes up for it */
-    fun next(episode: String) {}
+    /** On to the next episode ([episode]: "S2, E7 · Its Name", [videoId]: its id): the loading screen comes up for it, and the app starts it as Play does */
+    fun next(episode: String, videoId: String) {}
+    /** Another stream of the same video is starting (one that can't be swapped in place): the screen comes up for it */
+    fun switching() {}
 }

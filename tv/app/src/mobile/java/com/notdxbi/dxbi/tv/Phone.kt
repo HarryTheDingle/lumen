@@ -101,6 +101,9 @@ object Phone {
     }
 
     fun realPicture(width: Int) = Unit
+    fun playerStreams(type: String, id: String, videoId: String, done: (JSONObject?) -> Unit) = done(null)
+    fun pageCall(method: String, args: org.json.JSONArray, done: (Any?) -> Unit) = done(null)
+    fun playOther(index: Int) = Unit
 
     @UnstableApi
     fun player(host: PlayerHost, stream: JSONObject): PlayerHooks? =
