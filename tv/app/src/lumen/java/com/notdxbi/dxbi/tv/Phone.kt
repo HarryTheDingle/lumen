@@ -34,6 +34,9 @@ object Phone {
     fun attach(activity: MainActivity, root: FrameLayout, js: (String) -> Unit) {
         val engine = Engine(js).also { engine = it }
         val screens = ComposeView(activity).apply { setContent { LumenApp(engine) } }
+        // The page underneath is never shown: not drawn at all (alpha 0), so the TV's graphics chip doesn't paint a
+        // whole screen of it under every frame of Lumen's own. It keeps running, which is all Stremio's work needs.
+        root.getChildAt(0)?.alpha = 0f
         root.addView(screens, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
     }
 

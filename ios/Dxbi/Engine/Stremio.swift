@@ -903,6 +903,9 @@ final class Stremio {
         return (list ?? []).compactMap { $0 as? JSON }.map(Title.init)
     }
 
+    /** The next episode to start, once the player has closed (the title's page starts it: TitleView) */
+    var nextEpisode: (metaId: String, videoId: String)?
+
     /** Search for this (a name tapped on a title's page): the Search tab opens with it */
     var pendingSearch: String?
 
@@ -949,9 +952,14 @@ final class Stremio {
     /** The player closed: the page records where it got to, and goes on to the next episode when asked */
     func closed(position: Double, duration: Double, ended: Bool, error: String?, next: Bool = false) {
         let active = playback?.payload
-        // On to the next episode: the loading screen first (it stays until the next one's picture plays)
-        if next, launch == nil, let active, let upNext = active.object("next") {
-            beginLaunch(playingTitle(active), episode: upNext.text("title"), text: "Starting the next episode", progress: 0.3)
+        // On to the next episode: the loading screen first (it stays until the next one's picture plays), and
+        // the title's page starts it as Play does (stream picked, failed ones passed over). The page's own
+        // way (Stremio's player link for it) often found nothing, went back, and opened the last one again
+        var goNext = false
+        if next, let active, let upNext = active.object("next"), let id = upNext.text("id") {
+            goNext = true
+            nextEpisode = (metaId: playingTitle(active).id, videoId: id)
+            if launch == nil { beginLaunch(playingTitle(active), episode: upNext.text("title"), text: "Starting the next episode", progress: 0.3) }
         }
         // closed before its first picture (it wouldn't play): the loading screen says so, unless it's a stream change
         // (with an error the page tries the next best stream, and says so: toast above)
@@ -974,7 +982,7 @@ final class Stremio {
             "timeMs": Int(position * 1000),
             "durationMs": Int(duration * 1000),
             "ended": ended,
-            "next": next,
+            "next": next && !goNext,
             "error": error ?? NSNull(),
             "hash": active?.string("hash") ?? "",
             "videoId": active?.string("videoId") ?? "",

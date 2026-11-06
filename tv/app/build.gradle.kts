@@ -215,6 +215,8 @@ dependencies {
     "lumenImplementation"("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     "lumenImplementation"("io.coil-kt.coil3:coil-compose:3.0.4")
     "lumenImplementation"("io.coil-kt.coil3:coil-network-okhttp:3.0.4")
+    // (the baseline profile, baseline-prof.txt, applied on install: Lumen's screens compiled ahead of time, not interpreted)
+    "lumenImplementation"("androidx.profileinstaller:profileinstaller:1.3.1")
     // (the Compose compiler wants its runtime in every build: dx.bi TV uses none of it, and its release leaves it out)
     "tvImplementation"(platform("androidx.compose:compose-bom:2024.12.01"))
     "tvImplementation"("androidx.compose.runtime:runtime")

@@ -169,6 +169,8 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
                     is Page.Details -> TitlePage(stremio, nav, page.title, page.play)
                     Page.Catalogs -> CatalogBrowser(stremio, nav)
                     is Page.Person -> PersonPage(stremio, nav, page)
+                    Page.Networks -> PageWindow(onBack = { nav.back() }) { NetworksScreen(stremio) }
+                    Page.Addons -> PageWindow(onBack = { nav.back() }) { AddonsScreen(stremio) }
                     Page.Profiles -> PageWindow(onBack = { nav.back() }) { ProfilePicker(stremio) { nav.back() } }
                 }
             }

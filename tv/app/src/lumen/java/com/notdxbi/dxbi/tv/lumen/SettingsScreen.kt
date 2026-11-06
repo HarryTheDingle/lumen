@@ -88,6 +88,13 @@ fun SettingsScreen(stremio: Stremio, nav: Nav) {
                         Pill("Sign Out", selected = false, onClick = { stremio.signOut() })
                     }
                 }
+                item(key = "pages") {
+                    Column {
+                        Heading("Manage", top = 26)
+                        LinkRow("Addons", "What Stremio finds streams and catalogues with") { nav.push(Page.Addons) }
+                        LinkRow("Networks", "The speed Lumen has learnt on each Wi-Fi or cable connection") { nav.push(Page.Networks) }
+                    }
+                }
                 val list = settings
                 if (list == null) {
                     item(key = "loading") { Text("Loading…", fontSize = 15.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter, vertical = 20.dp)) }
@@ -103,7 +110,7 @@ fun SettingsScreen(stremio: Stremio, nav: Nav) {
 }
 
 @Composable
-private fun Heading(text: String, top: Int) {
+internal fun Heading(text: String, top: Int) {
     Text(text, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(start = Dx.Gutter, top = top.dp, bottom = 6.dp))
 }
 

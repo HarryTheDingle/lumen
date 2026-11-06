@@ -138,6 +138,15 @@ struct TitleView: View {
             guard let d = details, let v = d.videos.first(where: { $0.id == id }), let s = v.season else { return }
             season = s
         }
+        // Next episode from the player: this page starts it, as Play does (once the page has come back from the player)
+        .onChange(of: stremio.nextEpisode?.videoId, initial: true) {
+            guard let n = stremio.nextEpisode, n.metaId == ref.id else { return }
+            stremio.nextEpisode = nil
+            Task {
+                try? await Task.sleep(for: .seconds(1.3))
+                start(n.videoId)
+            }
+        }
         // dx.bi's reading of the streams, again as more addons answer
         .task(id: details?.streamsKey) {
             guard details?.videoId != nil else { return }

@@ -725,7 +725,7 @@
       autoSkip: (dx && dx.settings && dx.settings.autoSkip) || "off",
       clock: !(dx && dx.settings) || dx.settings.playerClock !== false,
       accent: await accentFor(meta),
-      next: nextLink(state) ? { title: nextTitle(state.nextVideo), thumbnail: state.nextVideo.thumbnail || "" } : null,
+      next: nextLink(state) ? { id: state.nextVideo.id, title: nextTitle(state.nextVideo), thumbnail: state.nextVideo.thumbnail || "" } : null,
       upNext: (dx && dx.settings && dx.settings.upNext) || "10",
       audioLanguage: profile.audioLanguage || "",
       // (empty: subtitles start off)

@@ -81,6 +81,9 @@ sealed interface Page {
     data class Person(val id: String, val name: String, val photo: String?) : Page
     /** Who's watching? and the accounts */
     data object Profiles : Page
+    /** Settings' own pages */
+    data object Networks : Page
+    data object Addons : Page
 }
 
 /**

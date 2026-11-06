@@ -344,6 +344,16 @@ data class Addon(
     }
 }
 
+/** An internet connection Lumen has learnt the speed of (Settings → Networks) */
+data class NetworkInfo(val id: String, val name: String, val cap: Int, val current: Boolean, val trusted: Boolean, val mbps: Double, val readings: Int) {
+    /** Its own name, or where it's from */
+    val title: String get() = name.ifEmpty { if (current) "This network" else "Network ${id.takeLast(4)}" }
+
+    companion object {
+        fun from(o: JSONObject) = NetworkInfo(o.optString("id"), o.optString("name"), o.optInt("cap"), o.optBoolean("current"), o.optBoolean("trusted"), o.optDouble("mbps"), o.optInt("readings"))
+    }
+}
+
 data class Score(val source: String, val name: String, val note: String, val value: String, val votes: Int, val url: String?)
 data class Review(val author: String, val rating: Double?, val date: String, val text: String, val url: String?)
 

@@ -528,6 +528,23 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
     }
 
     // ---------------------------------------------------------------------------------------------
+    // Speed per network (Settings → Networks)
+
+    suspend fun networks(): List<NetworkInfo> = (dx("phone.networks") as? JSONArray).objects().map(NetworkInfo::from)
+
+    suspend fun setNetwork(id: String, name: String? = null, cap: Int? = null, relearn: Boolean = false) {
+        val changes = JSONObject()
+        name?.let { changes.put("name", it) }
+        cap?.let { changes.put("cap", it) }
+        if (relearn) changes.put("relearn", true)
+        dx("phone.setNetwork", id, changes)
+    }
+
+    suspend fun forgetNetwork(id: String) {
+        dx("phone.forgetNetwork", id)
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // Library (My List's See All)
 
     fun loadLibrary(type: String?) = scope.launch {
