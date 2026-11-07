@@ -192,15 +192,7 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        val facts = listOfNotNull(title.year, typeName(title.type), title.genres.firstOrNull(), title.runtime) +
-                            scores.orEmpty().take(3).map { "${scoreName(it, short = true)} ${it.value}" }
-                        Text(
-                            facts.joinToString(" · "),
-                            style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium, shadow = Shadow(Color.Black, blurRadius = 6f)),
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        FactsLine(listOfNotNull(title.year, typeName(title.type), title.genres.firstOrNull(), title.runtime), scores)
                         if (buttons) {
                             Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 InCardButton(lit == 1) {
@@ -299,15 +291,7 @@ fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 300.dp)
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (open) {
-                    val facts = listOfNotNull(title.year, typeName(title.type), title.genres.firstOrNull()) +
-                        scores.orEmpty().take(3).map { "${scoreName(it, short = true)} ${it.value}" }
-                    Text(
-                        facts.joinToString(" · "),
-                        style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium, shadow = Shadow(Color.Black, blurRadius = 6f)),
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    FactsLine(listOfNotNull(title.year, typeName(title.type), title.genres.firstOrNull()), scores)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (item.progress > 0f) ProgressLine(item.progress, Modifier.width(56.dp))
@@ -331,6 +315,26 @@ fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 300.dp)
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * An open card's facts ("2003 · Film · Comedy · 97 min"), then its scores (Rotten Tomatoes, Metacritic, IMDb), which
+ * fade in at the end of the line when they're found (they're looked up as the card opens)
+ */
+@Composable
+private fun FactsLine(facts: List<String>, scores: List<Score>?) {
+    val style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium, shadow = Shadow(Color.Black, blurRadius = 6f))
+    val found = scores.orEmpty().take(3).map { "${scoreName(it, short = true)} ${it.value}" }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(facts.joinToString(" · "), style = style, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        // (nothing is reserved for them: the facts stay where they are and the scores come in after them)
+        androidx.compose.animation.AnimatedVisibility(
+            visible = found.isNotEmpty(),
+            enter = androidx.compose.animation.fadeIn(tween(700)),
+        ) {
+            Text(" · " + found.joinToString(" · "), style = style, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -492,6 +496,7 @@ private fun trailerScript(start: Double): String {
 private fun PosterFace(title: Title, rank: Int?, width: Dp) {
     Box(Modifier.fillMaxSize()) {
         Art(title.art, Modifier.fillMaxSize())
+        if (hasNameOnPoster(title)) PosterName(title, width)
         if (rank != null) {
             Text(
                 "$rank",

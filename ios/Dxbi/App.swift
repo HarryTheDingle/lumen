@@ -63,6 +63,9 @@ enum Route: Hashable {
     case library
     /** A cast or crew member's page: TMDB's person id, their name and photo (shown while it loads) */
     case person(id: String, name: String, photo: String?)
+    /** A genre's page, and the festive one (Discover's Genres) */
+    case genre(String)
+    case christmas
 }
 
 struct RootView: View {
@@ -186,6 +189,10 @@ struct Stack<Content: View>: View {
                             LibraryView()
                         case .person(let id, let name, let photo):
                             PersonView(id: id, name: name, photo: photo)
+                        case .genre(let name):
+                            GenreView(name: name)
+                        case .christmas:
+                            ChristmasView()
                         }
                     }
                 }

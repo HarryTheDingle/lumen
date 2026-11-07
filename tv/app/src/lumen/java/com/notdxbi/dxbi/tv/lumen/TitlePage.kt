@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -85,6 +87,7 @@ import androidx.tv.material3.IconButtonDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
+import com.notdxbi.dxbi.tv.phone.AnimeSeason
 import com.notdxbi.dxbi.tv.phone.Details
 import com.notdxbi.dxbi.tv.phone.Load
 import com.notdxbi.dxbi.tv.phone.Reviews
@@ -124,6 +127,9 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
     var wantPlay by remember { mutableStateOf(autoPlay) }
     var season by remember { mutableStateOf<Int?>(null) }
     var related by remember { mutableStateOf<List<Title>>(emptyList()) }
+    /** An anime's other seasons (Kitsu keeps each as its own show); empty for anything else, or one season */
+    var animeSeasons by remember(ref.id) { mutableStateOf<List<AnimeSeason>>(emptyList()) }
+    LaunchedEffect(ref.id) { if (ref.id.startsWith("kitsu:")) animeSeasons = stremio.animeSeasons(ref.id) }
     var reviews by remember { mutableStateOf<Reviews?>(null) }
     /** The cast with photos (TMDB, with a key in dx.bi settings), else null */
     var cast by remember { mutableStateOf<List<JSONObject>?>(null) }
@@ -225,6 +231,7 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
     val playFocus = remember { FocusRequester() }
     // Down from Play lands on the episode they're on, past the seasons (up from the episodes reaches those)
     val episodeFocus = remember { FocusRequester() }
+    val seasonsFocus = remember { FocusRequester() }
     FocusOnOpen(playFocus)
 
     /**
@@ -232,7 +239,10 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
      * picture, Play), the episodes (a screen of their own, a show's), and the rest (related, cast, about)
      */
     val hasEpisodes = ref.type == "series" && d != null && d.videos.isNotEmpty()
-    val moreIndex = if (hasEpisodes) 2 else 1
+    // (an anime's seasons row sits between the top and the episodes)
+    val hasSeasons = animeSeasons.size >= 2
+    val episodesIndex = if (hasSeasons) 2 else 1
+    val moreIndex = (if (hasEpisodes) episodesIndex + 1 else 1) + (if (hasSeasons && !hasEpisodes) 1 else 0)
     fun snap(index: Int) = scope.launch {
         // (a moment later: the focus move's own scrolling would otherwise cancel it)
         delay(80)
@@ -294,12 +304,12 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                             inList = inList,
                             playFocus = playFocus,
                             // (the episodes aren't there to move to until they're scrolled in: in first, then onto the one they're on)
-                            onDown = if (!hasEpisodes) null else {
+                            onDown = if (!hasEpisodes && !hasSeasons) null else {
                                 {
                                     scope.launch {
                                         list.animateScrollToItem(1)
                                         repeat(10) {
-                                            if (runCatching { episodeFocus.requestFocus() }.isSuccess) return@launch
+                                            if (runCatching { (if (hasSeasons) seasonsFocus else episodeFocus).requestFocus() }.isSuccess) return@launch
                                             delay(50)
                                         }
                                     }
@@ -334,9 +344,28 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                             },
                         )
                     }
+                    if (hasSeasons) {
+                        item(key = "seasons") {
+                            SeasonsRow(
+                                animeSeasons, landing = seasonsFocus,
+                                onOpen = { nav.open(it) },
+                                // (down: the episodes, scrolled in first)
+                                onDown = {
+                                    if (hasEpisodes) scope.launch {
+                                        list.animateScrollToItem(episodesIndex)
+                                        repeat(10) {
+                                            if (runCatching { episodeFocus.requestFocus() }.isSuccess) return@launch
+                                            delay(50)
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.padding(top = 24.dp).onFocusChanged { if (it.hasFocus) snap(1) },
+                            )
+                        }
+                    }
                     if (hasEpisodes && d != null) {
                         item(key = "episodes") {
-                            Box(Modifier.fillParentMaxHeight().padding(top = 24.dp).onFocusChanged { if (it.hasFocus) snap(1) }) {
+                            Box(Modifier.fillParentMaxHeight().padding(top = 24.dp).onFocusChanged { if (it.hasFocus) snap(episodesIndex) }) {
                             Episodes(
                                 title, d, season ?: d.seasons.firstOrNull(), nextVideo(d)?.id, title.backdrop, blurUnwatched,
                                 landing = episodeFocus,
@@ -532,6 +561,59 @@ fun Facts(title: Title, reviews: Reviews?, badges: List<String> = emptyList()) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Seasons (anime)
+
+/**
+ * An anime's seasons: small posters with "Season 2" under each, plain text. The one open has a white ring
+ * and doesn't open (it's here); the others open their own page.
+ */
+@Composable
+private fun SeasonsRow(
+    seasons: List<AnimeSeason>,
+    landing: FocusRequester,
+    onOpen: (Title) -> Unit,
+    onDown: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val width = 110.dp
+    val row = rememberLazyListState()
+    val here = seasons.indexOfFirst { it.current }.coerceAtLeast(0)
+    LaunchedEffect(seasons) { row.scrollToItem((here - 1).coerceAtLeast(0)) }
+    Column(modifier.fillMaxWidth()) {
+        Text("Seasons", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = Dx.Gutter))
+        LazyRow(
+            state = row,
+            contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
+            modifier = Modifier.onPreviewKeyEvent {
+                if (it.key == Key.DirectionDown) {
+                    if (it.type == KeyEventType.KeyDown) onDown()
+                    true
+                } else false
+            },
+        ) {
+            itemsIndexed(seasons, key = { _, s -> s.title.id }) { i, s ->
+                Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    FocusCard(
+                        onClick = { if (!s.current) onOpen(s.title) },
+                        modifier = Modifier.size(width, width * 1.5f).then(if (i == here) Modifier.focusRequester(landing) else Modifier),
+                    ) {
+                        Box(Modifier.fillMaxSize()) {
+                            Art(s.title.art, Modifier.fillMaxSize())
+                            // (the white ring: the season they're on)
+                            if (s.current) Box(Modifier.fillMaxSize().border(3.dp, Color.White, RoundedCornerShape(12.dp)))
+                        }
+                    }
+                    Text(
+                        s.label, fontSize = 14.sp, fontWeight = if (s.current) FontWeight.Bold else FontWeight.Medium,
+                        color = if (s.current) Color.White else Dx.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
 // Episodes
 
 @Composable

@@ -45,6 +45,7 @@ class DiscoverFeed(cacheDir: File) {
     }
 
     companion object {
+        private val SEQUEL = Regex("""(\bseason\s*\d+|\b\d+(st|nd|rd|th)\s+season|\bpart\s*\d+|\bfinal season|\bcour\s*\d+|\bPV\b|\s\d{1,2}$|\s(II|III|IV|V|VI)$)""", RegexOption.IGNORE_CASE)
         private val ICONS = mapOf(
             "nfx" to "207360008/s166/netflix",
             "amp" to "322992749/s166/amazonprime",
@@ -99,15 +100,28 @@ class DiscoverFeed(cacheDir: File) {
     /** Cinemeta's popular titles, of one genre or all */
     suspend fun popular(type: String, genre: String? = null): List<Item> {
         val extra = genre?.let { "/genre=" + URLEncoder.encode(it, "UTF-8").replace("+", "%20") } ?: ""
-        return catalog("$CINEMETA/catalog/$type/top$extra.json", 6 * HOUR)
+        return catalog("$CINEMETA/catalog/$type/top$extra.json", 6 * HOUR, max = 60)
     }
 
-    private suspend fun catalog(url: String, keep: Long): List<Item> = withContext(Dispatchers.IO) {
+    /** A later season, part or preview of an anime ("… Season 2", "… 3", "… Final Season", "… PV"): the lists show each show once */
+    fun isSequel(name: String): Boolean = SEQUEL.containsMatchIn(name)
+
+    /** One of the Kitsu addon's anime catalogs (kitsu-anime-trending, -airing, -popular, -rating) */
+    suspend fun anime(catalog: String): List<Item> =
+        catalog("https://anime-kitsu.strem.fun/catalog/anime/$catalog.json", 6 * HOUR)
+
+    /** Cinemeta's best rated titles, of one genre (IMDb's rating) */
+    suspend fun topRated(type: String, genre: String): List<Item> =
+        catalog("$CINEMETA/catalog/$type/imdbRating/genre=" + URLEncoder.encode(genre, "UTF-8").replace("+", "%20") + ".json", 6 * HOUR, max = 60)
+
+    /** [max]: only the first so many titles are made (a genre's catalog is hundreds, and the TV's slow to build them) */
+    private suspend fun catalog(url: String, keep: Long, max: Int = Int.MAX_VALUE): List<Item> = withContext(Dispatchers.IO) {
         memory[url]?.let { (at, items) -> if (System.currentTimeMillis() - at < keep) return@withContext items }
         val body = load(url, keep) ?: fetch(url)?.also { save(url, it) } ?: return@withContext memory[url]?.second.orEmpty()
         val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
         val items = runCatching { JSONObject(body).optJSONArray("metas").objects() }.getOrDefault(emptyList())
             .filter { it.optString("type") in WATCHABLE }
+            .take(max)
             .map { meta -> Item(Title.from(meta), meta.optString("released").takeIf { it.isNotEmpty() }?.let { runCatching { iso.parse(it)?.time }.getOrNull() }) }
         memory[url] = System.currentTimeMillis() to items
         items

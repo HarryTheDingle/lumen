@@ -10,6 +10,8 @@ struct StreamsSheet: View {
     var heading: String
     var subheading: String?
     var onPlay: (StreamOption, Stremio.Target) -> Void
+    /** What tapping a stream does (Download's list: download it) */
+    var tapTarget: Stremio.Target = .player
 
     private enum Sort: String, CaseIterable {
         case best = "Best Quality", seeds = "Most Seeds", largest = "Largest First", smallest = "Smallest First", addon = "Addon Order"
@@ -71,7 +73,7 @@ struct StreamsSheet: View {
     }
 
     private func pick(_ best: StreamOption) -> some View {
-        Button { onPlay(best, .player) } label: {
+        Button { onPlay(best, tapTarget) } label: {
             HStack(spacing: 12) {
                 Image(systemName: "play.fill").font(.title2)
                 VStack(alignment: .leading, spacing: 2) {
@@ -151,7 +153,7 @@ struct StreamsSheet: View {
     }
 
     private func row(_ s: StreamOption, picked: Bool) -> some View {
-        Button { onPlay(s, .player) } label: {
+        Button { onPlay(s, tapTarget) } label: {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Badge(text: s.quality, filled: true)

@@ -1,0 +1,19 @@
+Genre tile pictures for Lumen (Discover → Genres).
+
+Each is a free stock photo, turned to one colour (a duotone in the genre's colour) and cut to a portrait
+tile (<genre>.jpg, 2:3, for iPhone and iPad) and a landscape tile (<genre>-tv.jpg, 16:9, for the TV).
+The photographs are free to use under the Unsplash License (https://unsplash.com/license), which needs no
+credit; they are credited here anyway.
+
+christmas       Matt Seymour          https://unsplash.com/photos/m5NAGHv2EJ4
+action          Blake Cheek           https://unsplash.com/photos/JjFg9vJwHKI
+anime           Julien (domsson)      https://unsplash.com/photos/uB3Hza6HvjQ
+comedy          Dynamic Wang          https://unsplash.com/photos/H05a2DmIVbM
+crime           Ross Sneddon          https://unsplash.com/photos/5dt6CtlrnaM
+drama           Yosuke Ota            https://unsplash.com/photos/SskIhXN5p5Q
+documentary     Venti Views           https://unsplash.com/photos/Q8cUF6c2ytM
+animation       Florent Fabre         https://unsplash.com/photos/_t8aLu3P6tE
+family          guille pozzi          https://unsplash.com/photos/y1wVavuxZtE
+scifi           cheng feng            https://unsplash.com/photos/MhKXrKqmtJk
+romance         Mary Sill             https://unsplash.com/photos/ZRMHeRV_xE8
+thrillerhorror  Jakub Kriz            https://unsplash.com/photos/arOyDPUAJzc

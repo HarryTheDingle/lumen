@@ -256,7 +256,7 @@ final class Stremio {
                 cache.set(Json.encode(list), forKey: "x.myList")
             }
             // (and the Top Picks the billboard suggests: picks can come without their story)
-            let toDescribe = continueWatching.prefix(5).map(\.title) + (picks.first?.items.prefix(8) ?? [])
+            let toDescribe = continueWatching.prefix(12).map(\.title) + (picks.first?.items.prefix(8) ?? [])
             if let o = await dx("phone.describe", toDescribe.map { [$0.type, $0.id] }) as? JSON {
                 described = o.compactMapValues { $0 as? JSON }
             }
@@ -585,6 +585,9 @@ final class Stremio {
         if t.genres.isEmpty { t.genres = d.strings("genres") }
         if t.year == nil { t.year = d.text("year") }
         if t.runtime == nil { t.runtime = d.text("runtime") }
+        // (anime from the Kitsu addon: its own logo and art, which the Library doesn't keep and metahub doesn't have)
+        if t.logo == nil { t.logo = d.text("logo") }
+        if t.background == nil { t.background = d.text("background") }
         return t
     }
 
@@ -1002,6 +1005,18 @@ final class Stremio {
     /** Someone's page (TMDB, with a key in dx.bi settings): by TMDB's id from the cast list, else by name. nil without a key */
     func person(id: String?, name: String) async -> JSON? {
         await ask("dx", ["method": "phone.person", "args": [id ?? "", name]], timeout: 40) as? JSON
+    }
+
+    /** Christmas at Home: the plugin's curated rows (and More Christmas with a TMDB key). The first time takes a few seconds */
+    func christmas() async -> (rows: [ListRow], days: Int)? {
+        guard let o = await ask("dx", ["method": "phone.christmas", "args": []], timeout: 60) as? JSON else { return nil }
+        return (o.objects("rows").map(ListRow.init), o.int("daysToChristmas"))
+    }
+
+    /** The other seasons of an anime (the Kitsu addon keeps each season as a show of its own), in order; [] for one season */
+    func animeSeasons(_ id: String) async -> [AnimeSeason] {
+        let list = await ask("dx", ["method": "phone.animeSeasons", "args": [id]], timeout: 40) as? [Any]
+        return (list ?? []).compactMap { $0 as? JSON }.map(AnimeSeason.init)
     }
 
     /** Titles like this one, for its page's Related row */

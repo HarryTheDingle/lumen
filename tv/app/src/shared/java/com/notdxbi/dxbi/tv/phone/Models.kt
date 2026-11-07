@@ -326,6 +326,12 @@ data class Account(val signedIn: Boolean, val email: String?, val avatar: String
 /** dx.bi's own Home rows (window.__dxbi.phone) */
 data class ListRow(val name: String, val items: List<Title>)
 
+/** Christmas at Home (from the plugin): the days left, whether it's the season, and the rows of titles */
+data class Christmas(val daysToChristmas: Int, val inSeason: Boolean, val rows: List<ListRow>)
+
+/** One season of an anime (Kitsu keeps each as its own show): its title, "Season 2", how many episodes, and whether it's the one open */
+data class AnimeSeason(val title: Title, val label: String, val episodes: Int, val current: Boolean)
+
 data class Airing(
     val id: String, val name: String, val background: String?, val still: String?, val season: Int, val episode: Int,
     val title: String, val more: Int, val time: Long, val whenText: String, val countdown: String, val out: Boolean,

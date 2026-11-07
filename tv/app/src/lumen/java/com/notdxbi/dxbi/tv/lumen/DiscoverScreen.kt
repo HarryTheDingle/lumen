@@ -58,6 +58,8 @@ import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
+import androidx.compose.foundation.lazy.LazyListScope
+import kotlinx.coroutines.launch
 import com.notdxbi.dxbi.tv.phone.Load
 import com.notdxbi.dxbi.tv.phone.Stremio
 import com.notdxbi.dxbi.tv.phone.Title
@@ -96,6 +98,18 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
     val platform = DiscoverFeed.platforms.firstOrNull { it.id == selected }
 
     LaunchedEffect(Unit) { if (library.isEmpty()) stremio.loadLibrary(null) }
+
+    // whether it's Christmas season (kept, so the row doesn't jump about when it opens again), and the installed
+    // addons: Anime has a tile only with the Kitsu addon, as without it Stremio can't play an anime title
+    var inSeason by remember { mutableStateOf(prefs.getBoolean("discover.christmas", false)) }
+    val addons by stremio.installedAddons.collectAsState()
+    LaunchedEffect(Unit) { stremio.loadAddons() }
+    val hasKitsu = addons.any { it.id.contains("kitsu", ignoreCase = true) || it.transportUrl.contains("kitsu", ignoreCase = true) }
+    LaunchedEffect(Unit) {
+        val c = stremio.christmas() ?: return@LaunchedEffect
+        inSeason = c.inSeason
+        prefs.edit().putBoolean("discover.christmas", c.inSeason).apply()
+    }
     // (For You again once the Library's in: its "out on digital" row follows it.) The last tab's rows
     // stay until the new ones are in: a page that emptied and refilled would jump.
     LaunchedEffect(selected, selected.isEmpty() && library.isNotEmpty(), picks) {
@@ -145,7 +159,7 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
                         Text("Couldn't reach the catalogs. Check the TV's connection.", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter))
                     }
                 }
-                rows.forEach { row ->
+                rows.forEachIndexed { i, row ->
                     item(key = "row-${row.id}") {
                         Shelf(row.title) {
                             items(row.items, key = { it.id }) { t ->
@@ -154,7 +168,10 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
                             }
                         }
                     }
+                    // the Genres row, after the first couple of rows (For You only)
+                    if (selected.isEmpty() && i == minOf(1, rows.lastIndex)) genresItem(nav, inSeason, hasKitsu)
                 }
+                if (selected.isEmpty() && rows.isEmpty()) genresItem(nav, inSeason, hasKitsu)
                 item(key = "browse") {
                     Button(
                         onClick = { nav.push(Page.Catalogs) },
@@ -171,6 +188,19 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
                         Text("Browse All Catalogs", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
+            }
+        }
+    }
+}
+
+/** The Genres row: Christmas first while it's the season, else with the others */
+internal fun LazyListScope.genresItem(nav: Nav, inSeason: Boolean, hasKitsu: Boolean) {
+    item(key = "genres") {
+        val all = GENRES.filter { it.name != "Anime" || hasKitsu }
+        val list = if (inSeason) all.sortedBy { it.name != "Christmas" } else all
+        Shelf("Genres") {
+            items(list, key = { it.name }) { g ->
+                GenreTile(g) { nav.push(if (g.name == "Christmas") Page.Christmas else Page.Genre(g.name)) }
             }
         }
     }

@@ -17,7 +17,8 @@ struct PlayerScreen: View {
     @State private var locked = false
     @State private var unlockShown = false
     @State private var hideTask: Task<Void, Never>?
-    @State private var seekPreview: Double?
+    /** The brightness or volume as the finger has set it, while it's down (see the slide gesture) */
+    @State private var slideValue: Double?
     @State private var heldSpeed: Double?
     @State private var level: (icon: String, value: Double, left: Bool)?
     @State private var hideLevel: Task<Void, Never>?
@@ -35,10 +36,10 @@ struct PlayerScreen: View {
             VideoSurface(mpv: playback.mpv).ignoresSafeArea()
             if !playback.subtitleLine.isEmpty { subtitles }
             Gestures(handler: gestures).ignoresSafeArea()
-            if playback.buffering && seekPreview == nil && stremio.launch == nil { ProgressView().controlSize(.large).tint(.white).allowsHitTesting(false) }
+            if playback.buffering && stremio.launch == nil { ProgressView().controlSize(.large).tint(.white).allowsHitTesting(false) }
             if visible && !locked && stremio.launch == nil { controls.transition(.opacity) }
             overlays
-            if let target = scrubbing ?? seekPreview, let layer = playback.thumbs?.layer, playback.duration > 0 {
+            if let target = scrubbing, let layer = playback.thumbs?.layer, playback.duration > 0 {
                 previewBox(target: target, layer: layer)
             }
             if playback.showStats, let stats = playback.stats { statsPanel(stats) }
@@ -61,7 +62,7 @@ struct PlayerScreen: View {
             if shown, playback.duration > 0, !locked { playback.thumbs?.warm(at: playback.position) }
         }
         // Scrubbing: the preview follows the finger (and rests when it lets go)
-        .onChange(of: scrubbing ?? seekPreview) { _, target in
+        .onChange(of: scrubbing) { _, target in
             if let target { playback.thumbs?.show(target) } else { playback.thumbs?.rest() }
         }
         .statusBarHidden(true)
@@ -126,37 +127,31 @@ struct PlayerScreen: View {
             playback.mpv.seek(by: forward ? 10 : -10)
             playback.show(forward ? "+10 seconds" : "−10 seconds")
         }
-        h.seek = { phase, dx, width in
-            guard !locked, playback.duration > 0 else { return }
-            switch phase {
-            case .changed:
-                let base = seekPreview ?? playback.position
-                if seekPreview == nil { seekPreview = base }
-                let target = min(max(playback.position + Double(dx / width) * min(playback.duration, 600), 0), playback.duration)
-                // (just where it'll land and the seek bar: the rest of the controls stay away)
-                seekPreview = target
-            default:
-                if let target = seekPreview { playback.mpv.seek(to: target) }
-                seekPreview = nil
-            }
-        }
+        // Up and down along a side: brightness (left) or volume (right), following the finger one for one. The value
+        // is kept here while the finger's down: the phone reports both a moment late (brightness eases to its new
+        // value), and reading them back each time made a quick swipe fall behind, or undo itself
         h.slide = { phase, dy, left in
             guard !locked else { return }
             if phase != .changed {
-                Task { try? await Task.sleep(for: .seconds(0.8)); level = nil }
+                slideValue = nil
+                hideLevel?.cancel()
+                hideLevel = Task {
+                    try? await Task.sleep(for: .seconds(0.8))
+                    if !Task.isCancelled { level = nil }
+                }
                 return
             }
+            hideLevel?.cancel()
+            if slideValue == nil { slideValue = left ? Double(UIScreen.main.brightness) : Double(SystemVolume.value) }
+            // (the finger's height from the top to the bottom of the bar's worth: about 220 points is all of it)
+            let v = min(max((slideValue ?? 0) - Double(dy) / 220, 0), 1)
+            slideValue = v
             if left {
-                let b = min(max(UIScreen.main.brightness - dy / 300, 0), 1)
-                UIScreen.main.brightness = b
-                level = ("sun.max.fill", Double(b), true)
+                UIScreen.main.brightness = CGFloat(v)
+                level = ("sun.max.fill", v, true)
             } else {
-                // from the last value set while sliding: the phone reports its volume a moment late,
-                // which undid small moves (only big swipes got through)
-                let from = level.flatMap { $0.left ? nil : $0.value } ?? Double(SystemVolume.value)
-                let v = min(max(from - Double(dy / 300), 0), 1)
                 SystemVolume.set(Float(v))
-                level = ("speaker.wave.2.fill", v, false)
+                level = (v <= 0 ? "speaker.slash.fill" : "speaker.wave.2.fill", v, false)
             }
         }
         h.pinch = { scale in
@@ -251,7 +246,7 @@ struct PlayerScreen: View {
 
     private var bottomBar: some View {
         VStack(spacing: 10) {
-            Scrubber(position: scrubbing ?? seekPreview ?? playback.position, duration: playback.duration, accent: Color(playback.accent), segments: playback.segments, buffered: playback.buffered) { value, done in
+            Scrubber(position: scrubbing ?? playback.position, duration: playback.duration, accent: Color(playback.accent), segments: playback.segments, buffered: playback.buffered) { value, done in
                 if done {
                     playback.mpv.seek(to: value)
                     scrubbing = nil
@@ -262,7 +257,7 @@ struct PlayerScreen: View {
                 }
             }
             HStack(spacing: 10) {
-                Text(time(scrubbing ?? seekPreview ?? playback.position)).monospacedDigit()
+                Text(time(scrubbing ?? playback.position)).monospacedDigit()
                 Text("/ " + time(playback.duration)).monospacedDigit().foregroundStyle(Dx.muted)
                 Spacer()
                 // (each menu is its own view: it redraws only when what it shows changes, not with the
@@ -473,21 +468,7 @@ struct PlayerScreen: View {
                         .padding(.top, 10)
                         .transition(.opacity)
                 }
-                if let preview = seekPreview {
-                    Text("\(time(preview))  (\(preview >= playback.position ? "+" : "−")\(time(abs(preview - playback.position))))")
-                        .font(.title3.weight(.semibold)).monospacedDigit()
-                        .padding(.horizontal, 18).padding(.vertical, 10)
-                        .glassEffect(.regular, in: .capsule)
-                        .padding(.top, 10)
-                }
                 Spacer()
-                // seeking by swiping with the controls away: the seek bar alone
-                if let preview = seekPreview, !visible {
-                    Scrubber(position: preview, duration: playback.duration, accent: Color(playback.accent), segments: playback.segments) { _, _ in }
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 44)
-                        .transition(.opacity)
-                }
             }
             .allowsHitTesting(false)
             if let level {
@@ -665,8 +646,6 @@ private struct Gestures: UIViewRepresentable {
     struct Handler {
         var tap: (CGFloat, CGFloat) -> Void = { _, _ in }
         var doubleTap: (CGFloat, CGFloat) -> Void = { _, _ in }
-        /** A drag across: how far, and the screen's width */
-        var seek: (UIGestureRecognizer.State, CGFloat, CGFloat) -> Void = { _, _, _ in }
         /** A drag up or down: how far since last time, and whether on the left */
         var slide: (UIGestureRecognizer.State, CGFloat, Bool) -> Void = { _, _, _ in }
         var pinch: (CGFloat) -> Void = { _ in }
@@ -700,8 +679,8 @@ private struct Gestures: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject {
         var handler = Handler()
-        private var axis: Int = 0 // 1 across, 2 up and down
         private var last: CGPoint = .zero
+        private var sliding = false
         private var holdStart: CGFloat = 0
 
         @objc func single(_ g: UITapGestureRecognizer) {
@@ -719,16 +698,16 @@ private struct Gestures: UIViewRepresentable {
             let t = g.translation(in: v)
             switch g.state {
             case .began:
-                axis = 0
+                sliding = false
                 last = .zero
             case .changed:
-                if axis == 0 { axis = abs(t.x) > abs(t.y) ? 1 : 2 }
-                if axis == 1 { handler.seek(.changed, t.x, v.bounds.width) }
-                else { handler.slide(.changed, t.y - last.y, g.location(in: v).x < v.bounds.width / 2) }
+                // (mostly up and down: a sideways drag does nothing, since swiping across no longer seeks)
+                if !sliding { sliding = abs(t.y) > abs(t.x) }
+                if sliding { handler.slide(.changed, t.y - last.y, g.location(in: v).x < v.bounds.width / 2) }
                 last = t
             default:
-                if axis == 1 { handler.seek(.ended, t.x, v.bounds.width) } else if axis == 2 { handler.slide(.ended, 0, true) }
-                axis = 0
+                if sliding { handler.slide(.ended, 0, true) }
+                sliding = false
             }
         }
 

@@ -146,6 +146,9 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
             genres = title.genres.ifEmpty { d.optJSONArray("genres")?.let { a -> (0 until a.length()).map { a.optString(it) } }.orEmpty() },
             year = title.year ?: d.optString("year").takeIf { it.isNotEmpty() && it != "null" },
             runtime = title.runtime ?: d.optString("runtime").takeIf { it.isNotEmpty() && it != "null" },
+            // (anime from the Kitsu addon: its own logo and art, which the Library doesn't keep)
+            logo = title.logo ?: d.optString("logo").takeIf { it.isNotEmpty() && it != "null" },
+            background = title.background ?: d.optString("background").takeIf { it.isNotEmpty() && it != "null" },
         )
     }
 
@@ -179,7 +182,7 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
                 myList.value = it.objects().map { r -> ListRow(r.optString("name"), r.optJSONArray("items").objects().map(Title::from)) }
                 cache.edit().putString("x.myList", it.toString()).apply()
             }
-            (dx("phone.describe", JSONArray(continueWatching.value.take(5).map { JSONArray(listOf(it.title.type, it.title.id)) })) as? JSONObject)?.let { o ->
+            (dx("phone.describe", JSONArray(continueWatching.value.take(12).map { JSONArray(listOf(it.title.type, it.title.id)) })) as? JSONObject)?.let { o ->
                 described.value = o.keys().asSequence().mapNotNull { k -> o.optJSONObject(k)?.let { k to it } }.toMap()
             }
             (dx("phone.airing") as? JSONArray)?.let {
@@ -292,6 +295,30 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
     }
 
     fun removeFromContinue(id: String) = scope.launch { ask("dismiss", JSONObject().put("id", id)) }
+
+    private var christmasKept: Pair<Long, Christmas>? = null
+
+    /**
+     * Christmas at Home: the plugin looks up ~50 titles, so the first call takes a few seconds; the answer is
+     * kept for an hour (null when it couldn't be had)
+     */
+    suspend fun christmas(): Christmas? {
+        christmasKept?.let { (at, c) -> if (System.currentTimeMillis() - at < 3_600_000L) return c }
+        val o = dx("phone.christmas") as? JSONObject ?: return christmasKept?.second
+        val c = Christmas(
+            daysToChristmas = o.optInt("daysToChristmas"),
+            inSeason = o.optBoolean("inSeason"),
+            rows = o.optJSONArray("rows").objects().map { r -> ListRow(r.optString("name"), r.optJSONArray("items").objects().map(Title::from)) }.filter { it.items.isNotEmpty() },
+        )
+        christmasKept = System.currentTimeMillis() to c
+        return c
+    }
+
+    /** An anime's TV seasons in order (the plugin asks Kitsu: a few seconds the first time; none when it has one season or can't tell) */
+    suspend fun animeSeasons(id: String): List<AnimeSeason> {
+        val a = dx("phone.animeSeasons", id) as? JSONArray ?: return emptyList()
+        return a.objects().map { AnimeSeason(Title.from(it), it.optString("label"), it.optInt("episodes"), it.optBoolean("current")) }
+    }
 
     /** The open title's streams, described by dx.bi, with Just press Play's pick */
     suspend fun streams(): StreamChoices? = (dx("phone.streams") as? JSONObject)?.let(StreamChoices::from)

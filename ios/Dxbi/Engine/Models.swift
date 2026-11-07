@@ -301,20 +301,31 @@ struct NetworkInfo: Identifiable, Hashable {
 
 extension StreamOption {
     /**
-     * Download's three sizes from a title's streams: High (the biggest at the best resolution), Medium (a
-     * typical 1080p) and Small (the smallest that's 720p or better). Only ready, sized files; each once.
+     * Download's three sizes from a title's streams, by what they cost an hour (the bitrate, when the length is
+     * known): Small (the smallest that's 720p or better), Standard (the smallest decent 1080p) and High (the
+     * smallest decent file at the best resolution there is). Never the biggest: a "best" 4K was a 68 GB remux.
+     * Only ready, sized files; each once.
      */
     static func downloadSizes(_ items: [StreamOption]) -> [(name: String, option: StreamOption)] {
-        let ready = items.filter { !$0.pending && $0.size > 0 && !$0.lesser }
+        let ready = items.filter { !$0.pending && $0.size > 0 && !$0.lesser && !$0.threeD }
         guard !ready.isEmpty else { return [] }
+        // (decent: not so starved it's a smear: 1 Mbit/s at 1080p, 0.5 at 720p, 4 at 4K, when the bitrate is known)
+        func decent(_ o: StreamOption) -> Bool {
+            guard o.mbps > 0 else { return true }
+            let floor: Double = o.res >= 2160 ? 4 : o.res >= 1080 ? 1 : 0.5
+            return o.mbps >= floor
+        }
+        func smallest(_ list: [StreamOption]) -> StreamOption? {
+            let good = list.filter(decent)
+            return (good.isEmpty ? list : good).min { $0.size < $1.size }
+        }
         let top = ready.map(\.res).max() ?? 0
-        let high = ready.filter { $0.res == top }.max { $0.size < $1.size }
-        let hd = ready.filter { $0.res == 1080 }.sorted { $0.size < $1.size }
-        let medium = hd.isEmpty ? ready.sorted { $0.size < $1.size }[ready.count / 2] : hd[hd.count / 2]
-        let decent = ready.filter { $0.res >= 720 }
-        let small = (decent.isEmpty ? ready : decent).min { $0.size < $1.size }
+        let high = smallest(ready.filter { $0.res == top })
+        let hd = ready.filter { $0.res == 1080 }
+        let standard = smallest(hd.isEmpty ? ready.filter { $0.res >= 720 && $0.res < top } : hd)
+        let small = smallest(ready.filter { $0.res >= 720 }) ?? smallest(ready)
         var out: [(name: String, option: StreamOption)] = []
-        for (name, option) in [("High", high), ("Medium", Optional(medium)), ("Small", small)] {
+        for (name, option) in [("Small", small), ("Standard", standard), ("High", high)] {
             if let option, !out.contains(where: { $0.option.index == option.index }) { out.append((name, option)) }
         }
         return out
@@ -456,6 +467,22 @@ struct Account {
 }
 
 /** dx.bi's own Home rows (window.__dxbi.phone) */
+/** One season of an anime, as the Kitsu addon lists it (a show of its own) */
+struct AnimeSeason: Identifiable {
+    var title: Title
+    var label: String
+    var episodes: Int
+    var current: Bool
+    var id: String { title.id }
+
+    init(_ o: JSON) {
+        title = Title(o)
+        label = o.string("label")
+        episodes = o.int("episodes")
+        current = o.bool("current")
+    }
+}
+
 struct ListRow: Equatable {
     var name: String
     var items: [Title]

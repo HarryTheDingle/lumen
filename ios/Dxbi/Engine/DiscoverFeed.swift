@@ -95,6 +95,22 @@ final class DiscoverFeed {
         return await catalog("\(Self.cinemeta)/catalog/\(type)/top\(extra).json", keep: 6 * 3600)
     }
 
+    /** A later season, part or preview of an anime ("… Season 2", "… 3", "… Final Season", "… PV"): the lists show each show once */
+    static func isSequel(_ name: String) -> Bool {
+        name.range(of: #"(\bseason\s*\d+|\b\d+(st|nd|rd|th)\s+season|\bpart\s*\d+|\bfinal season|\bcour\s*\d+|\bPV\b|\s\d{1,2}$|\s(II|III|IV|V|VI)$)"#, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    /** One of the Kitsu addon's anime catalogs (kitsu-anime-trending, -airing, -popular, -rating) */
+    func anime(_ catalog: String) async -> [Item] {
+        await self.catalog("https://anime-kitsu.strem.fun/catalog/anime/\(catalog).json", keep: 6 * 3600)
+    }
+
+    /** Cinemeta's best rated titles, of one genre */
+    func rated(_ type: String, genre: String) async -> [Item] {
+        let extra = "/genre=\(genre.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? genre)"
+        return await catalog("\(Self.cinemeta)/catalog/\(type)/imdbRating\(extra).json", keep: 6 * 3600)
+    }
+
     private func catalog(_ url: String, keep: TimeInterval) async -> [Item] {
         if let hit = memory[url], Date().timeIntervalSince(hit.at) < keep { return hit.items }
         if let saved = Self.load([Item].self, url, keep: keep) {

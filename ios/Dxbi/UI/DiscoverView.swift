@@ -33,7 +33,13 @@ struct DiscoverView: View {
                 } else if rows.isEmpty && loadedFor == selected {
                     ContentUnavailableView("Nothing to show", systemImage: "wifi.exclamationmark", description: Text("Couldn't reach the catalogs. Pull down to try again."))
                 }
-                ForEach(rows) { row in shelf(row) }
+                // (in the season, For You opens with a festive card)
+                if selected.isEmpty && ChristmasSeason.inSeason && loadedFor != nil { FestiveCard() }
+                ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
+                    shelf(row)
+                    // (Genres after the first couple of rows: tiles, as Apple TV's Search has)
+                    if selected.isEmpty && i == min(1, rows.count - 1) { GenresSection() }
+                }
                 NavigationLink { CatalogBrowserView() } label: {
                     Label("Browse All Catalogs", systemImage: "square.grid.2x2")
                         .font(.headline)

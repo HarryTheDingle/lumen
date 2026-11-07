@@ -58,9 +58,10 @@ struct SearchView: View {
                             .padding(.vertical, 4)
                         }
                     }
-                    hints.padding(.top, recent.isEmpty ? 60 : 30)
                 }
                 .padding(.horizontal, Dx.gutter)
+                // (nothing typed: the genres, as Apple TV's Search page has them)
+                GenresSection().padding(.top, recent.isEmpty ? 14 : 24).padding(.bottom, 20)
             } else {
                 LazyVStack(alignment: .leading, spacing: 28) {
                     let rows = stremio.search.filter { !$0.items.isEmpty }

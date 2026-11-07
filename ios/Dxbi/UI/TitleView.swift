@@ -16,6 +16,10 @@ struct TitleView: View {
     @State private var streamsOpen = false
     @State private var season: Int?
     @State private var related: [Title] = []
+    /** Download's More: every stream, to download one */
+    @State private var downloadsOpen = false
+    /** An anime's other seasons (Kitsu keeps each as a show of its own), shown together on each */
+    @State private var seasons: [AnimeSeason] = []
     @State private var reviews: Reviews?
     @State private var reviewsOpen = false
     @State private var moreText = false
@@ -47,6 +51,7 @@ struct TitleView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     header(size: g.size)
                     VStack(alignment: .leading, spacing: 34) {
+                        seasonsRow
                         if ref.type == "series" { episodes(width: g.size.width) }
                         trailers(width: g.size.width)
                         relatedRow
@@ -102,6 +107,14 @@ struct TitleView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $downloadsOpen) {
+            StreamsSheet(choices: current, heading: title.name, subheading: "Choose a file to download", tapTarget: .download) { option, target in
+                downloadsOpen = false
+                play(option, in: target)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $reviewsOpen) { ReviewsView(title: title, reviews: reviews) }
         .task {
             let all = await stremio.settings()
@@ -116,6 +129,10 @@ struct TitleView: View {
             guard let d = details, d.state == .ready else { return }
             let names: [JSON] = d.directors.prefix(3).map { ["name": $0, "role": "Director"] } + d.cast.prefix(13).map { ["name": $0, "role": ""] }
             cast = await stremio.cast(ref.type, imdbId ?? "", names: names)
+        }
+        .task(id: ref.id) {
+            guard ref.id.hasPrefix("kitsu:") else { return }
+            seasons = await stremio.animeSeasons(ref.id)
         }
         .task(id: "\(ref.id)-related-\(details?.state == .ready)") {
             guard let d = details, d.state == .ready, related.isEmpty else { return }
@@ -448,15 +465,19 @@ struct TitleView: View {
                     Button { play(pick, in: .otherApp) } label: { Label("Play with External Player", systemImage: "arrow.up.forward.app") }
                     let sizes = StreamOption.downloadSizes(current?.items ?? [])
                     if sizes.isEmpty {
-                        Button { play(pick, in: .download) } label: { Label("Download", systemImage: "arrow.down.circle") }
+                        // (no sizes known: the whole list, to choose from)
+                        Button { downloadsOpen = true } label: { Label("Download…", systemImage: "arrow.down.circle") }
                     } else {
                         Menu {
                             ForEach(sizes, id: \.option.index) { size in
                                 Button { play(size.option, in: .download) } label: {
                                     Text(size.name)
-                                    Text([size.option.label, ByteCountFormatter.string(fromByteCount: Int64(size.option.size), countStyle: .file)].joined(separator: " · "))
+                                    Text([size.option.quality, ByteCountFormatter.string(fromByteCount: Int64(size.option.size), countStyle: .file), size.option.mbpsText, size.option.provider.isEmpty ? nil : size.option.provider].compactMap { $0 }.joined(separator: " · "))
                                 }
                             }
+                            Divider()
+                            // (every stream, with its size: to choose a file yourself)
+                            Button { downloadsOpen = true } label: { Label("More…", systemImage: "list.bullet") }
                         } label: { Label("Download", systemImage: "arrow.down.circle") }
                     }
                 }
@@ -492,6 +513,34 @@ struct TitleView: View {
                         .foregroundStyle(.white)
                 }
                 .padding(.horizontal, Dx.gutter)
+            }
+        }
+    }
+
+    /** An anime's seasons, together: this one marked, the others open their own page */
+    @ViewBuilder
+    private var seasonsRow: some View {
+        if seasons.count > 1 {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionHeader(title: "Seasons")
+                ScrollView(.horizontal) {
+                    LazyHStack(alignment: .top, spacing: 14) {
+                        ForEach(seasons) { s in
+                            let card = VStack(alignment: .leading, spacing: 6) {
+                                PosterCard(title: s.title, width: Dx.poster * 0.85)
+                                    .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white, lineWidth: s.current ? 2.5 : 0))
+                                Text(s.label).font(.footnote.weight(.semibold)).foregroundStyle(s.current ? .white : Dx.muted).lineLimit(2)
+                                    .frame(width: Dx.poster * 0.85, alignment: .leading)
+                            }
+                            if s.current { card } else {
+                                NavigationLink(value: Route.title(s.title.ref)) { card }.buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, Dx.gutter)
+                }
+                .scrollIndicators(.hidden)
+                .scrollClipDisabled()
             }
         }
     }

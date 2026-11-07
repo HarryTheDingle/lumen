@@ -8,6 +8,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -147,6 +148,7 @@ fun PosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, width: Dp =
     FocusCard(onClick = onClick, modifier = if (fill) Modifier.fillMaxWidth().aspectRatio(2f / 3f) else Modifier.size(width, width * 1.5f)) {
         Box(Modifier.fillMaxSize()) {
             Art(title.art, Modifier.fillMaxSize())
+            if (hasNameOnPoster(title)) PosterName(title, width)
             if (rank != null) {
                 Text(
                     "$rank",
@@ -169,6 +171,23 @@ fun PosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, width: Dp =
             }
         }
     }
+}
+
+/** Anime posters (Kitsu, MAL) are often art without the name on it */
+fun hasNameOnPoster(title: Title) = title.id.startsWith("kitsu:") || title.id.startsWith("mal:")
+
+/** The title in text over a dark foot, for posters that have no name on them (put in the poster's box) */
+@Composable
+fun BoxScope.PosterName(title: Title, width: Dp) {
+    Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.78f))))
+    Text(
+        title.name,
+        style = TextStyle(fontSize = maxOf(11f, width.value * 0.1f).sp, fontWeight = FontWeight.Bold, shadow = Shadow(Color.Black.copy(alpha = 0.6f), blurRadius = 6f)),
+        color = Color.White,
+        maxLines = 3,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, end = 8.dp, bottom = 9.dp),
+    )
 }
 
 /** New episodes this week: the episode's picture, the show and when */

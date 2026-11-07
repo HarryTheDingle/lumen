@@ -1,7 +1,7 @@
 /**
  * @name Lumen
  * @description The Lumen experience: cinematic billboard, Netflix-style carousels, hover previews with trailers, ratings on posters, critic reviews, skip intro and up next, anime filler guide, new episode badges, watch stats and viewers, stream sorting & filters, a Netflix-style player with black-bar removal, night mode and subtitle sync, watch parties with friends, a cinematic intro and interface sounds. Use with the Lumen theme.
- * @version 2.30.20
+ * @version 2.30.23
  * @author dx.bi
  * @updateUrl https://raw.githubusercontent.com/HarryTheDingle/lumen/main/dxbi.plugin.js
  */
@@ -19,7 +19,7 @@
   // Stremio Enhanced loads each plugin as <script id="<file name>">, which tells us our settings key
   const SCRIPT_ID = (document.currentScript && document.currentScript.id) || "dxbi.plugin.js";
   const PLUGIN_KEY = SCRIPT_ID.replace(/\.plugin\.js$/, "");
-  const PLUGIN_VERSION = "2.30.20"; // kept in step with @version by tools/bundle-theme.mjs
+  const PLUGIN_VERSION = "2.30.23"; // kept in step with @version by tools/bundle-theme.mjs
   // Recent messages and errors, kept for problem reports (see `report`)
   const recent = { logs: [], errors: [] };
   const remember = (list, text) => {
@@ -729,6 +729,24 @@
       background: meta.background,
       trailer: (meta.trailerStreams && meta.trailerStreams[0] && meta.trailerStreams[0].ytId) || (meta.trailers && meta.trailers[0] && meta.trailers[0].source) || null,
     };
+  }
+
+  // An anime's meta from the Kitsu addon (it keeps each season as its own show, with its own story, logo and
+  // art: nothing of IMDb's applies), cached like the rest. For the phone apps' describe, and nothing else.
+  async function kitsuMeta(id) {
+    if (!/^kitsu:\d+$/.test(String(id))) return null;
+    const key = `kitsu:${id}`;
+    const cached = readCached(key);
+    if (cached !== undefined) return cached;
+    try {
+      const r = await fetch(`https://anime-kitsu.strem.fun/meta/series/${id}.json`, { signal: AbortSignal.timeout(10000) });
+      if (!r.ok) return null;
+      const meta = slimMeta(((await r.json()) || {}).meta);
+      if (meta) writeCached(key, meta);
+      return meta;
+    } catch (_) {
+      return null; // offline: tried again next time
+    }
   }
 
   function getMeta(type, id) {
@@ -15918,6 +15936,80 @@
     torrent: x.torrent,
     ...x.d,
   });
+  // Christmas at Home: films and shows picked by hand (by name and year, found in Cinemeta so the ids are
+  // always right), in rows; and with a TMDB key, "More Christmas" from its own Christmas keyword
+  const christmasLists = {
+    LISTS: [
+      { name: "Christmas Classics", type: "movie", titles: [["Elf", 2003], ["Home Alone", 1990], ["Home Alone 2: Lost in New York", 1992], ["Love Actually", 2003], ["Die Hard", 1988], ["National Lampoon's Christmas Vacation", 1989], ["Miracle on 34th Street", 1994], ["It's a Wonderful Life", 1946], ["White Christmas", 1954], ["A Christmas Story", 1983], ["Scrooged", 1988], ["The Santa Clause", 1994]] },
+      { name: "Family & Animated", type: "movie", titles: [["The Polar Express", 2004], ["Klaus", 2019], ["How the Grinch Stole Christmas", 2000], ["The Grinch", 2018], ["Arthur Christmas", 2011], ["The Muppet Christmas Carol", 1992], ["The Nightmare Before Christmas", 1993], ["Fred Claus", 2007], ["Rise of the Guardians", 2012], ["Nativity!", 2009], ["A Charlie Brown Christmas", 1965]] },
+      { name: "Romance & Comedy", type: "movie", titles: [["The Holiday", 2006], ["Last Christmas", 2019], ["Four Christmases", 2008], ["Bad Santa", 2003], ["Deck the Halls", 2006], ["The Family Stone", 2005], ["Christmas with the Kranks", 2004], ["Jingle All the Way", 1996], ["Love Hard", 2021], ["Single All the Way", 2021], ["Spirited", 2022], ["Violent Night", 2022], ["Red One", 2024]] },
+      { name: "Series for Christmas", type: "series", titles: [["Friends"], ["The Office", 2005], ["Modern Family"], ["Doctor Who"], ["Brooklyn Nine-Nine"], ["Parks and Recreation"], ["Gilmore Girls"], ["The Simpsons"], ["Community"], ["How I Met Your Mother"]] },
+    ],
+    norm: (t) => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, ""),
+    shape: (m, type) => ({
+      id: m.imdb_id || m.id,
+      type,
+      name: m.name,
+      poster: m.poster || null,
+      background: m.background || null,
+      description: m.description || "",
+      year: m.releaseInfo ? String(m.releaseInfo) : "",
+      genres: (m.genres || m.genre || []).slice(0, 3),
+      imdb: m.imdbRating || null,
+    }),
+    async find(type, name, year) {
+      const key = `xmas1:${type}:${name}:${year || ""}`;
+      const cached = readCached(key);
+      if (cached !== undefined) return cached;
+      try {
+        const r = await fetch(`${forYou.BASE}/catalog/${type}/top/search=${encodeURIComponent(name)}.json`, { signal: AbortSignal.timeout(10000) });
+        if (!r.ok) return null;
+        const metas = ((await r.json()) || {}).metas || [];
+        const same = metas.filter((m) => this.norm(m.name) === this.norm(name));
+        const hit = (year && same.find((m) => String(m.releaseInfo || "").startsWith(String(year)))) || same[0] || null;
+        const out = hit ? this.shape(hit, type) : null;
+        writeCached(key, out);
+        return out;
+      } catch (_) {
+        return null; // offline: tried again next time
+      }
+    },
+    // TMDB's Christmas keyword: the best-known first, as Cinemeta's own entries (by their IMDb ids)
+    async more(skip) {
+      if (!settings.tmdbKey || !settings.tmdbKey.trim()) return [];
+      const key = "xmas1:tmdb";
+      const cached = readCached(key);
+      if (cached !== undefined) return cached.filter((t) => !skip.has(t.id));
+      const get = (path) => api.phone.tmdbGet(path);
+      const kw = await get("/search/keyword?query=christmas&page=1");
+      const id = kw && (kw.results || []).find((k) => String(k.name).toLowerCase() === "christmas");
+      if (!id) return [];
+      const found = await get(`/discover/movie?with_keywords=${id.id}&sort_by=popularity.desc&vote_count.gte=150&include_adult=false&language=en-US&page=1`);
+      const picks = ((found && found.results) || []).slice(0, 24);
+      const out = [];
+      await Promise.all(picks.map(async (m, i) => {
+        const ext = await get(`/movie/${m.id}/external_ids`);
+        const imdb = ext && ext.imdb_id;
+        if (!imdb) return;
+        const meta = await getMeta("movie", imdb).catch(() => null);
+        if (meta) out[i] = this.shape({ ...meta, id: imdb }, "movie");
+      }));
+      const list = out.filter(Boolean);
+      if (list.length) writeCached(key, list);
+      return list.filter((t) => !skip.has(t.id));
+    },
+    async rows() {
+      const rows = await Promise.all(this.LISTS.map(async (l) => ({
+        name: l.name,
+        items: (await Promise.all(l.titles.map(([name, year]) => this.find(l.type, name, year)))).filter(Boolean),
+      })));
+      const have = new Set(rows.flatMap((r) => r.items.map((t) => t.id)));
+      const more = await this.more(have).catch(() => []);
+      if (more.length) rows.splice(3, 0, { name: "More Christmas", items: more });
+      return rows.filter((r) => r.items.length);
+    },
+  };
+
   // The stream the phone or iPad is playing (from phoneStreams), for lighter ones if it buffers
   let phonePlaying = null;
   // A stream the viewer chose themselves (the phone apps' and Lumen TV's lists): played again for this title
@@ -16121,9 +16213,9 @@
       // year and length, by id (Cinemeta's, cached), for [[type, id], …]
       async describe(list) {
         const out = {};
-        await Promise.all((Array.isArray(list) ? list : []).slice(0, 8).map(async ([type, id]) => {
-          const m = await getMeta(type, id).catch(() => null);
-          if (m) out[id] = { description: m.description || null, genres: (m.genres || []).slice(0, 3), year: m.releaseInfo ? String(m.releaseInfo) : null, runtime: formatRuntime(m.runtime) || null };
+        await Promise.all((Array.isArray(list) ? list : []).slice(0, 24).map(async ([type, id]) => {
+          const m = /^kitsu:/.test(String(id)) ? await kitsuMeta(id) : await getMeta(type, id).catch(() => null);
+          if (m) out[id] = { description: m.description || null, genres: (m.genres || []).slice(0, 3), year: m.releaseInfo ? String(m.releaseInfo) : null, runtime: formatRuntime(m.runtime) || null, logo: m.logo || null, background: m.background || null };
         }));
         return out;
       },
@@ -16345,6 +16437,67 @@
         const item = phoneStreams && phoneStreams.items[index];
         if (item) streamFailures.add(item, why);
         return !!item;
+      },
+      // Christmas at Home (Discover): the curated rows, then "More Christmas" from TMDB when there's a key.
+      // [daysToChristmas], and whether it's [inSeason] (mid-November to early January: the festive card and page)
+      async christmas() {
+        const now = new Date();
+        const y = now.getMonth() === 0 && now.getDate() <= 6 ? now.getFullYear() - 1 : now.getFullYear();
+        let day = new Date(y, 11, 25);
+        if (day.getTime() + 86400000 <= now.getTime()) day = new Date(y + 1, 11, 25);
+        const daysToChristmas = Math.max(0, Math.ceil((day.getTime() - now.getTime()) / 86400000));
+        const inSeason = (now.getMonth() === 10 && now.getDate() >= 15) || now.getMonth() === 11 || (now.getMonth() === 0 && now.getDate() <= 6);
+        const rows = await christmasLists.rows();
+        return { daysToChristmas, inSeason, rows };
+      },
+      // The other seasons of an anime (the Kitsu addon keeps each season as a show of its own): the franchise's
+      // TV entries in order, from Kitsu's own sequel and prequel links. [] when there's only the one (or it can't
+      // be told). Each: id, name, label ("Season 2", "The Final Season"), poster, background, year, episodes, current.
+      async animeSeasons(id) {
+        const m = /^kitsu:(\d+)$/.exec(String(id || ""));
+        if (!m) return [];
+        const key = `kseasons:${m[1]}`;
+        const cached = readCached(key);
+        if (cached !== undefined) return cached.map((x) => ({ ...x, current: x.id === `kitsu:${m[1]}` }));
+        const H = { Accept: "application/vnd.api+json" };
+        const get = (path) => fetch(`https://kitsu.io/api/edge${path}`, { headers: H, signal: AbortSignal.timeout(10000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+        const found = new Map();
+        const queue = [m[1]];
+        let failed = false;
+        while (queue.length && found.size < 16) {
+          const at = queue.shift();
+          if (found.has(at)) continue;
+          const [entry, rel] = await Promise.all([get(`/anime/${at}`), get(`/anime/${at}/media-relationships?filter[role]=sequel,prequel&include=destination&page[limit]=20`)]);
+          if (!entry || !entry.data) { failed = true; continue; }
+          found.set(at, entry.data);
+          const dest = new Map(((rel && rel.included) || []).filter((x) => x.type === "anime").map((x) => [x.id, x]));
+          for (const d of (rel && rel.data) || []) {
+            const to = dest.get(d.relationships.destination.data.id);
+            if (to && to.attributes.subtype === "TV" && !found.has(to.id)) queue.push(to.id);
+          }
+        }
+        const list = [...found.values()].sort((a, b) => String(a.attributes.startDate).localeCompare(String(b.attributes.startDate)));
+        if (list.length < 2) {
+          if (!failed) writeCached(key, []);
+          return [];
+        }
+        const base = String(list[0].attributes.canonicalTitle || "");
+        const out = list.map((x, i) => {
+          const name = String(x.attributes.canonicalTitle || "");
+          const rest = name.startsWith(base) ? name.slice(base.length).replace(/^[\s:\-–]+/, "").trim() : name;
+          return {
+            id: `kitsu:${x.id}`,
+            type: "series",
+            name,
+            label: i === 0 || !rest ? "Season 1" : /^\d+$/.test(rest) ? `Season ${rest}` : rest,
+            poster: (x.attributes.posterImage && (x.attributes.posterImage.medium || x.attributes.posterImage.small)) || null,
+            background: (x.attributes.coverImage && (x.attributes.coverImage.large || x.attributes.coverImage.original)) || null,
+            year: String(x.attributes.startDate || "").slice(0, 4),
+            episodes: x.attributes.episodeCount || 0,
+          };
+        });
+        for (const x of out) writeCached(`kseasons:${x.id.slice(6)}`, out);
+        return out.map((x) => ({ ...x, current: x.id === `kitsu:${m[1]}` }));
       },
       // A show started from Shuffle carries on shuffling (on), until anything else is played (off)
       shuffle(metaId, on) {

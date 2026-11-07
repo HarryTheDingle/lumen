@@ -44,6 +44,10 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
         stremio.search(q)
     }
     val rows = if (text.trim().length < 2) emptyList() else results.filter { it.type !in LEFT_OUT }
+    // (nothing typed: the Genres row, as Discover's; Anime only with the Kitsu addon)
+    val addons by stremio.installedAddons.collectAsState()
+    LaunchedEffect(Unit) { stremio.loadAddons() }
+    val hasKitsu = addons.any { it.id.contains("kitsu", ignoreCase = true) || it.transportUrl.contains("kitsu", ignoreCase = true) }
 
     Box(Modifier.fillMaxSize().background(Dx.Background)) {
         CompositionLocalProvider(LocalBringIntoViewSpec provides ScreenScrolling) {
@@ -62,6 +66,7 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
                         )
                     }
                 }
+                if (text.trim().length < 2) genresItem(nav, inChristmasSeason(), hasKitsu)
                 rows.forEach { row ->
                     when {
                         row.state == Load.Ready && row.items.isNotEmpty() -> item(key = "row-${row.key}") {

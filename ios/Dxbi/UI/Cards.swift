@@ -12,9 +12,22 @@ struct PosterCard: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // (the poster names the title itself)
+            // (the poster names the title itself; an anime's (Kitsu's) often doesn't, in a language you can read:
+            // so its name goes on it in text)
             Art(url: title.art)
                 .frame(width: width, height: width * 1.5)
+            if title.id.hasPrefix("kitsu:") || title.id.hasPrefix("mal:") {
+                LinearGradient(colors: [.clear, .black.opacity(0.78)], startPoint: .center, endPoint: .bottom)
+                    .frame(width: width, height: width * 1.5)
+                Text(title.name)
+                    .font(.system(size: max(11, width * 0.1), weight: .bold))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.8)
+                    .shadow(color: .black.opacity(0.6), radius: 3)
+                    .frame(width: width - 16, alignment: .leading)
+                    .padding(.bottom, progress ?? 0 > 0 ? 24 : 9)
+            }
             if let progress, progress > 0 {
                 ProgressLine(value: progress, colour: Dx.accent).padding(.horizontal, 10).padding(.bottom, 10)
             }
@@ -52,11 +65,12 @@ struct PosterCard: View {
 
 /** Continue Watching: wide art with the logo, and a glass strip with how far they got */
 struct ContinueCard: View {
+    @Environment(Stremio.self) private var stremio
     var item: Continue
     var width: CGFloat
 
     var body: some View {
-        let title = item.title
+        let title = stremio.filledIn(item.title)
         ZStack(alignment: .bottom) {
             Art(url: title.backdrop).frame(width: width, height: width * 0.62)
             BlurFade(url: title.backdrop, from: 0.55).frame(width: width, height: width * 0.62)
