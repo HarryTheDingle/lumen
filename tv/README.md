@@ -1,6 +1,6 @@
-# dx.bi TV
+# Lumen for Android TV
 
-dx.bi for Android TV, Google TV and Fire TV (Fire OS). For what it does and how to install it, see the [main README](../README.md#dxbi-tv-android-tv-google-tv-and-fire-tv).
+Lumen for Android TV and Google TV. It is the `lumen` product flavor: its screens are in `app/src/lumen/`. For what it is and how to install it, see the [main README](../README.md). The notes below describe the shared engine it is built on (from dx.bi, see [docs/dxbi](../docs/dxbi)), which also builds the original `tv` and `mobile` flavors.
 
 How it works:
 

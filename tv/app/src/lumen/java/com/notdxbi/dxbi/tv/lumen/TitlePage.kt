@@ -131,13 +131,13 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
     var animeSeasons by remember(ref.id) { mutableStateOf<List<AnimeSeason>>(emptyList()) }
     LaunchedEffect(ref.id) { if (ref.id.startsWith("kitsu:")) animeSeasons = stremio.animeSeasons(ref.id) }
     var reviews by remember { mutableStateOf<Reviews?>(null) }
-    /** The cast with photos (TMDB, with a key in dx.bi settings), else null */
+    /** The cast with photos (TMDB, with a key in Lumen settings), else null */
     var cast by remember { mutableStateOf<List<JSONObject>?>(null) }
     var menu by remember { mutableStateOf<Pair<String, List<Action>>?>(null) }
     var inList by remember(title.inLibrary) { mutableStateOf(title.inLibrary) }
-    /** dx.bi settings → Blur unwatched episodes */
+    /** Lumen settings → Blur unwatched episodes */
     val blurUnwatched by androidx.compose.runtime.produceState(false) { value = stremio.blurUnwatched() }
-    /** dx.bi settings → Play Trailers (null until read) */
+    /** Lumen settings → Play Trailers (null until read) */
     val playTrailers by androidx.compose.runtime.produceState<Boolean?>(null) { value = stremio.playTrailers() }
 
     // Open (and open again when it's back on top)

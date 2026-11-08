@@ -43,7 +43,7 @@ import org.json.JSONObject
 /**
  * Someone from a title's cast, the Apple TV way (as the iPad's PersonView.swift): their photo and name, who
  * they are, a biography that opens out, then what they're known for and all their films and shows, each a
- * poster that opens its page. The data is TMDB's (a key in dx.bi settings); without one the cast row
+ * poster that opens its page. The data is TMDB's (a key in Lumen settings); without one the cast row
  * searches for the name instead and this page isn't reached.
  */
 @Composable

@@ -3,7 +3,7 @@ import SwiftUI
 /**
  * Someone from a title's cast, the Apple TV way: their photo and name, who they are (where and when they
  * were born), a short biography that opens out, then what they're known for and all their films and
- * shows, each a poster that opens its page. The data is TMDB's (a key in dx.bi settings); without one
+ * shows, each a poster that opens its page. The data is TMDB's (a key in Lumen settings); without one
  * the cast row searches for the name instead and this page isn't reached.
  */
 struct PersonView: View {

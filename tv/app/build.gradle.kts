@@ -20,7 +20,7 @@ fun signingValue(key: String, env: String): String? = keystoreProps.getProperty(
 
 // Where the app looks for its updates: the repository it was built from (GitHub Actions says which), so
 // a fork's TVs follow the fork's own releases rather than being offered builds signed with another key
-val updateRepo = System.getenv("DXBI_UPDATE_REPO") ?: System.getenv("GITHUB_REPOSITORY") ?: "notdxbi/dxbi-stremio"
+val updateRepo = System.getenv("DXBI_UPDATE_REPO") ?: System.getenv("GITHUB_REPOSITORY") ?: "HarryTheDingle/lumen"
 
 android {
     namespace = "com.notdxbi.dxbi.tv"
@@ -33,6 +33,8 @@ android {
         versionName = dxbiVersion
         versionCode = versionParts[0] * 10000 + versionParts[1] * 100 + versionParts[2]
         buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
+        // What the app calls itself in what it says (Lumen overrides it)
+        buildConfigField("String", "APP_NAME", "\"dx.bi\"")
         // Released builds keep themselves current; test builds run the plugin they were built with
         buildConfigField("boolean", "SELF_UPDATE", "true")
     }
@@ -68,8 +70,9 @@ android {
             // Lumen's own intro film (src/lumen/res/raw/intro.mp4, from tools/render_lumen_intro.py), in its own colours
             buildConfigField("boolean", "INTRO", "true")
             buildConfigField("boolean", "OWN_INTRO", "true")
-            // no releases of its own yet: it runs the plugin it was built with
-            buildConfigField("boolean", "SELF_UPDATE", "false")
+            buildConfigField("String", "APP_NAME", "\"Lumen\"")
+            // (released Lumen builds keep themselves current from this repository's releases: lumen-tv.apk;
+            // preview and debug builds don't, they run what they were built with)
         }
     }
 

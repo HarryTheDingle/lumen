@@ -59,7 +59,7 @@ struct DownloadsView: View {
     }
 }
 
-/** Report a problem: what went wrong, sent with dx.bi's own report (as on the desktop and TV) */
+/** Report a problem: what went wrong, sent with Lumen's own report (as on the desktop and TV) */
 struct ReportView: View {
     @Environment(Stremio.self) private var stremio
     @Environment(\.dismiss) private var dismiss

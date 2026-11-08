@@ -162,7 +162,7 @@ extension ISO8601DateFormatter {
     }()
 }
 
-/** A stream as dx.bi's stream list reads it (api.phone.streams: describeStream in the plugin) */
+/** A stream as Lumen's stream list reads it (api.phone.streams: describeStream in the plugin) */
 struct StreamOption: Identifiable, Hashable {
     var index: Int
     var play: String
@@ -466,7 +466,7 @@ struct Account {
     }
 }
 
-/** dx.bi's own Home rows (window.__dxbi.phone) */
+/** Lumen's own Home rows (window.__dxbi.phone) */
 /** One season of an anime, as the Kitsu addon lists it (a show of its own) */
 struct AnimeSeason: Identifiable {
     var title: Title
@@ -594,7 +594,7 @@ struct Reviews {
     }
 }
 
-/** One of dx.bi's settings, as the TV lists them */
+/** One of Lumen's settings, as the TV lists them */
 struct Setting: Identifiable {
     struct Option: Hashable {
         var value: String
@@ -627,7 +627,7 @@ struct Setting: Identifiable {
 struct Viewer: Identifiable, Hashable {
     var id: String
     var name: String
-    /** dx.bi's viewer colour (hex) */
+    /** Lumen's viewer colour (hex) */
     var colour: String?
     var kids = false
 

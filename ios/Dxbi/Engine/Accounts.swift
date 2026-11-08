@@ -4,7 +4,7 @@ import SwiftUI
 
 /**
  * Several Stremio accounts on one device. Each account that has signed in keeps its Stremio session
- * (the page's "profile": the sign-in key, addons and settings) and its people on this device (dx.bi's
+ * (the page's "profile": the sign-in key, addons and settings) and its people on this device (Lumen's
  * viewers and what is theirs) in the Keychain, so swapping is swapping those and starting Stremio's
  * page again: the password is typed once, when the account is added, and never kept.
  */
@@ -15,7 +15,7 @@ struct SavedAccount: Codable, Identifiable, Equatable {
     var avatar: String?
     /** The page's profile, as the page wrote it ("" for guest) */
     var profile: String
-    /** dx.bi's data for this account's people, as JSON */
+    /** Lumen's data for this account's people, as JSON */
     var data: String
 
     static let guestId = "guest"
@@ -188,7 +188,7 @@ extension Stremio {
     }
 }
 
-/** A profile's colour (dx.bi's viewer colours are hex; a missing one is Lumen's blue) */
+/** A profile's colour (Lumen's viewer colours are hex; a missing one is Lumen's blue) */
 extension Color {
     static func profile(_ hex: String?) -> Color { Color(hex: hex) ?? Color(red: 0.35, green: 0.56, blue: 0.69) }
 }

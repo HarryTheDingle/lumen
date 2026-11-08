@@ -1,7 +1,7 @@
 import Charts
 import SwiftUI
 
-/** Your stats: how long you've watched, what and when (dx.bi's Watch stats, counted on this phone) */
+/** Your stats: how long you've watched, what and when (Lumen's Watch stats, counted on this phone) */
 struct StatsView: View {
     @Environment(Stremio.self) private var stremio
     @State private var stats: JSON?

@@ -1,0 +1,68 @@
+name: Lumen TV
+
+# Publishing a release builds Lumen for Android TV and attaches lumen-tv.apk (and the plugin, which the app
+# refreshes by itself) to it. Installed copies look at this repository's latest release and offer the update.
+# Tag releases v<version>, the version in dxbi.plugin.js (@version) and app/version: the app only offers a
+# version newer than the one it's running.
+#
+# Release builds are signed with Lumen's own key, kept in the repository's secrets:
+#   LUMEN_KEYSTORE_B64       the keystore (tv/lumen-release.jks), base64-encoded
+#   LUMEN_KEYSTORE_PASSWORD  its password (the key uses the same one; alias lumen-tv)
+# Keep the keystore somewhere safe too: a TV only accepts an update signed with the key it was installed with.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tv
+    env:
+      HAS_KEY: ${{ secrets.LUMEN_KEYSTORE_B64 != '' }}
+    steps:
+      - name: Signing key needed
+        if: env.HAS_KEY != 'true'
+        working-directory: .
+        run: |
+          echo "::error::LUMEN_KEYSTORE_B64 isn't set, so Lumen TV wasn't built (an APK signed with another key couldn't update the TVs)."
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Signing key
+        run: echo "${{ secrets.LUMEN_KEYSTORE_B64 }}" | base64 -d > "$RUNNER_TEMP/lumen-release.jks"
+
+      - name: Build
+        run: |
+          ./gradlew assembleLumenRelease --no-daemon
+          cp app/build/outputs/apk/lumen/release/app-lumen-release.apk lumen-tv.apk
+        env:
+          DXBI_TV_KEYSTORE: ${{ runner.temp }}/lumen-release.jks
+          DXBI_TV_KEYSTORE_PASSWORD: ${{ secrets.LUMEN_KEYSTORE_PASSWORD }}
+          DXBI_TV_KEY_ALIAS: lumen-tv
+          DXBI_TV_KEY_PASSWORD: ${{ secrets.LUMEN_KEYSTORE_PASSWORD }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lumen-tv
+          path: tv/lumen-tv.apk
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        working-directory: .
+        run: gh release upload "${{ github.event.release.tag_name }}" tv/lumen-tv.apk dxbi.plugin.js --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -5,7 +5,7 @@ import VideoToolbox
 
 /**
  * Stremio's web app, running out of sight: it does Stremio's work (account, addons, library, finding
- * streams, watch progress) with dx.bi's plugin, and the app's screens show it. The same page and the
+ * streams, watch progress) with Lumen's plugin, and the app's screens show it. The same page and the
  * same scripts as the Android apps (dxbi-tv.js, dxbi-engine.js, dxbi.plugin.js).
  *
  * Android gives the page a `DxbiTV` object it can call and get answers from straight away; a
@@ -64,7 +64,7 @@ final class Page: NSObject {
         webView.isOpaque = false
         webView.backgroundColor = .black
         webView.scrollView.contentInsetAdjustmentBehavior = .never
-        // Stremio's web app is made for a computer's browser. dxbi-tv/ tells dx.bi it runs in the app,
+        // Stremio's web app is made for a computer's browser. dxbi-tv/ tells Lumen it runs in the app,
         // as on Android (no intro, the app's own player…)
         webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15 dxbi-tv/\(Self.version) dxbi-ios"
         #if DEBUG
@@ -113,7 +113,7 @@ final class Page: NSObject {
           // No Web Audio in the page: a page with an audio context makes iOS set the app's sound to
           // "ambient", and an app like that can't be Now Playing (the lock screen and Control Centre
           // said Not Playing). The page has nothing to play on an iPhone anyway: the app's player
-          // plays (dx.bi's sound effects and party chimes do without one)
+          // plays (Lumen's sound effects and party chimes do without one)
           for (const name of ["AudioContext", "webkitAudioContext", "OfflineAudioContext", "webkitOfflineAudioContext"]) {
             try { Object.defineProperty(window, name, { value: undefined, configurable: false, writable: false }); } catch (_) {}
           }

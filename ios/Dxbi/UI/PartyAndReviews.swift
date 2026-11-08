@@ -1,6 +1,6 @@
 import SwiftUI
 
-/** dx.bi's watch party: start one or join with a code; everyone streams from their own addons */
+/** Lumen's watch party: start one or join with a code; everyone streams from their own addons */
 struct PartyView: View {
     @Environment(Stremio.self) private var stremio
     @Environment(\.dismiss) private var dismiss
@@ -102,7 +102,7 @@ struct PartyView: View {
     }
 }
 
-/** Scores and reviews: MDBList, Wikidata, TMDB (with keys set in dx.bi settings) */
+/** Scores and reviews: MDBList, Wikidata, TMDB (with keys set in Lumen settings) */
 struct ReviewsView: View {
     var title: Title
     var reviews: Reviews?

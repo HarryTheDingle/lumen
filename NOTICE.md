@@ -1,4 +1,6 @@
-# dx.bi: copyright and licence
+# Lumen is built on dx.bi: copyright and licence
+
+Lumen (the iPad, iPhone and Mac app, Lumen TV and the changes made to the code below) is built on dx.bi and is released under the same licence. The notices below are dx.bi's and must stay with the code.
 
 Copyright (C) 2026 dx.bi
 

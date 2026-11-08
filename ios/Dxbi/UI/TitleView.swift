@@ -11,7 +11,7 @@ struct TitleView: View {
     var ref: TitleRef
 
     @State private var choices: StreamChoices?
-    /** Play was pressed for this video: dx.bi's pick plays as soon as it's sure */
+    /** Play was pressed for this video: Lumen's pick plays as soon as it's sure */
     @State private var waitingFor: String?
     @State private var streamsOpen = false
     @State private var season: Int?
@@ -26,16 +26,16 @@ struct TitleView: View {
     @State private var autoPlayed = false
     /** Started from Shuffle: Next episode carries on with random ones */
     @State private var shuffling = false
-    /** The cast with photos (TMDB, with a key in dx.bi settings), else nil */
+    /** The cast with photos (TMDB, with a key in Lumen settings), else nil */
     @State private var cast: [JSON]?
     /** The trailer, fading in over the art a moment after the page opens */
     @State private var preview = TrailerPreview.Controller()
     @State private var previewOn = false
     /** The art has scrolled away: the top bar's edge shows again */
     @State private var pastArt = false
-    /** dx.bi settings → Blur unwatched episodes */
+    /** Lumen settings → Blur unwatched episodes */
     @State private var blurUnwatched = false
-    /** dx.bi settings → Play Trailers (nil until read) */
+    /** Lumen settings → Play Trailers (nil until read) */
     @State private var playTrailers: Bool?
 
     private var details: Details? { stremio.details?.metaId == ref.id ? stremio.details : nil }
@@ -166,7 +166,7 @@ struct TitleView: View {
                 start(n.videoId, shuffle: shuffling)
             }
         }
-        // dx.bi's reading of the streams, again as more addons answer
+        // Lumen's reading of the streams, again as more addons answer
         .task(id: details?.streamsKey) {
             guard details?.videoId != nil else { return }
             choices = await stremio.streams()

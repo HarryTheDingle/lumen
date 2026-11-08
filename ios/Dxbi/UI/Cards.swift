@@ -126,7 +126,7 @@ struct EpisodeCard: View {
     var width: CGFloat
     var fallbackArt: URL?
     var playing = false
-    /** Blur unwatched episodes (dx.bi settings): the picture hidden until it's watched or started */
+    /** Blur unwatched episodes (Lumen settings): the picture hidden until it's watched or started */
     var blurUnwatched = false
 
     private var hidden: Bool { blurUnwatched && !video.watched && (video.progress ?? 0) <= 0 }

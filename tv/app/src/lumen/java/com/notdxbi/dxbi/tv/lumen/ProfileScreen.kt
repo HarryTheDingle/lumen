@@ -40,7 +40,7 @@ import androidx.compose.material.icons.filled.Check
 import com.notdxbi.dxbi.tv.phone.Stremio
 import com.notdxbi.dxbi.tv.phone.Viewer
 
-/** dx.bi's viewer colours (the plugin accepts only these) */
+/** Lumen's viewer colours (the plugin accepts only these) */
 val ProfileColours = listOf("#e50914", "#2f80ff", "#1db954", "#f5a524", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316")
 
 private fun profileColour(hex: String?): Color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color(0xFF33668C))

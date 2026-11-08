@@ -1,7 +1,7 @@
 import SwiftUI
 
 /**
- * The streams for one film or episode, as dx.bi's stream list shows them: dx.bi's pick at the top
+ * The streams for one film or episode, as Lumen's stream list shows them: Lumen's pick at the top
  * (what you chose last time, else the best that's ready), then every stream with its file name,
  * quality, HDR, source, codec, languages, size and seeds, to filter and sort.
  */

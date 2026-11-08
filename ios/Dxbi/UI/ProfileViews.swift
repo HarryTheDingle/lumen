@@ -1,6 +1,6 @@
 import SwiftUI
 
-/** dx.bi's viewer colours (the plugin accepts only these) */
+/** Lumen's viewer colours (the plugin accepts only these) */
 let profileColours = ["#e50914", "#2f80ff", "#1db954", "#f5a524", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"]
 
 /** A profile's circle: its colour and first letter, as on Apple TV */

@@ -2,7 +2,7 @@ import Foundation
 import UIKit
 
 /**
- * A new dx.bi for iPhone release, offered once: the app looks at the GitHub releases of the
+ * A new Lumen for iPhone release, offered once: the app looks at the GitHub releases of the
  * repository it was built from (as the Android apps do) and, when there's a newer one with a
  * dxbi.ipa, offers to open its page (an IPA is installed with SideStore, AltStore or Sideloadly,
  * which can't be done from inside the app).

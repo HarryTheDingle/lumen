@@ -42,7 +42,7 @@ struct TrailerPreview: UIViewRepresentable {
         web.scrollView.backgroundColor = .clear
         web.scrollView.isScrollEnabled = false
         controller.web = web
-        // YouTube's player wants to know which site it's on: Stremio's, as in dx.bi's own cards
+        // YouTube's player wants to know which site it's on: Stremio's, as in Lumen's own cards
         web.loadHTMLString(Self.page(id), baseURL: URL(string: "https://web.stremio.com/"))
         return web
     }

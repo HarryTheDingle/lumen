@@ -2,7 +2,7 @@ import SwiftUI
 
 /**
  * Home, the Apple TV way: a tall billboard to swipe through (logo, what it is, Play and +), then
- * Continue Watching, dx.bi's own rows and the addons' catalogs in the viewer's order.
+ * Continue Watching, Lumen's own rows and the addons' catalogs in the viewer's order.
  */
 struct HomeView: View {
     @Environment(Stremio.self) private var stremio

@@ -108,7 +108,7 @@ fun scoreName(s: Score, short: Boolean = false): String = when (s.source) {
 }
 
 /**
- * A poster that previews itself, as Netflix's TV app does (dx.bi's hover cards, for a remote): rest on it
+ * A poster that previews itself, as Netflix's TV app does (Lumen's hover cards, for a remote): rest on it
  * and it opens out sideways into a wide card with the title's picture, logo, year, genres and scores
  * (Rotten Tomatoes, IMDb), with Play and + in it, pushing its neighbours along. Moving on closes it at
  * once. (Trailers play in Home's billboard, not here: a card's too small and too many for a TV's
@@ -358,7 +358,7 @@ private fun InCardButton(lit: Boolean, round: Boolean = false, content: @Composa
 
 /**
  * A title's trailer, with its sound, filling the space this takes up: YouTube's privacy-enhanced player
- * (as dx.bi's hover cards play them) with everything of the player's hidden, just the video. It shows
+ * (as Lumen's hover cards play them) with everything of the player's hidden, just the video. It shows
  * only once the video's really playing, so a trailer that won't play leaves nothing behind.
  *
  * The player goes under the screen it's on, which leaves a clear space for it (Home's billboard, a
@@ -406,7 +406,7 @@ fun Trailer(
             }
             val q = "autoplay=1&mute=0&controls=0&cc_load_policy=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&playsinline=1&rel=0" +
                 if (loop) "&loop=1&playlist=$id" else ""
-            // YouTube's player wants to know which site it's on: Stremio's, as in dx.bi's own cards
+            // YouTube's player wants to know which site it's on: Stremio's, as in Lumen's own cards
             loadUrl("https://www.youtube-nocookie.com/embed/$id?$q", mapOf("Referer" to "https://web.stremio.com/"))
         }
     }

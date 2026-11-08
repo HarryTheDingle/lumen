@@ -54,7 +54,7 @@ private val WEB_ONLY = setOf(
 )
 
 /**
- * Settings: who's signed in, then dx.bi's settings by group, as the iPad lists them. A switch changes
+ * Settings: who's signed in, then Lumen's settings by group, as the iPad lists them. A switch changes
  * with OK; a choice moves on to the next with each OK; a key or name is typed with the TV's keyboard.
  */
 @OptIn(ExperimentalFoundationApi::class)

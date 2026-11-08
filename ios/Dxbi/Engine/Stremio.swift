@@ -10,7 +10,7 @@ import UIKit
 @Observable
 final class Stremio {
 
-    /** Where the app's next stream goes: dx.bi's player, another app (Infuse, VLC…), or Downloads */
+    /** Where the app's next stream goes: Lumen's player, another app (Infuse, VLC…), or Downloads */
     enum Target { case player, otherApp, download }
 
     @ObservationIgnored let page = Page()
@@ -184,7 +184,7 @@ final class Stremio {
             rows = layout.arrange(allRows)
         case "continue_watching_preview":
             continueWatching = Continue.list(data)
-            // the library changing (watched something, added to the list, another device) changes dx.bi's rows
+            // the library changing (watched something, added to the list, another device) changes Lumen's rows
             let sig = Json.encode(data)
             if lastContinue != nil, sig != lastContinue, ready { refreshExtras() }
             lastContinue = sig
@@ -483,7 +483,7 @@ final class Stremio {
 
     func removeFromContinue(_ id: String) { Task { await ask("dismiss", ["id": id]) } }
 
-    /** The open title's streams, described by dx.bi, with Just press Play's pick */
+    /** The open title's streams, described by Lumen, with Just press Play's pick */
     func streams() async -> StreamChoices? {
         (await dx("phone.streams") as? JSON).map(StreamChoices.init)
     }
@@ -831,7 +831,7 @@ final class Stremio {
 
     func updateSettings(_ changes: JSON) { Task { await ask("updateSettings", ["changes": changes]) } }
 
-    /** dx.bi settings → Play Trailers (on unless switched off): a title's page fades its trailer in */
+    /** Lumen settings → Play Trailers (on unless switched off): a title's page fades its trailer in */
     func playTrailers() async -> Bool {
         await settings().first { $0.key == "playTrailers" }?.value != "false"
     }
@@ -916,7 +916,7 @@ final class Stremio {
         }
     }
 
-    // MARK: - Watch party (dx.bi's own: end-to-end encrypted, everyone streams from their own addons)
+    // MARK: - Watch party (Lumen's own: end-to-end encrypted, everyone streams from their own addons)
 
     func party() async -> JSON? { await dx("phone.party.state") as? JSON }
 
@@ -997,12 +997,12 @@ final class Stremio {
         setWatched(video: video, true)
     }
 
-    /** The cast with their photos (TMDB, with a key in dx.bi settings), or nil */
+    /** The cast with their photos (TMDB, with a key in Lumen settings), or nil */
     func cast(_ type: String, _ imdb: String, names: [JSON]) async -> [JSON]? {
         (await ask("dx", ["method": "phone.cast", "args": [type, imdb, names]], timeout: 25) as? [Any])?.compactMap { $0 as? JSON }
     }
 
-    /** Someone's page (TMDB, with a key in dx.bi settings): by TMDB's id from the cast list, else by name. nil without a key */
+    /** Someone's page (TMDB, with a key in Lumen settings): by TMDB's id from the cast list, else by name. nil without a key */
     func person(id: String?, name: String) async -> JSON? {
         await ask("dx", ["method": "phone.person", "args": [id ?? "", name]], timeout: 40) as? JSON
     }
@@ -1034,9 +1034,9 @@ final class Stremio {
     func searchFor(_ text: String) { pendingSearch = text }
 
     /**
-     * Report a problem, as dx.bi does everywhere: what they typed, with dx.bi's version, the phone,
+     * Report a problem, as Lumen does everywhere: what they typed, with Lumen's version, the phone,
      * settings, addon names and recent errors (no passwords, keys or stream links). The report's code
-     * to post in dx.bi's Discord, or what went wrong
+     * to post in Lumen's Discord, or what went wrong
      */
     func report(_ description: String) async -> Result<String, Page.Failure> {
         do {
@@ -1060,7 +1060,7 @@ final class Stremio {
         Task { await ask("videoWatched", ["id": id, "value": watched, "upTo": upTo]) }
     }
 
-    /** Your stats (dx.bi's Watch stats), or nil when they're switched off */
+    /** Your stats (Lumen's Watch stats), or nil when they're switched off */
     func stats() async -> JSON? { await dx("phone.stats") as? JSON }
 
     func progress(position: Double, duration: Double, paused: Bool) {

@@ -14,9 +14,9 @@ import org.json.JSONObject
 import java.io.File
 
 /**
- * Lumen for Android TV, joined to dx.bi TV's code (see PhoneHooks.kt): Lumen's own screens, worked by
+ * Lumen for Android TV, joined to the original TV app's code (see PhoneHooks.kt): Lumen's own screens, worked by
  * remote, over the page, which keeps doing Stremio's work underneath as it does in the phone and iPad
- * apps. Playing goes to dx.bi TV's player, which is already made for a remote.
+ * apps. Playing goes to the original TV app's player, which is already made for a remote.
  */
 object Phone {
 

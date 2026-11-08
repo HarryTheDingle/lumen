@@ -5,7 +5,7 @@ import UIKit
 /**
  * Films and episodes saved to watch offline, as on Android: a stream (an addon's link, debrid ones
  * included) downloads in the background, iOS carrying on while the app is away, with up to three of
- * its subtitles alongside, and plays from the phone in dx.bi's player, picking up where it was left.
+ * its subtitles alongside, and plays from the phone in Lumen's player, picking up where it was left.
  *
  * Each lives in Application Support/Downloads/<id>/: item.json (the page's play payload, as it was
  * handed over), the video, and its subtitle files.

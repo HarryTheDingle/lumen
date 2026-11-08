@@ -246,7 +246,7 @@ struct AddonsView: View {
 
 // MARK: - Settings
 
-/** dx.bi settings: the same list the TV shows */
+/** Lumen settings: the same list the TV shows */
 struct DxbiSettingsView: View {
     @Environment(Stremio.self) private var stremio
     @State private var settings: [Setting]?

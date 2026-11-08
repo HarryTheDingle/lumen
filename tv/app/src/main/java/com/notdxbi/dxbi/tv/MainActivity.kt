@@ -207,7 +207,7 @@ class MainActivity : AppCompatActivity() {
             if (now - lastBack < 2500) finish()
             else {
                 lastBack = now
-                Toast.makeText(this, "Press Back again to leave dx.bi", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Press Back again to leave ${BuildConfig.APP_NAME}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -233,8 +233,8 @@ class MainActivity : AppCompatActivity() {
         if (again) {
             setContentView(View(this))
             AlertDialog.Builder(this)
-                .setTitle("dx.bi keeps stopping")
-                .setMessage("dx.bi's screen stopped twice in a row on this TV, usually because the TV is short of memory. Closing other apps (or restarting the TV) helps. Try again?")
+                .setTitle("${BuildConfig.APP_NAME} keeps stopping")
+                .setMessage("${BuildConfig.APP_NAME}'s screen stopped twice in a row on this TV, usually because the TV is short of memory. Closing other apps (or restarting the TV) helps. Try again?")
                 .setCancelable(false)
                 .setPositiveButton("Try again") { _, _ -> recreate() }
                 .setNegativeButton("Close") { _, _ -> finish() }
@@ -311,10 +311,10 @@ class MainActivity : AppCompatActivity() {
             .setTitle(if (fireTv) "Update your Fire TV" else "Update Android System WebView")
             .setCancelable(false)
         if (fireTv) {
-            builder.setMessage("dx.bi needs a newer web engine than this Fire TV has ($major). Update it under Settings → My Fire TV → About → Check for Updates, then open dx.bi again.")
+            builder.setMessage("${BuildConfig.APP_NAME} needs a newer web engine than this Fire TV has ($major). Update it under Settings → My Fire TV → About → Check for Updates, then open ${BuildConfig.APP_NAME} again.")
                 .setPositiveButton("Close") { _, _ -> finish() }
         } else {
-            builder.setMessage("dx.bi needs Android System WebView $MIN_WEBVIEW or newer (this TV has $major). Update it from the Play Store (search \"Android System WebView\"), then open dx.bi again.")
+            builder.setMessage("${BuildConfig.APP_NAME} needs Android System WebView $MIN_WEBVIEW or newer (this TV has $major). Update it from the Play Store (search \"Android System WebView\"), then open ${BuildConfig.APP_NAME} again.")
                 .setPositiveButton("Open Play Store") { _, _ ->
                     openExternal("market://details?id=com.google.android.webview")
                     finish()
