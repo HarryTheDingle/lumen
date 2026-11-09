@@ -1,8 +1,8 @@
 name: iPhone app
 
-# Builds Lumen for iPad and iPhone (ios/) on a Mac and keeps Lumen.ipa as a workflow artifact; publishing a
-# release attaches it to the release. The IPA isn't signed: SideStore, AltStore or Sideloadly sign it
-# with your own Apple ID when they install it.
+# Builds Lumen for iPad and iPhone (ios/) on a Mac and keeps Lumen.ipa as a workflow artifact, as a check that
+# it still builds. Releases don't build or carry it: the iOS app isn't sideloaded or self-updating, it's
+# installed from a Mac with ios/deploy.sh.
 on:
   push:
     branches: [main]
@@ -18,8 +18,6 @@ on:
       - tv/app/src/main/assets/dxbi-tv.js
       - tv/app/src/mobile/assets/dxbi-engine.js
       - .github/workflows/ios.yml
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       runner:
@@ -80,9 +78,3 @@ jobs:
           name: dxbi-ios
           path: ios/Lumen.ipa
           if-no-files-found: error
-
-      - name: Attach to the release
-        if: github.event_name == 'release'
-        run: gh release upload "${{ github.event.release.tag_name }}" Lumen.ipa --clobber
-        env:
-          GH_TOKEN: ${{ github.token }}

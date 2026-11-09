@@ -58,7 +58,7 @@ struct SnowView: View {
 
 // MARK: - The tiles
 
-private struct Genre: Identifiable {
+struct Genre: Identifiable {
     var id: String { name }
     var name: String
     /** The Cinemeta genre (and the type its tile's still comes from) */

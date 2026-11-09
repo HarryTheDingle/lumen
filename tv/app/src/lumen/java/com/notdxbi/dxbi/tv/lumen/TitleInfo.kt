@@ -95,7 +95,10 @@ fun TitleInfo(
         }
     }
     Column(modifier.widthIn(max = 470.dp)) {
-        if (animated) AnimatedContent(title, transitionSpec = { fadeIn(tween(500)) togetherWith fadeOut(tween(300)) }, label = "title-info") { info(it) }
+        if (animated) AnimatedContent(title, // (the picture settles first, then the words come up: as Apple TV's billboard does)
+        transitionSpec = { fadeIn(tween(450, delayMillis = 380)) togetherWith fadeOut(tween(200)) }, label = "title-info",
+        // (the same title with something changed, as when it's added to the Library, keeps its words where they are)
+        contentKey = { it.id }) { info(it) }
         else info(title)
         Row(
             Modifier.padding(top = 18.dp).then(buttonsModifier),
@@ -161,7 +164,7 @@ private fun Synopsis(lead: String?, body: String, onMore: () -> Unit) {
 /** The whole text, over the page; Back closes it */
 @Composable
 private fun FullText(heading: String, body: String, onDismiss: () -> Unit) {
-    PageWindow(onBack = onDismiss, dim = 0.7f) {
+    PageWindow(onBack = onDismiss, dim = 0.7f, fadeIn = false) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(
                 Modifier.width(620.dp).background(Color(0xFF181818), RoundedCornerShape(22.dp)).padding(28.dp),
@@ -206,9 +209,10 @@ fun PlayButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier
         onClick = onClick,
         modifier = modifier,
         colors = ButtonDefaults.colors(
-            containerColor = Color.White.copy(alpha = 0.88f),
-            contentColor = Color.Black,
-            focusedContainerColor = Color.White,
+            // Apple TV's: dark glass at rest, a soft white when the remote's on it
+            containerColor = Color.Black.copy(alpha = 0.42f),
+            contentColor = Color.White,
+            focusedContainerColor = Color(0xFFE8E8E8),
             focusedContentColor = Color.Black,
         ),
         scale = ButtonDefaults.scale(focusedScale = 1.08f),
@@ -226,9 +230,9 @@ fun RoundButton(icon: ImageVector, label: String, onClick: () -> Unit, modifier:
         onClick = onClick,
         modifier = modifier,
         colors = IconButtonDefaults.colors(
-            containerColor = Color.White.copy(alpha = 0.16f),
+            containerColor = Color.Black.copy(alpha = 0.42f),
             contentColor = Color.White,
-            focusedContainerColor = Color.White,
+            focusedContainerColor = Color(0xFFE8E8E8),
             focusedContentColor = Color.Black,
         ),
         scale = IconButtonDefaults.scale(focusedScale = 1.1f),

@@ -185,6 +185,8 @@ data class StreamOption(
     /** The stream's bitrate in Mbit/s (0 when unknown), and the quality its name claimed when it has played lower (0 otherwise) */
     val mbps: Double = 0.0,
     val claimed: Int = 0,
+    /** Dolby Vision with no HDR10 under it: wrong colours on a TV without Dolby Vision */
+    val dvOnly: Boolean = false,
 ) {
     val bitrateText: String? get() = if (mbps > 0) "%.0f Mbps".format(mbps) else null
     val claimNote: String? get() = if (claimed > res && res > 0) "Named ${qualityOf(claimed)}, plays ${qualityOf(res)}" else null
@@ -197,12 +199,15 @@ data class StreamOption(
     private fun qualityOf(r: Int) = when (r) { 2160 -> "4K"; 1440 -> "1440p"; 1080 -> "1080p"; 720 -> "720p"; 0 -> "?"; else -> "SD" }
     val sizeText: String? get() = if (size <= 0) null else if (size >= 1e9) "%.1f GB".format(size / 1e9) else "%.0f MB".format(size / 1e6)
 
-    /** The picture's quality, as the desktop's Best quality sort scores it: resolution, then Dolby Vision or HDR, then the source */
-    val score: Int get() = res * 10 + (if (dv) 3 else if (hdr) 2 else 0) + (SOURCE_RANK[source] ?: 0)
+    /**
+     * The picture's quality, as dx.bi's pick scores it (streamChoice.rank): resolution, then HDR (Dolby Vision alone last),
+     * the source (a remux over an encode over a web copy) and a point for every 10 Mbit/s, so the fullest picture leads
+     */
+    val score: Double get() = res * 10.0 + (if (dvOnly) -2 else if (hdr) 2 else 0) + (SOURCE_RANK[source] ?: 0) + minOf(10.0, mbps / 10)
 
     companion object {
         val FORMAT_ORDER = listOf("IMAX", "Dolby Vision", "HDR", "Atmos", "Remux", "Open Matte", "3D")
-        private val SOURCE_RANK = mapOf("Remux" to 4, "BluRay" to 3, "WEB" to 2, "HDTV" to 1, "CAM" to -10)
+        private val SOURCE_RANK = mapOf("Remux" to 6, "BluRay" to 4, "WEB" to 2, "HDTV" to 1, "CAM" to -10)
 
         /** Best quality first; of the same quality, ready to play, then most seeds, then largest */
         val BEST: Comparator<StreamOption> = compareByDescending<StreamOption> { it.score }
@@ -212,7 +217,7 @@ data class StreamOption(
             o.optString("codec"), o.optBoolean("instant"), o.optBoolean("pending"), o.optBoolean("lesser"), o.optInt("res"), o.optBoolean("hdr"),
             o.optBoolean("dv"), o.optDouble("size", 0.0), o.optInt("seeds", -1), o.optString("source"), o.optJSONArray("langs").strings(),
             o.optBoolean("imax"), o.optBoolean("atmos"), o.optBoolean("hdr10plus"), o.optBoolean("openMatte"), o.optBoolean("threeD"),
-            o.optDouble("mbps", 0.0), o.optInt("claimed", 0),
+            o.optDouble("mbps", 0.0), o.optInt("claimed", 0), o.optBoolean("dvOnly"),
         )
     }
 }

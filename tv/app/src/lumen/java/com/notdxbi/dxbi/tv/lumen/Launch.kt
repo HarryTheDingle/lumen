@@ -277,7 +277,7 @@ fun LoadingScreen(launcher: Launcher) {
     }
     val hold = androidx.compose.runtime.remember { FocusRequester() }
 
-    PageWindow(onBack = { launcher.cancel() }) {
+    PageWindow(onBack = { launcher.cancel() }, fadeIn = false) {
         FocusOnOpen(hold)
         LoadingContent(
             title, launcher.episode, launcher.step,

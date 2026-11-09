@@ -128,6 +128,7 @@ struct AccountView: View {
                     NavigationLink { AddonsView() } label: { Label("Addons", systemImage: "puzzlepiece.extension.fill") }
                     NavigationLink { DownloadsView() } label: { Label("Downloads", systemImage: "arrow.down.circle.fill") }
                     NavigationLink { StatsView() } label: { Label("Your Stats", systemImage: "chart.bar.fill") }
+                    Button { dismiss(); stremio.tuningPending = true } label: { Label("Tune Suggestions", systemImage: "wand.and.stars") }
                     NavigationLink { CustomiseHomeView() } label: { Label("Customise Home", systemImage: "square.stack.3d.up.fill") }
                     NavigationLink { DxbiSettingsView() } label: { Label("Lumen Settings", systemImage: "slider.horizontal.3") }
                     NavigationLink { PlaybackSettingsView() } label: { Label("Playback", systemImage: "play.rectangle.fill") }

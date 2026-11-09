@@ -118,7 +118,7 @@ fun NetworksScreen(stremio: Stremio) {
     }
 
     Box(Modifier.fillMaxSize().background(Dx.Background)) {
-        CompositionLocalProvider(LocalBringIntoViewSpec provides ScreenScrolling) {
+        CompositionLocalProvider(LocalBringIntoViewSpec provides CentredScrolling) {
             LazyColumn(contentPadding = PaddingValues(bottom = 60.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item(key = "title") { Heading("Networks", top = 40) }
                 item(key = "note") {
@@ -217,7 +217,7 @@ fun AddonsScreen(stremio: Stremio) {
     val loading = list != 0 && (remote == null || remote?.optString("state") == "Loading") && addons.isEmpty()
 
     Box(Modifier.fillMaxSize().background(Dx.Background)) {
-        CompositionLocalProvider(LocalBringIntoViewSpec provides ScreenScrolling) {
+        CompositionLocalProvider(LocalBringIntoViewSpec provides CentredScrolling) {
             LazyColumn(contentPadding = PaddingValues(bottom = 60.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 item(key = "title") { Heading("Addons", top = 40) }
                 item(key = "lists") {

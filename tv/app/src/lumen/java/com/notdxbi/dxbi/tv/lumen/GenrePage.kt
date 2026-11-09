@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -67,7 +68,7 @@ fun inChristmasSeason(): Boolean {
 }
 
 /** The picture of a genre's tile (graphics/genres: a photo in the genre's colour), by the genre's name */
-private fun genreDrawable(name: String): Int = when (name) {
+fun genreDrawable(name: String): Int = when (name) {
     "Christmas" -> R.drawable.genre_christmas
     "Action" -> R.drawable.genre_action
     "Anime" -> R.drawable.genre_anime
@@ -171,10 +172,13 @@ fun GenrePage(nav: Nav, feed: DiscoverFeed, name: String) {
 
     PageWindow(onBack = { nav.back() }, home = first) {
         val tint = GENRES.firstOrNull { it.name == name }?.tint ?: Color(0xFF444444)
-        Box(Modifier.fillMaxSize().background(Dx.Background).background(Brush.verticalGradient(0f to tint.copy(alpha = 0.3f), 0.4f to Color.Black))) {
+        Box(Modifier.fillMaxSize().background(Dx.Background).background(Brush.verticalGradient(0f to tint.copy(alpha = 0.3f), 0.4f to Dx.Background))) {
             // (the page scrolls as Home and Discover do: without it every move bounced, and again as a card opened)
-            CompositionLocalProvider(LocalBringIntoViewSpec provides ScreenScrolling) {
-            LazyColumn(contentPadding = PaddingValues(top = 48.dp, bottom = 60.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+            val pageListState = androidx.compose.foundation.lazy.rememberLazyListState()
+        val pageScope = androidx.compose.runtime.rememberCoroutineScope()
+        val pageScroller = remember { PageScroller(pageListState, pageScope) }
+        CompositionLocalProvider(LocalBringIntoViewSpec provides CentredScrolling, LocalPageScroller provides pageScroller) {
+            LazyColumn(state = pageListState, modifier = Modifier.onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(top = 48.dp, bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item(key = "title") {
                     Text(name, fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = Dx.Gutter))
                 }

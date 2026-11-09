@@ -30,6 +30,14 @@ final class Stremio {
     var viewer: Viewer?
     /** Top Picks for You, then Because you watched … (the plugin's recommender) */
     var picks: [ListRow] = []
+    /** What this profile said it likes (nil: not asked), and the rows Home shows from it until real picks exist */
+    var taste: Taste?
+    var tasteRows: [ListRow] = []
+    /** The taste screens are open (first time on an empty profile, or Profile → Tune Suggestions) */
+    var tuning = false
+    /** The taste screens are wanted; Root keeps trying to open them until they are (a sheet can be in the way) */
+    var tuningPending = false
+    var tuningShown = false
     /** The story, genres, year and length of the Continue Watching titles (Stremio's library keeps none), by id */
     var described: [String: JSON] = [:]
     /** The accounts kept on this device (Keychain), the one in use (nil: none, or browsing without), and swapping to another */
@@ -40,6 +48,9 @@ final class Stremio {
     var addingAccount = false
     /** Who's watching? has been answered since the app opened (or there's only one to be) */
     var profileChosen = false
+    /** Who's watching? was skipped only because there was one person to be: when the account's other profiles arrive (synced), it's asked after all */
+    @ObservationIgnored var profileAutoChosen = false
+    @ObservationIgnored var profileWatch: Task<Void, Never>?
     @ObservationIgnored var lastRemembered = Date.distantPast
     @ObservationIgnored var returnTo: String?
     @ObservationIgnored var returnToGuest = false
@@ -242,8 +253,16 @@ final class Stremio {
                 viewer = viewers.first { $0.id == v.string("current") } ?? viewers.first
                 cache.set(Json.encode(v.objects("list")), forKey: "x.viewers")
                 cache.set(viewer?.id, forKey: "x.viewer")
-                // (one person to be: nothing to ask)
-                if viewers.count < 2 { profileChosen = true }
+                loadTaste()
+                // (one person to be: nothing to ask, but the account's other profiles may be on their way from another device)
+                if viewers.count < 2 {
+                    profileChosen = true
+                    profileAutoChosen = true
+                    watchForProfiles()
+                } else if profileAutoChosen {
+                    profileAutoChosen = false
+                    profileChosen = false
+                }
             }
             await rememberAccount()
             if let l = await dx("phone.layout") as? JSON {
@@ -271,6 +290,8 @@ final class Stremio {
             }
             // Top Picks and Because you watched: made on the device, so the first answer can take a few seconds
             // (a stale one is the last answer while a fresh one is made)
+            // (the engine said this profile has nothing to recommend from, as opposed to not having answered)
+            var picksNoHistory = false
             for _ in 0..<14 {
                 if Task.isCancelled { return }
                 if let answer = await dx("phone.picks") as? JSON {
@@ -279,11 +300,13 @@ final class Stremio {
                     // answer while a fresh one was made, the rows on Home kept vanishing and coming back)
                     if rows != picks && (!rows.isEmpty || !answer.bool("stale")) { picks = rows }
                     cache.set(Json.encode(answer.objects("rows")), forKey: "x.picks")
-                    if !answer.bool("stale") { break }
+                    if !answer.bool("stale") { picksNoHistory = rows.isEmpty; break }
                 }
                 try? await Task.sleep(for: .seconds(1.5))
             }
             if !picks.isEmpty { forYou = nil; return }
+            // a profile with nothing watched yet: ask what they like, once
+            if picksNoHistory { offerTuning() }
             // nothing watched yet to go on: popular titles in the genres of what was saved last
             for _ in 0..<10 {
                 if Task.isCancelled { return }
@@ -875,14 +898,33 @@ final class Stremio {
             continueWatching = []
             picks = []
             forYou = nil
+            taste = nil
+            tasteRows = []
             refreshExtras()
         }
     }
 
     func addViewer(name: String, colour: String) {
+        profileAutoChosen = false
         Task {
             await dx("viewers.add", name, colour)
             refreshExtras()
+        }
+    }
+
+    /** A new device with one person to be: looks for the account's profiles (the plugin pulls them from the sync) for a minute or so */
+    func watchForProfiles() {
+        guard profileWatch == nil, account?.signedIn == true else { return }
+        profileWatch = Task {
+            for _ in 0..<12 {
+                try? await Task.sleep(for: .seconds(5))
+                if Task.isCancelled { break }
+                if let v = await dx("phone.viewers") as? JSON, v.objects("list").count > 1 {
+                    refreshExtras()
+                    break
+                }
+            }
+            profileWatch = nil
         }
     }
 
@@ -909,6 +951,7 @@ final class Stremio {
     func clearScreens() {
         account = nil
         continueWatching = []; rows = []; allRows = []; billboard = []; myList = []; forYou = nil; picks = []; airing = []
+        taste = nil; tasteRows = []; tuning = false; tuningPending = false
         library = []; inLibrary = []; watchedIds = []; marksKnown = false; viewers = []; viewer = nil; details = nil
         profileChosen = false
         for key in ["state.ctx", "state.board", "state.continue_watching_preview", "x.billboard", "x.myList", "x.forYou", "x.picks", "x.airing", "x.layout", "x.viewers", "x.viewer"] {

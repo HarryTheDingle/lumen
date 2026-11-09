@@ -63,7 +63,10 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.notdxbi.dxbi.tv.phone.Title
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 
 /** Lumen's screens, in the menu down the left as on Apple TV */
 enum class Tab(val label: String, val icon: ImageVector) {
@@ -140,7 +143,7 @@ val LocalCovered = compositionLocalOf { false }
  * has nowhere in the page (as it's back from the player, which leaves it nowhere)
  */
 @Composable
-fun PageWindow(onBack: () -> Unit, dim: Float = 0f, home: FocusRequester? = null, content: @Composable () -> Unit) {
+fun PageWindow(onBack: () -> Unit, dim: Float = 0f, home: FocusRequester? = null, windowAnimation: Boolean = false, fadeIn: Boolean = true, content: @Composable () -> Unit) {
     Dialog(
         onDismissRequest = onBack,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
@@ -154,7 +157,8 @@ fun PageWindow(onBack: () -> Unit, dim: Float = 0f, home: FocusRequester? = null
                 } else {
                     it.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
                 }
-                it.setWindowAnimations(android.R.style.Animation_Toast)
+                // (a page fades in with its window; the menu animates its own panel, so the window itself stays still)
+                it.setWindowAnimations(if (windowAnimation) android.R.style.Animation_Toast else 0)
             }
         }
         var hasFocus by remember { mutableStateOf(false) }
@@ -166,7 +170,16 @@ fun PageWindow(onBack: () -> Unit, dim: Float = 0f, home: FocusRequester? = null
             delay(250)
             if (!hasFocus) runCatching { home.requestFocus() }
         }
-        Box(Modifier.fillMaxSize().onFocusChanged { hasFocus = it.hasFocus }) { content() }
+        // the page comes up once it's had a moment to get its pictures, fading in (smooth rather than quick: nothing
+        // is seen arriving)
+        val rise = remember { androidx.compose.animation.core.Animatable(if (fadeIn) 0f else 1f) }
+        LaunchedEffect(Unit) {
+            if (fadeIn) {
+                delay(140)
+                rise.animateTo(1f, tween(420, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+            }
+        }
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = rise.value }.onFocusChanged { hasFocus = it.hasFocus }) { content() }
     }
 }
 
@@ -185,7 +198,8 @@ fun FocusOnOpen(requester: FocusRequester, key: Any? = Unit) {
  */
 @Composable
 fun ScreenTag(nav: Nav) {
-    Box(Modifier.padding(start = Dx.Gutter - 8.dp, top = 22.dp)) {
+    // (gone the moment the menu starts to grow out of it: the menu is where it goes, not something behind it)
+    Box(Modifier.padding(start = Dx.Gutter - 8.dp, top = 22.dp).graphicsLayer { alpha = if (nav.menuOpen) 0f else 1f }) {
         val shape = RoundedCornerShape(50)
         Surface(
             onClick = { nav.menuOpen = true },
@@ -223,23 +237,52 @@ fun ScreenTag(nav: Nav) {
 @Composable
 fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?) {
     val chosen = remember { FocusRequester() }
+    // The menu grows out of the corner name it opened from, with the dimming fading up behind it, and eases back in
+    // (the window itself doesn't animate: a fade of the whole window was all it had, and it looked like a pop)
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
+    val t by animateFloatAsState(
+        if (shown) 1f else 0f,
+        tween(if (shown) 330 else 200, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        label = "menu",
+    )
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     fun close() {
-        nav.menuClosedAt = System.currentTimeMillis()
-        nav.menuOpen = false
+        if (!shown) return
+        shown = false
+        scope.launch {
+            delay(200)
+            nav.menuClosedAt = System.currentTimeMillis()
+            nav.menuOpen = false
+        }
     }
-    PageWindow(onBack = { close() }) {
+    PageWindow(onBack = { close() }, windowAnimation = false, fadeIn = false) {
         FocusOnOpen(chosen)
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.65f), 0.45f to Color.Transparent))
                 .onPreviewKeyEvent {
                     if (it.type == KeyEventType.KeyDown && it.key == Key.DirectionRight) { close(); true } else false
                 },
         ) {
+            // the dimming behind fades up with it
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .graphicsLayer { alpha = t }
+                    .background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.65f), 0.45f to Color.Transparent)),
+            )
             Column(
                 Modifier
                     .padding(start = Dx.Gutter - 14.dp, top = 18.dp)
+                    // grows out of the name in the corner it came from (as Apple TV's does): a small box there, then
+                    // opening down and across, its words fading in as it goes
+                    .graphicsLayer {
+                        scaleX = 0.45f + 0.55f * t
+                        scaleY = 0.18f + 0.82f * t
+                        alpha = (t * 2.4f).coerceAtMost(1f)
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                    }
                     .width(230.dp)
                     .background(Color(0xFF2A2A2E).copy(alpha = 0.92f), RoundedCornerShape(24.dp))
                     .padding(10.dp),
@@ -337,7 +380,7 @@ fun ActionMenu(heading: String, actions: List<Action>, onDismiss: () -> Unit) {
     // A long press opens it while OK's still held: letting go mustn't choose the first thing in it. OK
     // counts only once it's been pressed afresh here.
     var armed by remember { mutableStateOf(false) }
-    PageWindow(onBack = onDismiss, dim = 0.7f) {
+    PageWindow(onBack = onDismiss, dim = 0.7f, fadeIn = false) {
         FocusOnOpen(first)
         Box(
             Modifier.fillMaxSize().onPreviewKeyEvent {
@@ -424,13 +467,16 @@ class Stillness {
 @Composable
 fun rememberStillness(active: Boolean, afterMs: Long = 5000): Stillness {
     val still = remember { Stillness() }
-    LaunchedEffect(active, still.presses) {
+    // (the presses are watched here, not read while composing: that rebuilt the whole screen on every press)
+    LaunchedEffect(active) {
         if (!active) {
             still.faded = false
             return@LaunchedEffect
         }
-        delay(afterMs)
-        still.faded = true
+        androidx.compose.runtime.snapshotFlow { still.presses }.collectLatest {
+            delay(afterMs)
+            still.faded = true
+        }
     }
     return still
 }

@@ -67,6 +67,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -82,6 +83,9 @@ import kotlinx.coroutines.delay
 
 /** How long a title stays chosen before its card opens out */
 private const val OPEN_AFTER_MS = 900L
+
+/** Posters opening out into a wide card on rest: off (Apple TV's don't: the caption and the title's page do that job) */
+private const val PREVIEW_EXPANDS = false
 
 /** What a card that's opened out can do: play the title, add it to the Library, show its scores */
 class CardActions(
@@ -129,6 +133,7 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
             open = false
             return@LaunchedEffect
         }
+        if (!PREVIEW_EXPANDS) return@LaunchedEffect
         delay(OPEN_AFTER_MS)
         open = true
         // the wider card may now run past the screen's edge: the row moves to show all of it
@@ -149,6 +154,7 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
     var lit by remember { mutableIntStateOf(0) }
     LaunchedEffect(open) { if (!open) lit = 0 }
     val buttons = open && actions != null
+    Column {
     FocusCard(
         onClick = {
             when (lit) {
@@ -210,6 +216,14 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
             }
         }
     }
+    // Apple TV's caption: the name and what it is, fading in under the poster the remote is on (the card that
+    // opens out has them itself, so it goes then). The room for it is there in every row, so nothing moves.
+    val captionAlpha by animateFloatAsState(if (focused && !open) 1f else 0f, tween(220), label = "caption")
+    Column(Modifier.width(width).height(46.dp).padding(top = 14.dp).graphicsLayer { alpha = captionAlpha }) {
+        Text(title.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(listOfNotNull(typeName(title.type), title.genres.firstOrNull()).joinToString(" · "), fontSize = 11.sp, color = Dx.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+    }
 }
 
 /**
@@ -219,7 +233,7 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 300.dp) {
+fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 300.dp, onLongClick: (() -> Unit)? = null) {
     val title = item.title
     val height = width * 0.56f
     val actions = LocalCardActions.current
@@ -233,6 +247,7 @@ fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 300.dp)
             open = false
             return@LaunchedEffect
         }
+        if (!PREVIEW_EXPANDS) return@LaunchedEffect
         delay(OPEN_AFTER_MS)
         open = true
         delay(320)
@@ -259,6 +274,7 @@ fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 300.dp)
             }
         },
         corner = 16.dp,
+        onLongClick = onLongClick,
         modifier = Modifier
             .width(cardWidth)
             .height(height)
@@ -495,8 +511,10 @@ private fun trailerScript(start: Double): String {
 @Composable
 private fun PosterFace(title: Title, rank: Int?, width: Dp) {
     Box(Modifier.fillMaxSize()) {
-        Art(title.art, Modifier.fillMaxSize())
-        if (hasNameOnPoster(title)) PosterName(title, width)
+        // (no poster, or one that won't load: its name instead of a blank grey card, as search results had)
+        var noArt by remember(title.art) { mutableStateOf(title.art == null) }
+        Art(title.art, Modifier.fillMaxSize(), onError = { noArt = true })
+        if (hasNameOnPoster(title) || noArt) PosterName(title, width)
         if (rank != null) {
             Text(
                 "$rank",

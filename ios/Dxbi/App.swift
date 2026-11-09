@@ -75,6 +75,7 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
+        @Bindable var stremio = stremio
         ZStack {
             // Stremio's page, working underneath (it has to be in the window, a little visible, to keep
             // running), drawn off the edge of the screen: at 2% it still showed faintly ("Page not found")
@@ -100,6 +101,19 @@ struct RootView: View {
             }
         }
         .screenBackground()
+        .fullScreenCover(isPresented: $stremio.tuning) { TasteSetup() }
+        // (opened from the Profile sheet or its picker, the cover can't present under them: tried again until it shows)
+        .task(id: stremio.tuningPending) {
+            guard stremio.tuningPending else { return }
+            while stremio.tuningPending && !Task.isCancelled {
+                if !stremio.tuningShown {
+                    stremio.tuning = false
+                    try? await Task.sleep(for: .milliseconds(200))
+                    stremio.tuning = true
+                }
+                try? await Task.sleep(for: .seconds(1.5))
+            }
+        }
         .overlay {
             if let launch = stremio.launch {
                 LoadingScreen(screen: launch).transition(.opacity)

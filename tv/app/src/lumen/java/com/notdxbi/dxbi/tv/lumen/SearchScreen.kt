@@ -10,8 +10,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -44,22 +47,46 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
         stremio.search(q)
     }
     val rows = if (text.trim().length < 2) emptyList() else results.filter { it.type !in LEFT_OUT }
+    // Down from the box goes to the first result, at the row's start (straight down landed on the third, under the box's middle)
+    val firstResult = remember { androidx.compose.ui.focus.FocusRequester() }
+    // A row whose addon hasn't answered after a few seconds goes (an addon that never answers left a row of grey
+    // cards there for good: Popular Series, for a film's name)
+    var patient by remember { mutableStateOf(true) }
+    LaunchedEffect(text) {
+        patient = true
+        delay(6000)
+        patient = false
+    }
+    val firstRow = rows.firstOrNull { it.state == Load.Ready && it.items.isNotEmpty() }?.key
     // (nothing typed: the Genres row, as Discover's; Anime only with the Kitsu addon)
     val addons by stremio.installedAddons.collectAsState()
     LaunchedEffect(Unit) { stremio.loadAddons() }
     val hasKitsu = addons.any { it.id.contains("kitsu", ignoreCase = true) || it.transportUrl.contains("kitsu", ignoreCase = true) }
 
     Box(Modifier.fillMaxSize().background(Dx.Background)) {
-        CompositionLocalProvider(LocalBringIntoViewSpec provides ScreenScrolling) {
-            LazyColumn(contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
+        val pageListState = androidx.compose.foundation.lazy.rememberLazyListState()
+        val pageScope = androidx.compose.runtime.rememberCoroutineScope()
+        val pageScroller = remember { PageScroller(pageListState, pageScope) }
+        CompositionLocalProvider(LocalBringIntoViewSpec provides CentredScrolling, LocalPageScroller provides pageScroller) {
+            LazyColumn(state = pageListState, modifier = Modifier.onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item(key = "top") { ScreenTag(nav) }
                 item(key = "box") {
-                    Field("Search films and TV shows", text, { text = it }, KeyboardType.Text, Modifier.padding(horizontal = Dx.Gutter).width(560.dp))
+                    Field(
+                        "Search films and TV shows", text, { text = it }, KeyboardType.Text,
+                        Modifier.padding(horizontal = Dx.Gutter).width(560.dp).focusProperties {
+                            down = if (firstRow != null) firstResult else androidx.compose.ui.focus.FocusRequester.Default
+                        },
+                    )
                 }
-                if (rows.isEmpty()) {
+                val anyShown = firstRow != null || (patient && rows.any { it.state == Load.Loading })
+                if (!anyShown) {
                     item(key = "hint") {
                         Text(
-                            if (text.trim().length < 2) "Choose the box to type with the remote." else "Searching…",
+                            when {
+                                text.trim().length < 2 -> "Choose the box to type with the remote."
+                                rows.isEmpty() || patient -> "Searching…"
+                                else -> "Nothing found for \"${text.trim()}\"."
+                            },
                             fontSize = 15.sp,
                             color = Dx.Muted,
                             modifier = Modifier.padding(horizontal = Dx.Gutter),
@@ -70,9 +97,14 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
                 rows.forEach { row ->
                     when {
                         row.state == Load.Ready && row.items.isNotEmpty() -> item(key = "row-${row.key}") {
-                            Shelf(row.heading) { items(row.items, key = { it.id }) { t -> PreviewPosterCard(t, onClick = { nav.open(t) }) } }
+                            Shelf(row.heading) {
+                                itemsIndexed(row.items, key = { _, t -> t.id }) { i, t ->
+                                    if (i == 0 && row.key == firstRow) Box(Modifier.focusRequester(firstResult)) { PreviewPosterCard(t, onClick = { nav.open(t) }) }
+                                    else PreviewPosterCard(t, onClick = { nav.open(t) })
+                                }
+                            }
                         }
-                        row.state == Load.Loading -> item(key = "row-${row.key}") { LoadingShelf(row.heading) }
+                        row.state == Load.Loading && patient -> item(key = "row-${row.key}") { LoadingShelf(row.heading) }
                         else -> Unit
                     }
                 }

@@ -60,6 +60,7 @@ private val WEB_ONLY = setOf(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(stremio: Stremio, nav: Nav) {
+    val tasteState = LocalTaste.current
     val account by stremio.account.collectAsState()
     var settings by remember { mutableStateOf<List<Setting>?>(null) }
     val scope = rememberCoroutineScope()
@@ -71,7 +72,7 @@ fun SettingsScreen(stremio: Stremio, nav: Nav) {
     }
 
     Box(Modifier.fillMaxSize().background(Dx.Background)) {
-        CompositionLocalProvider(LocalBringIntoViewSpec provides ScreenScrolling) {
+        CompositionLocalProvider(LocalBringIntoViewSpec provides CentredScrolling) {
             LazyColumn(contentPadding = PaddingValues(bottom = 60.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 item(key = "top") { ScreenTag(nav) }
                 item(key = "title") { Heading("Settings", top = 8) }
@@ -91,6 +92,7 @@ fun SettingsScreen(stremio: Stremio, nav: Nav) {
                 item(key = "pages") {
                     Column {
                         Heading("Manage", top = 26)
+                        LinkRow("Tune Suggestions", "Tell Lumen what you like so Home suggests more of it") { tasteState?.tuning = true }
                         LinkRow("Addons", "What Stremio finds streams and catalogues with") { nav.push(Page.Addons) }
                         LinkRow("Networks", "The speed Lumen has learnt on each Wi-Fi or cable connection") { nav.push(Page.Networks) }
                     }

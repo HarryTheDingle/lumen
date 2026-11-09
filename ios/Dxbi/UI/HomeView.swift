@@ -37,7 +37,11 @@ struct HomeView: View {
                     }
                     if kind == nil {
                         ForEach(stremio.picks.prefix(1), id: \.name) { row in titleRow(row.name, row.items) }
-                        if stremio.picks.isEmpty, let forYou = stremio.forYou { titleRow(forYou.name, forYou.items) }
+                        // (nothing watched yet to recommend from: what they said they like, else popular in what they saved)
+                        if stremio.picks.isEmpty {
+                            if let first = stremio.tasteRows.first { titleRow(first.name, first.items) }
+                            else if let forYou = stremio.forYou { titleRow(forYou.name, forYou.items) }
+                        }
                     }
                     if kind == nil, !stremio.airing.isEmpty {
                         Shelf(title: "New Episodes This Week") {
@@ -53,6 +57,9 @@ struct HomeView: View {
                     // Because you watched …: on what this profile actually watched
                     if kind == nil {
                         ForEach(stremio.picks.dropFirst(), id: \.name) { row in titleRow(row.name, row.items) }
+                        if stremio.picks.isEmpty {
+                            ForEach(stremio.tasteRows.dropFirst(), id: \.name) { row in titleRow(row.name, row.items) }
+                        }
                     }
                     let rows = stremio.rows.filter { kind == nil || $0.type == kind }
                     ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in

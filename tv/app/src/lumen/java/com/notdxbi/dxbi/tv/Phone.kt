@@ -38,6 +38,9 @@ object Phone {
         // The page underneath is never shown: not drawn at all (alpha 0), so the TV's graphics chip doesn't paint a
         // whole screen of it under every frame of Lumen's own. It keeps running, which is all Stremio's work needs.
         root.getChildAt(0)?.alpha = 0f
+        // Nor the window's own background: Lumen's screens paint every pixel themselves, so it was a whole screen of
+        // painting under every frame that never showed (measured on the Streamer: Home's slides are short of exactly that)
+        activity.window.setBackgroundDrawable(null)
         root.addView(screens, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
     }
 

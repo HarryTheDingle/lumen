@@ -67,8 +67,9 @@ object Dx {
     val Spectrum = Brush.horizontalGradient(listOf(Accent, Blue, Amber))
     /** Text on the accent (it's light) */
     val OnAccent = Color(0xFF06141A)
-    val Background = Color.Black
-    val Raised = Color(0xFF1F1F1F)
+    /** Apple TV's page grey (#2C2C2E): cards and shadows have something to sit on, which black doesn't give them */
+    val Background = Color(0xFF2C2C2E)
+    val Raised = Color(0xFF3A3A3C)
     val Muted = Color.White.copy(alpha = 0.62f)
     val Faint = Color.White.copy(alpha = 0.4f)
     /** TV-safe margin at the screen's sides */
@@ -104,9 +105,9 @@ fun Logo(height: Dp = 40.dp, modifier: Modifier = Modifier) {
 
 /** A picture from the web, filling its frame (the raised grey while it loads, or when there's none) */
 @Composable
-fun Art(url: String?, modifier: Modifier = Modifier, contentScale: ContentScale = ContentScale.Crop) {
+fun Art(url: String?, modifier: Modifier = Modifier, contentScale: ContentScale = ContentScale.Crop, onError: (() -> Unit)? = null) {
     Box(modifier.background(Dx.Raised)) {
-        if (url != null) AsyncImage(model = url, contentDescription = null, contentScale = contentScale, modifier = Modifier.matchParentSize())
+        if (url != null) AsyncImage(model = url, contentDescription = null, contentScale = contentScale, onError = { onError?.invoke() }, modifier = Modifier.matchParentSize())
     }
 }
 

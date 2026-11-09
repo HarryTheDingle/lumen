@@ -48,6 +48,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -57,12 +58,18 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -107,11 +114,25 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
     val myList by stremio.myList.collectAsState()
     val forYou by stremio.forYou.collectAsState()
     val picks by stremio.picks.collectAsState()
+    val tasteRows = LocalTaste.current?.rows.orEmpty()
     val airing by stremio.airing.collectAsState()
     val allRows by stremio.rows.collectAsState()
     val ready by stremio.ready.collectAsState()
     val account by stremio.account.collectAsState()
     val listMarks by stremio.listMarks.collectAsState()
+    // a Continue Watching card held down: its menu
+    var held by remember { mutableStateOf<Title?>(null) }
+    held?.let { t ->
+        ActionMenu(
+            t.name,
+            listOf(
+                Action("Play", Icons.Filled.PlayArrow) { onPlay(t) },
+                Action("Go to ${if (t.type == "movie") "Film" else "Show"}", Icons.Outlined.Info) { onOpen(t) },
+                Action("Remove from Continue Watching", Icons.Filled.Close) { stremio.removeFromContinue(t.id) },
+            ),
+            onDismiss = { held = null },
+        )
+    }
     var showing by remember { mutableStateOf<Title?>(null) }
     /** The billboard's trailer is showing (it plays under Home, which leaves the billboard clear for it) */
     var trailerShowing by remember { mutableStateOf(false) }
@@ -125,12 +146,18 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
     // The billboard leads with what they're watching (five at most); suggestions only when nothing's in progress
     val described by stremio.described.collectAsState()
     val billboard = remember(continueWatching, described, suggestions) { continueWatching.take(5).map { stremio.filledIn(it.title) }.ifEmpty { suggestions } }
-        .map { t -> listMarks[t.id]?.let { t.copy(inLibrary = it) } ?: t }
+        // (in the Library: what was just chosen, else what the Library's own list has: Continue Watching's titles don't carry it)
+        .map { t -> t.copy(inLibrary = listMarks[t.id] ?: (t.inLibrary || myList.any { r -> r.items.any { it.id == t.id } })) }
     val labels = playLabels(continueWatching)
     val statuses = statusLines(continueWatching, airing)
 
     val list = nav.homeList
+    // Apple TV keeps the row the remote is in in the middle of the screen as it moves down the page; on the billboard
+    // the page stays at the top
+    val onBillboard = remember { mutableStateOf(false) }
+    val homeScrolling = remember(list) { HomeScrolling(list) { onBillboard.value } }
     val scope = rememberCoroutineScope()
+    val pageScroller = remember(list) { PageScroller(list, scope) }
     val top = remember { FocusRequester() }
     val context = LocalContext.current
     var lastBack by remember { mutableLongStateOf(0L) }
@@ -161,7 +188,9 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
     }
 
     // the billboard's trailer to itself after a few seconds of the remote being still
-    val still = rememberStillness(trailerShowing && list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset == 0)
+    // (a derived flag: reading the scroll position itself here rebuilt the whole of Home on every frame of a scroll)
+    val atTop by remember { derivedStateOf { list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset == 0 } }
+    val still = rememberStillness(trailerShowing && atTop)
     val uiAlpha = still.alpha()
 
     BoxWithConstraints(
@@ -171,23 +200,23 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
             // black, but for the billboard while its trailer plays under it (darkening as the page moves
             // up over it)
             .drawBehind {
-                if (!trailerShowing) return@drawBehind drawRect(Color.Black)
+                if (!trailerShowing) return@drawBehind drawRect(Dx.Background)
                 val billboardBottom = size.height * 0.84f
                 val up = if (list.firstVisibleItemIndex == 0) list.firstVisibleItemScrollOffset.toFloat() else billboardBottom
                 val edge = (billboardBottom - up).coerceAtLeast(0f)
                 drawRect(Color.Black.copy(alpha = (up / (billboardBottom * 0.7f)).coerceIn(0f, 1f)), size = androidx.compose.ui.geometry.Size(size.width, edge))
-                drawRect(Color.Black, topLeft = androidx.compose.ui.geometry.Offset(0f, edge))
+                drawRect(Dx.Background, topLeft = androidx.compose.ui.geometry.Offset(0f, edge))
             },
     ) {
         val screen = maxHeight
-        CompositionLocalProvider(LocalBringIntoViewSpec provides ScreenScrolling) {
-        LazyColumn(state = list, modifier = Modifier.graphicsLayer { alpha = uiAlpha }, contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        CompositionLocalProvider(LocalBringIntoViewSpec provides homeScrolling, LocalPageScroller provides pageScroller) {
+        LazyColumn(state = list, modifier = Modifier.graphicsLayer { alpha = uiAlpha }.onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             item(key = "billboard") {
                 // the screen's name in the corner, over the billboard (it scrolls away with it)
                 Box {
                     if (billboard.isNotEmpty()) {
                         Billboard(
-                            billboard, labels, statuses, height = screen * 0.84f, focus = top, stremio = stremio, onOpen = onOpen, onPlay = onPlay,
+                            billboard, labels, statuses, height = screen * 0.8f, focus = top, stremio = stremio, onOpen = onOpen, onPlay = onPlay,
                             onShowing = { showing = it },
                             // (trailers fade in on a title's page only, not on Home)
                             trailerAllowed = false,
@@ -195,11 +224,12 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
                             onTrailerShowing = { trailerShowing = it },
                             // back up onto its buttons: the whole billboard comes back into view, as at the start
                             // (a moment later: the focus move's own scrolling would otherwise cancel it)
+                            onFocusChange = { onBillboard.value = it },
+                            scroll = { if (list.firstVisibleItemIndex == 0) list.firstVisibleItemScrollOffset.toFloat() else 1e6f },
+                            artHeight = screen,
                             onFocused = {
-                                scope.launch {
-                                    delay(80)
-                                    if (list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 0) list.animateScrollToItem(0)
-                                }
+                                // back up onto the billboard: the page glides to the top, once
+                                pageScroller.toTop()
                             },
                         )
                     } else {
@@ -211,7 +241,10 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
             if (continueWatching.isNotEmpty()) {
                 item(key = "continue") {
                     Shelf("Continue Watching") {
-                        items(continueWatching, key = { it.title.id }) { item -> PreviewContinueCard(item, onClick = { onOpen(item.title) }) }
+                        items(continueWatching, key = { it.title.id }) { item ->
+                            // (held: Apple TV's Up Next menu, with Remove from the row)
+                            PreviewContinueCard(item, onClick = { onOpen(item.title) }, onLongClick = { held = item.title })
+                        }
                     }
                 }
             }
@@ -221,7 +254,12 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
                 }
                 // Top Picks for You (made from what this profile actually watched), else popular in what they saved
                 picks.firstOrNull()?.let { row -> item(key = "picks") { TitleShelf(row.name, row.items, onOpen) } }
-                if (picks.isEmpty()) forYou?.let { row -> item(key = "foryou") { TitleShelf(row.name, row.items, onOpen) } }
+                // (nothing watched yet to recommend from: what they said they like, else popular in what they saved)
+                if (picks.isEmpty()) {
+                    val said = tasteRows.firstOrNull()
+                    if (said != null) item(key = "taste-0") { TitleShelf(said.name, said.items, onOpen) }
+                    else forYou?.let { row -> item(key = "foryou") { TitleShelf(row.name, row.items, onOpen) } }
+                }
                 if (airing.isNotEmpty()) {
                     item(key = "airing") {
                         Shelf("New Episodes This Week") {
@@ -231,6 +269,7 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
                 }
                 // Because you watched …
                 picks.drop(1).forEach { row -> item(key = "because-${row.name}") { TitleShelf(row.name, row.items, onOpen) } }
+                if (picks.isEmpty()) tasteRows.drop(1).forEach { row -> item(key = "taste-${row.name}") { TitleShelf(row.name, row.items, onOpen) } }
             }
             rows.forEachIndexed { i, row ->
                 when {
@@ -260,6 +299,7 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
  */
 @OptIn(ExperimentalFoundationApi::class)
 val ScreenScrolling = object : BringIntoViewSpec {
+    override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> get() = PageGlide
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
         if (offset >= 0f && offset + size <= containerSize) return 0f
         return offset - containerSize * 0.25f
@@ -316,10 +356,18 @@ private fun Billboard(
     muted: Boolean,
     onTrailerShowing: (Boolean) -> Unit,
     onFocused: () -> Unit,
+    onFocusChange: (Boolean) -> Unit,
+    /** How far the page has scrolled (px): the picture moves slower than the page, and the edge below it hardens */
+    scroll: () -> Float,
+    /** The picture's height: the whole screen's, so it runs on under the rows below the words (which sit [height] down) */
+    artHeight: androidx.compose.ui.unit.Dp,
 ) {
     var index by remember { mutableIntStateOf(0) }
     val current = titles[index.coerceIn(0, titles.lastIndex)]
+    // (which way the picture slides in: on from the right going forward, from the left going back)
+    var direction by remember { mutableIntStateOf(1) }
     fun go(i: Int) {
+        direction = if (i > index) 1 else -1
         index = (i + titles.size) % titles.size
     }
     LaunchedEffect(current) { onShowing(current) }
@@ -332,6 +380,8 @@ private fun Billboard(
     var trailerOn by remember(current.id) { mutableStateOf(false) }
     var trailerShowing by remember(current.id) { mutableStateOf(false) }
     var buttonsFocused by remember { mutableStateOf(false) }
+    var onPlay by remember { mutableStateOf(false) }
+    var onInfo by remember { mutableStateOf(false) }
     LaunchedEffect(current.id, trailerAllowed) {
         if (!trailerAllowed) {
             trailerOn = false
@@ -345,8 +395,9 @@ private fun Billboard(
     }
     LaunchedEffect(trailerShowing) { onTrailerShowing(trailerShowing) }
     // turns by itself; any change starts the wait again (not while a trailer plays: its end turns it)
-    LaunchedEffect(index, titles.size, trailerOn) {
-        if (trailerOn) return@LaunchedEffect
+    // (and not while the menu's open over it: it waits where it was)
+    LaunchedEffect(index, titles.size, trailerOn, muted) {
+        if (trailerOn || muted) return@LaunchedEffect
         delay(8000)
         if (titles.size > 1 && !trailerOn) go(index + 1)
     }
@@ -367,37 +418,102 @@ private fun Billboard(
                 },
             )
         }
-        Crossfade(current, animationSpec = tween(700), label = "billboard") { t ->
-            // dark to the left (for the words), and fading at the bottom into the black under the rows
-            Box(Modifier.fillMaxSize().fadeBottom(0.7f)) {
-                Art(t.backdrop, Modifier.fillMaxSize().alpha(artAlpha))
-                Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.7f), 0.45f to Color.Black.copy(alpha = 0.2f), 0.7f to Color.Transparent)))
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.3f), 0.18f to Color.Transparent)))
+        // The picture is the screen's whole height, running on under the rows below the words (they sit over its foot)
+        val artPx = with(androidx.compose.ui.platform.LocalDensity.current) { artHeight.roundToPx() }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .graphicsLayer { translationY = -scroll().coerceAtMost(artPx.toFloat()) * 0.4f }
+                // (the picture's box is exactly the screen's shape, so a backdrop shows whole and not zoomed in: it moves slower than
+                // the page, so its top is always above the screen, and needs no spare picture to slide into view)
+                // The picture lifts away a little faster than the page does (as Apple TV's), so its bottom edge and the line along it
+                // rise clear of the first row, which is left on the page below it
+                .layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints.copy(minHeight = artPx, maxHeight = artPx))
+                    layout(placeable.width, constraints.maxHeight) { placeable.place(0, 0) }
+                },
+        ) {
+            // The next picture slides in sideways from the way you're going, fading up, while the last moves away more slowly
+            // and fades out, as on Apple TV; its words come up only once it's settled
+            androidx.compose.animation.AnimatedContent(
+                targetState = current,
+                // (by its id: the same title with something changed, as when it's added to the Library, isn't a new slide)
+                contentKey = { it.id },
+                modifier = Modifier.fillMaxSize().clipToBounds(),
+                transitionSpec = {
+                    val sign = direction
+                    (androidx.compose.animation.slideInHorizontally(tween(720, easing = BillboardEase)) { (it * 0.3f * sign).toInt() } +
+                        androidx.compose.animation.fadeIn(tween(560, easing = BillboardEase))) togetherWith
+                        (androidx.compose.animation.slideOutHorizontally(tween(720, easing = BillboardEase)) { (-it * 0.12f * sign).toInt() } +
+                            androidx.compose.animation.fadeOut(tween(560, easing = BillboardEase)))
+                },
+                label = "billboard",
+            ) { t ->
+                // dark to the left, for the words
+                Box(Modifier.fillMaxSize()) {
+                    // (no grey card under the picture, as Art has: it covers the screen, so that was one more screen of
+                    // painting in every frame for nothing; a TV's graphics are short of exactly that)
+                    coil3.compose.AsyncImage(
+                        model = t.backdrop, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().alpha(artAlpha),
+                    )
+                    Box(Modifier.fillMaxSize().background(LeftShade))
+                    Box(Modifier.fillMaxSize().background(TopShade))
+                }
             }
+            // The picture's foot is only darkened a little, for the rows over it (Apple TV's: the rows sit on the picture);
+            // as the page moves up the picture's bottom edge comes into view as a hard edge with a fine line along it,
+            // dividing it from the page below
+            Box(
+                Modifier.matchParentSize().drawBehind {
+                    val base = size.height
+                    val p = (scroll() / (base * 0.6f)).coerceIn(0f, 1f)
+                    val foot = base * 0.34f
+                    drawRect(
+                        Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f)), startY = size.height - foot, endY = size.height),
+                        topLeft = androidx.compose.ui.geometry.Offset(0f, size.height - foot),
+                        size = androidx.compose.ui.geometry.Size(size.width, foot),
+                    )
+                    if (p > 0f) {
+                        drawLine(
+                            Color.White.copy(alpha = 0.14f * p),
+                            androidx.compose.ui.geometry.Offset(0f, size.height - 1f),
+                            androidx.compose.ui.geometry.Offset(size.width, size.height - 1f),
+                            strokeWidth = 2f,
+                        )
+                    }
+                },
+            )
         }
         // (the trailer's under all this: its bottom fades into the black too)
-        if (trailerShowing) Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.7f to Color.Transparent, 1f to Color.Black)))
+        if (trailerShowing) Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.7f to Color.Transparent, 1f to Dx.Background)))
         TitleInfo(
             current,
             detailed = false,
-            modifier = Modifier.align(Alignment.BottomStart).padding(start = Dx.Gutter, bottom = 34.dp),
+            modifier = Modifier.align(Alignment.BottomStart).padding(start = Dx.Gutter, bottom = height * 0.0625f),
             animated = true,
             status = { statuses[it.id] },
-            buttonsModifier = Modifier.onFocusChanged {
-                buttonsFocused = it.hasFocus
-                if (it.hasFocus) onFocused()
-            },
+            buttonsModifier = Modifier
+                .onFocusChanged {
+                    buttonsFocused = it.hasFocus
+                    onFocusChange(it.hasFocus)
+                    if (it.hasFocus) onFocused()
+                }
+                // Left off Play and right off ⓘ turn the billboard (watched on the row, which sees the press before the
+                // buttons do: on Play's own modifier, Left never arrived)
+                .onPreviewKeyEvent {
+                    if (it.type != KeyEventType.KeyDown || titles.size < 2) return@onPreviewKeyEvent false
+                    when {
+                        it.key == Key.DirectionLeft && onPlay -> { go(index - 1); true }
+                        it.key == Key.DirectionRight && onInfo -> { go(index + 1); true }
+                        else -> false
+                    }
+                },
         ) {
             PlayButton(
                 playLabels[current.id] ?: "Play",
                 onClick = { onPlay(current) },
-                modifier = Modifier
-                    .focusRequester(focus)
-                    .onPreviewKeyEvent {
-                        if (it.type == KeyEventType.KeyDown && it.key == Key.DirectionLeft && titles.size > 1) {
-                            go(index - 1); true
-                        } else false
-                    },
+                modifier = Modifier.focusRequester(focus).onFocusChanged { onPlay = it.isFocused },
             )
             RoundButton(
                 if (current.inLibrary) Icons.Filled.Check else Icons.Filled.Add,
@@ -407,11 +523,7 @@ private fun Billboard(
             // the title's page (Apple TV's ⓘ)
             RoundButton(
                 Icons.Outlined.Info, "Details", onClick = { onOpen(current) },
-                modifier = Modifier.onPreviewKeyEvent {
-                    if (it.type == KeyEventType.KeyDown && it.key == Key.DirectionRight && titles.size > 1) {
-                        go(index + 1); true
-                    } else false
-                },
+                modifier = Modifier.onFocusChanged { onInfo = it.isFocused },
             )
         }
         // which of them, in the middle at the bottom
@@ -429,3 +541,41 @@ private fun Dots(count: Int, index: Int) {
         }
     }
 }
+
+/**
+ * Home's scrolling, as Apple TV's: whatever the remote moves to sits in the middle of the screen (the row's name above
+ * it, the next row's coming up below), so the page moves a row at a time and always shows the same shape. On the
+ * billboard it doesn't move (its own focus handler brings the page back to the top).
+ */
+@OptIn(ExperimentalFoundationApi::class)
+class HomeScrolling(private val list: androidx.compose.foundation.lazy.LazyListState, private val onBillboard: () -> Boolean) : BringIntoViewSpec {
+    override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> get() = PageGlide
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        // back up on the billboard: the page glides down to the top in this one move (not a second one after it)
+        if (onBillboard()) return 0f
+        if (size <= 0f) return 0f
+        return settle(offset + size / 2f - containerSize / 2f, containerSize)
+    }
+}
+
+/**
+ * Every other list page's scrolling (Discover, genres, Search, Settings): the same as Home's, the row the remote moves to
+ * sits in the middle of the screen and the page glides there in one soft move, so the whole app moves alike.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+object CentredScrolling : BringIntoViewSpec {
+    override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> get() = PageGlide
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
+        if (size <= 0f) 0f else settle(offset + size / 2f - containerSize / 2f, containerSize)
+}
+
+/**
+ * Moving sideways along a row, the focused card's size changes a little as it lifts, which made the page move a few
+ * pixels and come back (a bounce on every press): a move that small isn't made. A move to another row is far more.
+ */
+fun settle(distance: Float, containerSize: Float): Float = if (kotlin.math.abs(distance) < containerSize * 0.03f) 0f else distance
+
+
+private val BillboardEase = androidx.compose.animation.core.CubicBezierEasing(0.22f, 0.0f, 0.12f, 1f)
+private val LeftShade = Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.7f), 0.45f to Color.Black.copy(alpha = 0.2f), 0.7f to Color.Transparent)
+private val TopShade = Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.3f), 0.18f to Color.Transparent)

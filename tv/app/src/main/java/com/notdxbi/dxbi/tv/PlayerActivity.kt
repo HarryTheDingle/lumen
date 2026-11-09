@@ -978,9 +978,8 @@ class PlayerActivity : AppCompatActivity() {
         PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
         PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
         PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES ->
-            // No software decoders are bundled: DTS and TrueHD audio (common in BluRay rips) only play
-            // on TVs that decode them
-            "this TV can't decode its video or audio format (DTS and TrueHD audio often can't play: pick a release with AAC, AC3 or DD+ audio)"
+            // (sound the TV can't decode goes to the bundled FFmpeg decoder, so this is almost always the picture)
+            "this TV can't decode its picture (try another release)"
         PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> "its file format isn't supported"
         else -> error.errorCodeName.removePrefix("ERROR_CODE_").lowercase().replace('_', ' ')
     }

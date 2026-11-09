@@ -94,6 +94,9 @@ class Intro(private val activity: MainActivity, private val parent: FrameLayout)
         player = null
         // A stopped TextureView keeps its last frame: skipping mid-film would freeze it on screen
         video?.visibility = android.view.View.INVISIBLE
+        // Lumen's own screens are under it, with their starting screen up already: no waiting for the page, which
+        // Lumen never shows (on a 2 GB box the wait was four seconds of black between the film and Who's watching)
+        if (BuildConfig.OWN_INTRO) return reveal()
         // Hold on black until the page has something to show (never more than 4 s), as on the desktop
         val since = System.currentTimeMillis()
         val check = object : Runnable {

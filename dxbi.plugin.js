@@ -3893,7 +3893,11 @@
     const res = said.length ? Math.min(...said) : 0;
 
     const dv = /\b(?:dv|dovi|dolby[ .-]?vision)\b/i.test(all);
-    const hdr = dv || /\bhdr(?:10\+?)?\b/i.test(all) || /\bhdr10(?:\+|[ ._-]?plus)/i.test(all);
+    const hdrNamed = /\bhdr(?:10\+?)?\b/i.test(all) || /\bhdr10(?:\+|[ ._-]?plus)/i.test(all);
+    const hdr = dv || hdrNamed;
+    // Dolby Vision with no HDR10 picture under it (a streaming service's profile 5): on a TV without Dolby Vision its
+    // colours come out green and purple. A remux's Dolby Vision (profile 7) and most encodes' (8) carry HDR10 too.
+    const dvOnly = dv && !hdrNamed && !/\b(?:remux|bdremux|blu-?ray|bdrip)\b/i.test(all);
 
     let size = 0;
     // (Meteor and others write GiB, not GB)
@@ -3934,7 +3938,7 @@
     // A sample: a minute or two of the release, not the film
     const sample = /\bsample\b/i.test(all);
 
-    return { provider, site, codec, instant, pending, lesser, sample, res, hdr, dv, imax, atmos, hdr10plus, openMatte, threeD, size, seeds, source, langs: [...langs] };
+    return { provider, site, codec, instant, pending, lesser, sample, res, hdr, dv, dvOnly, imax, atmos, hdr10plus, openMatte, threeD, size, seeds, source, langs: [...langs] };
   }
 
   function parseStream(el) {
@@ -4080,16 +4084,25 @@
       return pool;
     },
 
-    // Ready-to-play first. HDR beats Dolby Vision, which stalls on some decoders, and an encode
-    // beats a huge remux: the pick has to start and keep playing.
-    rank(d) {
+    // The picture's quality, best first: ready to play, then resolution, then within a resolution the
+    // fuller picture: HDR (HDR10 or Dolby Vision with HDR10 under it, alike: most TVs here show HDR10 either
+    // way; Dolby Vision alone last, its colours are wrong on a TV without it), a remux over a Blu-ray encode
+    // over a web copy, and more bitrate over less.
+    // Speed is the speed check's job (suited): what's left after it is meant to play, so the heaviest wins.
+    // (Up to 2.30.24 an encode beat a remux and HDR beat Dolby Vision, and bitrate didn't count: a 10 Mbps
+    // encode was picked over 60 Mbps remuxes that were just as ready.)
+    QUALITY_SOURCE: { Remux: 6, BluRay: 4, WEB: 2, HDTV: 1, Other: 0 },
+    rank(d, minutes = 0) {
       // (Prefer IMAX: worth more than anything else at the same quality, less than a step up in quality)
       const imax = d.imax && typeof settings !== "undefined" && settings.preferImax ? 20 : 0;
-      return (d.instant ? 1e5 : 0) + d.res * 10 + (d.dv ? 1 : d.hdr ? 2 : 0) + (this.SOURCE[d.source] || 0) + imax - (d.lesser ? 15000 : 0);
+      const range = d.dvOnly ? -2 : d.hdr ? 2 : 0;
+      // (a point for every 10 Mbit/s, up to 100: known only with the size and the title's length)
+      const rate = d.size > 0 && minutes > 0 ? Math.min(10, this.mbps(d, minutes) / 10) : 0;
+      return (d.instant ? 1e5 : 0) + d.res * 10 + range + (this.QUALITY_SOURCE[d.source] || 0) + rate + imax - (d.lesser ? 15000 : 0);
     },
 
-    best(list) {
-      return [...list].sort((a, b) => this.rank(b.d) - this.rank(a.d) || b.d.seeds - a.d.seeds)[0];
+    best(list, minutes = 0) {
+      return [...list].sort((a, b) => this.rank(b.d, minutes) - this.rank(a.d, minutes) || b.d.seeds - a.d.seeds)[0];
     },
 
     // items: [{ hint, d, torrent }]. memory: what this viewer chose last. Returns { item, how } or null.
@@ -4114,16 +4127,16 @@
         const spoken = (m.langs || []).filter((l) => l !== NOT_LISTED);
         const heard = pool.filter((x) => x.d.langs.some((l) => spoken.includes(l)));
         if (heard.length) pool = heard;
-        if (!m.res) return { item: this.best(pool), how: "best" };
+        if (!m.res) return { item: this.best(pool, fit.minutes), how: "best" };
         // (the quality chosen by hand, at the speed or not)
         const chosen = playable.filter((x) => x.d.res === m.res && x.d.res <= limit && (!heard.length || x.d.langs.some((l) => spoken.includes(l))));
         const quality = chosen.length ? chosen : pool.filter((x) => x.d.res === m.res);
         const provider = quality.filter((x) => x.d.provider === m.provider);
-        if (provider.length) return { item: this.best(provider), how: "similar" };
-        if (quality.length) return { item: this.best(quality), how: "similar" };
+        if (provider.length) return { item: this.best(provider, fit.minutes), how: "similar" };
+        if (quality.length) return { item: this.best(quality, fit.minutes), how: "similar" };
         if (fallback === "ask") return null;
       }
-      return { item: this.best(pool), how: "best" };
+      return { item: this.best(pool, fit.minutes), how: "best" };
     },
 
     // What to try if the pick won't play: at most two, each a different release
@@ -4140,7 +4153,7 @@
         !(speed > 0 && this.mbps(x.d, minutes) > speed * this.HEADROOM));
       const out = [];
       while (rest.length && out.length < 2) {
-        const next = this.best(rest);
+        const next = this.best(rest, minutes);
         rest.splice(rest.indexOf(next), 1);
         if (!next.hint.infoHash || next.hint.infoHash !== picked.hint.infoHash) out.push(next);
       }
@@ -9404,10 +9417,10 @@
   // only, which checks it with Stremio and never keeps it. The parental PIN stays on each device.
   // ---------------------------------------------------------------------------
 
-  // Lumen has no sync server of its own: dx.bi's would be sent the Stremio sign-in key, so viewers stay
-  // on each device
-  const SYNC_ENDPOINT = "";
-  const SYNCED = /^(viewers|libraryOwners|kidsAllow|(homeLayout|hidden|cwDismissed):[\w-]{1,40})$/;
+  // Lumen's own sync server (tools/profile-sync, a Cloudflare Worker in Lumen's account): the Stremio sign-in
+  // key goes there and nowhere else, never to dx.bi's
+  const SYNC_ENDPOINT = "https://lumen-sync.hedigital.workers.dev/sync";
+  const SYNCED = /^(viewers|libraryOwners|kidsAllow|(homeLayout|hidden|cwDismissed|taste):[\w-]{1,40})$/;
   const SYNC_MAX_VALUE = 100 * 1024;
 
   // Two copies of the same thing, from two devices. Nothing here touches the page or the store.
@@ -9487,6 +9500,12 @@
       return !!SYNC_ENDPOINT && settings.profileSync !== false && (v.list.length > 1 || !!(v.removed && v.removed.length));
     },
 
+    // A device with a single viewer still looks (so the account's profiles appear on a new device after signing in),
+    // it just sends nothing: only on() lets anything leave
+    pull() {
+      return !!SYNC_ENDPOINT && settings.profileSync !== false;
+    },
+
     auth() {
       try {
         const profile = JSON.parse(localStorage.getItem("profile") || "null");
@@ -9528,7 +9547,7 @@
 
     async run({ keepalive = false } = {}) {
       clearTimeout(this.timer);
-      if (!this.on() || this.busy) return;
+      if (!this.pull() || this.busy) return;
       const auth = this.auth();
       if (!auth || this.rejectedKey === auth.key) return;
       if (Date.now() < this.retryAt && !keepalive) return;
@@ -9577,7 +9596,7 @@
         this.merge(received);
         if (Number(answer.now)) this.local(sinceKey, String(answer.now));
         // this device's first sync with this account: what it already has goes up too
-        if (first) {
+        if (first && this.on()) {
           const came = new Set(received.map((e) => e && e.k));
           for (const k of Object.keys(store.data)) if (SYNCED.test(k) && store.data[k].v !== undefined && !came.has(k)) this.dirty.add(k);
         }
@@ -9666,7 +9685,7 @@
     seenKey: "",
     nextLook: 0,
     watch() {
-      if (this.busy || Date.now() < this.nextLook || !this.on()) return;
+      if (this.busy || Date.now() < this.nextLook || !this.pull()) return;
       this.nextLook = Date.now() + 5000;
       const auth = this.auth();
       const key = auth ? auth.key : "";
@@ -9683,7 +9702,7 @@
       this.seenKey = auth ? auth.key : "";
       // back in front: what other devices did (every 15 s at most); going to the back: send now
       this.onVisible = () => {
-        if (!this.on()) return;
+        if (!this.pull()) return;
         if (document.hidden) {
           if (this.dirty.size) this.run({ keepalive: true });
         } else if (Date.now() - this.lastTry > 15000) this.run();
@@ -9692,11 +9711,11 @@
       // Stremio fetches the library when the window gets focus, and a window left open is never
       // hidden: without this a title watched on the TV arrives before the note of whose it is
       this.onFocus = () => {
-        if (this.on() && Date.now() - this.lastTry > 15000) this.run();
+        if (this.pull() && Date.now() - this.lastTry > 15000) this.run();
       };
       window.addEventListener("focus", this.onFocus);
       this.poll = setInterval(() => {
-        if (this.on() && !document.hidden) this.run();
+        if (this.pull() && !document.hidden) this.run();
       }, 180000);
       setTimeout(() => this.run(), 3000);
     },
@@ -9717,7 +9736,7 @@
   const VIEWER_COLOURS = ["#e50914", "#2f80ff", "#1db954", "#f5a524", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
 
   // What belongs to one Stremio account on this device (not the parental PIN, which is the device's)
-  const ACCOUNT_DATA = /^(viewers|libraryOwners|kidsAllow|(homeLayout|hidden|cwDismissed|stats|playback|quickPlay|tune|librarySort):[\w-]{1,40})$/;
+  const ACCOUNT_DATA = /^(viewers|libraryOwners|kidsAllow|(homeLayout|hidden|cwDismissed|taste|stats|playback|quickPlay|tune|librarySort):[\w-]{1,40})$/;
 
   const viewers = {
     list() {
@@ -16234,6 +16253,16 @@
           watched: items.filter((i) => (i.state.timesWatched || 0) > 0 || (i.state.flaggedWatched || 0) > 0).map((i) => i._id),
         };
       },
+      // What a person said they like (genres and titles), kept with the account's other synced data: null if not told
+      taste(id) {
+        const v = store.get(`taste:${String(id).slice(0, 40)}`, null);
+        return v && typeof v === "object" ? v : null;
+      },
+      setTaste(id, value) {
+        if (!/^[\w-]{1,40}$/.test(String(id)) || !value || typeof value !== "object") return false;
+        store.set(`taste:${id}`, value);
+        return true;
+      },
       // null while it's still being worked out (ask again shortly)
       forYou() {
         if (!settings.forYou || viewers.current().kids) return { items: [] };
@@ -16407,7 +16436,7 @@
         const short = streamChoice.samples(items, options.minutes);
         return items
           .filter((x) => !same(x.st) && !short.has(x) && x.d.source !== "CAM" && !x.d.pending && (options.torrents || !x.torrent) && streamChoice.mbps(x.d, options.minutes) <= cap)
-          .sort((a, b) => streamChoice.rank(b.d) - streamChoice.rank(a.d) || b.d.seeds - a.d.seeds)
+          .sort((a, b) => streamChoice.rank(b.d, options.minutes) - streamChoice.rank(a.d, options.minutes) || b.d.seeds - a.d.seeds)
           .slice(0, 3)
           .map((x) => ({ index: items.indexOf(x), mbps: Math.round(streamChoice.mbps(x.d, options.minutes) * 10) / 10, ...phoneItem(x) }));
       },
@@ -16569,7 +16598,7 @@
         const rate = (x) => streamChoice.mbps(x.d, options.minutes);
         const current = nowMbps > 0 ? nowMbps : rate(phonePlaying);
         const pool = items.filter((x) => !same(x.st) && !short.has(x) && x.d.source !== "CAM" && !x.d.pending && (options.torrents || !x.torrent));
-        const best = (list, n) => [...list].sort((a, b) => streamChoice.rank(b.d) - streamChoice.rank(a.d) || b.d.seeds - a.d.seeds).slice(0, n);
+        const best = (list, n) => [...list].sort((a, b) => streamChoice.rank(b.d, options.minutes) - streamChoice.rank(a.d, options.minutes) || b.d.seeds - a.d.seeds).slice(0, n);
         const shown = (x) => ({ index: items.indexOf(x), mbps: Math.round(rate(x) * 10) / 10, ...phoneItem(x) });
         const groups = [];
         // the best at each lower quality

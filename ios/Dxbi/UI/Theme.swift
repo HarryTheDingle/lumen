@@ -54,13 +54,18 @@ enum Pictures {
         c.totalCostLimit = 120 * 1024 * 1024
         return c
     }()
-    private static var missing = Set<URL>()
+    /** Pictures that failed, and when: tried again after a minute or so (metahub makes a new season's pictures on the first ask, which can take a while) */
+    private static var missing: [URL: Date] = [:]
     private static var loading: [URL: Task<UIImage?, Never>] = [:]
 
     static func cached(_ url: URL?) -> Result? {
         guard let url else { return .missing }
         if let image = memory.object(forKey: url as NSURL) { return .image(image) }
-        return missing.contains(url) ? .missing : nil
+        if let at = missing[url] {
+            if Date().timeIntervalSince(at) < 75 { return .missing }
+            missing[url] = nil
+        }
+        return nil
     }
 
     static func load(_ url: URL) async -> Result {
@@ -82,7 +87,7 @@ enum Pictures {
             memory.setObject(image, forKey: url as NSURL, cost: Int(image.size.width * image.size.height * image.scale * image.scale * 4))
             return .image(image)
         }
-        missing.insert(url)
+        missing[url] = Date()
         return .missing
     }
 

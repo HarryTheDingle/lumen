@@ -62,7 +62,11 @@ fun StreamsPanel(choices: StreamChoices?, heading: String, subheading: String?, 
     var instantOnly by remember { mutableStateOf(false) }
     var format by remember { mutableStateOf<String?>(null) }
 
-    val all = choices?.items.orEmpty()
+    // The same file from more than one torrent (same name, same size, same addon) is listed once: the copy with the most
+    // seeds, or the one Lumen picked (a list of 30 had the same episode four times in a row)
+    val all = choices?.items.orEmpty().sortedWith(compareByDescending<StreamOption> { it.index == choices?.pick }.thenByDescending { it.seeds })
+        .distinctBy { if (it.filename.isEmpty() || it.size <= 0) it.index.toString() else "${it.addon}|${it.filename}|${it.size}|${it.instant}" }
+        .sortedBy { it.index }
     val kept = all.filter { (quality == null || it.quality == quality) && (provider == null || it.provider == provider) && (!instantOnly || it.instant) && (format == null || format in it.formats) }
     val shown = when (sort) {
         Sort.Best -> kept.sortedWith(StreamOption.BEST)

@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -131,10 +132,13 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
         Modifier
             .fillMaxSize()
             .background(Dx.Background)
-            .background(Brush.verticalGradient(0f to top, 0.28f to deep, 0.62f to Color.Black)),
+            .background(Brush.verticalGradient(0f to top, 0.28f to deep, 0.62f to Dx.Background)),
     ) {
-        CompositionLocalProvider(LocalBringIntoViewSpec provides ScreenScrolling) {
-            LazyColumn(contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+        val pageListState = androidx.compose.foundation.lazy.rememberLazyListState()
+        val pageScope = androidx.compose.runtime.rememberCoroutineScope()
+        val pageScroller = remember { PageScroller(pageListState, pageScope) }
+        CompositionLocalProvider(LocalBringIntoViewSpec provides CentredScrolling, LocalPageScroller provides pageScroller) {
+            LazyColumn(state = pageListState, modifier = Modifier.onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item(key = "top") { ScreenTag(nav) }
                 item(key = "services") {
                     LazyRow(contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -3,6 +3,7 @@ package com.notdxbi.dxbi.tv.lumen
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.background
@@ -33,6 +34,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.foundation.relocation.bringIntoViewResponder
+import kotlinx.coroutines.launch
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
@@ -100,9 +104,20 @@ fun FocusCard(
     }
 }
 
+/**
+ * How the page moves, as Apple TV's does: a long, soft glide, never a quick snap. A spring that doesn't bounce (it
+ * carries on from wherever the last move had got to, so a second press in the middle of one doesn't stall it, which a
+ * timed ease did)
+ */
+val PageGlide: androidx.compose.animation.core.AnimationSpec<Float> = androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 130f)
+
+/** Sideways along a row: a little quicker, the same softness */
+val RowGlide: androidx.compose.animation.core.AnimationSpec<Float> = androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 230f)
+
 /** A row moves only when the remote goes past its edge, just enough for the next card and a little of the one after */
 @OptIn(ExperimentalFoundationApi::class)
-private val RowScrolling = object : BringIntoViewSpec {
+val RowScrolling = object : BringIntoViewSpec {
+    override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> get() = RowGlide
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
         val margin = containerSize * 0.06f
         return when {
@@ -113,16 +128,73 @@ private val RowScrolling = object : BringIntoViewSpec {
     }
 }
 
+/**
+ * Puts the row the remote has just moved into in the middle of the page: once, from where the row is, in one glide.
+ * (The scroll rule Compose asks for each frame of a glide chases the card as it moves and lifts, and made the page
+ * settle in two or three steps; this decides once and doesn't look again, and a sideways move along a row asks for nothing.)
+ */
+class PageScroller(val list: androidx.compose.foundation.lazy.LazyListState, private val scope: kotlinx.coroutines.CoroutineScope) {
+    var viewport: androidx.compose.ui.layout.LayoutCoordinates? = null
+
+    fun centre(row: androidx.compose.ui.layout.LayoutCoordinates) {
+        val vp = viewport ?: return
+        if (!row.isAttached || !vp.isAttached) return
+        val top = vp.localPositionOf(row, androidx.compose.ui.geometry.Offset.Zero).y
+        val delta = top + row.size.height / 2f - vp.size.height / 2f
+        if (kotlin.math.abs(delta) < vp.size.height * 0.03f) return
+        scope.launch { list.animateScrollBy(delta, PageGlide) }
+    }
+
+    fun toTop() {
+        scope.launch {
+            if (list.firstVisibleItemIndex == 0) list.animateScrollBy(-list.firstVisibleItemScrollOffset.toFloat(), PageGlide)
+            else list.animateScrollToItem(0)
+        }
+    }
+}
+
+val LocalPageScroller = androidx.compose.runtime.staticCompositionLocalOf<PageScroller?> { null }
+
+/** Takes what a row's cards ask the page for (to be brought into view) and asks the page for nothing: the row does it */
+@OptIn(ExperimentalFoundationApi::class)
+private object RowOwnsScrolling : androidx.compose.foundation.relocation.BringIntoViewResponder {
+    override fun calculateRectForParent(localRect: androidx.compose.ui.geometry.Rect): androidx.compose.ui.geometry.Rect = androidx.compose.ui.geometry.Rect.Zero
+    override suspend fun bringChildIntoView(localRect: () -> androidx.compose.ui.geometry.Rect?) {}
+}
+
+/** A row of the page: when the remote moves into it the page glides to put it in the middle (once, however it moves along it) */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun Modifier.centredWhenFocused(): Modifier {
+    val scroller = LocalPageScroller.current ?: return this
+    var coords by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+    var had by remember { mutableStateOf(false) }
+    return this
+        .onGloballyPositioned { coords = it }
+        .onFocusChanged {
+            if (it.hasFocus && !had) coords?.let(scroller::centre)
+            had = it.hasFocus
+        }
+        .bringIntoViewResponder(RowOwnsScrolling)
+}
+
+/** Room under the last row of a page so that it too can be brought up to the middle of the screen */
+@Composable
+fun pageBottomPad(): androidx.compose.ui.unit.Dp = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.5f).dp
+
 /** A titled row of cards that scrolls sideways as the remote moves along it */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Shelf(title: String, modifier: Modifier = Modifier, content: LazyListScope.() -> Unit) {
-    Column(modifier.fillMaxWidth()) {
+    // (the row the remote is in has its name bright; the others' are softer, as on Apple TV)
+    var rowFocused by remember { mutableStateOf(false) }
+    val titleAlpha by animateFloatAsState(if (rowFocused) 1f else 0.6f, tween(320), label = "row-title")
+    Column(modifier.fillMaxWidth().centredWhenFocused().onFocusChanged { rowFocused = it.hasFocus }) {
         Text(
             title,
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
-            color = Color.White,
+            color = Color.White.copy(alpha = titleAlpha),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = Dx.Gutter),
@@ -147,8 +219,10 @@ fun Shelf(title: String, modifier: Modifier = Modifier, content: LazyListScope.(
 fun PosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, width: Dp = Dx.Poster, fill: Boolean = false) {
     FocusCard(onClick = onClick, modifier = if (fill) Modifier.fillMaxWidth().aspectRatio(2f / 3f) else Modifier.size(width, width * 1.5f)) {
         Box(Modifier.fillMaxSize()) {
-            Art(title.art, Modifier.fillMaxSize())
-            if (hasNameOnPoster(title)) PosterName(title, width)
+            // (no poster, or one that won't load: its name instead of a blank grey card, as search results had)
+            var noArt by remember(title.art) { mutableStateOf(title.art == null) }
+            Art(title.art, Modifier.fillMaxSize(), onError = { noArt = true })
+            if (hasNameOnPoster(title) || noArt) PosterName(title, width)
             if (rank != null) {
                 Text(
                     "$rank",

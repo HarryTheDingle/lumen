@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.notdxbi.dxbi.tv.lumen
 
 import android.widget.Toast
@@ -6,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,6 +48,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,6 +64,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -134,7 +138,11 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
     /** The cast with photos (TMDB, with a key in Lumen settings), else null */
     var cast by remember { mutableStateOf<List<JSONObject>?>(null) }
     var menu by remember { mutableStateOf<Pair<String, List<Action>>?>(null) }
-    var inList by remember(title.inLibrary) { mutableStateOf(title.inLibrary) }
+    // In the Library: what was just chosen here, else what the title came with, what its own page says, or the Library's
+    // own list (a title opened from a catalogue or Continue Watching doesn't carry it, and showed + for one that was in)
+    val markedNow by stremio.listMarks.collectAsState()
+    val libraryRows by stremio.myList.collectAsState()
+    val inList = markedNow[ref.id] ?: (title.inLibrary || mine?.title?.inLibrary == true || libraryRows.any { r -> r.items.any { it.id == ref.id } })
     /** Lumen settings → Blur unwatched episodes */
     val blurUnwatched by androidx.compose.runtime.produceState(false) { value = stremio.blurUnwatched() }
     /** Lumen settings → Play Trailers (null until read) */
@@ -243,11 +251,10 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
     val hasSeasons = animeSeasons.size >= 2
     val episodesIndex = if (hasSeasons) 2 else 1
     val moreIndex = (if (hasEpisodes) episodesIndex + 1 else 1) + (if (hasSeasons && !hasEpisodes) 1 else 0)
-    fun snap(index: Int) = scope.launch {
-        // (a moment later: the focus move's own scrolling would otherwise cancel it)
-        delay(80)
-        list.animateScrollToItem(index)
-    }
+    // The page goes a section at a time, and the remote's own move onto a section does it in one glide (PageScrolling
+    // lines the section up): a second scroll started after it, as there was, is what made the page jitter
+    val section = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    fun snap(index: Int) { section.intValue = index }
 
     fun toTop() = scope.launch {
         list.animateScrollToItem(0)
@@ -276,22 +283,28 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
         ) {
             val screen = maxHeight
             val screenPx = with(LocalDensity.current) { screen.toPx() }
+            val gapPx = with(LocalDensity.current) { 30.dp.toPx() }
+            val pageScrolling = remember(list) { PageScrollingSpec(list) { section.intValue } }
+            val pageScroller = remember(list) { PageScroller(list, scope) }
             // the art stays where it is as the page moves up over it, fading as it's covered
             val covering by remember {
                 derivedStateOf { if (list.firstVisibleItemIndex > 0) 1f else (list.firstVisibleItemScrollOffset / (screenPx * 0.7f)).coerceIn(0f, 1f) }
             }
             val artAlpha by animateFloatAsState(if (trailerShowing) 0f else 1f, tween(900), label = "art")
-            Box(Modifier.fillMaxSize().alpha((1f - covering) * uiAlpha).fadeBottom(0.72f)) {
+            // (alpha read as it draws, not as it composes: the page's scroll moved it, and rebuilt the page every frame;
+            // the fade into black is a gradient laid over the art, except while a trailer plays through it)
+            Box(Modifier.fillMaxSize().graphicsLayer { alpha = (1f - covering) * uiAlpha }.then(if (trailerShowing) Modifier.fadeBottom(0.72f) else Modifier)) {
                 if (trailerOn) title.trailer?.let { Trailer(it, Modifier.fillMaxSize(), muted = hushed || menu != null, onPlaying = { trailerShowing = true }) }
                 Art(title.backdrop, Modifier.fillMaxSize().alpha(artAlpha))
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.3f), 0.2f to Color.Transparent, 0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.55f))))
                 Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.65f), 0.55f to Color.Transparent)))
+                if (!trailerShowing) Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.72f to Color.Transparent, 1f to Dx.Background)))
             }
             // (the trailer plays under the page: it goes to black as the page moves up over it)
             if (trailerShowing) Box(Modifier.fillMaxSize().alpha(covering).background(Color.Black))
 
-            CompositionLocalProvider(LocalBringIntoViewSpec provides PageScrolling) {
-                LazyColumn(state = list, modifier = Modifier.alpha(uiAlpha), contentPadding = PaddingValues(bottom = 60.dp), verticalArrangement = Arrangement.spacedBy(30.dp)) {
+            CompositionLocalProvider(LocalBringIntoViewSpec provides pageScrolling, LocalPageScroller provides pageScroller) {
+                LazyColumn(state = list, modifier = Modifier.alpha(uiAlpha).onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(30.dp)) {
                     item(key = "header") {
                         Header(
                             title = title,
@@ -307,7 +320,9 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                             onDown = if (!hasEpisodes && !hasSeasons) null else {
                                 {
                                     scope.launch {
-                                        list.animateScrollToItem(1)
+                                        // (all the way to the episodes in this one glide: they aren't there to focus until they're scrolled
+                                        // in, and the focus move after it then has nothing left to line up)
+                                        list.animateScrollBy(screenPx + gapPx, PageGlide)
                                         repeat(10) {
                                             if (runCatching { (if (hasSeasons) seasonsFocus else episodeFocus).requestFocus() }.isSuccess) return@launch
                                             delay(50)
@@ -315,18 +330,13 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                                     }
                                 }
                             },
-                            onFocused = {
-                                scope.launch {
-                                    delay(80)
-                                    if (list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 0) list.animateScrollToItem(0)
-                                }
-                            },
+                            onFocused = { section.intValue = 0 },
                             onPlay = { if (ready) start(mine?.let(::nextVideo)?.id) else wantPlay = true },
                             onList = {
-                                inList = !inList
-                                stremio.listMarks.value = stremio.listMarks.value + (ref.id to inList)
-                                stremio.setInList(inList)
-                                Toast.makeText(context, if (inList) "Added to your Library" else "Removed from your Library", Toast.LENGTH_SHORT).show()
+                                val add = !inList
+                                stremio.listMarks.value = stremio.listMarks.value + (ref.id to add)
+                                stremio.setInList(add)
+                                Toast.makeText(context, if (add) "Added to your Library" else "Removed from your Library", Toast.LENGTH_SHORT).show()
                             },
                             onMore = {
                                 menu = title.name to buildList {
@@ -365,7 +375,8 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                     }
                     if (hasEpisodes && d != null) {
                         item(key = "episodes") {
-                            Box(Modifier.fillParentMaxHeight().padding(top = 24.dp).onFocusChanged { if (it.hasFocus) snap(episodesIndex) }) {
+                            // (the screen's own height, as it was: "the list's height" shrinks by the room left under the last row, and the section with it)
+                            Box(Modifier.height(screen).padding(top = 24.dp).onFocusChanged { if (it.hasFocus) snap(episodesIndex) }) {
                             Episodes(
                                 title, d, season ?: d.seasons.firstOrNull(), nextVideo(d)?.id, title.backdrop, blurUnwatched,
                                 landing = episodeFocus,
@@ -395,7 +406,7 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                             Modifier
                                 .padding(top = 36.dp)
                                 .onFocusChanged { if (it.hasFocus && list.firstVisibleItemIndex < moreIndex) snap(moreIndex) },
-                            verticalArrangement = Arrangement.spacedBy(30.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             if (related.isNotEmpty()) {
                                 Shelf("Related") {
@@ -424,14 +435,20 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
 }
 
 /**
- * How the page scrolls to what the remote moves onto: not at all while it's on screen, else so it sits
- * a fifth of the way down
+ * How the page scrolls to what the remote moves onto: a section at a time (the top, the episodes, the rest), the
+ * section the remote has just entered lined up with the top of the screen in one glide; inside the rest, so that
+ * what it's on sits a fifth of the way down.
  */
 @OptIn(ExperimentalFoundationApi::class)
-private val PageScrolling = object : BringIntoViewSpec {
+private class PageScrollingSpec(private val list: androidx.compose.foundation.lazy.LazyListState, private val section: () -> Int) : BringIntoViewSpec {
+    override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> get() = PageGlide
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val target = section()
+        val item = list.layoutInfo.visibleItemsInfo.firstOrNull { it.index == target }
+        // (a section that's one screen tall or less, entered: its top to the top of the screen)
+        if (item != null && target <= 2 && item.size <= containerSize * 1.05f) return settle(item.offset.toFloat(), containerSize)
         if (offset >= 0f && offset + size <= containerSize) return 0f
-        return offset - containerSize * 0.2f
+        return settle(offset - containerSize * 0.2f, containerSize)
     }
 }
 
@@ -536,26 +553,28 @@ private fun Credit(role: String, names: String) {
 
 /** "2026 · 47 min", Watched, and the scores */
 @Composable
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 fun Facts(title: Title, reviews: Reviews?, badges: List<String> = emptyList()) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+    // (wraps onto a second line when the badges and the scores are more than fit across, rather than running off the edge)
+    androidx.compose.foundation.layout.FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         val when_ = listOfNotNull(title.year, title.runtime).joinToString(" · ")
         if (when_.isNotEmpty()) Text(when_, fontSize = 14.sp, color = Color.White)
         badges.forEach { FormatBadge(it) }
         if (title.watched) Text("Watched", fontSize = 14.sp, color = Dx.Muted)
-        reviews?.scores?.take(3)?.forEach { s ->
-            Text(
-                androidx.compose.ui.text.buildAnnotatedString {
-                    pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.SemiBold))
-                    append(s.value)
-                    pop()
-                    pushStyle(androidx.compose.ui.text.SpanStyle(color = Dx.Muted))
-                    append(" ${scoreName(s)}")
-                    pop()
-                },
-                fontSize = 14.sp,
-                color = Color.White,
-                maxLines = 1,
-            )
+        // Rotten Tomatoes, then Metacritic, the audience score, IMDb: each in its own soft chip, as the open card had them
+        val order = listOf("tomatoes", "metacritic", "popcorn", "imdb")
+        reviews?.scores.orEmpty().sortedBy { order.indexOf(it.source).let { i -> if (i < 0) order.size else i } }.take(4).forEach { s ->
+            Row(
+                Modifier.background(Color.White.copy(alpha = 0.14f), RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(scoreName(s, short = true), fontSize = 13.sp, color = Color.White.copy(alpha = 0.85f), maxLines = 1)
+                Text(s.value, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
+            }
         }
     }
 }
@@ -579,6 +598,7 @@ private fun SeasonsRow(
     val row = rememberLazyListState()
     val here = seasons.indexOfFirst { it.current }.coerceAtLeast(0)
     LaunchedEffect(seasons) { row.scrollToItem((here - 1).coerceAtLeast(0)) }
+    CompositionLocalProvider(LocalBringIntoViewSpec provides RowScrolling) {
     Column(modifier.fillMaxWidth()) {
         Text("Seasons", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = Dx.Gutter))
         LazyRow(
@@ -612,6 +632,7 @@ private fun SeasonsRow(
             }
         }
     }
+    }
 }
 
 // Episodes
@@ -629,20 +650,35 @@ private fun Episodes(
     onPlay: (Video) -> Unit,
     onMenu: (Video) -> Unit,
 ) {
-    val shown = d.videos.filter { it.season == season }
+    // Every season in one row (Specials last): the tabs above follow the episode the remote is on, and choosing a
+    // tab jumps to the start of its season. Move along the episodes or up to the tabs, whichever is nearer.
+    val seasons = remember(d.seasons) { d.seasons.filter { it != 0 } + d.seasons.filter { it == 0 } }
+    val all = remember(d.videos, seasons) { seasons.flatMap { s -> d.videos.filter { it.season == s } } }
     val row = rememberLazyListState()
-    // the episode they're on, in view (once the episodes are there, and again on its season)
-    LaunchedEffect(shown.size, season, current) {
-        val i = shown.indexOfFirst { it.id == current }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    // the episode they're on, in view (once the episodes are there, and again when it changes)
+    // (not while the remote is in the row: the details refresh as streams come in and the episode "they're on" can change under
+    // it, which jumped the row along by itself)
+    var remoteInRow by remember { mutableStateOf(false) }
+    LaunchedEffect(all.size, current) {
+        if (remoteInRow) return@LaunchedEffect
+        val i = all.indexOfFirst { it.id == current }
         if (i > 0) row.scrollToItem(i)
     }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    // (the episode they're on, else the first of the season shown at the start: where Down from Play lands)
+    val target = remember(all, current) { all.firstOrNull { it.id == current }?.id ?: all.firstOrNull { it.season == season }?.id ?: all.firstOrNull()?.id }
+    // (its rows scroll sideways by the row's own rule, not the page's, which is for up and down)
+    CompositionLocalProvider(LocalBringIntoViewSpec provides RowScrolling) {
+    Column(Modifier.fillMaxWidth().onFocusChanged { remoteInRow = it.hasFocus }, verticalArrangement = Arrangement.spacedBy(14.dp)) {
         // the show's name over its seasons, as on Apple TV (the art it was on has gone by now)
         TitleLogo(title, maxHeight = 46.dp, maxWidth = 320.dp, textSize = 30.sp, centred = true, modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
-        if (d.seasons.size > 1) {
+        if (seasons.size > 1) {
             LazyRow(contentPadding = PaddingValues(horizontal = Dx.Gutter), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(d.seasons) { s ->
-                    Pill(if (s == 0) "Specials" else "Season $s", selected = s == season, onClick = { onSeason(s) })
+                items(seasons) { s ->
+                    Pill(if (s == 0) "Specials" else "Season $s", selected = s == season, onClick = {
+                        onSeason(s)
+                        scope.launch { row.scrollToItem(all.indexOfFirst { it.season == s }.coerceAtLeast(0)) }
+                    })
                 }
             }
         } else {
@@ -653,29 +689,36 @@ private fun Episodes(
             contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            // (the episode they're on, else the season's first: where Down from Play lands)
-            val target = shown.firstOrNull { it.id == current }?.id ?: shown.firstOrNull()?.id
-            items(shown, key = { it.id }) { v ->
+            items(all, key = { it.id }) { v ->
                 val here = v.id == target
                 EpisodeCard(
                     v, fallbackArt, isCurrent = v.id == current, blur = blurUnwatched,
                     onClick = { onPlay(v) }, onLongClick = { onMenu(v) },
-                    modifier = if (here) Modifier.focusRequester(landing) else Modifier,
+                    modifier = (if (here) Modifier.focusRequester(landing) else Modifier)
+                        .onFocusChanged { if ((it.isFocused || it.hasFocus) && v.season != null && v.season != season) onSeason(v.season!!) },
+                    showSeason = seasons.size > 1,
                 )
             }
         }
     }
+    }
 }
 
 @Composable
-private fun EpisodeCard(v: Video, fallbackArt: String?, isCurrent: Boolean, blur: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier = Modifier, width: Dp = 250.dp) {
+private fun EpisodeCard(v: Video, fallbackArt: String?, isCurrent: Boolean, blur: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier = Modifier, width: Dp = 250.dp, showSeason: Boolean = false) {
     Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         FocusCard(onClick = onClick, onLongClick = onLongClick, modifier = modifier.width(width).height(width * 9f / 16f)) {
             Box(Modifier.fillMaxSize()) {
                 // (Blur unwatched episodes: hidden until it's watched or started; TVs before Android 12 can't
                 // blur, so the picture's covered instead)
                 val hidden = blur && !v.watched && (v.progress ?: 0f) <= 0f
-                Art(v.thumbnail ?: fallbackArt, Modifier.fillMaxSize().alpha(if (v.upcoming) 0.5f else 1f).then(if (hidden) Modifier.blur(16.dp) else Modifier))
+                // (an episode with no picture of its own yet, or one that can't be had: the show's art)
+                var noPicture by remember(v.id) { mutableStateOf(false) }
+                Art(
+                    if (noPicture) fallbackArt else (v.thumbnail ?: fallbackArt),
+                    Modifier.fillMaxSize().alpha(if (v.upcoming) 0.5f else 1f).then(if (hidden) Modifier.blur(16.dp) else Modifier),
+                    onError = { noPicture = true },
+                )
                 if (hidden && android.os.Build.VERSION.SDK_INT < 31) Box(Modifier.fillMaxSize().background(Color(0xFF2A2A2E)))
                 if (v.watched) {
                     Icon(
@@ -693,7 +736,7 @@ private fun EpisodeCard(v: Video, fallbackArt: String?, isCurrent: Boolean, blur
         }
         // Apple TV's: EPISODE 4, its name, the story and the day it came out
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            v.episode?.let { Text("EPISODE $it", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = if (isCurrent) Color.White else Dx.Muted) }
+            v.episode?.let { Text(if (showSeason && v.season != null && v.season != 0) "S${v.season} · EPISODE $it" else "EPISODE $it", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = if (isCurrent) Color.White else Dx.Muted) }
             if (v.title.isNotEmpty()) Text(v.title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
             v.overview?.let { Text(it, fontSize = 12.sp, color = Color.White.copy(alpha = 0.75f), maxLines = 3, overflow = TextOverflow.Ellipsis, lineHeight = 16.sp) }
             releasedText(v)?.let { Text(it, fontSize = 11.sp, color = Dx.Muted, modifier = Modifier.padding(top = 2.dp)) }
@@ -712,12 +755,14 @@ private fun CastRow(d: Details, photos: List<JSONObject>?, onPerson: (name: Stri
     } else {
         d.directors.take(3).map { listOf(it, "Director", null, null) } + d.cast.take(15).map { listOf(it, null, null, null) }
     }
-    Column(Modifier.fillMaxWidth()) {
+    CompositionLocalProvider(LocalBringIntoViewSpec provides RowScrolling) {
+    Column(Modifier.fillMaxWidth().centredWhenFocused()) {
         Text("Cast & Crew", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = Dx.Gutter))
         Spacer(Modifier.height(10.dp))
         LazyRow(contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
             items(people) { (name, role, photo, id) -> Person(name!!, role, photo) { onPerson(name, id, photo) } }
         }
+    }
     }
 }
 

@@ -486,6 +486,10 @@ struct AnimeSeason: Identifiable {
 struct ListRow: Equatable {
     var name: String
     var items: [Title]
+    init(name: String, items: [Title]) {
+        self.name = name
+        self.items = items
+    }
     init(_ o: JSON) {
         name = o.string("name")
         items = o.objects("items").map(Title.init)

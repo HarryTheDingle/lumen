@@ -26,6 +26,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.key
+import coil3.request.crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -76,6 +79,8 @@ import kotlinx.coroutines.withContext
 @Composable
 fun LumenApp(engine: Engine) {
     val context = LocalContext.current
+    // pictures come up with a soft fade as they arrive, not a pop
+    coil3.compose.setSingletonImageLoaderFactory { ctx -> coil3.ImageLoader.Builder(ctx).crossfade(350).build() }
     // (Stremio's state is read and turned into screens' data off the main thread, so moving never waits for it)
     val scope = rememberCoroutineScope { Dispatchers.Default }
     val stremio = remember { Stremio(context.applicationContext, engine, scope) }
@@ -105,6 +110,15 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
     val account by stremio.account.collectAsState()
     val nav = remember { Nav() }
     val feed = remember { DiscoverFeed(context.cacheDir) }
+    // what this profile said it likes (Taste.kt): read for whoever's watching, and asked once when they have nothing watched
+    val taste = remember { TasteState(context.applicationContext, feed, stremio) }
+    val viewerNow by stremio.viewer.collectAsState()
+    val accountId by stremio.currentAccountId.collectAsState()
+    val noHistory by stremio.noHistory.collectAsState()
+    LaunchedEffect(accountId, viewerNow?.id) { taste.load(accountId, viewerNow?.id) }
+    LaunchedEffect(noHistory, taste.loadedFor, taste.current) {
+        if (noHistory && taste.current == null && taste.loadedFor != null) taste.tuning = true
+    }
 
     // Back on Discover, Search or Settings: to Home (Home's own Back goes to its top, then leaves)
     BackHandler(enabled = nav.tab != Tab.Home) { nav.tab = Tab.Home }
@@ -139,21 +153,31 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
         )
     }
 
-    CompositionLocalProvider(LocalCardActions provides cardActions, LocalLauncher provides launcher) {
+    CompositionLocalProvider(LocalCardActions provides cardActions, LocalLauncher provides launcher, LocalTaste provides taste) {
     // (noted, so the corner opens the menu only when the remote moves onto it)
     Box(Modifier.fillMaxSize().onPreviewKeyEvent {
         if (it.type == KeyEventType.KeyDown && (it.key == Key.DirectionUp || it.key == Key.DirectionLeft)) nav.movedAt = System.currentTimeMillis()
         false
     }) {
-    when (nav.tab) {
-        Tab.Home -> HomeScreen(
-            stremio,
-            nav,
-            onPlay = { play(it) },
-        )
-        Tab.Discover -> DiscoverScreen(stremio, nav, feed)
-        Tab.Search -> SearchScreen(stremio, nav)
-        Tab.Settings -> SettingsScreen(stremio, nav)
+    // a new screen's content comes up a moment after the menu closes, as Apple TV's pages do
+    key(nav.tab) {
+        val rise = remember { androidx.compose.animation.core.Animatable(0f) }
+        LaunchedEffect(Unit) {
+            delay(150)
+            rise.animateTo(1f, tween(380))
+        }
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = rise.value }) {
+        when (nav.tab) {
+            Tab.Home -> HomeScreen(
+                stremio,
+                nav,
+                onPlay = { play(it) },
+            )
+            Tab.Discover -> DiscoverScreen(stremio, nav, feed)
+            Tab.Search -> SearchScreen(stremio, nav)
+            Tab.Settings -> SettingsScreen(stremio, nav)
+        }
+        }
     }
     }
 
@@ -177,6 +201,11 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
                 }
             }
         }
+    }
+
+    // first time on a profile with nothing watched (or Settings → Tune Suggestions)
+    if (taste.tuning) {
+        TasteSetup(taste, viewerNow?.name) { done -> taste.finish(done) }
     }
 
     // over everything while a title's starting

@@ -133,12 +133,8 @@ struct EpisodeCard: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Group {
-                Art(url: URL(string: video.thumbnail ?? "") ?? fallbackArt)
-                    .frame(width: width, height: width * 0.92)
-                BlurFade(url: URL(string: video.thumbnail ?? "") ?? fallbackArt, from: 0.36)
-                    .frame(width: width, height: width * 0.92)
-            }
+            EpisodeArt(url: URL(string: video.thumbnail ?? ""), fallback: fallbackArt)
+                .frame(width: width, height: width * 0.92)
             .blur(radius: hidden ? 22 : 0, opaque: true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(video.episode.map { "EPISODE \($0)" } ?? "SPECIAL")
@@ -173,6 +169,26 @@ struct EpisodeCard: View {
         .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(.white.opacity(playing ? 0.6 : 0.1), lineWidth: playing ? 2 : 1))
         .opacity(video.upcoming ? 0.6 : 1)
         .contentShape(.rect(cornerRadius: 22))
+    }
+}
+
+/** An episode's picture and the blurred foot under its words; the title's own art when the episode's can't be had */
+private struct EpisodeArt: View {
+    var url: URL?
+    var fallback: URL?
+    @State private var missing = false
+
+    var body: some View {
+        let shown = missing ? fallback : (url ?? fallback)
+        ZStack {
+            Art(url: shown)
+            BlurFade(url: shown, from: 0.36)
+        }
+        .task(id: url) {
+            missing = false
+            guard let url else { return }
+            if case .missing = await Pictures.load(url) { missing = true }
+        }
     }
 }
 
