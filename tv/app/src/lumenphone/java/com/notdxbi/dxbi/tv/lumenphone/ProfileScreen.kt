@@ -63,15 +63,13 @@ private tailrec fun Context.profileActivity(): Activity? = when (this) {
 }
 
 /** The pages Profile opens over itself (its own back stack of one: system Back closes the page, then Profile closes) */
-private enum class ProfilePageKey { Profiles, Accounts, Addons, Stats, Customise, Settings, Playback }
+private enum class ProfilePageKey { Profiles, Accounts, Addons, Stats, Customise, Settings, Playback, Downloads, Networks }
 
 /**
  * Profile (iOS AccountView), a page the picture on Home opens: who's watching and the account behind them, then
- * Addons, Your Stats, Tune Suggestions, Customise Home, Lumen Settings and Playback, Sign Out, and the version with
- * its update check. The pages it opens (and the profile picker) show over it and close with Back; Back on Profile
- * itself is the caller's. On the opened Fold the list is a centred column, as on the iPad.
- *
- * Downloads and Networks have rows here, as on iOS, but do nothing yet: a later phase adds their pages.
+ * Addons, Downloads, Your Stats, Tune Suggestions, Customise Home, Lumen Settings, Playback and Networks, Sign Out,
+ * and the version with its update check. The pages it opens (and the profile picker) show over it and close with
+ * Back; Back on Profile itself is the caller's. On the opened Fold the list is a centred column, as on the iPad.
  */
 @Composable
 fun ProfileScreen(stremio: Stremio, layout: AppLayout, bottomSpace: Dp) {
@@ -96,6 +94,8 @@ fun ProfileScreen(stremio: Stremio, layout: AppLayout, bottomSpace: Dp) {
             ProfilePageKey.Customise -> SettingsHomePage(stremio, layout, bottomSpace, close)
             ProfilePageKey.Settings -> SettingsLumenPage(stremio, layout, bottomSpace, close)
             ProfilePageKey.Playback -> SettingsPlaybackPage(stremio, layout, bottomSpace, close)
+            ProfilePageKey.Downloads -> DownloadsPage(layout, bottomSpace, close)
+            ProfilePageKey.Networks -> NetworksPage(stremio, layout, bottomSpace, close)
         }
     }
 }
@@ -142,15 +142,13 @@ private fun ProfileHome(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, op
         item {
             ProfileGroup {
                 link("Addons", icon = Icons.Filled.Extension) { open(ProfilePageKey.Addons) }
-                // PHASE 3: Downloads has its page later; the row is here as on iOS and does nothing yet
-                link("Downloads", icon = Icons.Filled.Download) { soon(context, "Downloads") }
+                link("Downloads", icon = Icons.Filled.Download) { open(ProfilePageKey.Downloads) }
                 link("Your Stats", icon = Icons.Filled.BarChart) { open(ProfilePageKey.Stats) }
                 link("Tune Suggestions", icon = Icons.Filled.AutoFixHigh, chevron = false) { taste?.tuning = true }
                 link("Customise Home", icon = Icons.Filled.Dashboard) { open(ProfilePageKey.Customise) }
                 link("Lumen Settings", icon = Icons.Filled.Tune) { open(ProfilePageKey.Settings) }
                 link("Playback", icon = Icons.Filled.PlayCircle) { open(ProfilePageKey.Playback) }
-                // PHASE 3: Networks has its page later; the row is here as on iOS and does nothing yet
-                link("Networks", icon = Icons.Filled.Wifi) { soon(context, "Networks") }
+                link("Networks", icon = Icons.Filled.Wifi) { open(ProfilePageKey.Networks) }
             }
         }
         item {
@@ -175,9 +173,6 @@ private fun ProfileHome(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, op
         )
     }
 }
-
-private fun soon(context: Context, what: String) =
-    Toast.makeText(context, "$what is coming in a later update", Toast.LENGTH_SHORT).show()
 
 /**
  * Looks for a newer Lumen now (the update offer the app makes when it opens, asked for again): a version they

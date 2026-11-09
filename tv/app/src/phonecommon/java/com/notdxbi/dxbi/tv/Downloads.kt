@@ -21,6 +21,7 @@ import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
+import androidx.media3.exoplayer.scheduler.Requirements
 import androidx.media3.exoplayer.scheduler.Scheduler
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,12 +42,22 @@ import kotlin.concurrent.thread
 @OptIn(UnstableApi::class)
 object Downloads {
 
-    class Item(val id: String, val stream: JSONObject, val state: Int, val percent: Float, val bytes: Long) {
+    class Item(
+        val id: String, val stream: JSONObject, val state: Int, val percent: Float, val bytes: Long,
+        /** What it was asked to download, kept so a failed one can be tried again (Lumen's Downloads page) */
+        val request: DownloadRequest? = null,
+    ) {
         val title: String get() = stream.optString("title")
         val subtitle: String get() = stream.optString("subtitle")
         val art: String? get() = stream.optString("background").takeIf { it.startsWith("http") }
         val done get() = state == Download.STATE_COMPLETED
         val failed get() = state == Download.STATE_FAILED
+        /** Held by the person (Pause on Lumen's Downloads page): it carries on from the same place when resumed */
+        val paused get() = state == Download.STATE_STOPPED
+        /** Asked for, but not started: another is running, or the connection isn't one it may use (Wi-Fi only) */
+        val queued get() = state == Download.STATE_QUEUED
+        /** How big the whole file is, worked out from how far it has got (0 until the server has said) */
+        val totalBytes: Long get() = if (percent > 0.5f) (bytes * 100.0 / percent).toLong() else 0L
     }
 
     private val _items = MutableStateFlow<List<Item>>(emptyList())
@@ -67,6 +78,9 @@ object Downloads {
         cache = SimpleCache(File(app.getExternalFilesDir(null) ?: app.filesDir, "downloads"), NoOpCacheEvictor(), db)
         val m = DownloadManager(app, db, cache, withHeaders(), Executors.newFixedThreadPool(2))
         m.maxParallelDownloads = 2
+        // (Lumen's "Download on Wi-Fi only": off unless it's been switched on, so dx.bi's downloads are as they were)
+        if (prefs.getBoolean("wifiOnly", false)) m.requirements = Requirements(Requirements.NETWORK_UNMETERED)
+        _wifiOnly.value = prefs.getBoolean("wifiOnly", false)
         m.addListener(object : DownloadManager.Listener {
             override fun onDownloadChanged(manager: DownloadManager, download: Download, finalException: Exception?) = refresh()
             override fun onDownloadRemoved(manager: DownloadManager, download: Download) = refresh()
@@ -131,6 +145,34 @@ object Downloads {
         prefs.edit().remove("pos:${item.id}").apply()
     }
 
+    /** Holds a running download (it keeps what it has) until [resume] */
+    fun pause(context: Context, item: Item) =
+        DownloadService.sendSetStopReason(context.applicationContext, DownloadsService::class.java, item.id, STOP_PAUSED, false)
+
+    fun resume(context: Context, item: Item) =
+        DownloadService.sendSetStopReason(context.applicationContext, DownloadsService::class.java, item.id, Download.STOP_REASON_NONE, false)
+
+    /** Starts a download that failed again (a link that has expired fails again: it's then downloaded afresh from the stream list) */
+    fun retry(context: Context, item: Item) {
+        val request = item.request ?: return
+        DownloadService.sendAddDownload(context.applicationContext, DownloadsService::class.java, request, false)
+    }
+
+    private val _wifiOnly = MutableStateFlow(false)
+
+    /** Whether downloads wait for Wi-Fi (or any connection that isn't metered) rather than use mobile data */
+    val wifiOnly: StateFlow<Boolean> = _wifiOnly
+
+    fun setWifiOnly(context: Context, on: Boolean) {
+        val m = manager(context)
+        prefs.edit().putBoolean("wifiOnly", on).apply()
+        m.requirements = Requirements(if (on) Requirements.NETWORK_UNMETERED else Requirements.NETWORK)
+        _wifiOnly.value = on
+    }
+
+    /** The stop reason Pause uses (0 is "not stopped") */
+    private const val STOP_PAUSED = 1
+
     /** Plays a download in dx.bi's player, from the phone, where it was left */
     fun play(context: Context, item: Item) {
         val stream = JSONObject(item.stream.toString())
@@ -159,13 +201,13 @@ object Downloads {
                 while (c.moveToNext()) {
                     val d = c.download
                     val stream = runCatching { JSONObject(String(d.request.data)) }.getOrDefault(JSONObject())
-                    list += Item(d.request.id, stream, d.state, d.percentDownloaded.coerceAtLeast(0f), d.bytesDownloaded)
+                    list += Item(d.request.id, stream, d.state, d.percentDownloaded.coerceAtLeast(0f), d.bytesDownloaded, d.request)
                 }
             }
         }
         // (the index only keeps how far a download got now and then: the ones running are read live)
         val live = m.currentDownloads.associateBy { it.request.id }
-        _items.value = list.map { i -> live[i.id]?.let { d -> Item(i.id, i.stream, d.state, d.percentDownloaded.coerceAtLeast(0f), d.bytesDownloaded) } ?: i }
+        _items.value = list.map { i -> live[i.id]?.let { d -> Item(i.id, i.stream, d.state, d.percentDownloaded.coerceAtLeast(0f), d.bytesDownloaded, i.request) } ?: i }
             .sortedByDescending { it.state != Download.STATE_COMPLETED }
         handler.removeCallbacks(tick)
         if (m.currentDownloads.isNotEmpty()) handler.postDelayed(tick, 1000)
