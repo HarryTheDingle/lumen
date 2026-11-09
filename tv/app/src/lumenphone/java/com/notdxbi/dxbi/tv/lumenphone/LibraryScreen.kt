@@ -1,6 +1,14 @@
 package com.notdxbi.dxbi.tv.lumenphone
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -30,6 +38,7 @@ fun LibraryScreen(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, onOpen: 
     val library by stremio.library.collectAsState()
     // (null: all of it)
     var type by rememberSaveable { mutableStateOf<String?>(null) }
+    var downloads by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(type) { stremio.loadLibrary(type) }
 
     Box(Modifier.fillMaxSize().background(Dx.Background)) {
@@ -38,7 +47,11 @@ fun LibraryScreen(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, onOpen: 
             top = statusBarTop() + 8.dp,
             header = {
                 item(key = "title", span = { GridItemSpan(maxLineSpan) }) {
-                    Text("Library", modifier = Modifier.padding(horizontal = 4.dp), color = Dx.Text, style = MaterialTheme.typography.headlineMedium)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Library", modifier = Modifier.weight(1f).padding(horizontal = 4.dp), color = Dx.Text, style = MaterialTheme.typography.headlineMedium)
+                        // (iOS's Library has Downloads at its top right)
+                        IconButton(onClick = { downloads = true }) { Icon(Icons.Filled.Download, contentDescription = "Downloads", tint = Dx.Text) }
+                    }
                 }
                 item(key = "type", span = { GridItemSpan(maxLineSpan) }) {
                     BrowseSegments(
@@ -53,5 +66,10 @@ fun LibraryScreen(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, onOpen: 
             onEnd = { stremio.libraryMore() },
             onOpen = onOpen,
         )
+        // Downloads over the Library, closed by Back
+        if (downloads) {
+            BackHandler { downloads = false }
+            DownloadsPage(layout, bottomSpace, onBack = { downloads = false })
+        }
     }
 }
