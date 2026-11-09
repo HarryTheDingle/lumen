@@ -83,6 +83,9 @@ fun HomeScreen(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, onProfile: 
     val myList by stremio.myList.collectAsState()
     val forYou by stremio.forYou.collectAsState()
     val picks by stremio.picks.collectAsState()
+    // (nothing watched yet to recommend from: what they said they like, from setup, stands in for the picks, as iOS's tasteRows)
+    val taste = LocalTaste.current?.rows.orEmpty()
+    val lead = if (picks.isNotEmpty()) picks else taste
     val airing by stremio.airing.collectAsState()
     val account by stremio.account.collectAsState()
     val viewers by stremio.viewers.collectAsState()
@@ -132,8 +135,8 @@ fun HomeScreen(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, onProfile: 
                     if (row.items.isNotEmpty()) item(key = "list:${row.name}") { PosterShelf(row.name, row.items, layout, onOpen) }
                 }
                 // Top Picks (or, with nothing watched yet to recommend from, popular in what they saved)
-                picks.firstOrNull()?.let { row -> item(key = "pick0") { PosterShelf(row.name, row.items, layout, onOpen) } }
-                if (picks.isEmpty()) forYou?.takeIf { it.items.isNotEmpty() }?.let { row -> item(key = "foryou") { PosterShelf(row.name, row.items, layout, onOpen) } }
+                lead.firstOrNull()?.let { row -> item(key = "pick0") { PosterShelf(row.name, row.items, layout, onOpen) } }
+                if (lead.isEmpty()) forYou?.takeIf { it.items.isNotEmpty() }?.let { row -> item(key = "foryou") { PosterShelf(row.name, row.items, layout, onOpen) } }
                 if (airing.isNotEmpty()) item(key = "airing") {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         SectionHeader("New Episodes This Week", layout.gutter)
@@ -145,7 +148,7 @@ fun HomeScreen(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, onProfile: 
                     }
                 }
                 // Because you watched …: on what this profile actually watched
-                picks.drop(1).forEach { row -> item(key = "pick:${row.name}") { PosterShelf(row.name, row.items, layout, onOpen) } }
+                lead.drop(1).forEach { row -> item(key = "pick:${row.name}") { PosterShelf(row.name, row.items, layout, onOpen) } }
                 val shownRows = rows.filter { it.state != Load.Err }
                 items(shownRows.size, key = { "row:${shownRows[it].key}:${shownRows[it].index}" }) { i ->
                     val row = shownRows[i]

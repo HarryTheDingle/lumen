@@ -53,13 +53,8 @@ fun statusBarTop(): Dp = WindowInsets.statusBars.asPaddingValues().calculateTopP
 fun BrowsePoster(title: Title, onClick: () -> Unit) {
     BoxWithConstraints {
         val width = maxWidth
-        Box {
-            PosterCard(title, width, onClick = onClick)
-            if (title.watched) Box(
-                Modifier.align(Alignment.TopEnd).padding(6.dp).size(22.dp).clip(CircleShape).background(Color.White),
-                contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Filled.Check, contentDescription = "Watched", tint = Color.Black, modifier = Modifier.size(15.dp)) }
-        }
+        // (PosterCard fills the cell and keeps its shape, and draws the watched tick itself)
+        PosterCard(title, width, fillWidth = true, onClick = onClick)
     }
 }
 

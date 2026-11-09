@@ -114,7 +114,6 @@ fun Shell(stremio: Stremio, layout: AppLayout) {
                                     is Page.Person -> PersonPage(stremio, layout, p, onOpen = { nav.open(it) }, onBack = { nav.pop() })
                                     Page.Profile -> Box(Modifier.fillMaxSize()) {
                                         ProfileScreen(stremio, layout, gesture)
-                                        PageBack({ nav.pop() })
                                     }
                                 }
                             },
