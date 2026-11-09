@@ -137,6 +137,11 @@ class PlayerActivity : AppCompatActivity() {
 
     private val phone get() = (getSystemService(UI_MODE_SERVICE) as android.app.UiModeManager).currentModeType != Configuration.UI_MODE_TYPE_TELEVISION &&
         !packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+    /**
+     * Lumen's player: white controls, the loading screen carried on, each show's sound and subtitles remembered,
+     * a stream that is only a short error clip passed over. Lumen TV and Lumen for phones both; dx.bi's apps keep theirs.
+     */
+    private val lumenLook get() = Phone.ownsKeys() || BuildConfig.APP_NAME == "Lumen"
     private lateinit var clock: TextView
     private var showClock = true
     private lateinit var seekFlash: TextView
@@ -225,7 +230,8 @@ class PlayerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         // Phones turn freely; TVs stay landscape
         if (phone) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // (Lumen for phones keeps the screen on only while a video plays: its player view says so, see PhonePlayer)
+        if (!(lumenLook && !Phone.ownsKeys())) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.systemBars())
@@ -266,7 +272,7 @@ class PlayerActivity : AppCompatActivity() {
         val route = stream.optString("hash").substringBefore("?").split("/")
         playKey = StreamAlt.keyOf(stream.optString("hash"))
         if (route.size > 7 && route[1] == "player") videoRoute = listOf(route[5], route[6], route[7]).map { runCatching { Uri.decode(it) }.getOrDefault(it) }
-        if (Phone.ownsKeys()) currentHeaders = stream.optJSONObject("headers")?.let { h -> h.keys().asSequence().associateWith { k -> h.optString(k) } } ?: emptyMap()
+        if (lumenLook) currentHeaders = stream.optJSONObject("headers")?.let { h -> h.keys().asSequence().associateWith { k -> h.optString(k) } } ?: emptyMap()
         if (url.isEmpty()) {
             finishWith(error = "no stream address")
             return
@@ -323,7 +329,9 @@ class PlayerActivity : AppCompatActivity() {
         exoRef = exo
         player = exo
         playerView.player = exo
-        val lumen = Phone.ownsKeys()
+        val lumen = lumenLook
+        // (the remote's own parts: seeking by its keys, subtitles that always start off and in English only)
+        val remote = Phone.ownsKeys()
         // (Lumen: white, as Apple TV's player)
         val accent = if (lumen) Color.WHITE else try { Color.parseColor(stream.optString("accent")) } catch (_: Exception) { Color.parseColor("#E50914") }
         zoom = PictureZoom(playerView)
@@ -331,7 +339,8 @@ class PlayerActivity : AppCompatActivity() {
         nextTitle = next?.optString("title").orEmpty()
         nextId = next?.optString("id").orEmpty()
         nextArt = next?.optString("thumbnail").orEmpty()
-        upNextSeconds = if (next == null) 0 else stream.optString("upNext", "10").toIntOrNull() ?: 0
+        // (Lumen for phones has no Up next card, as the iPad's: its Next button is how the next episode starts)
+        upNextSeconds = if (next == null || (lumenLook && !Phone.ownsKeys())) 0 else stream.optString("upNext", "10").toIntOrNull() ?: 0
         upNextCard = findViewById(R.id.up_next)
         controls = extras?.controls(exo, sound, zoom, accent, next != null, showClock)
             ?: PlayerControls(this, playerView, exo, sound, zoom, ::shiftSubtitles, accent, clock.takeIf { showClock }, next != null, ::seek, { PlaybackBus.listener?.onPartyLeave() }) { go -> finishWith(next = go) }
@@ -356,7 +365,8 @@ class PlayerActivity : AppCompatActivity() {
             val previewHeaders = mutableMapOf<String, String>()
             preview?.optJSONObject("headers")?.let { h -> h.keys().forEach { k -> previewHeaders[k] = h.optString(k) } }
             android.util.Log.i("dxbi-player", "seek pictures from ${if (previewUrl != null) "the lightest stream" else "the stream playing"}")
-            scrubber = Scrubber(this, exo, findViewById(R.id.seek_line), previewUrl ?: url, if (previewUrl != null) previewHeaders else headers) { controls }
+            // (a phone's seek bar shows its pictures itself, from the same lightest stream: see PhonePlayer)
+            if (remote) scrubber = Scrubber(this, exo, findViewById(R.id.seek_line), previewUrl ?: url, if (previewUrl != null) previewHeaders else headers) { controls }
             tracks = TrackMemory(this, exo, stream.optString("videoId").substringBefore(':'))
         }
         // how fast the stream comes (not a torrent's: that's the TV's own server), for the network's memory
@@ -380,9 +390,11 @@ class PlayerActivity : AppCompatActivity() {
         val audioLanguage = stream.optString("audioLanguage").ifEmpty { null }
         // (Lumen: subtitles always start off, even a track the file marks to show; English only, in the
         // subtitles menu)
-        val subtitleLanguage = if (lumen) null else stream.optString("subtitleLanguage").ifEmpty { null }
+        // (Lumen for phones starts them as the iPad does: in the language the page sends, unless this show was last
+        // watched with them off)
+        val subtitleLanguage = if (remote || tracks?.subtitlesOff == true) null else stream.optString("subtitleLanguage").ifEmpty { null }
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, lumen)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, remote || tracks?.subtitlesOff == true)
             .setPreferredTextLanguage(subtitleLanguage)
             .setSelectUndeterminedTextLanguage(false)
             .apply { if (audioLanguage != null) setPreferredAudioLanguage(audioLanguage) }
@@ -394,7 +406,7 @@ class PlayerActivity : AppCompatActivity() {
             for (i in 0 until list.length()) {
                 val s = list.optJSONObject(i) ?: continue
                 val subUrl = s.optString("url").takeIf { it.isNotEmpty() } ?: continue
-                if (lumen && !isEnglish(s.optString("lang"))) continue
+                if (remote && !isEnglish(s.optString("lang"))) continue
                 val id = extras?.subtitleId(s.optString("source", "addon"), i) ?: "sub-${s.optString("source", "addon")}-$i"
                 sideloaded += id
                 subtitles += MediaItem.SubtitleConfiguration.Builder(Uri.parse(subUrl))
@@ -402,7 +414,7 @@ class PlayerActivity : AppCompatActivity() {
                     .setMimeType(subtitleMime(subUrl))
                     .setLanguage(s.optString("lang").ifEmpty { null })
                     .setLabel(s.optString("label").ifEmpty { s.optString("lang") })
-                    .setSelectionFlags(if (s.optBoolean("start") && !lumen) C.SELECTION_FLAG_DEFAULT else 0)
+                    .setSelectionFlags(if (s.optBoolean("start") && !remote && tracks?.subtitlesOff != true) C.SELECTION_FLAG_DEFAULT else 0)
                     .build()
             }
         }
@@ -413,7 +425,7 @@ class PlayerActivity : AppCompatActivity() {
             override fun onPlaybackStateChanged(state: Int) {
                 // (Lumen: a video of a few seconds, for a film or an episode, is an addon's error clip (ElfHosted's
                 // "Couldn't fetch this release"): passed over like a stream that won't play, not counted as watched)
-                if ((state == Player.STATE_READY || state == Player.STATE_ENDED) && Phone.ownsKeys() && !clipChecked && returnTo == null) {
+                if ((state == Player.STATE_READY || state == Player.STATE_ENDED) && lumenLook && !clipChecked && returnTo == null) {
                     val length = exo.duration
                     if (length != C.TIME_UNSET) {
                         clipChecked = true
@@ -433,7 +445,7 @@ class PlayerActivity : AppCompatActivity() {
             // brings the current one up straight away
             override fun onRenderedFirstFrame() {
                 // (Lumen: the picture's real width, once per stream (each stream is its own player), so the page learns a stream that plays lower than its name)
-                if (!pictureReported && Phone.ownsKeys() && exo.videoSize.width > 0) {
+                if (!pictureReported && lumenLook && exo.videoSize.width > 0) {
                     pictureReported = true
                     Phone.realPicture(exo.videoSize.width)
                 }
@@ -582,6 +594,15 @@ class PlayerActivity : AppCompatActivity() {
     private fun mediaItem(url: String) = MediaItem.Builder()
         .setUri(Uri.parse(url))
         .setSubtitleConfigurations(subtitleItems)
+        // (what the lock screen and headphones' controls show: the phone's media session reads it)
+        .apply {
+            if (extras != null) setMediaMetadata(
+                androidx.media3.common.MediaMetadata.Builder()
+                    .setTitle(findViewById<TextView>(R.id.title).text)
+                    .setSubtitle(findViewById<TextView>(R.id.subtitle).text)
+                    .build(),
+            )
+        }
         .build()
 
     private fun flashText(text: String) {

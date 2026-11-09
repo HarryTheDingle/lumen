@@ -21,6 +21,9 @@ class TrackMemory(context: Context, private val exo: ExoPlayer, private val show
     private var subtitlesDone = saved?.optBoolean("subOn") != true
     private var since = System.currentTimeMillis()
 
+    /** This show was last watched with subtitles off: they stay off, whatever language the page would start them in */
+    val subtitlesOff: Boolean get() = saved?.let { it.has("subOn") && !it.optBoolean("subOn") } == true
+
     private fun load() = prefs.getString(show, null)?.let { runCatching { JSONObject(it) }.getOrNull() }
 
     /** Another stream of the same video is loading: the sound and subtitles chosen so far are chosen again on it */

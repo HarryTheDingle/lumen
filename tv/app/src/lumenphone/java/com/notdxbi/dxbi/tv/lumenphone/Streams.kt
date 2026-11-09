@@ -111,7 +111,8 @@ fun StreamsSheet(
                 subheading?.let { Text(it, color = Dx.Muted, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
         }
-        choices?.picked?.let { best ->
+        // (the best this phone can show: a Dolby Vision-only stream has no decoder on a Pixel, see PlayerCaps)
+        choices?.let { PlayerCaps.pick(it) }?.let { best ->
             item(key = "pick") {
                 Row(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White).clickable { onPlay(best, tapTarget) }.padding(16.dp),
@@ -140,7 +141,7 @@ fun StreamsSheet(
                 if (all.any { it.instant } && all.any { !it.instant }) item { Chip("Instant Only", instantOnly) { instantOnly = !instantOnly } }
             }
         }
-        items(shown, key = { it.index }) { s -> StreamRow(s, picked = s.index == choices?.pick, tapTarget = tapTarget, onPlay = onPlay) }
+        items(shown, key = { it.index }) { s -> StreamRow(s, picked = s.index == choices?.let { PlayerCaps.pick(it) }?.index, tapTarget = tapTarget, onPlay = onPlay) }
         item(key = "status") {
             when {
                 searching -> Row(Modifier.fillMaxWidth().padding(24.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
@@ -231,6 +232,7 @@ private fun StreamRow(s: StreamOption, picked: Boolean, tapTarget: Phone.Target,
         )
         if (facts.isNotEmpty()) Text(facts.joinToString(" · "), color = Dx.Muted, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
         s.claimNote?.let { Text(it, color = Dx.Faint, style = MaterialTheme.typography.bodySmall) }
+        PlayerCaps.problem(s)?.let { Text(it, color = Dx.Problem, style = MaterialTheme.typography.bodySmall) }
         if (s.lesser) Text("Upscaled, high frame rate or 3D: may not look as good as it says", color = Dx.Faint, style = MaterialTheme.typography.bodySmall)
     }
 }
