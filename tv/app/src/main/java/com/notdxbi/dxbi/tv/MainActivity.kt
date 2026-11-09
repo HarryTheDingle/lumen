@@ -63,7 +63,9 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // (TVs and dx.bi's phone app keep the screen on while it's open. Lumen on a phone doesn't: browsing should let it
+        // sleep as any app does, and the player keeps it on while a video plays)
+        if (BuildConfig.IMMERSIVE) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
 
         if (!webViewIsRecentEnough()) return

@@ -11,12 +11,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -26,22 +26,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.core.tween
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,13 +49,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.runtime.getValue
-import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.NavHostController
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
 import com.notdxbi.dxbi.tv.phone.Stremio
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
@@ -66,62 +56,75 @@ import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.haze
 import dev.chrisbanes.haze.hazeChild
 
-/** The tabs, as the iOS app has them (App.swift's AppTab): Home, Discover, Library, and Search last */
-enum class Tab(val route: String, val label: String, val on: ImageVector, val off: ImageVector) {
-    Home("home", "Home", Icons.Filled.Home, Icons.Outlined.Home),
-    Discover("discover", "Discover", Icons.Filled.GridView, Icons.Outlined.GridView),
-    Library("library", "Library", Icons.Filled.VideoLibrary, Icons.Outlined.VideoLibrary),
-    Search("search", "Search", Icons.Filled.Search, Icons.Outlined.Search),
-    /** (iOS opens Profile from the picture on Home; a phone's tab bar has room, and the side rail has too) */
-    Profile("profile", "Profile", Icons.Filled.Person, Icons.Outlined.Person),
+/** The tabs, as the iOS app has them (App.swift's AppTab): Home, Discover, Library, and Search last. Profile opens from Home's picture. */
+enum class Tab(val label: String, val on: ImageVector, val off: ImageVector) {
+    Home("Home", Icons.Filled.Home, Icons.Outlined.Home),
+    Discover("Discover", Icons.Filled.GridView, Icons.Outlined.GridView),
+    Library("Library", Icons.Filled.VideoLibrary, Icons.Outlined.VideoLibrary),
+    Search("Search", Icons.Filled.Search, Icons.Outlined.Search),
 }
 
 /** How tall the tab bar is above the gesture bar: screens leave this much room under their last row */
 private val BarHeight = 64.dp
 
-private fun NavHostController.switchTo(tab: Tab) {
-    navigate(tab.route) {
-        // (tabs sit on Home: Back from any of them goes there, then leaves)
-        popUpTo(graph.findStartDestination().id) { saveState = true }
-        launchSingleTop = true
-        restoreState = true
-    }
-}
-
 /**
- * The app once they're in: the tabs and the screens they show. On a phone (and the Fold folded) the tabs are a bar
+ * The app once they're in: the tabs and the pages on them. On a phone (and the Fold folded) the tabs are a bar
  * along the bottom; with room (the Fold opened out, a tablet, a wide window) they go down the side, as the iPad's
- * sidebar does. Which one is chosen by [AppLayout], never by what device it is.
+ * sidebar does. Which one is chosen by [AppLayout], never by what device it is. Every tab keeps its own stack of
+ * pages (a title, a cast member, Profile), so tabs and their scroll positions survive pushes, tab switches and folding.
  */
 @Composable
 fun Shell(stremio: Stremio, layout: AppLayout) {
-    val nav = rememberNavController()
-    val entry by nav.currentBackStackEntryAsState()
-    val current = Tab.entries.firstOrNull { it.route == entry?.destination?.route } ?: Tab.Home
+    val scope = rememberCoroutineScope()
+    val nav = remember { AppNav(scope) }
+    val launcher = remember { Launcher(stremio, scope) }
+    val actions = remember { TitleActions(stremio, nav, launcher) }
     val haze = remember { HazeState() }
     val bottomBar = layout.compact
 
-    Row(Modifier.fillMaxSize().background(Dx.Background)) {
-        if (!bottomBar) SideRail(current) { nav.switchTo(it) }
-        Box(Modifier.weight(1f).fillMaxHeight()) {
-            // (the screens draw under the status bar and the bar, and leave room for them where they need it)
-            val bottomSpace = navigationBarHeight() + if (bottomBar) BarHeight else 0.dp
-            NavHost(
-                nav,
-                startDestination = Tab.Home.route,
-                modifier = Modifier.fillMaxSize().haze(haze),
-                enterTransition = { fadeIn(tween(200)) },
-                exitTransition = { fadeOut(tween(140)) },
-                popEnterTransition = { fadeIn(tween(200)) },
-                popExitTransition = { fadeOut(tween(140)) },
-            ) {
-                composable(Tab.Home.route) { HomeScreen(stremio, layout, bottomSpace, onProfile = { nav.switchTo(Tab.Profile) }) }
-                composable(Tab.Discover.route) { DiscoverScreen(stremio, layout, bottomSpace, onOpen = {}) }
-                composable(Tab.Library.route) { LibraryScreen(stremio, layout, bottomSpace, onOpen = {}) }
-                composable(Tab.Search.route) { SearchScreen(stremio, layout, bottomSpace, onOpen = {}) }
-                composable(Tab.Profile.route) { ProfileScreen(stremio, layout, bottomSpace) }
+    CompositionLocalProvider(LocalTitleActions provides actions, LocalLauncher provides launcher) {
+        Box(Modifier.fillMaxSize().background(Dx.Background)) {
+            Row(Modifier.fillMaxSize()) {
+                if (!bottomBar) SideRail(nav.tab) { nav.select(it) }
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    // (the screens draw under the status bar and the bar, and leave room for them where they need it)
+                    val gesture = navigationBarHeight()
+                    val barShown = bottomBar && nav.top == null
+                    val bottomSpace = gesture + if (barShown) BarHeight else 0.dp
+                    Box(Modifier.fillMaxSize().haze(haze)) {
+                        NavStack(
+                            nav,
+                            root = { tab ->
+                                // (Discover, Library and Search are the placeholders until their screens are merged in: they take
+                                // [onOpen], and anything they open pushes a title page here)
+                                when (tab) {
+                                    Tab.Home -> HomeScreen(stremio, layout, bottomSpace, onProfile = { nav.push(Page.Profile) }, onOpen = { nav.open(it) })
+                                    Tab.Discover -> DiscoverScreen(stremio, layout, bottomSpace, onOpen = { nav.open(it) })
+                                    Tab.Library -> LibraryScreen(stremio, layout, bottomSpace, onOpen = { nav.open(it) })
+                                    Tab.Search -> SearchScreen(stremio, layout, bottomSpace, onOpen = { nav.open(it) })
+                                }
+                            },
+                            page = { entry, active ->
+                                when (val p = entry.page) {
+                                    is Page.TitleOf -> TitlePage(
+                                        stremio, layout, p, active, onBack = { nav.pop() }, onOpen = { nav.open(it) },
+                                        onPerson = { id, name, photo -> nav.push(Page.Person(id, name, photo)) },
+                                        onSearch = { name -> stremio.search(name); nav.select(Tab.Search) },
+                                    )
+                                    is Page.Person -> PersonPage(stremio, layout, p, onOpen = { nav.open(it) }, onBack = { nav.pop() })
+                                    Page.Profile -> Box(Modifier.fillMaxSize()) {
+                                        ProfileScreen(stremio, layout, gesture)
+                                        PageBack({ nav.pop() })
+                                    }
+                                }
+                            },
+                        )
+                    }
+                    if (barShown) TabBar(nav.tab, haze, Modifier.align(Alignment.BottomCenter)) { nav.select(it) }
+                }
             }
-            if (bottomBar) TabBar(current, haze, Modifier.align(Alignment.BottomCenter)) { nav.switchTo(it) }
+            // Play's loading screen, over everything until the player is up
+            LoadingScreen(launcher)
         }
     }
 }
@@ -167,7 +170,7 @@ private fun SideRail(current: Tab, onSelect: (Tab) -> Unit) {
     Column(
         Modifier
             .fillMaxHeight()
-            .width(96.dp)
+            .width(SideRailWidth)
             .background(Dx.Background)
             .border(width = 0.5.dp, color = Dx.Line, shape = RectangleShape)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start)),
