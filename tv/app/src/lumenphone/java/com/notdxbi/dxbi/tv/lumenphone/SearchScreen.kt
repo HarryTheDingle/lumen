@@ -53,9 +53,6 @@ import com.notdxbi.dxbi.tv.phone.Stremio
 import com.notdxbi.dxbi.tv.phone.Title
 import kotlinx.coroutines.delay
 
-/** Types the lists leave out: Stremio's live channels and TV (as Home does) */
-private val LEFT_OUT = setOf("channel", "tv")
-
 /**
  * Search (iOS: SearchView): a field, and as they type (after a pause) what each addon finds, one row per
  * catalog with a See All on it. With nothing typed: their recent searches, and the Genres as tiles, as Apple
@@ -103,8 +100,8 @@ fun SearchScreen(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, onOpen: (
     }
 
     val ime = with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }
-    // (rows that gave nothing, and live TV)
-    val rows = results.filter { it.items.isNotEmpty() && it.type !in LEFT_OUT }
+    // (rows that gave nothing, and anything that isn't a film or show: no channels or live TV)
+    val rows = results.filter { it.items.isNotEmpty() && it.type in WATCHABLE }
     // A row whose addon hasn't answered after a few seconds goes, so a stuck one isn't a spinner for good
     var patient by remember(searched) { mutableStateOf(true) }
     LaunchedEffect(searched) { patient = true; delay(6000); patient = false }

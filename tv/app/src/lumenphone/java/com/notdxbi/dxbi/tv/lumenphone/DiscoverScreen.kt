@@ -129,7 +129,7 @@ fun DiscoverScreen(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, onOpen:
                         FestiveCard(layout) { page = BrowsePage.Christmas.encode() }
                     }
                     rows.forEachIndexed { i, row ->
-                        item(key = "row:${row.id}") { BrowseShelf(row.title, row.items, layout, dates = row.dates, onOpen = onOpen) }
+                        item(key = "row:${row.id}") { BrowseShelf(row.title, row.items.filter { it.type in WATCHABLE }, layout, dates = row.dates, onOpen = onOpen) }
                         // (Genres after the first couple of rows: tiles, as Apple TV's Search has)
                         if (selected.isEmpty() && i == minOf(1, rows.size - 1)) item(key = "genres") {
                             GenresSection(stremio, layout, onGenre = { page = BrowsePage.Genre(it).encode() }, onChristmas = { page = BrowsePage.Christmas.encode() })

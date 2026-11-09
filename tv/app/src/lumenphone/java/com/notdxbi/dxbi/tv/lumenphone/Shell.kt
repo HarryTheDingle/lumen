@@ -89,7 +89,8 @@ fun Shell(stremio: Stremio, layout: AppLayout) {
                 Box(Modifier.weight(1f).fillMaxHeight()) {
                     // (the screens draw under the status bar and the bar, and leave room for them where they need it)
                     val gesture = navigationBarHeight()
-                    val barShown = bottomBar && nav.top == null
+                    // (the bar stays on pushed pages too, as the iOS tab bar does on a title)
+                    val barShown = bottomBar
                     val bottomSpace = gesture + if (barShown) BarHeight else 0.dp
                     Box(Modifier.fillMaxSize().haze(haze)) {
                         NavStack(
@@ -107,13 +108,13 @@ fun Shell(stremio: Stremio, layout: AppLayout) {
                             page = { entry, active ->
                                 when (val p = entry.page) {
                                     is Page.TitleOf -> TitlePage(
-                                        stremio, layout, p, active, onBack = { nav.pop() }, onOpen = { nav.open(it) },
+                                        stremio, layout, p, active, bottomSpace, onBack = { nav.pop() }, onOpen = { nav.open(it) },
                                         onPerson = { id, name, photo -> nav.push(Page.Person(id, name, photo)) },
                                         onSearch = { name -> stremio.search(name); nav.select(Tab.Search) },
                                     )
-                                    is Page.Person -> PersonPage(stremio, layout, p, onOpen = { nav.open(it) }, onBack = { nav.pop() })
+                                    is Page.Person -> PersonPage(stremio, layout, p, bottomSpace, onOpen = { nav.open(it) }, onBack = { nav.pop() })
                                     Page.Profile -> Box(Modifier.fillMaxSize()) {
-                                        ProfileScreen(stremio, layout, gesture)
+                                        ProfileScreen(stremio, layout, bottomSpace)
                                     }
                                 }
                             },

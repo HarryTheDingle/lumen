@@ -191,6 +191,12 @@ fun episodeLabel(videoId: String?): String? {
     return "S$season, E$episode"
 }
 
+/**
+ * Lumen is for films and shows: YouTube channels and live TV catalogs are left out everywhere (iOS: Title.watchable).
+ * Screens keep only the rows and types in this list, rather than naming what to drop, so a new kind of catalog stays out too.
+ */
+val WATCHABLE = setOf("movie", "series", "anime")
+
 fun typeName(type: String) = when (type) {
     "movie" -> "Movie"
     "series" -> "TV Show"

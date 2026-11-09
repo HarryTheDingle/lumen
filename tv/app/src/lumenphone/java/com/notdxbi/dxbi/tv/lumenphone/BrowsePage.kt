@@ -210,10 +210,12 @@ fun BrowseCatalogsPage(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, onB
 private fun CatalogPickers(stremio: Stremio, d: Discover) {
     Box(Modifier.padding(bottom = 4.dp)) {
         androidx.compose.foundation.layout.Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (d.types.size > 1) {
+            // (films and shows only: no channels or live TV)
+            val types = d.types.filter { it.name in WATCHABLE }
+            if (types.size > 1) {
                 BrowseSegments(
-                    d.types.map { (if (it.name == "movie") "Movies" else if (it.name == "series") "TV Shows" else typeName(it.name)) to (it.link ?: "") },
-                    selected = d.types.firstOrNull { it.selected }?.link ?: "",
+                    types.map { (if (it.name == "movie") "Movies" else if (it.name == "series") "TV Shows" else typeName(it.name)) to (it.link ?: "") },
+                    selected = types.firstOrNull { it.selected }?.link ?: "",
                     modifier = Modifier.padding(horizontal = 4.dp),
                 ) { if (it.isNotEmpty()) stremio.discover(it) }
             }

@@ -58,7 +58,7 @@ fun Face(name: String, photo: String?, size: Dp, modifier: Modifier = Modifier) 
  * this page isn't reached.
  */
 @Composable
-fun PersonPage(stremio: Stremio, layout: AppLayout, page: Page.Person, onOpen: (Title) -> Unit, onBack: () -> Unit) {
+fun PersonPage(stremio: Stremio, layout: AppLayout, page: Page.Person, bottomSpace: androidx.compose.ui.unit.Dp, onOpen: (Title) -> Unit, onBack: () -> Unit) {
     var person by remember(page.id) { mutableStateOf<JSONObject?>(null) }
     var loaded by remember(page.id) { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
@@ -68,7 +68,7 @@ fun PersonPage(stremio: Stremio, layout: AppLayout, page: Page.Person, onOpen: (
     }
     val wide = !layout.compact
     Box(Modifier.fillMaxSize().background(Dx.Background)) {
-        LazyColumn(contentPadding = PaddingValues(top = 64.dp, bottom = 60.dp), verticalArrangement = Arrangement.spacedBy(28.dp)) {
+        LazyColumn(contentPadding = PaddingValues(top = 64.dp, bottom = bottomSpace + 40.dp), verticalArrangement = Arrangement.spacedBy(28.dp)) {
             item {
                 val size = if (wide) 200.dp else 128.dp
                 val p = person

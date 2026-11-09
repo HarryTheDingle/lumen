@@ -143,6 +143,7 @@ fun TitlePage(
     layout: AppLayout,
     page: Page.TitleOf,
     active: Boolean,
+    bottomSpace: Dp,
     onBack: () -> Unit,
     onOpen: (Title) -> Unit,
     onPerson: (id: String, name: String, photo: String?) -> Unit,
@@ -209,11 +210,13 @@ fun TitlePage(
         if (target == Phone.Target.Download && android.os.Build.VERSION.SDK_INT >= 33 &&
             androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) notifications.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        stopTrailer()
         launcher?.play(title, option, episodeLine(d), target) ?: stremio.play(option, target)
     }
 
     /** Play: Lumen's pick (the stream chosen last time, else the best that's ready), with the loading screen and no list on the way */
     fun start(videoId: String?, fromStart: Boolean = false, shuffle: Boolean = false) {
+        stopTrailer()
         launcher?.play(title, videoId, fromStart, shuffle)
     }
 
@@ -261,20 +264,22 @@ fun TitlePage(
         val covered by remember { androidx.compose.runtime.derivedStateOf { if (list.firstVisibleItemIndex > 0) 1f else (list.firstVisibleItemScrollOffset / (artPx * 0.8f)).coerceIn(0f, 1f) } }
         val artFade by animateFloatAsState(if (trailerPlaying) 0f else 1f, tween(900), label = "art")
 
-        // The art, behind the page: it stays as the page moves up over it, at half the speed, fading as it's covered
+        // The art, behind the page: it stays as the page moves up over it, at half the speed, fading as it's covered.
+        // (The fade is a black sheet over it, not the box's own alpha: a see-through layer round the trailer's WebView makes it paint black.)
         Box(
             Modifier.fillMaxWidth().height(artHeight).graphicsLayer {
                 translationY = if (list.firstVisibleItemIndex == 0) list.firstVisibleItemScrollOffset * 0.5f else 0f
-                alpha = 1f - covered * 0.9f
             },
         ) {
+            // (the art is only taken away once the trailer has frames on show; until then, and if it never does, it's what they see)
             if (trailerOn) title.trailer?.let { TrailerPreview(it, muted = !soundOn || hushed, modifier = Modifier.fillMaxSize(), onPlaying = { trailerPlaying = true }) }
             Art(title.backdrop, Modifier.fillMaxSize().alpha(artFade))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.35f), 0.22f to Color.Transparent, 0.42f to Color.Transparent, 0.8f to Color.Black.copy(alpha = 0.72f), 1f to Color.Black)))
             if (wide) Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.6f), 0.55f to Color.Transparent)))
+            Box(Modifier.fillMaxSize().graphicsLayer { alpha = covered * 0.9f }.background(Dx.Background))
         }
 
-        val bottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 40.dp
+        val bottomPad = bottomSpace + 40.dp
         LazyColumn(state = list, contentPadding = PaddingValues(bottom = bottomPad)) {
             item(key = "header") {
                 Box(Modifier.fillMaxWidth().height(artHeight)) {

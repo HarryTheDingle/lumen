@@ -2,11 +2,13 @@ package com.notdxbi.dxbi.tv.lumenphone
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -25,6 +27,10 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.runtime.saveable.rememberSaveable
+import kotlinx.coroutines.flow.first
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -98,9 +104,9 @@ fun HomeScreen(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, onProfile: 
     // What they're watching, taking turns with suggestions (Top Picks for You, then what's popular) that they aren't
     // watching and haven't put in their Library: four of each at most (iOS: billboardTitles)
     val slides = remember(resuming, billboard, myList, picks, described) {
-        val watching = resuming.take(4).map { stremio.filledIn(it.title) }
+        val watching = resuming.filter { it.title.type in WATCHABLE }.take(4).map { stremio.filledIn(it.title) }
         val taken = (resuming.map { it.title.id } + myList.flatMap { r -> r.items.map { it.id } }).toMutableSet()
-        val suggested = (picks.firstOrNull()?.items.orEmpty() + billboard).filter { it.backdrop != null && taken.add(it.id) }.take(4).map { stremio.filledIn(it) }
+        val suggested = (picks.firstOrNull()?.items.orEmpty() + billboard).filter { it.type in WATCHABLE && it.backdrop != null && taken.add(it.id) }.take(4).map { stremio.filledIn(it) }
         buildList { for (i in 0 until maxOf(watching.size, suggested.size)) { watching.getOrNull(i)?.let(::add); suggested.getOrNull(i)?.let(::add) } }
     }
     // Play on the billboard for what's in progress: "Resume S2 E5", "Play S3 E1"
@@ -111,16 +117,36 @@ fun HomeScreen(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, onProfile: 
         }
     }
 
+    // A fresh launch opens at the billboard: until a finger has scrolled Home, rows arriving (or a restored position) put it back at the top.
+    // (Kept across opening a title and coming back, which is what [touched] being saved is for.)
+    val list = rememberLazyListState()
+    var touched by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(list) { list.interactionSource.interactions.first { it is DragInteraction.Start }; touched = true }
+    LaunchedEffect(slides.size, rows.size, resuming.size, myList.size) {
+        if (!touched && (list.firstVisibleItemIndex != 0 || list.firstVisibleItemScrollOffset != 0)) list.scrollToItem(0)
+    }
+
     BoxWithConstraints(Modifier.fillMaxSize().background(Dx.Background)) {
         val hero = if (layout.compact) minOf(maxHeight * 0.74f, maxWidth * 1.55f) else minOf(maxHeight * 0.7f, maxWidth * 0.85f)
         PullToRefreshBox(
             isRefreshing = refreshing,
             onRefresh = { refreshing = true; stremio.refreshExtras(); scope.launch { delay(1200); refreshing = false } },
         ) {
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottomSpace + 32.dp), verticalArrangement = Arrangement.spacedBy(30.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = bottomSpace + 32.dp), verticalArrangement = Arrangement.spacedBy(30.dp)) {
                 item(key = "billboard") {
-                    if (slides.isNotEmpty()) Billboard(stremio, slides, playLabels, hero, layout, onOpen)
-                    else Box(Modifier.fillMaxWidth().height(hero * 0.3f))
+                    // The title and the profile button sit over the billboard and scroll away with it (iOS keeps its bar's
+                    // background hidden and fades the rows out under it; here they're simply part of the first screen)
+                    Box(Modifier.fillMaxWidth()) {
+                        if (slides.isNotEmpty()) Billboard(stremio, slides, playLabels, hero, layout, onOpen)
+                        else Box(Modifier.fillMaxWidth().height(hero * 0.3f))
+                        Row(
+                            Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = layout.gutter, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("Home", modifier = Modifier.weight(1f), color = Dx.Text, style = MaterialTheme.typography.headlineMedium.copy(shadow = Shadow(Color.Black.copy(alpha = 0.6f), blurRadius = 12f)))
+                            ProfileButton(if (viewers.size > 1) viewer?.name else account?.email, if (viewers.size > 1) viewer?.colour else null, onProfile)
+                        }
+                    }
                 }
                 if (resuming.isNotEmpty()) item(key = "continue") {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -149,7 +175,8 @@ fun HomeScreen(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, onProfile: 
                 }
                 // Because you watched …: on what this profile actually watched
                 lead.drop(1).forEach { row -> item(key = "pick:${row.name}") { PosterShelf(row.name, row.items, layout, onOpen) } }
-                val shownRows = rows.filter { it.state != Load.Err }
+                // (films and shows only: no YouTube or live TV channels, as iOS)
+                val shownRows = rows.filter { it.state != Load.Err && it.type in WATCHABLE }
                 items(shownRows.size, key = { "row:${shownRows[it].key}:${shownRows[it].index}" }) { i ->
                     val row = shownRows[i]
                     when {
@@ -157,7 +184,7 @@ fun HomeScreen(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, onProfile: 
                         row.state != Load.Ready -> LoadingShelf(row.heading, layout)
                     }
                 }
-                if (rows.isEmpty()) item(key = "empty") {
+                if (shownRows.isEmpty()) item(key = "empty") {
                     if (!ready || account == null) LoadingShelf("", layout)
                     else Text(
                         "Nothing to show yet. Install addons to fill Home: tap your picture, then Addons.",
@@ -166,15 +193,6 @@ fun HomeScreen(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, onProfile: 
                     )
                 }
             }
-        }
-
-        // The title and the profile button float over the billboard, which shows through the status bar
-        Row(
-            Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = layout.gutter, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Home", modifier = Modifier.weight(1f), color = Dx.Text, style = MaterialTheme.typography.headlineMedium.copy(shadow = Shadow(Color.Black.copy(alpha = 0.6f), blurRadius = 12f)))
-            ProfileButton(if (viewers.size > 1) viewer?.name else account?.email, if (viewers.size > 1) viewer?.colour else null, onProfile)
         }
     }
 }
@@ -209,16 +227,17 @@ private fun Billboard(stremio: Stremio, titles: List<Title>, playLabels: Map<Str
     val progress = remember { Animatable(0f) }
     val airing by stremio.airing.collectAsState()
     val resuming by stremio.continueWatching.collectAsState()
+    val dragged by pager.interactionSource.collectIsDraggedAsState()
 
-    // Turns by itself (not while a finger's on it); any change starts the wait again
-    LaunchedEffect(pager.currentPage, titles.size) {
+    // Turns by itself, after the title's been there its time (iOS: 8 seconds). A finger on it starts the wait again from nothing,
+    // and so does a new title having settled; the turn's own scroll isn't a finger, so it doesn't cut itself short.
+    LaunchedEffect(pager.settledPage, dragged, titles.size) {
         progress.snapTo(0f)
         if (titles.size < 2) return@LaunchedEffect
+        snapshotFlow { pager.isScrollInProgress }.first { !it }
         progress.animateTo(1f, tween(BILLBOARD_MS, easing = LinearEasing))
-        while (pager.isScrollInProgress) delay(200)
-        pager.animateScrollToPage((pager.currentPage + 1) % titles.size)
+        pager.animateScrollToPage((pager.settledPage + 1) % titles.size)
     }
-    LaunchedEffect(pager.isScrollInProgress) { if (pager.isScrollInProgress) progress.snapTo(0f) }
 
     Box(Modifier.fillMaxWidth().height(height)) {
         HorizontalPager(pager, Modifier.fillMaxSize(), key = { titles[it].id }) { page ->
@@ -246,12 +265,15 @@ private fun Billboard(stremio: Stremio, titles: List<Title>, playLabels: Map<Str
                 }
             }
         }
+        // One dot a title (iOS dots): each grows into the bar as the picture comes to it and shrinks back as it leaves, following
+        // the swipe; only the one that has settled shows the fill, running along its bar as the title's time runs out.
         if (titles.size > 1) Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            val position = pager.currentPage + pager.currentPageOffsetFraction
+            val still = !pager.isScrollInProgress
             repeat(titles.size) { i ->
-                val current = i == pager.currentPage
-                val w by animateDpAsState(if (current) 30.dp else 7.dp, tween(300), label = "dot")
-                Box(Modifier.size(w, 7.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.4f))) {
-                    if (current) Box(Modifier.size(7.dp + 23.dp * progress.value, 7.dp).background(Color.White))
+                val grown = (1f - kotlin.math.abs(position - i)).coerceIn(0f, 1f)
+                Box(Modifier.size(7.dp + 23.dp * grown, 7.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.4f))) {
+                    if (still && i == pager.settledPage) Box(Modifier.size(7.dp + 23.dp * progress.value, 7.dp).alpha((progress.value * 20f).coerceIn(0f, 1f)).background(Color.White))
                 }
             }
         }
