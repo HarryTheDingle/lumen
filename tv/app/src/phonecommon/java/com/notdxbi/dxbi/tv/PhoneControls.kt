@@ -53,6 +53,11 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.foundation.Image
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.Icon
@@ -112,9 +117,23 @@ class PhoneControls(
     private val onLock: () -> Unit,
     private val onUnlock: () -> Unit,
     private val onExternal: () -> Unit,
+    /** Lumen for phones: laid out and drawn as the iPad's player (see ios/Dxbi/Player/PlayerScreen.swift); dx.bi's keeps its own look */
+    private val lumen: Boolean = false,
+    /** Lumen: the picture over the seek bar while it's dragged */
+    private val thumbs: PlayerThumbs? = null,
 ) : Controls {
 
-    private enum class Panel { Tracks, Speed, More }
+    private enum class Panel { Tracks, Speed, More, Streams }
+
+    // Lumen: the brightness (true) or volume (false) bar at the side while the finger is sliding, and the streams list
+    private var level by mutableStateOf<Pair<Boolean, Float>?>(null)
+    private var streams by mutableStateOf<List<StreamAlt>?>(null)
+    private var streamsAsked by mutableStateOf(false)
+
+    /** The finger is setting the brightness or volume ([value] 0 to 1; null: it lifted, and the bar goes) */
+    fun level(brightness: Boolean, value: Float?) {
+        level = if (value == null) null else brightness to value
+    }
 
     private val handler = Handler(Looper.getMainLooper())
     private var shown by mutableStateOf(false)
@@ -167,6 +186,7 @@ class PhoneControls(
         if (!shown) {
             shown = true
             handler.post(tick)
+            thumbs?.warm()
             playerView.subtitleView?.translationY = -activity.resources.displayMetrics.density * 90
         }
         poke()
@@ -206,6 +226,11 @@ class PhoneControls(
     private fun open(p: Panel) {
         panel = p
         handler.removeCallbacks(autoHide)
+        // (the title's other streams come from the page: asked for when the list is opened)
+        if (p == Panel.Streams && !streamsAsked) {
+            streamsAsked = true
+            activity.loadStreams { list -> streams = list ?: emptyList() }
+        }
     }
 
     // -----------------------------------------------------------------------------------------------
@@ -213,16 +238,19 @@ class PhoneControls(
     @Composable
     private fun Ui() {
         val sideways = LocalConfiguration.current.let { it.screenWidthDp > it.screenHeightDp }
+        // (the opened Fold, a tablet: bigger controls and wider menus, whichever way up)
+        val wide = LocalConfiguration.current.screenWidthDp >= 600
         @Suppress("UNUSED_EXPRESSION") now // redrawn with the player's progress
         Box(Modifier.fillMaxSize()) {
+            if (lumen) Level()
             AnimatedVisibility(locked && unlockShown, modifier = Modifier.align(Alignment.TopCenter), enter = fadeIn(), exit = fadeOut()) { Unlock(Modifier) }
             AnimatedVisibility(shown && !locked, enter = fadeIn(), exit = fadeOut()) {
                 Box(Modifier.fillMaxSize()) {
                     // shading so white controls read over any picture (draws only: touches go through to the video)
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.75f), 0.22f to Color.Transparent, 0.62f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.85f))))
-                    TopBar(Modifier.align(Alignment.TopCenter), sideways)
-                    Center(Modifier.align(Alignment.Center), big = sideways)
-                    Bottom(Modifier.align(Alignment.BottomCenter), sideways)
+                    TopBar(Modifier.align(Alignment.TopCenter), sideways, wide)
+                    Center(Modifier.align(Alignment.Center), big = sideways || wide, wide = wide)
+                    Bottom(Modifier.align(Alignment.BottomCenter), sideways, wide)
                 }
             }
             val open = panel
@@ -245,15 +273,16 @@ class PhoneControls(
                 enter = if (sideways) slideInHorizontally { it } + fadeIn() else slideInVertically { it } + fadeIn(),
                 exit = if (sideways) slideOutHorizontally { it } + fadeOut() else slideOutVertically { it } + fadeOut(),
             ) {
-                val shape = if (sideways) RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp) else RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                val shape = if (sideways) RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp) else if (wide) RoundedCornerShape(16.dp) else RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
                 Box(
-                    (if (sideways) Modifier.fillMaxHeight().width(420.dp) else Modifier.fillMaxWidth().heightIn(max = 460.dp))
+                    (if (sideways) Modifier.fillMaxHeight().width(if (wide) 480.dp else 420.dp) else if (wide) Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(max = 520.dp) else Modifier.fillMaxWidth().heightIn(max = 460.dp))
                         .clip(shape).background(Color(0xF2141414)).windowInsetsPadding(WindowInsets.safeDrawing)
                         .pointerInput(Unit) { detectTapGestures { } },
                 ) {
                     when (open) {
                         Panel.Tracks -> Tracks(sideways)
                         Panel.More -> More()
+                        Panel.Streams -> Streams()
                         Panel.Speed, null -> {}
                     }
                 }
@@ -262,17 +291,20 @@ class PhoneControls(
     }
 
     @Composable
-    private fun TopBar(modifier: Modifier, sideways: Boolean) {
+    private fun TopBar(modifier: Modifier, sideways: Boolean, wide: Boolean) {
         @Suppress("UNUSED_EXPRESSION") now // (read here, so this part redraws with the player)
-        Row(modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Button(Icons.AutoMirrored.Filled.ArrowBack, "Back") { leave(false) }
+        val pad = if (wide) 16.dp else 8.dp
+        Row(modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = pad, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            // (Lumen: a cross, as the iPad's, since this closes the player rather than going back a page)
+            if (lumen) Button(Icons.Filled.Close, "Close", size = if (wide) 52.dp else 44.dp) { leave(false) }
+            else Button(Icons.AutoMirrored.Filled.ArrowBack, "Back") { leave(false) }
             Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
-                Text(title, color = Color.White, style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 16.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (subtitle.isNotEmpty()) Text(subtitle, color = Color.White.copy(alpha = 0.75f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(title, color = Color.White, style = TextStyle(fontWeight = FontWeight.Bold, fontSize = if (wide) 20.sp else 16.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (subtitle.isNotEmpty()) Text(subtitle, color = Color.White.copy(alpha = 0.75f), fontSize = if (wide) 15.sp else 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             // (upright, the title needs the room: the time goes down by the seek bar)
-            if (showClock && sideways) Text(endsAt(), color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp, modifier = Modifier.padding(end = 4.dp))
-            Button(Icons.Filled.LockOpen, "Lock the screen") { lock() }
+            if (showClock && (sideways || wide)) Text(endsAt(), color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp, modifier = Modifier.padding(end = 4.dp))
+            Button(Icons.Filled.LockOpen, "Lock the screen", size = if (lumen && wide) 52.dp else 44.dp) { lock() }
         }
     }
 
@@ -281,57 +313,70 @@ class PhoneControls(
     private fun Unlock(modifier: Modifier) {
         Row(modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.End) {
             Box(Modifier.size(48.dp).clip(CircleShape).background(Color(accent)).clickable { unlock() }, contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.Lock, contentDescription = "Unlock the screen", tint = Color.White, modifier = Modifier.size(26.dp))
+                // (Lumen's accent is white: the lock is drawn black on it)
+                Icon(Icons.Filled.Lock, contentDescription = "Unlock the screen", tint = if (lumen) Color.Black else Color.White, modifier = Modifier.size(26.dp))
             }
         }
     }
 
     @Composable
-    private fun Center(modifier: Modifier, big: Boolean) {
+    private fun Center(modifier: Modifier, big: Boolean, wide: Boolean) {
         @Suppress("UNUSED_EXPRESSION") now // (read here, so this part redraws with the player)
-        val gap = if (big) 56.dp else 36.dp
+        val gap = if (wide) 80.dp else if (big) 56.dp else 36.dp
+        val skip = if (wide) 68.dp else 52.dp
+        val round = if (wide) 100.dp else 76.dp
         Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-            Button(Icons.Filled.Replay10, "Back 10 seconds", size = 52.dp) { seek(-1); poke() }
+            Button(Icons.Filled.Replay10, "Back 10 seconds", size = skip) { seek(-1); poke() }
             Spacer(Modifier.width(gap))
             Box(
-                Modifier.size(76.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.35f))
+                Modifier.size(round).clip(CircleShape).background(Color.Black.copy(alpha = 0.35f))
                     .clickable { exo.playWhenReady = !exo.playWhenReady; now = System.currentTimeMillis(); poke() },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(if (exo.playWhenReady) Icons.Filled.Pause else Icons.Filled.PlayArrow, contentDescription = if (exo.playWhenReady) "Pause" else "Play", tint = Color.White, modifier = Modifier.size(54.dp))
+                Icon(if (exo.playWhenReady) Icons.Filled.Pause else Icons.Filled.PlayArrow, contentDescription = if (exo.playWhenReady) "Pause" else "Play", tint = Color.White, modifier = Modifier.size(round * 0.7f))
             }
             Spacer(Modifier.width(gap))
-            Button(Icons.Filled.Forward10, "Forward 10 seconds", size = 52.dp) { seek(+1); poke() }
+            Button(Icons.Filled.Forward10, "Forward 10 seconds", size = skip) { seek(+1); poke() }
         }
     }
 
     @Composable
-    private fun Bottom(modifier: Modifier, sideways: Boolean) {
+    private fun Bottom(modifier: Modifier, sideways: Boolean, wide: Boolean) {
         @Suppress("UNUSED_EXPRESSION") now // (read here, so this part redraws with the player)
-        Column(modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 16.dp, vertical = 6.dp)) {
-            if (showClock && !sideways) Text(endsAt(), color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, modifier = Modifier.align(Alignment.End))
-            SeekBar()
+        Column(modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = if (wide) 28.dp else 16.dp, vertical = 6.dp)) {
+            if (showClock && !sideways && !wide) Text(endsAt(), color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, modifier = Modifier.align(Alignment.End))
+            SeekBar(wide)
             // sideways, labels beside their icons in a row; upright, under them, sharing the width
-            Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = if (sideways) Arrangement.spacedBy(8.dp) else Arrangement.SpaceEvenly) {
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = if (sideways || wide) Arrangement.spacedBy(if (wide) 20.dp else 8.dp) else Arrangement.SpaceEvenly) {
+                // (Lumen: where it is of how long, at the left, as the iPad's; the buttons gather at the right)
+                if (lumen) {
+                    val length = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+                    Text(clock(exo.currentPosition) + if (length > 0) "  /  " + clock(length) else "", color = Color.White.copy(alpha = 0.8f), fontSize = if (wide) 16.sp else 14.sp, modifier = Modifier.align(Alignment.CenterVertically))
+                    Spacer(Modifier.weight(1f))
+                }
                 val speed = exo.playbackParameters.speed
-                Labelled(Icons.Filled.Speed, if (speed == 1f) "Speed (1x)" else "Speed (${speed}x)", stacked = !sideways) { open(Panel.Speed) }
-                Labelled(Icons.Filled.Subtitles, if (sideways) "Audio & Subtitles" else "Audio & Subs", stacked = !sideways) { open(Panel.Tracks) }
-                if (partyCode != null) Labelled(Icons.Filled.Groups, "Party", stacked = !sideways) { open(Panel.More) }
-                if (hasNext) Labelled(Icons.Filled.SkipNext, if (sideways) "Next Episode" else "Next", stacked = !sideways) { leave(true) }
-                Labelled(Icons.Filled.MoreHoriz, "More", stacked = !sideways) { open(Panel.More) }
+                val stacked = !sideways && !wide
+                Labelled(Icons.Filled.Speed, if (speed == 1f) "Speed (1x)" else "Speed (${speed}x)", stacked = stacked) { open(Panel.Speed) }
+                Labelled(Icons.Filled.Subtitles, if (sideways || wide) "Audio & Subtitles" else "Audio & Subs", stacked = stacked) { open(Panel.Tracks) }
+                if (partyCode != null) Labelled(Icons.Filled.Groups, "Party", stacked = stacked) { open(Panel.More) }
+                if (hasNext) Labelled(Icons.Filled.SkipNext, if (sideways || wide) "Next Episode" else "Next", stacked = stacked) { leave(true) }
+                Labelled(Icons.Filled.MoreHoriz, "More", stacked = stacked) { open(Panel.More) }
             }
         }
     }
 
     /** The seek bar: tap or drag; while dragging, where it'll land is shown above the finger */
     @Composable
-    private fun SeekBar() {
+    private fun SeekBar(wide: Boolean = false) {
         @Suppress("UNUSED_EXPRESSION") now // (read here, so this part redraws with the player)
         val duration = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
         var dragging by remember { mutableStateOf<Float?>(null) }
         val played = dragging ?: if (duration > 0) exo.currentPosition.toFloat() / duration else 0f
         val buffered = if (duration > 0) exo.bufferedPosition.toFloat() / duration else 0f
         val tint = Color(accent)
+        // (Lumen's picture over the thumb, from the lightest stream of this video; the time alone where there is none)
+        val picture = if (lumen) thumbs?.frame else null
+        val pictureWidth = if (wide) 240.dp else 180.dp
         Row(verticalAlignment = Alignment.CenterVertically) {
             BoxWithConstraints(
                 Modifier.weight(1f).height(36.dp)
@@ -340,10 +385,10 @@ class PhoneControls(
                     }
                     .pointerInput(duration) {
                         detectHorizontalDragGestures(
-                            onDragStart = { o -> dragging = (o.x / size.width).coerceIn(0f, 1f); handler.removeCallbacks(autoHide) },
-                            onDragEnd = { dragging?.let { exo.seekTo((duration * it).toLong()) }; dragging = null; poke() },
-                            onDragCancel = { dragging = null; poke() },
-                        ) { change, _ -> dragging = (change.position.x / size.width).coerceIn(0f, 1f) }
+                            onDragStart = { o -> dragging = (o.x / size.width).coerceIn(0f, 1f); handler.removeCallbacks(autoHide); thumbs?.want((duration * (dragging ?: 0f)).toLong()) },
+                            onDragEnd = { dragging?.let { exo.seekTo((duration * it).toLong()) }; dragging = null; thumbs?.clear(); poke() },
+                            onDragCancel = { dragging = null; thumbs?.clear(); poke() },
+                        ) { change, _ -> dragging = (change.position.x / size.width).coerceIn(0f, 1f); thumbs?.want((duration * (dragging ?: 0f)).toLong()) }
                     },
                 contentAlignment = Alignment.CenterStart,
             ) {
@@ -354,7 +399,14 @@ class PhoneControls(
                 val thumb = if (dragging != null) 20.dp else 14.dp
                 Box(Modifier.offset(x = w * played.coerceIn(0f, 1f) - thumb / 2).size(thumb).clip(CircleShape).background(tint))
                 dragging?.let { f ->
-                    Text(
+                    if (picture != null) Column(
+                        Modifier.offset(x = (w * f - pictureWidth / 2).coerceIn(0.dp, (w - pictureWidth).coerceAtLeast(0.dp)), y = -(pictureWidth * 9 / 16 + 44.dp)),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Image(picture, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            modifier = Modifier.width(pictureWidth).height(pictureWidth * 9 / 16).clip(RoundedCornerShape(10.dp)).background(Color.Black))
+                        Text(clock((duration * f).toLong()), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.padding(top = 4.dp))
+                    } else Text(
                         clock((duration * f).toLong()),
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
@@ -497,9 +549,58 @@ class PhoneControls(
             items(SoundMode.MODES) { mode ->
                 @Suppress("UNUSED_EXPRESSION") now
                 ChoiceRow(Choice(mode.label, sound.mode === mode) { sound.mode = mode; now = System.currentTimeMillis() }) }
+            // (Lumen: the title's other streams, switched to in place, as the iPad's Streams)
+            if (lumen) item { ChoiceRow(Choice("Streams", false) { open(Panel.Streams) }) }
             item { Heading("Stream") }
             item { Text(stats(), color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) }
             item { ChoiceRow(Choice("Play with external player", false) { onExternal() }) }
+        }
+    }
+
+    /** Lumen: this video's other streams (the playing one ticked): choosing one carries on from where this is */
+    @Composable
+    private fun Streams() {
+        val list = streams
+        Column(Modifier.padding(8.dp)) {
+            Heading("Streams")
+            when {
+                list == null -> Text("Looking for streams…", color = Color.White.copy(alpha = 0.6f), modifier = Modifier.padding(12.dp))
+                list.isEmpty() -> Text("No other streams for this video", color = Color.White.copy(alpha = 0.6f), modifier = Modifier.padding(12.dp))
+                else -> LazyColumn {
+                    items(list) { alt ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(enabled = !alt.playing) { closePanel(); hide(); activity.switchStream(alt) }.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(Modifier.width(26.dp)) { if (alt.playing) Icon(Icons.Filled.Check, contentDescription = "Playing", tint = Color.White, modifier = Modifier.size(20.dp)) }
+                            Column {
+                                Text(alt.title, color = Color.White, fontSize = 15.sp, fontWeight = if (alt.playing) FontWeight.Bold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (alt.facts.isNotEmpty()) Text(alt.facts, color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Lumen: brightness on the left and volume on the right, a tall bar while the finger slides (the iPad's LevelBar) */
+    @Composable
+    private fun Level() {
+        val l = level
+        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 28.dp)) {
+            AnimatedVisibility(l != null, modifier = Modifier.align(if (l?.first == false) Alignment.CenterEnd else Alignment.CenterStart), enter = fadeIn(), exit = fadeOut()) {
+                val v = (l?.second ?: 0f).coerceIn(0f, 1f)
+                Column(
+                    Modifier.clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 14.dp, vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Box(Modifier.width(8.dp).height(150.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.25f)), contentAlignment = Alignment.BottomCenter) {
+                        Box(Modifier.fillMaxWidth().fillMaxHeight(v).background(Color.White))
+                    }
+                    Icon(if (l?.first != false) Icons.Filled.LightMode else if (v <= 0f) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                }
+            }
         }
     }
 

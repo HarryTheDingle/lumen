@@ -37,11 +37,14 @@ class PlayerGestures(
     private val controls: Controls,
     private val seek: (Int) -> Unit,
     private val flash: (String, Long) -> Unit,
+    /** Lumen's way, as the iPad's: a tap only shows or hides the controls, a double tap on either half skips, and sliding sideways does nothing (no swipe to scrub) */
+    private val lumen: Boolean = false,
 ) : View.OnTouchListener {
 
     private val handler = Handler(Looper.getMainLooper())
     private val audio = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    private val slop = 24 * activity.resources.displayMetrics.density
+    private val density = activity.resources.displayMetrics.density
+    private val slop = 24 * density
 
     var locked = false
         private set
@@ -59,6 +62,9 @@ class PlayerGestures(
     private var holdX = 0f
     private var holdSpeed = 2f
     private val step = 36 * activity.resources.displayMetrics.density
+
+    /** Brightness (true) or volume (false) as the finger is setting it, 0 to 1, drawn as a bar at the side; null when the finger lifts */
+    var onLevel: (Boolean, Float?) -> Unit = { _, _ -> }
 
     /** A tap while locked: the controls bring up the unlock button, where the lock button was */
     var onLockedTap: () -> Unit = {}
@@ -82,7 +88,7 @@ class PlayerGestures(
             // the middle of the picture is the play button, whether or not the controls are up
             val x = e.x / playerView.width
             val y = e.y / playerView.height
-            if (x in 0.35f..0.65f && y in 0.3f..0.7f) {
+            if (!lumen && x in 0.35f..0.65f && y in 0.3f..0.7f) {
                 exo.playWhenReady = !exo.playWhenReady
                 if (!controls.visible) flash(if (exo.playWhenReady) "▶  Playing" else "❚❚  Paused", 800)
                 else controls.poke()
@@ -104,6 +110,11 @@ class PlayerGestures(
 
         override fun onDoubleTap(e: MotionEvent): Boolean {
             val x = e.x / playerView.width
+            if (lumen) {
+                // (the whole of each half, as the iPad's: only the controls' button pauses)
+                seek(if (x > 0.5f) +1 else -1)
+                return true
+            }
             // (the middle is a single tap: play or pause)
             if (x < 0.35f) seek(-1) else if (x > 0.65f) seek(+1)
             return true
@@ -118,6 +129,8 @@ class PlayerGestures(
                 val edge = playerView.height * 0.08f
                 if (start.y < edge || start.y > playerView.height - edge) return false
                 if (abs(moveX) < slop && abs(moveY) < slop) return false
+                // (Lumen: only up and down count; a slide across does nothing, so a thumb can't scrub by accident)
+                if (lumen && abs(moveX) > abs(moveY)) return false
                 drag = when {
                     abs(moveX) > abs(moveY) -> Drag.Seek
                     start.x < playerView.width / 2f -> Drag.Brightness
@@ -137,15 +150,16 @@ class PlayerGestures(
                     flash("${clock(dragTo)}   ${if (by >= 0) "+" else "−"}${clock(abs(by) * 1000)}", 60_000)
                 }
                 Drag.Brightness -> {
-                    val level = (startBrightness - moveY / (playerView.height * 0.8f)).coerceIn(0.01f, 1f)
+                    // (Lumen: the finger's height one for one, about 220 dp being all of it, as the iPad's)
+                    val level = (startBrightness - moveY / (if (lumen) 220 * density else playerView.height * 0.8f)).coerceIn(0.01f, 1f)
                     activity.window.attributes = activity.window.attributes.apply { screenBrightness = level }
-                    flash("Brightness ${(level * 100).roundToInt()}%", 60_000)
+                    if (lumen) onLevel(true, level) else flash("Brightness ${(level * 100).roundToInt()}%", 60_000)
                 }
                 Drag.Volume -> {
                     val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                    val level = (startVolume - moveY / (playerView.height * 0.8f) * max).roundToInt().coerceIn(0, max)
+                    val level = (startVolume - moveY / (if (lumen) 220 * density else playerView.height * 0.8f) * max).roundToInt().coerceIn(0, max)
                     if (level != audio.getStreamVolume(AudioManager.STREAM_MUSIC)) audio.setStreamVolume(AudioManager.STREAM_MUSIC, level, 0)
-                    flash("Volume ${level * 100 / max.coerceAtLeast(1)}%", 60_000)
+                    if (lumen) onLevel(false, level.toFloat() / max.coerceAtLeast(1)) else flash("Volume ${level * 100 / max.coerceAtLeast(1)}%", 60_000)
                 }
                 Drag.None -> {}
             }
@@ -211,7 +225,8 @@ class PlayerGestures(
                     exo.seekTo(dragTo)
                     flash(clock(dragTo), 700)
                 }
-                Drag.Brightness, Drag.Volume -> flash("", 0)
+                Drag.Brightness -> if (lumen) onLevel(true, null) else flash("", 0)
+                Drag.Volume -> if (lumen) onLevel(false, null) else flash("", 0)
                 Drag.None -> {}
             }
             drag = Drag.None

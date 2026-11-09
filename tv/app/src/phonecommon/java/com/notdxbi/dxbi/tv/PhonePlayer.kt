@@ -19,6 +19,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import org.json.JSONObject
 
+/** Lumen for phones (not dx.bi's phone app, which shares this player): the player as the iPad's, in white */
+internal val LUMEN_LOOK = BuildConfig.APP_NAME == "Lumen"
+
 /**
  * The phone app's part of [PlayerActivity]: controls laid out like a streaming app's and worked by
  * touch, gestures, a small window when leaving the app, lock screen and headphone controls, carrying
@@ -46,6 +49,15 @@ class PhonePlayer(private val host: PlayerHost, private val stream: JSONObject) 
     override fun dataSource(online: DataSource.Factory): DataSource.Factory =
         if (offlineId != null) Downloads.playback(activity) else online
 
+    // Lumen: pictures of where a seek will land, from the lightest stream of this video (the page's previewSource) else this one
+    private val thumbs: PlayerThumbs? = if (LUMEN_LOOK && offlineId == null) {
+        val preview = stream.optJSONObject("preview")
+        val previewUrl = preview?.optString("url")?.takeIf { it.startsWith("http") }
+        val source = preview?.takeIf { previewUrl != null } ?: stream
+        val headers = source.optJSONObject("headers")?.let { h -> h.keys().asSequence().associateWith { k -> h.optString(k) } }.orEmpty()
+        PlayerThumbs(previewUrl ?: stream.optString("url"), headers, (240 * activity.resources.displayMetrics.density).toInt())
+    } else null
+
     override fun controls(exo: ExoPlayer, sound: SoundMode, zoom: PictureZoom, accent: Int, hasNext: Boolean, showClock: Boolean): Controls =
         PhoneControls(
             activity, host.playerView, exo, sound, zoom, host::shiftSubtitles, accent,
@@ -59,6 +71,8 @@ class PhonePlayer(private val host: PlayerHost, private val stream: JSONObject) 
             onLock = { gestures?.lock() },
             onUnlock = { gestures?.unlock() },
             onExternal = ::playElsewhere,
+            lumen = LUMEN_LOOK,
+            thumbs = thumbs,
         )
 
     override fun started(exo: ExoPlayer, controls: Controls) {
@@ -68,8 +82,10 @@ class PhonePlayer(private val host: PlayerHost, private val stream: JSONObject) 
         // with one id crash the app)
         session = MediaSession.Builder(activity, exo).setId("dxbi-player-${System.identityHashCode(this)}").build()
         // taps, double taps, slides and pinches (the remote still works the same everywhere)
-        val touch = PlayerGestures(activity, host.playerView, exo, controls, host::seek, host::flash).also { gestures = it }
+        val touch = PlayerGestures(activity, host.playerView, exo, controls, host::seek, host::flash, lumen = LUMEN_LOOK).also { gestures = it }
         touch.onLockedTap = { (controls as? PhoneControls)?.showUnlock() }
+        touch.onLevel = { brightness, value -> (controls as? PhoneControls)?.level(brightness, value) }
+        if (LUMEN_LOOK) lumenWindow()
         host.playerView.setOnTouchListener(touch)
         // messages (±10 s, brightness, speed…) small at the top, off the picture's middle
         val flash = host.seekFlash
@@ -80,6 +96,57 @@ class PhonePlayer(private val host: PlayerHost, private val stream: JSONObject) 
         ContextCompat.registerReceiver(activity, pipButtons, IntentFilter(ACTION_PIP), ContextCompat.RECEIVER_NOT_EXPORTED)
         listening = true
         changed()
+    }
+
+    /**
+     * Lumen's player window: the picture runs under a camera cut-out (the controls keep clear of it), the screen stays
+     * on only while a video plays or loads, and a vertical slide at the sides isn't taken by Android's back gesture
+     */
+    private fun lumenWindow() {
+        val exo = exo ?: return
+        val view = host.playerView
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            activity.window.attributes = activity.window.attributes.apply {
+                layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+        // (the page isn't to keep the screen on once the video is paused or has ended: the window's own flag isn't set for Lumen)
+        fun keepOn() {
+            view.keepScreenOn = exo.playWhenReady && (exo.playbackState == androidx.media3.common.Player.STATE_READY || exo.playbackState == androidx.media3.common.Player.STATE_BUFFERING)
+        }
+        exo.addListener(object : androidx.media3.common.Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) = keepOn()
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) = keepOn()
+        })
+        keepOn()
+        // Android 10 and later: a strip down each side, mid-height, belongs to the app (the most it lets an app keep is 200 dp
+        // up each edge), so brightness and volume slides that start there don't pull the back gesture in
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            view.addOnLayoutChangeListener { v, l, t, r, b, _, _, _, _ ->
+                val d = v.resources.displayMetrics.density
+                val h = b - t
+                val strip = (100 * d).toInt().coerceAtMost(h / 2)
+                val mid = h / 2
+                val w = (40 * d).toInt()
+                v.systemGestureExclusionRects = listOf(
+                    android.graphics.Rect(0, mid - strip, w, mid + strip),
+                    android.graphics.Rect(r - l - w, mid - strip, r - l, mid + strip),
+                )
+            }
+        }
+        // Skip intro, which the layout puts 56 dp in from the side: clear of a cut-out and the gesture bar
+        host.activity.findViewById<android.view.View>(R.id.skip_button)?.let { skip ->
+            androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(host.activity.findViewById(android.R.id.content)) { _, insets ->
+                val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars() or androidx.core.view.WindowInsetsCompat.Type.displayCutout())
+                (skip.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
+                    val d = skip.resources.displayMetrics.density
+                    lp.marginEnd = bars.right + (24 * d).toInt()
+                    lp.bottomMargin = bars.bottom + (96 * d).toInt()
+                    skip.layoutParams = lp
+                }
+                insets
+            }
+        }
     }
 
     override fun subtitleId(source: String, index: Int) = "$source:$index"
@@ -161,6 +228,7 @@ class PhonePlayer(private val host: PlayerHost, private val stream: JSONObject) 
 
     override fun release() {
         gestures?.release()
+        thumbs?.release()
         if (listening) runCatching { activity.unregisterReceiver(pipButtons) }
         listening = false
         session?.release()
