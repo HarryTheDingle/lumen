@@ -116,9 +116,9 @@ fun Shell(stremio: Stremio, layout: AppLayout) {
                 popExitTransition = { fadeOut(tween(140)) },
             ) {
                 composable(Tab.Home.route) { HomeScreen(stremio, layout, bottomSpace, onProfile = { nav.switchTo(Tab.Profile) }) }
-                composable(Tab.Discover.route) { DiscoverScreen() }
-                composable(Tab.Library.route) { LibraryScreen() }
-                composable(Tab.Search.route) { SearchScreen() }
+                composable(Tab.Discover.route) { DiscoverScreen(stremio, layout, bottomSpace, onOpen = {}) }
+                composable(Tab.Library.route) { LibraryScreen(stremio, layout, bottomSpace, onOpen = {}) }
+                composable(Tab.Search.route) { SearchScreen(stremio, layout, bottomSpace, onOpen = {}) }
                 composable(Tab.Profile.route) { ProfileScreen(stremio, layout, bottomSpace) }
             }
             if (bottomBar) TabBar(current, haze, Modifier.align(Alignment.BottomCenter)) { nav.switchTo(it) }
