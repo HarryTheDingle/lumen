@@ -122,6 +122,15 @@ private fun playLabel(d: Details?, id: String, series: Boolean): String {
     return if (d.resumeMs > 0 && d.resumeVideoId == id) "Resume" else "Play"
 }
 
+/** "53 min", "2h 10m", "1 h" as minutes, or 0 when it can't be told */
+private fun runtimeMinutes(runtime: String?): Int {
+    val r = runtime?.lowercase() ?: return 0
+    val hours = Regex("(\\d+)\\s*h").find(r)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+    val mins = Regex("(\\d+)\\s*m").find(r)?.groupValues?.get(1)?.toIntOrNull()
+        ?: if (hours == 0) Regex("\\d+").find(r)?.value?.toIntOrNull() ?: 0 else 0
+    return hours * 60 + mins
+}
+
 private fun episodeLine(d: Details?): String? {
     val v = d?.videos?.firstOrNull { it.id == d.videoId } ?: return null
     if (v.season == null || v.episode == null) return null
@@ -164,6 +173,8 @@ fun TitlePage(
     var choices by remember { mutableStateOf<StreamChoices?>(null) }
     var streamsOpen by remember { mutableStateOf(false) }
     var downloadsOpen by remember { mutableStateOf(false) }
+    // Download… asks High / Medium / Small first, as iOS does; More… there opens the full list (downloadsOpen)
+    var sizesOpen by remember { mutableStateOf(false) }
     var reviewsOpen by remember { mutableStateOf(false) }
     var season by remember { mutableStateOf<Int?>(null) }
     var related by remember { mutableStateOf<List<Title>>(emptyList()) }
@@ -304,7 +315,7 @@ fun TitlePage(
                                             fromStart = { start(d?.let { nextVideo(it)?.id }, fromStart = true) },
                                             shuffle = { start(d?.shuffled()?.id, shuffle = true) },
                                             chooseStream = { streamsOpen = true },
-                                            download = { downloadsOpen = true },
+                                            download = { sizesOpen = true },
                                             reviews = { reviewsOpen = true },
                                             play = { o, t -> play(o, t) })
                                     }
@@ -405,6 +416,14 @@ fun TitlePage(
     }
 
     if (streamsOpen) StreamsModal(current(), title.name, episodeLine(d), { streamsOpen = false }) { o, t -> play(o, t) }
+    if (sizesOpen) DownloadSizeSheet(
+        current(), title.name, episodeLine(d),
+        onPick = { sizesOpen = false; play(it, Phone.Target.Download) },
+        onMore = { sizesOpen = false; downloadsOpen = true },
+        onDismiss = { sizesOpen = false },
+        // (the runtime reads like "53 min" or "2h 10m": its length sets each size's GB per hour)
+        minutes = runtimeMinutes(title.runtime),
+    )
     if (downloadsOpen) StreamsModal(current(), title.name, "Choose a file to download", { downloadsOpen = false }, Phone.Target.Download) { o, t -> play(o, t) }
     if (reviewsOpen) ReviewsSheet(title, reviews) { reviewsOpen = false }
 }
