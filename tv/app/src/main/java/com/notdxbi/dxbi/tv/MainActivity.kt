@@ -288,6 +288,24 @@ class MainActivity : AppCompatActivity() {
 
     private fun hideSystemBars() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        if (!BuildConfig.IMMERSIVE) {
+            // Lumen on a phone, as on the iPhone: the status and gesture bars stay, see-through over the app's
+            // own black, and the screens leave room for them (and for a camera cut-out in the Fold's inner screen)
+            // (from Android 15 the bars are see-through whatever is asked: these are for the Androids before it)
+            @Suppress("DEPRECATION")
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+            @Suppress("DEPRECATION")
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                window.attributes = window.attributes.apply { layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES }
+            }
+            WindowInsetsControllerCompat(window, window.decorView).apply {
+                show(WindowInsetsCompat.Type.systemBars())
+                isAppearanceLightStatusBars = false
+                isAppearanceLightNavigationBars = false
+            }
+            return
+        }
         WindowInsetsControllerCompat(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.systemBars())
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE

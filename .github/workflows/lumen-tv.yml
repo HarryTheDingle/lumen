@@ -1,14 +1,15 @@
-name: Lumen TV
+name: Lumen TV and phone
 
-# Publishing a release builds Lumen for Android TV and attaches lumen-tv.apk (and the plugin, which the app
-# refreshes by itself) to it. Installed copies look at this repository's latest release and offer the update.
+# Publishing a release builds Lumen for Android TV and Lumen for Android phones (and the Pixel Fold) and attaches
+# lumen-tv.apk and lumen-phone.apk (and the plugin, which the apps refresh by themselves) to it. Installed copies
+# look at this repository's latest release and offer the update, each taking its own file.
 # Tag releases v<version>, the version in dxbi.plugin.js (@version) and app/version: the app only offers a
 # version newer than the one it's running.
 #
-# Release builds are signed with Lumen's own key, kept in the repository's secrets:
+# Release builds (both apps) are signed with Lumen's own key, kept in the repository's secrets:
 #   LUMEN_KEYSTORE_B64       the keystore (tv/lumen-release.jks), base64-encoded
 #   LUMEN_KEYSTORE_PASSWORD  its password (the key uses the same one; alias lumen-tv)
-# Keep the keystore somewhere safe too: a TV only accepts an update signed with the key it was installed with.
+# Keep the keystore somewhere safe too: a TV or phone only accepts an update signed with the key it was installed with.
 on:
   release:
     types: [published]
@@ -30,7 +31,7 @@ jobs:
         if: env.HAS_KEY != 'true'
         working-directory: .
         run: |
-          echo "::error::LUMEN_KEYSTORE_B64 isn't set, so Lumen TV wasn't built (an APK signed with another key couldn't update the TVs)."
+          echo "::error::LUMEN_KEYSTORE_B64 isn't set, so Lumen TV and Lumen for phones weren't built (an APK signed with another key couldn't update the TVs)."
           exit 1
 
       - uses: actions/checkout@v4
@@ -46,8 +47,9 @@ jobs:
 
       - name: Build
         run: |
-          ./gradlew assembleLumenRelease --no-daemon
+          ./gradlew assembleLumenRelease assembleLumenphoneRelease --no-daemon
           cp app/build/outputs/apk/lumen/release/app-lumen-release.apk lumen-tv.apk
+          cp app/build/outputs/apk/lumenphone/release/app-lumenphone-release.apk lumen-phone.apk
         env:
           DXBI_TV_KEYSTORE: ${{ runner.temp }}/lumen-release.jks
           DXBI_TV_KEYSTORE_PASSWORD: ${{ secrets.LUMEN_KEYSTORE_PASSWORD }}
@@ -56,13 +58,15 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: lumen-tv
-          path: tv/lumen-tv.apk
+          name: lumen-apks
+          path: |
+            tv/lumen-tv.apk
+            tv/lumen-phone.apk
           if-no-files-found: error
 
       - name: Attach to the release
         if: github.event_name == 'release'
         working-directory: .
-        run: gh release upload "${{ github.event.release.tag_name }}" tv/lumen-tv.apk dxbi.plugin.js --clobber
+        run: gh release upload "${{ github.event.release.tag_name }}" tv/lumen-tv.apk tv/lumen-phone.apk dxbi.plugin.js --clobber
         env:
           GH_TOKEN: ${{ github.token }}

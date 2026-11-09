@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- dx.bi for phones: what the phone app adds to dx.bi TV's manifest (src/main), which stays dx.bi TV's -->
+<!-- What the phone apps (dx.bi for phones, `mobile`, and Lumen for phones, `lumenphone`) add to dx.bi TV's
+     manifest (src/main), which stays dx.bi TV's. Both flavors take this one file as their manifest (see
+     build.gradle.kts); the few things that differ between them are placeholders each flavor fills in. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
@@ -13,7 +15,16 @@
          memory) took the app past 3/4 of the normal one, and Android then closed the screen under the
          player, with Stremio's page in it: watch progress stopped, and the page came back without the
          title it had open -->
-    <application android:largeHeap="true">
+    <application
+        android:enableOnBackInvokedCallback="${predictiveBack}"
+        android:largeHeap="true">
+        <!-- The app's screen: which changes it handles itself differs (Lumen's also takes the Fold's
+             folding and unfolding, which changes the smallest width, without starting the page again) -->
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="${mainConfigChanges}"
+            tools:replace="android:configChanges" />
+
         <!-- The player: a small window when leaving the app, and turning with the phone and its folds -->
         <activity
             android:name=".PlayerActivity"

@@ -1,0 +1,10 @@
+<resources>
+    <!-- Lumen for phones: black from the first frame (before the screens draw), and not full screen:
+         the status and gesture bars stay, as on the iPhone (MainActivity.hideSystemBars makes them see-through) -->
+    <style name="Theme.Dxbi" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowFullscreen">false</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="colorAccent">@android:color/white</item>
+    </style>
+</resources>

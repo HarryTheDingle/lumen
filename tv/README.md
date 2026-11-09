@@ -24,6 +24,23 @@ The same code builds a second app, `com.notdxbi.dxbi.mobile`, as the `mobile` pr
 - Playing still goes through Stremio's player route and `dxbi-tv.js`'s handoff, so watch progress, up next and the watch party work as on a TV. On a phone `PlayerActivity` gets `PhonePlayer` (its `PlayerHooks`): `PhoneControls`, `PlayerGestures`, picture-in-picture and a media session. `Phone.Target` sends a stream to another app, a Chromecast (`Cast`) or `Downloads` instead.
 - `tools/engine-test.mjs` tests the engine, and `tools/engine-contract-test.mjs` checks the plugin, `dxbi-tv.js` and the bridge still offer what the phone screens rely on.
 
+## Lumen for Android phones and the Pixel Fold
+
+The `lumenphone` product flavor (`com.harrythedingle.lumen`, released as `lumen-phone.apk`) is Lumen's phone app: the iPhone and iPad app's tabs and look (`ios/Dxbi`), for Pixel phones and the Pixel Fold, over the same hidden Stremio page. Its screens are in `app/src/lumenphone/` (Compose, black and white like Apple TV: `Theme.kt`, `Cards.kt`, and one file per screen).
+
+- It shares the phone app's player and services with dx.bi for phones rather than copying them: `app/src/phonecommon/` (`PhonePlayer`, `PhoneControls`, `PlayerGestures`, `Downloads`, `Cast`, `ExternalPlayer`, `PhoneSupport`, and the manifest entries for them) is compiled into both `mobile` and `lumenphone`. dx.bi's own screens (`src/mobile/…/phone/`) stay dx.bi's. Each flavor has its own `Phone` object (see `PhoneHooks.kt`).
+- The layout follows the window, never the device (`Adaptive.kt`): a phone, or the Fold folded, gets a tab bar along the bottom; the Fold opened out (or any window about 600 dp wide or more) gets the tabs down the side. Folding and unfolding doesn't restart the page: `MainActivity` handles those configuration changes itself.
+- It keeps the status and gesture bars (`BuildConfig.IMMERSIVE` is false), draws edge to edge, and uses predictive back.
+- Released builds update themselves from this repository's releases (`lumen-phone.apk`, signed with Lumen's key like `lumen-tv.apk`: `.github/workflows/lumen-tv.yml` builds both). Test builds install as `com.harrythedingle.lumen.dev`, beside the family's copy, and don't update themselves.
+
+```sh
+cd tv
+./gradlew assembleLumenphoneDebug      # app/build/outputs/apk/lumenphone/debug/app-lumenphone-debug.apk (com.harrythedingle.lumen.dev)
+./gradlew assembleLumenphonePreview    # release-fast, debug-signed: the one to judge speed with, on a phone
+./gradlew assembleLumenphoneRelease    # signed with the release key when tv/keystore.properties exists (see below)
+adb install -r app/build/outputs/apk/lumenphone/debug/app-lumenphone-debug.apk
+```
+
 ## Building
 
 Needs JDK 17 or 21 and the Android SDK (platform 35).
