@@ -26,7 +26,7 @@ const MAX_ACCOUNT = 1024 * 1024;
 const OVERLAP = 60 * 1000;
 const PICKS_TTL = 12 * 3600 * 1000;
 const CF_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
-const GEMINI_MODELS = ["gemini-flash-lite-latest"];
+const GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-flash-lite-latest"];
 
 function cors(request) {
   const origin = request.headers.get("Origin") || "";
