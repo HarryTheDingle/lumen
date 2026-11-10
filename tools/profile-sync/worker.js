@@ -26,7 +26,7 @@ const MAX_ACCOUNT = 1024 * 1024;
 const OVERLAP = 60 * 1000;
 const PICKS_TTL = 12 * 3600 * 1000;
 const CF_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
-const GEMINI_MODELS = ["gemini-flash-latest"];
+const GEMINI_MODELS = ["gemini-flash-lite-latest"];
 
 function cors(request) {
   const origin = request.headers.get("Origin") || "";
@@ -101,15 +101,17 @@ async function askModel(env, system, user) {
             generationConfig: {
               responseMimeType: "application/json",
               temperature: 0.3,
-              maxOutputTokens: 550,
             },
           }),
-          signal: AbortSignal.timeout(6000),
+          signal: AbortSignal.timeout(10000),
         });
         if (r.ok) {
           const j = await r.json();
           const parsed = parseJsonAnswer(j && j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts && j.candidates[0].content.parts[0] && j.candidates[0].content.parts[0].text);
-          if (parsed) return parsed;
+          if (parsed) {
+            console.log("picks model ok:", model);
+            return parsed;
+          }
         } else {
           const errText = await r.text().catch(() => "");
           console.warn(`Gemini ${model} returned ${r.status}: ${errText.slice(0, 200)}`);
@@ -125,10 +127,12 @@ async function askModel(env, system, user) {
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      max_tokens: 550,
+      max_tokens: 700,
       temperature: 0.4,
     });
-    return parseJsonAnswer(res);
+    const parsed = parseJsonAnswer(res);
+    if (parsed) console.log("picks model ok: workers-ai");
+    return parsed;
   }
   return undefined;
 }
