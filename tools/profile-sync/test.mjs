@@ -79,5 +79,76 @@ const stored = JSON.stringify(env.DB.dump());
 check(!stored.includes("key-u1") && !stored.includes("key-u2"), "the session key is never stored");
 check(env.DB.dump().every((row) => row.account === "u1"), "rows are filed under the Stremio account id");
 
+// /picks: AI-curated suggestions, 12-hour D1 cache, and isolation from /sync
+let aiCalls = 0;
+env.AI = {
+  async run(model, input) {
+    aiCalls++;
+    const payload = JSON.parse(input.messages[1].content);
+    return {
+      response: JSON.stringify({
+        ranked: payload.candidates.map((c) => c.id).reverse().concat(["tt9999999"]),
+        additions: [
+          { type: "movie", name: "Coherence", year: 2013, seeds: [payload.watched[0].id] },
+          { type: "series", name: "Dark", year: 2017, seeds: ["tt-not-watched"] },
+        ],
+      }),
+    };
+  },
+};
+const picks = async (key, body) => {
+  const headers = { "Content-Type": "application/json", Origin: "https://web.stremio.com" };
+  if (key) headers.Authorization = `Stremio ${key}`;
+  const r = await worker.fetch(new Request("https://sync.example/picks", { method: "POST", headers, body: JSON.stringify(body) }), env);
+  return { status: r.status, json: await r.json() };
+};
+
+const samplePicksReq = {
+  viewer: "main",
+  sig: "main|t|a|Sci-Fi|tt0816692",
+  watched: [{ id: "tt0816692", type: "movie", name: "Interstellar", year: 2014, genres: ["Sci-Fi"], weight: 1.5 }],
+  genres: ["Sci-Fi"],
+  dropped: [{ id: "tt0000999", type: "movie", name: "Bad Film" }],
+  candidates: [
+    { id: "tt0000001", type: "movie", name: "Arrival", year: 2016, genres: ["Sci-Fi"], rating: 7.9, seeds: ["tt0816692"] },
+    { id: "tt0000002", type: "movie", name: "Sunshine", year: 2007, genres: ["Sci-Fi"], rating: 7.2, seeds: ["tt0816692"] },
+  ],
+};
+
+check((await picks(null, samplePicksReq)).status === 401, "/picks requires Stremio auth");
+let pr = await picks("key-u1", samplePicksReq);
+check(
+  pr.status === 200 && pr.json.cached === false && aiCalls === 1 &&
+  JSON.stringify(pr.json.ranked) === JSON.stringify(["tt0000002", "tt0000001"]) &&
+  pr.json.additions.length === 2 && pr.json.additions[1].seeds[0] === "tt0816692",
+  "/picks calls Workers AI, filters invalid candidate/seed IDs, and caches result"
+);
+
+pr = await picks("key-u1", samplePicksReq);
+check(pr.status === 200 && pr.json.cached === true && aiCalls === 1, "/picks serves 12h D1 cache on matching sig without calling AI again");
+
+pr = await picks("key-u1", { ...samplePicksReq, sig: "main|t|a|Sci-Fi|tt0816692|tt0000003" });
+check(pr.status === 200 && pr.json.cached === false && aiCalls === 2, "/picks recomputes when sig changes");
+
+let geminiCalls = 0;
+const prevFetch = globalThis.fetch;
+globalThis.fetch = async (url, init) => {
+  if (String(url).startsWith("https://generativelanguage.googleapis.com/")) {
+    geminiCalls++;
+    return new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ text: JSON.stringify({ ranked: ["tt0000001"], additions: [{ type: "movie", name: "Primer", year: 2004, seeds: ["tt0816692"] }] }) }] } }],
+    }));
+  }
+  return prevFetch(url, init);
+};
+env.GEMINI_API_KEY = "test-gemini-key";
+pr = await picks("key-u1", { ...samplePicksReq, sig: "main|gemini-sig" });
+check(pr.status === 200 && geminiCalls === 1 && pr.json.additions[0].name === "Primer", "/picks uses Gemini Flash when GEMINI_API_KEY is set");
+delete env.GEMINI_API_KEY;
+globalThis.fetch = prevFetch;
+
+const syncAfterPicks = await sync("key-u1", { since: 0, entries: [] });
+check(!syncAfterPicks.json.entries.some((e) => e.k.startsWith("picks:")), "/sync never leaks picks:<viewer> cache rows");
+
 console.log(failures.length ? `\n${failures.length} check(s) failed.` : "\nAll checks passed.");
 process.exit(failures.length ? 1 : 0);

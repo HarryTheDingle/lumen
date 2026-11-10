@@ -42,7 +42,13 @@ extension Stremio {
     func finishTaste(_ t: Taste) {
         taste = t
         Taste.save(t, account: tasteAccount, viewer: viewer?.id)
-        if let id = viewer?.id { Task { _ = await askDx("phone.setTaste", id, Self.object(t)) } }
+        if let id = viewer?.id {
+            Task {
+                _ = await askDx("phone.setTaste", id, Self.object(t))
+                await loadHome()
+                refreshExtras()
+            }
+        }
         tuningPending = false
         tuning = false
         Task { tasteRows = t.isEmpty ? [] : await Self.tasteRows(for: t) }

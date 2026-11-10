@@ -127,6 +127,7 @@
     preloadNext: true,
     liteMode: "auto",
     forYou: true,
+    aiPicks: true,
     quickPlay: false,
     quickPlayMemory: "series",
     quickPlayQuality: "best",
@@ -204,6 +205,7 @@
     },
     { key: "liteMode", type: "select", label: "Lite mode", description: "For slower TV boxes: loads fewer Home rows at once, skips hover cards and sharper posters, and ignores presses that arrive too late. Auto turns on with 2 GB of memory or less.", defaultValue: DEFAULTS.liteMode, tvOnly: true, options: [{ label: "Auto", value: "auto" }, { label: "On", value: "on" }, { label: "Off", value: "off" }] },
     { key: "forYou", type: "toggle", label: "Because you watched", description: "A Home row based on what you watched last, skipped for kids viewers. Popular titles in the same genres, or real recommendations if you add a TMDB key below.", defaultValue: DEFAULTS.forYou },
+    { key: "aiPicks", type: "toggle", label: "AI-curated suggestions", description: "Uses Lumen's Cloudflare Worker to tailor Top Picks and Because you watched to your taste and suggest deeper cuts beyond the popular charts. Only the titles you watched or hid in this profile are sent.", defaultValue: DEFAULTS.aiPicks },
     { key: "quickPlay", type: "toggle", label: "Just press Play", description: "Play and episode clicks start the best stream straight away, and Lumen remembers what you choose. Skips streams that would start a new debrid download.", defaultValue: DEFAULTS.quickPlay },
     { key: "quickPlayMemory", type: "select", label: "Remember my stream choice", defaultValue: DEFAULTS.quickPlayMemory, options: [{ label: "For each series", value: "series" }, { label: "Everywhere", value: "global" }] },
     { key: "quickPlayQuality", type: "select", label: "Highest quality to pick", defaultValue: DEFAULTS.quickPlayQuality, options: [{ label: "Best available", value: "best" }, { label: "4K", value: "2160" }, { label: "1080p", value: "1080" }, { label: "720p", value: "720" }] },
@@ -446,7 +448,7 @@
   // option carries its group's name, and they're listed group by group.
   const SETTING_GROUPS = [
     ["Look", ["liteMode", "accent", "posterAccent", "focusColour", "builtInTheme", "crispPosters", "ratings", "animeTitles", "wideContinue"]],
-    ["Home", ["myList", "forYou", "videoRowsOnly", "billboard", "billboardSource", "billboardInterval", "newEpisodes", "airingRow", "whoIsWatching"]],
+    ["Home", ["myList", "forYou", "aiPicks", "videoRowsOnly", "billboard", "billboardSource", "billboardInterval", "newEpisodes", "airingRow", "whoIsWatching"]],
     ["Hover cards & trailers", ["previews", "trailers", "playTrailers", "trailerDelay"]],
     ["Browsing & library", ["watchedTitles", "blurUnwatched", "librarySort", "streamRows", "streamTools", "addonTools", "watchStats", "reviews", "tmdbKey", "mdblistKey"]],
     ["Player", ["quickPlay", "quickPlayMemory", "quickPlayQuality", "quickPlayFallback", "quickPlaySpeed", "quickPlayAddon", "preferImax", "tvTorrents", "playerExtras", "remainingTime", "playerClock", "seekPreviews", "enhance", "pictureSound", "streamStats", "rememberPlayback", "playerKeys", "pip", "externalPlayer", "convertVideo"]],
@@ -12106,6 +12108,72 @@
       const part = s.duration > 0 ? (s.timeOffset || 0) / s.duration : 0;
       return item.type === "movie" ? part >= 0.5 : (s.overallTimeWatched || 0) >= 20 * 60000;
     },
+    // Started and given up on (>3 days ago, >5 min played, <30% of a film or <20 min of a series)
+    dropped(item, now) {
+      const s = (item && item.state) || {};
+      const last = s.lastWatched ? Date.parse(s.lastWatched) || 0 : 0;
+      if (!last || now - last < 3 * 86400e3 || !item || (item.type !== "movie" && item.type !== "series") || this.seen(item, now)) return false;
+      if (item.type === "movie") {
+        const part = s.duration > 0 ? (s.timeOffset || 0) / s.duration : 0;
+        return (s.timeOffset || 0) >= 5 * 60000 && part > 0 && part < 0.3;
+      }
+      const minutes = (s.overallTimeWatched || 0) / 60000;
+      return minutes >= 5 && minutes < 20;
+    },
+    // Folds Tune Suggestions seeds into watched history: strong when just tuned or with little watched, fading as history grows
+    blendSeeds(watched, taste, tasteTime, now) {
+      const list = Array.isArray(watched) ? watched.map((x) => ({ ...x })) : [];
+      if (!taste || !Array.isArray(taste.titles) || !taste.titles.length) return list;
+      const fresh = tasteTime > 0 && now - tasteTime < 7 * 86400e3;
+      const w = fresh ? 1.4 : 1.1 / (1 + list.length * 0.2);
+      const byId = new Map(list.map((x) => [x.item && x.item._id, x]));
+      for (const t of taste.titles) {
+        if (!t || !/^tt\d+$/.test(t.id || "")) continue;
+        const hit = byId.get(t.id);
+        if (hit) {
+          hit.weight += 0.3 * w;
+          if ((!hit.item.genres || !hit.item.genres.length) && Array.isArray(t.genres) && t.genres.length) hit.item = { ...hit.item, genres: t.genres };
+        } else {
+          const entry = {
+            item: { _id: t.id, type: t.type === "series" ? "series" : "movie", name: t.name || "", poster: t.poster || null, genres: Array.isArray(t.genres) ? t.genres : [] },
+            weight: w,
+            fromTaste: true,
+          };
+          list.push(entry);
+          byId.set(t.id, entry);
+        }
+      }
+      return list.sort((a, b) => b.weight - a.weight);
+    },
+    // Interleaves the model's ranked candidates and resolved additions under strict id/poster/skip/dedupe guardrails
+    mergeRanked(scored, ai, resolvedAdditions, skip) {
+      const list = Array.isArray(scored) ? scored : [];
+      const blocked = skip && typeof skip.has === "function" ? skip : new Set(skip || []);
+      const seenIds = new Set();
+      const seenNames = new Set();
+      const out = [];
+      const push = (c) => {
+        if (!c || !/^tt\d+$/.test(c.id || "") || !c.poster || blocked.has(c.id) || seenIds.has(c.id)) return;
+        const year = Number(String(c.year || "").slice(0, 4)) || 0;
+        const dupe = `${String(c.name || "").toLowerCase()}|${year}`;
+        if (c.name && seenNames.has(dupe)) return;
+        seenIds.add(c.id);
+        if (c.name) seenNames.add(dupe);
+        out.push({ ...c, type: c.type === "series" ? "series" : "movie", year, seeds: Array.isArray(c.seeds) ? c.seeds : [] });
+      };
+      const byId = new Map(list.map((c) => [c && c.id, c]));
+      const ranked = (ai && Array.isArray(ai.ranked) ? ai.ranked : []).map((id) => byId.get(id)).filter(Boolean);
+      const adds = (Array.isArray(resolvedAdditions) ? resolvedAdditions : []).filter(Boolean);
+      let ri = 0;
+      let aiIdx = 0;
+      while (ri < ranked.length || aiIdx < adds.length) {
+        if (ri < ranked.length) push(ranked[ri++]);
+        if (ri < ranked.length) push(ranked[ri++]);
+        if (aiIdx < adds.length) push(adds[aiIdx++]);
+      }
+      for (const c of list) push(c);
+      return out;
+    },
     // Genres weighted by the titles they came from, 0 to 1 (genres are TMDB ids or Cinemeta names)
     profile(seeds) {
       const sum = {};
@@ -12135,14 +12203,42 @@
     ids: new Set(),
     TMDB_GENRES_SKIPPED: new Set([10767, 10763, 10764]), // talk shows, news, reality: not recommendations
 
-    // The titles that say the most about this viewer, strongest first
+    // The titles that say the most about this viewer, strongest first (watched + decayed Tune Suggestions seeds)
     history() {
       const now = Date.now();
-      return [...viewerLibrary.raw().values()]
+      const watched = [...viewerLibrary.raw().values()]
         .filter((i) => /^tt\d+$/.test(i._id) && viewerLibrary.mine(i._id))
         .map((i) => ({ item: i, weight: recoMath.weight(i, now) }))
         .filter((x) => x.weight > 0)
         .sort((a, b) => b.weight - a.weight);
+      const tasteKey = viewers.key("taste");
+      const taste = store.get(tasteKey, null);
+      const tasteTime = (store.data[tasteKey] && store.data[tasteKey].t) || 0;
+      return recoMath.blendSeeds(watched, taste, tasteTime, now);
+    },
+    // Negative signals: hidden titles, dismissed from Continue Watching, or switched off early
+    dropped() {
+      const now = Date.now();
+      const raw = viewerLibrary.raw();
+      const out = [];
+      const seen = new Set();
+      const add = (id, type, name) => {
+        if (!id || !name || seen.has(id) || out.length >= 8) return;
+        seen.add(id);
+        out.push({ id, type: type === "series" ? "series" : "movie", name });
+      };
+      for (const h of store.get(viewers.key("hidden"), null) || []) {
+        if (h) add(h.id || String(h.key || "").split(":").slice(1).join(":"), h.type, h.name || (raw.get(h.id) && raw.get(h.id).name));
+      }
+      for (const id of Object.keys(store.get(viewers.key("cwDismissed"), null) || {})) {
+        const item = raw.get(id);
+        if (item) add(id, item.type, item.name);
+      }
+      const abandoned = [...raw.values()]
+        .filter((i) => /^tt\d+$/.test(i._id) && viewerLibrary.mine(i._id) && recoMath.dropped(i, now))
+        .sort((a, b) => Date.parse((b.state && b.state.lastWatched) || 0) - Date.parse((a.state && a.state.lastWatched) || 0));
+      for (const i of abandoned) add(i._id, i.type, i.name);
+      return out;
     },
     // Not to be recommended: seen, saved to the library, hidden or dismissed
     skip() {
@@ -12155,7 +12251,9 @@
       return out;
     },
     sig(seeds) {
-      return [viewers.current().id, settings.tmdbKey.trim() ? "t" : "c", ...seeds.slice(0, 8).map((s) => s.item._id)].join("|");
+      const taste = store.get(viewers.key("taste"), null);
+      const genres = taste && Array.isArray(taste.genres) ? taste.genres.join(",") : "";
+      return [viewers.current().id, settings.tmdbKey.trim() ? "t" : "c", settings.aiPicks ? "a" : "n", genres, ...seeds.slice(0, 8).map((s) => s.item._id)].join("|");
     },
     key: () => `dxbi.picks.${viewers.current().id}`,
     saved() {
@@ -12177,13 +12275,68 @@
       return saved ? { rows: saved.rows, stale: true } : null;
     },
 
-    // The AI hook. Every candidate has been scored; this is the one place a ranker could reorder them
-    // (an on-device model, or an API the viewer chose): it gets the viewer's top titles and the scored
-    // candidates [{id, type, name, genres, score, because: [seed titles]}] and returns them in the order
-    // to show. Today it keeps the scoring's own order. Whatever it does, only these candidates may
-    // come back, so the filters above (seen, saved, hidden) can't be undone by it.
-    async rank(taste, candidates) {
-      return candidates;
+    // AI curation via Lumen's Worker (/picks): reorders candidates and resolves new additions through Cinemeta,
+    // then enforces id, poster, skip and duplicate guardrails on the device. Falls back to scored on any error.
+    async rank(taste, scored, skip) {
+      if (!settings.aiPicks || !scored.length || !SYNC_ENDPOINT) return scored;
+      const auth = cloudSync.auth();
+      if (!auth || cloudSync.rejectedKey === auth.key) return scored;
+      const tuned = store.get(viewers.key("taste"), null);
+      const payload = {
+        viewer: viewers.current().id,
+        sig: this.sig(taste),
+        watched: taste.slice(0, 12).map((s) => ({
+          id: s.item._id,
+          type: s.item.type === "series" ? "series" : "movie",
+          name: s.item.name || "",
+          year: Number(String(s.item.year || s.item.releaseInfo || "").slice(0, 4)) || 0,
+          genres: (s.genres || s.item.genres || []).slice(0, 4),
+          weight: Math.round(s.weight * 100) / 100,
+        })),
+        genres: ((tuned && Array.isArray(tuned.genres) ? tuned.genres : [])).slice(0, 12),
+        dropped: this.dropped(),
+        candidates: scored.slice(0, 40).map((c) => ({
+          id: c.id,
+          type: c.type === "series" ? "series" : "movie",
+          name: c.name,
+          year: c.year || 0,
+          genres: (c.genres || []).slice(0, 4),
+          rating: Math.round((c.rating || 0) * 10) / 10,
+          seeds: (c.seeds || []).slice(0, 3),
+        })),
+      };
+      const r = await fetch(SYNC_ENDPOINT.replace(/\/sync$/, "/picks"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Stremio ${auth.key}` },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10000),
+      }).catch(() => null);
+      if (!r || !r.ok) {
+        if (r && r.status === 401) cloudSync.rejectedKey = auth.key;
+        return scored;
+      }
+      const answer = await r.json().catch(() => null);
+      if (!answer) return scored;
+      const additions = (Array.isArray(answer.additions) ? answer.additions : []).slice(0, 15);
+      const resolved = [];
+      const topSeed = taste[0] && taste[0].item && taste[0].item._id;
+      const validSeeds = new Set(taste.map((s) => s.item._id));
+      for (let i = 0; i < additions.length; i += 5) {
+        const batch = await Promise.all(additions.slice(i, i + 5).map(async (a) => {
+          if (!a || (a.type !== "movie" && a.type !== "series") || !a.name) return null;
+          const found = await christmasLists.find(a.type, a.name, a.year);
+          if (!found || !found.id || !found.poster) return null;
+          const seeds = (Array.isArray(a.seeds) ? a.seeds : []).filter((id) => validSeeds.has(id));
+          return {
+            ...found,
+            type: a.type,
+            year: Number(String(found.year || a.year || "").slice(0, 4)) || 0,
+            seeds: seeds.length ? seeds : topSeed ? [topSeed] : [],
+          };
+        }));
+        resolved.push(...batch.filter(Boolean));
+      }
+      return recoMath.mergeRanked(scored, answer, resolved, skip);
     },
 
     async build(seeds, sig) {
@@ -12236,6 +12389,7 @@
       }));
       const used = perSeed.filter(Boolean);
       if (!used.length) return [];
+      used.forEach((u) => { if (!u.s.genres) u.s.genres = u.tm.genres; });
       const profile = recoMath.profile(used.map((u) => ({ weight: u.s.weight, genres: u.tm.genres })));
       const cands = new Map();
       const seedTmdb = new Set(used.map((u) => `${u.kind}:${u.tm.id}`));
@@ -12284,9 +12438,8 @@
         names.add(dupe);
         scored.push({ ...c, type: c.kind === "movie" ? "movie" : "series" });
       }
-      const ordered = await this.rank(taste, scored);
-      const allowed = new Set(scored.map((c) => c.id));
-      return this.rows(used.map((u) => u.s), ordered.filter((c) => allowed.has(c.id)));
+      const ordered = await this.rank(taste, scored, skip);
+      return this.rows(used.map((u) => u.s), ordered.filter((c) => c && /^tt\d+$/.test(c.id) && !skip.has(c.id)));
     },
 
     // Without a key: Cinemeta's popular titles in the genres they watch most, best fits first
@@ -12294,18 +12447,27 @@
       const json = (path) => fetch(`${forYou.BASE}${path}`, { signal: AbortSignal.timeout(10000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
       const year = new Date().getFullYear();
       const metas = await Promise.all(taste.slice(0, 8).map(async (s) => {
+        if (Array.isArray(s.item.genres) && s.item.genres.length) return { s, genres: s.item.genres };
         const m = await json(`/meta/${s.item.type}/${encodeURIComponent(s.item._id)}.json`);
         const g = (m && m.meta && (m.meta.genres || m.meta.genre)) || [];
         return { s, genres: g };
       }));
       const used = metas.filter((m) => m.genres.length);
       if (!used.length) return [];
+      used.forEach((m) => { m.s.genres = m.genres; });
       const profile = recoMath.profile(used.map((m) => ({ weight: m.s.weight, genres: m.genres })));
       // the genres (with the kind) that matter most, each a popular list
       const wants = new Map();
       for (const m of used) for (const g of m.genres.slice(0, 3)) {
         const k = `${m.s.item.type}|${g}`;
         wants.set(k, (wants.get(k) || 0) + m.s.weight * (profile[g] || 0.3));
+      }
+      const tuned = store.get(viewers.key("taste"), null);
+      for (const g of (tuned && Array.isArray(tuned.genres) ? tuned.genres : []).slice(0, 4)) {
+        for (const type of ["movie", "series"]) {
+          const k = `${type}|${g}`;
+          wants.set(k, (wants.get(k) || 0) + 0.6);
+        }
       }
       const lists = await Promise.all([...wants.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(async ([k]) => {
         const [type, genre] = k.split("|");
@@ -12334,9 +12496,8 @@
         .filter((c) => !skip.has(c.id) && c.pointers.length)
         .map((c) => ({ ...c, score: recoMath.score(c, profile, year) }))
         .sort((a, b) => b.score - a.score);
-      const ordered = await this.rank(taste, scored);
-      const allowed = new Set(scored.map((c) => c.id));
-      return this.rows(used.map((u) => u.s), ordered.filter((c) => allowed.has(c.id)));
+      const ordered = await this.rank(taste, scored, skip);
+      return this.rows(used.map((u) => u.s), ordered.filter((c) => c && /^tt\d+$/.test(c.id) && !skip.has(c.id)));
     },
   };
 

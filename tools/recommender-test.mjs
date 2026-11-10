@@ -64,3 +64,62 @@ assert.ok(good > poor, "a better rating wins");
 const unrated = recoMath.score({ ...base, rating: 3, votes: 3, pointers: [{ w: 1, rank: 0, kind: "rec" }] }, profile, 2026);
 assert.ok(unrated > poor, "a rating from a handful of votes isn't trusted");
 console.log("PASS scoring order");
+
+// Negative signals: abandoned films and shows (>3 days ago, >5 min played, <30% of film or <20 min of series)
+assert.ok(recoMath.dropped(movie({ lastWatched: ago(5), timeOffset: 10 * 60000 }), now), "film switched off at 10m (>3d ago) is dropped");
+assert.ok(!recoMath.dropped(movie({ lastWatched: ago(1), timeOffset: 10 * 60000 }), now), "recently paused film isn't dropped yet");
+assert.ok(!recoMath.dropped(movie({ lastWatched: ago(5), timeOffset: 2 * 60000 }), now), "under 5m isn't counted as dropped");
+assert.ok(!recoMath.dropped(movie({ lastWatched: ago(5), timesWatched: 1, timeOffset: 10 * 60000 }), now), "already finished film isn't dropped");
+assert.ok(recoMath.dropped(show({ lastWatched: ago(6), overallTimeWatched: 12 * 60000 }), now), "series abandoned after 12m (>3d ago) is dropped");
+assert.ok(!recoMath.dropped(show({ lastWatched: ago(6), overallTimeWatched: 45 * 60000 }), now), "series watched for 45m is seen, not dropped");
+console.log("PASS dropped negative signals");
+
+// Cold-to-warm seed blending: Tune Suggestions seeds start strong, decay as watch history grows, and boost when freshly re-tuned
+const tune = {
+  genres: ["Sci-Fi", "Thriller"],
+  titles: [
+    { id: "tt0816692", type: "movie", name: "Interstellar", poster: "https://img/interstellar.jpg", genres: ["Sci-Fi", "Drama"] },
+    { id: "tt11280740", type: "series", name: "Severance", poster: "https://img/severance.jpg", genres: ["Sci-Fi", "Thriller"] },
+  ],
+};
+const cold = recoMath.blendSeeds([], tune, now - 30 * 86400e3, now);
+assert.equal(cold.length, 2, "cold profile gets Tune Suggestions seeds");
+assert.ok(cold[0].weight > 1 && cold[0].fromTaste, "cold seeds carry full initial weight");
+
+const warmWatched = Array.from({ length: 10 }, (_, i) => ({
+  item: { _id: `tt100000${i}`, type: "movie", name: `Film ${i}` },
+  weight: 1.2 - i * 0.05,
+}));
+const matured = recoMath.blendSeeds(warmWatched, tune, now - 30 * 86400e3, now);
+const decayedSeed = matured.find((x) => x.item._id === "tt0816692");
+assert.ok(decayedSeed.weight < 0.5 && matured[0].item._id === "tt1000000", "real watch history overtakes old onboarding seeds");
+
+const retuned = recoMath.blendSeeds(warmWatched, tune, now - 86400e3, now);
+assert.equal(retuned[0].item._id, "tt0816692", "freshly updated Tune Suggestions rise to the top immediately");
+
+const overlap = recoMath.blendSeeds([{ item: { _id: "tt0816692", type: "movie", name: "Interstellar" }, weight: 1.0 }], tune, now - 30 * 86400e3, now);
+assert.ok(overlap.find((x) => x.item._id === "tt0816692").weight > 1.0, "a watched title also picked in Tune Suggestions gets a boost");
+console.log("PASS cold-to-warm seed blending and fresh tuning boost");
+
+// Merging AI rankings + resolved additions under strict guardrails
+const scoredCands = [
+  { id: "tt0000001", type: "movie", name: "First", poster: "https://img/1.jpg", year: 2020, seeds: ["tt0816692"] },
+  { id: "tt0000002", type: "movie", name: "Second", poster: "https://img/2.jpg", year: 2021, seeds: ["tt0816692"] },
+  { id: "tt0000003", type: "series", name: "Third", poster: "https://img/3.jpg", year: 2022, seeds: ["tt11280740"] },
+  { id: "tt0000004", type: "movie", name: "Fourth", poster: "https://img/4.jpg", year: 2019, seeds: ["tt0816692"] },
+];
+const aiAnswer = { ranked: ["tt0000003", "tt0000002", "tt9999999"] };
+const resolvedAdditions = [
+  { id: "tt0000010", type: "movie", name: "Deep Cut", poster: "https://img/10.jpg", year: 2018, seeds: ["tt0816692"] },
+  { id: "tt0000011", type: "movie", name: "Blocked Seen", poster: "https://img/11.jpg", year: 2017, seeds: ["tt0816692"] },
+  { id: "tt0000012", type: "movie", name: "No Poster", poster: null, year: 2016, seeds: ["tt0816692"] },
+  { id: "not-imdb", type: "movie", name: "Bad ID", poster: "https://img/bad.jpg", year: 2020, seeds: ["tt0816692"] },
+  { id: "tt0000013", type: "movie", name: "Second", poster: "https://img/dup.jpg", year: 2021, seeds: ["tt0816692"] },
+];
+const merged = recoMath.mergeRanked(scoredCands, aiAnswer, resolvedAdditions, new Set(["tt0000011"]));
+assert.deepEqual(
+  Array.from(merged, (c) => c.id),
+  ["tt0000003", "tt0000002", "tt0000010", "tt0000001", "tt0000004"],
+  "reorders by AI ranked, interleaves valid additions, appends unranked tail, and blocks seen/posterless/invalid/duplicate items"
+);
+console.log("PASS AI mergeRanked and guardrails");

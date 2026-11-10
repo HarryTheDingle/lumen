@@ -22,3 +22,6 @@ simple = { limit = 60, period = 60 }
 name = "ACCOUNT_LIMIT"
 namespace_id = "2102"
 simple = { limit = 30, period = 60 }
+
+[ai]
+binding = "AI"

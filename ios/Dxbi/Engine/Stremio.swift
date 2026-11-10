@@ -240,7 +240,7 @@ final class Stremio {
         await ask("dx", ["method": method, "args": args])
     }
 
-    private func loadHome() async {
+    func loadHome() async {
         await ask("load", ["field": "board", "model": "CatalogsWithExtra", "args": ["extra": [Any]()]])
         await ask("loadRange", ["field": "board", "start": 0, "end": 30])
     }
