@@ -2,6 +2,13 @@
 
 Lumen's own history starts here. The history of the dx.bi code it's built on is in [docs/dxbi/CHANGELOG.md](docs/dxbi/CHANGELOG.md).
 
+## 2.30.26
+
+- Suggestions lean to the kind you prefer: Tune Suggestions asks "Suggest mostly" Films, A Mix or TV Shows, and Top Picks and Because you watched follow it. Before, a few long series filled every suggestion.
+- Titles you rate in Rate Movies & Series count as taste even if you never played them here, and are never suggested back. The AI picks are sent your ratings with names, and look for the same director, writer and tone, plus a few less obvious finds.
+- Discover has Franchises (with how far through each you are, and Complete the Collection for the next film), and Directors & Writers with a page of what each made. A TMDB key in Lumen settings fills these in fully.
+- Lumen TV and phone: HDR badge, title page and player fixes.
+
 ## 2.30.25
 
 - Lumen for Android phones and the Pixel Fold (`lumen-phone.apk`): the iPad app's Home, Discover, Search, Library, title pages, profiles and taste setup, a bottom bar on phones and a side rail on the opened Fold. It updates itself from these releases.
