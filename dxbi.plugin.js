@@ -12302,7 +12302,10 @@
       const taste = store.get(viewers.key("taste"), null);
       const genres = taste && Array.isArray(taste.genres) ? taste.genres.join(",") : "";
       const rated = Object.entries(ratings.all()).sort(([a], [b]) => a.localeCompare(b)).map(([id, r]) => `${id}:${r}`).join(",");
-      return [viewers.current().id, settings.tmdbKey.trim() ? "t" : "c", settings.aiPicks ? "a" : "n", genres, rated, ...seeds.slice(0, 8).map((s) => s.item._id)].join("|");
+      let hash = 0;
+      for (let i = 0; i < rated.length; i++) hash = ((hash << 5) - hash + rated.charCodeAt(i)) | 0;
+      const ratedSig = rated.length ? `r${rated.length}:${hash.toString(36)}` : "";
+      return [viewers.current().id, settings.tmdbKey.trim() ? "t" : "c", settings.aiPicks ? "a" : "n", genres, ratedSig, ...seeds.slice(0, 8).map((s) => s.item._id)].join("|");
     },
     key: () => `dxbi.picks.${viewers.current().id}`,
     saved() {

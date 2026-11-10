@@ -126,7 +126,7 @@ async function handlePicks(request, env, account) {
   } catch (_) {
     return reply(request, 400, { error: "Invalid JSON." });
   }
-  if (!body || typeof body.viewer !== "string" || !/^[\w-]{1,40}$/.test(body.viewer) || typeof body.sig !== "string" || !body.sig || body.sig.length > 300 || !Array.isArray(body.candidates)) {
+  if (!body || typeof body.viewer !== "string" || !/^[\w-]{1,40}$/.test(body.viewer) || typeof body.sig !== "string" || !body.sig || body.sig.length > 1024 || !Array.isArray(body.candidates)) {
     return reply(request, 400, { error: "Invalid picks request." });
   }
   const watched = (Array.isArray(body.watched) ? body.watched : []).slice(0, 16)
