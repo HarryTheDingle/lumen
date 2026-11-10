@@ -5,16 +5,25 @@ import SwiftUI
  * were born), a short biography that opens out, then what they're known for and all their films and
  * shows, each a poster that opens its page. The data is TMDB's (a key in Lumen settings); without one
  * the cast row searches for the name instead and this page isn't reached.
+ *
+ * A director or writer from Discover ([crew]) has the same page with their work behind the camera: what
+ * they directed and what they wrote, newest first. Without a key it shows the films the app's own list
+ * has for them.
  */
 struct PersonView: View {
     @Environment(Stremio.self) private var stremio
     var id: String
     var name: String
     var photo: String?
+    /** Opened as a filmmaker (Discover's Directors & Writers): directing and writing, not acting */
+    var crew = false
 
     @State private var person: JSON?
     @State private var loaded = false
     @State private var moreText = false
+
+    /** The app's own entry for a filmmaker: their films when there's no TMDB key */
+    private var listed: Filmmaker? { crew ? Listed.filmmaker(id: id, name: name) : nil }
 
     var body: some View {
         GeometryReader { geo in
@@ -23,8 +32,20 @@ struct PersonView: View {
                     header(wide: geo.size.width > 600)
                     if let person {
                         shelf("Known For", person.objects("known"))
-                        shelf("Films", person.objects("films"))
+                        if crew {
+                            shelf("Directed", person.objects("directed"))
+                            shelf("Written", person.objects("written"))
+                        } else {
+                            shelf("Films", person.objects("films"))
+                        }
                         shelf("TV Shows", person.objects("shows"))
+                    } else if loaded, let listed {
+                        // (no TMDB key: the list's films, newest first)
+                        shelf("Films", listed.films.sorted { $0.year > $1.year }.map { $0.title("movie") })
+                        shelf("TV Shows", listed.series.map { $0.title("series") })
+                        Text("A selection of their work. With a TMDB key in Lumen settings, this page has all of it.")
+                            .font(.footnote).foregroundStyle(Dx.faint)
+                            .padding(.horizontal, Dx.gutter)
                     } else if loaded {
                         VStack(spacing: 12) {
                             Text("Nothing to show for \(name) right now.").foregroundStyle(Dx.muted)
@@ -42,8 +63,9 @@ struct PersonView: View {
         }
         .background(Color.black.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: id) {
-            person = await stremio.person(id: id, name: name)
+        .task(id: id + name) {
+            // (a filmmaker the list has no TMDB id for is found by the name TMDB knows them by)
+            person = crew ? await stremio.filmmaker(id: id, name: listed?.person ?? name) : await stremio.person(id: id, name: name)
             loaded = true
         }
     }
@@ -66,7 +88,8 @@ struct PersonView: View {
                 .frame(width: size, height: size)
                 .clipShape(.circle)
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(person?.text("name") ?? name).font(wide ? .largeTitle.bold() : .title.bold())
+                    // (a filmmaker keeps the name they were opened by: the Coen Brothers are Joel Coen at TMDB)
+                    Text(crew ? name : person?.text("name") ?? name).font(wide ? .largeTitle.bold() : .title.bold())
                     ForEach(facts, id: \.self) { Text($0).font(.subheadline).foregroundStyle(Dx.muted) }
                     if wide { bio(wide: true) }
                 }
@@ -103,9 +126,13 @@ struct PersonView: View {
 
     /** What they do, when and where they were born (and died) */
     private var facts: [String] {
-        guard let p = person else { return [] }
+        guard let p = person else { return loaded ? [listed?.role].compactMap { $0 } : [] }
         var out: [String] = []
-        if let d = p.text("department") { out.append(d == "Acting" ? "Actor" : d) }
+        if let role = listed?.role {
+            out.append(role)
+        } else if let d = p.text("department") {
+            out.append(["Acting": "Actor", "Directing": "Director", "Writing": "Writer"][d] ?? d)
+        }
         if let born = date(p.text("born")) {
             let age = p.text("age").map { " (\($0))" } ?? ""
             if let died = date(p.text("died")) {
@@ -131,14 +158,17 @@ struct PersonView: View {
 
     // MARK: - Rows
 
-    @ViewBuilder
     private func shelf(_ name: String, _ items: [JSON]) -> some View {
-        let titles = items.map { j -> Title in
+        shelf(name, items.map { j -> Title in
             var t = Title(id: j.string("id"), type: j.string("type"), name: j.string("name"))
             t.poster = j.text("poster")
             t.year = j.text("year")
             return t
-        }
+        })
+    }
+
+    @ViewBuilder
+    private func shelf(_ name: String, _ titles: [Title]) -> some View {
         if !titles.isEmpty {
             Shelf(title: name) {
                 ForEach(titles) { title in

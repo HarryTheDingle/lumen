@@ -12187,6 +12187,59 @@
       for (const c of list) push(c);
       return out;
     },
+    // How far suggestions lean to films or to series: what the viewer said in Tune Suggestions ("movie" or
+    // "series"), else even. A candidate's score is multiplied by its kind's share
+    lean(prefer) {
+      if (prefer === "movie") return { movie: 1, series: 0.45 };
+      if (prefer === "series") return { movie: 0.45, series: 1 };
+      return { movie: 1, series: 1 };
+    },
+    // The titles suggestions start from, [n] of them: the strongest, but never all of one kind. A series is
+    // watched for many more hours than a film, so by weight alone a viewer's top titles are nearly all series,
+    // and (each title only points to its own kind) so were the suggestions. Three in four are the kind they
+    // prefer, half and half when they haven't said; a kind they have too few of is made up from the other.
+    // The preferred kind comes first, so the "Because you watched" rows are of it
+    pickSeeds(list, prefer, n = 12) {
+      const kind = (x) => (x.item && x.item.type === "series" ? "series" : "movie");
+      const most = Math.round(n * 0.75);
+      const want = prefer === "movie" ? { movie: most, series: n - most } : prefer === "series" ? { movie: n - most, series: most } : { movie: n / 2, series: n / 2 };
+      const sorted = (Array.isArray(list) ? list : []).slice().sort((a, b) => b.weight - a.weight);
+      const taken = { movie: 0, series: 0 };
+      const out = [];
+      const rest = [];
+      for (const x of sorted) {
+        const k = kind(x);
+        if (taken[k] < want[k]) { out.push(x); taken[k]++; } else rest.push(x);
+      }
+      for (const x of rest) {
+        if (out.length >= n) break;
+        out.push(x);
+      }
+      const first = (x) => (prefer === "movie" || prefer === "series") && kind(x) !== prefer ? 1 : 0;
+      return out.slice(0, n).sort((a, b) => first(a) - first(b) || b.weight - a.weight);
+    },
+    // A row in the mix the viewer likes: three of the kind they prefer, then one of the other, in each kind's
+    // own order (as it is when they haven't said). The other kind fills the row when theirs runs out
+    mix(list, prefer) {
+      const all = Array.isArray(list) ? list : [];
+      if (prefer !== "movie" && prefer !== "series") return all;
+      const main = all.filter((c) => c.type === prefer);
+      const other = all.filter((c) => c.type !== prefer);
+      const out = [];
+      let m = 0;
+      let o = 0;
+      while (m < main.length) {
+        for (let i = 0; i < 3 && m < main.length; i++) out.push(main[m++]);
+        if (o < other.length) out.push(other[o++]);
+      }
+      while (o < other.length) out.push(other[o++]);
+      return out;
+    },
+    // A title they rated 7 or more but never played in Stremio (rated from memory): as much a taste as one watched
+    ratedWeight(rating) {
+      const r = Number(rating);
+      return r >= 9 ? 2.2 : r >= 7 ? 1.3 : 0;
+    },
     // Genres weighted by the titles they came from, 0 to 1 (genres are TMDB ids or Cinemeta names)
     profile(seeds) {
       const sum = {};
@@ -12237,6 +12290,43 @@
       if (typeof cloudSync.push === "function") cloudSync.push();
       return true;
     },
+    // What each rated title is ({type, name, year, genres}), kept on this device: a title rated from memory isn't
+    // in the library, and the suggestions need its name and kind
+    META: "dxbi.rated.meta",
+    metas() {
+      try { return JSON.parse(localStorage.getItem(this.META) || "{}") || {}; } catch (_) { return {}; }
+    },
+    meta(id) {
+      const m = this.metas()[id];
+      if (m && m.name) return m;
+      const item = viewerLibrary.raw().get(id);
+      return item && item.name ? { type: item.type === "series" ? "series" : "movie", name: item.name, year: 0, genres: [] } : null;
+    },
+    remember(id, meta) {
+      if (!/^tt\d+$/.test(id || "") || !meta || !meta.name) return;
+      const all = this.metas();
+      all[id] = { type: meta.type === "series" ? "series" : "movie", name: String(meta.name).slice(0, 120), year: Number(meta.year) || 0, genres: (meta.genres || []).slice(0, 4) };
+      try { localStorage.setItem(this.META, JSON.stringify(all)); } catch (_) { /* full */ }
+    },
+    // Looks up the rated titles this device doesn't know yet (rated on another device, or before names were kept)
+    async fill() {
+      const known = this.metas();
+      const todo = Object.keys(this.all()).filter((id) => /^tt\d+$/.test(id) && !(known[id] && known[id].name)).slice(0, 40);
+      const json = (path) => fetch(`${forYou.BASE}${path}`, { signal: AbortSignal.timeout(8000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      for (let i = 0; i < todo.length; i += 8) {
+        await Promise.all(todo.slice(i, i + 8).map(async (id) => {
+          const item = viewerLibrary.raw().get(id);
+          const kinds = item ? [item.type === "series" ? "series" : "movie"] : ["movie", "series"];
+          for (const type of kinds) {
+            const m = await json(`/meta/${type}/${id}.json`);
+            if (m && m.meta && m.meta.name) {
+              this.remember(id, { type, name: m.meta.name, year: parseInt(m.meta.releaseInfo || m.meta.year, 10) || 0, genres: m.meta.genres || m.meta.genre || [] });
+              return;
+            }
+          }
+        }));
+      }
+    },
   };
 
   const recommender = {
@@ -12253,10 +12343,22 @@
         .map((i) => ({ item: i, weight: recoMath.weight(i, now, ratings.get(i._id)) }))
         .filter((x) => x.weight > 0)
         .sort((a, b) => b.weight - a.weight);
+      // (rated 7 or more but never played here: rated from memory, in Rate Films & Series)
+      const have = new Set(watched.map((x) => x.item._id));
+      for (const [id, r] of Object.entries(ratings.all())) {
+        const w = recoMath.ratedWeight(r);
+        const m = w > 0 && !have.has(id) && /^tt\d+$/.test(id) ? ratings.meta(id) : null;
+        if (m) watched.push({ item: { _id: id, type: m.type, name: m.name, year: m.year, genres: m.genres || [] }, weight: w, fromRating: true });
+      }
       const tasteKey = viewers.key("taste");
       const taste = store.get(tasteKey, null);
       const tasteTime = (store.data[tasteKey] && store.data[tasteKey].t) || 0;
-      return recoMath.blendSeeds(watched, taste, tasteTime, now);
+      return recoMath.pickSeeds(recoMath.blendSeeds(watched, taste, tasteTime, now), this.prefer(), 12);
+    },
+    // Films or series: what this viewer said they'd rather be suggested (Tune Suggestions), else null
+    prefer() {
+      const taste = store.get(viewers.key("taste"), null);
+      return taste && (taste.prefer === "movie" || taste.prefer === "series") ? taste.prefer : null;
     },
     // Negative signals: hidden titles, dismissed from Continue Watching, or switched off early
     dropped() {
@@ -12278,8 +12380,8 @@
       }
       for (const [id, r] of Object.entries(ratings.all())) {
         if (Number(r) >= 1 && Number(r) <= 4) {
-          const item = raw.get(id);
-          add(id, (item && item.type) || "movie", (item && item.name) || id);
+          const m = ratings.meta(id);
+          if (m) add(id, m.type, m.name);
         }
       }
       const abandoned = [...raw.values()]
@@ -12296,6 +12398,8 @@
         if (!viewerLibrary.mine(i._id)) continue;
         if ((!i.removed && !i.temp) || recoMath.seen(i, now)) out.add(i._id);
       }
+      // (rated: seen, wherever it was watched)
+      for (const id of Object.keys(ratings.all())) out.add(id);
       return out;
     },
     sig(seeds) {
@@ -12305,7 +12409,7 @@
       let hash = 0;
       for (let i = 0; i < rated.length; i++) hash = ((hash << 5) - hash + rated.charCodeAt(i)) | 0;
       const ratedSig = rated.length ? `r${rated.length}:${hash.toString(36)}` : "";
-      return [viewers.current().id, settings.tmdbKey.trim() ? "t" : "c", settings.aiPicks ? "a" : "n", genres, ratedSig, ...seeds.slice(0, 8).map((s) => s.item._id)].join("|");
+      return [viewers.current().id, settings.tmdbKey.trim() ? "t" : "c", settings.aiPicks ? "a" : "n", this.prefer() || "", genres, ratedSig, ...seeds.slice(0, 8).map((s) => s.item._id)].join("|");
     },
     key: () => `dxbi.picks.${viewers.current().id}`,
     saved() {
@@ -12318,7 +12422,7 @@
       if (!seeds.length) return { rows: [] };
       const sig = this.sig(seeds);
       const saved = this.saved();
-      const ttl = !settings.aiPicks || (saved && saved.ai) ? this.KEEP : 60e3;
+      const ttl = !settings.aiPicks || (saved && saved.ai) ? this.KEEP : 10 * 60e3;
       const fresh = saved && saved.sig === sig && Date.now() - saved.t < ttl;
       if (fresh) return { rows: saved.rows };
       if (this.loading !== sig) {
@@ -12348,16 +12452,16 @@
           weight: Math.round(s.weight * 100) / 100,
         })),
         genres: ((tuned && Array.isArray(tuned.genres) ? tuned.genres : [])).slice(0, 12),
+        prefer: this.prefer(),
         dropped: this.dropped(),
+        // (the scores that say most first, loved and hated; one whose name isn't known tells the model nothing)
         ratings: Object.entries(ratings.all())
           .filter(([, r]) => Number.isInteger(r) && r >= 1 && r <= 10)
-          .slice(0, 40)
-          .map(([id, r]) => {
-            const rawItem = viewerLibrary.raw().get(id);
-            const entry = { id, rating: r };
-            if (rawItem && rawItem.name) entry.name = rawItem.name;
-            return entry;
-          }),
+          .map(([id, r]) => ({ id, rating: r, meta: ratings.meta(id) }))
+          .filter((e) => e.meta)
+          .sort((a, b) => Math.abs(b.rating - 5.5) - Math.abs(a.rating - 5.5))
+          .slice(0, 20)
+          .map((e) => ({ id: e.id, rating: e.rating, name: e.meta.name, type: e.meta.type, year: e.meta.year || 0 })),
         candidates: scored.slice(0, 40).map((c) => ({
           id: c.id,
           type: c.type === "series" ? "series" : "movie",
@@ -12404,6 +12508,12 @@
     },
 
     async build(seeds, sig) {
+      const before = Object.keys(ratings.metas()).length;
+      await ratings.fill().catch(() => {});
+      if (Object.keys(ratings.metas()).length !== before) {
+        seeds = this.history();
+        sig = this.sig(seeds);
+      }
       const taste = seeds.slice(0, 12);
       const skip = this.skip();
       taste.forEach((s) => skip.add(s.item._id));
@@ -12426,7 +12536,7 @@
         const pick = (fresh.length >= 6 ? fresh : list).slice(0, 14);
         if (pick.length < 6) continue;
         pick.forEach((c) => used.add(c.id));
-        out.push(row(`because-${s.item._id}`, `Because you watched ${s.item.name}`, pick));
+        out.push(row(`because-${s.item._id}`, `Because you ${s.fromRating || s.fromTaste ? "liked" : "watched"} ${s.item.name}`, pick));
         n++;
       }
       return out;
@@ -12456,6 +12566,7 @@
       used.forEach((u) => { if (!u.s.genres) u.s.genres = u.tm.genres; });
       const profile = recoMath.profile(used.map((u) => ({ weight: u.s.weight, genres: u.tm.genres })));
       const cands = new Map();
+      const lean = recoMath.lean(this.prefer());
       const seedTmdb = new Set(used.map((u) => `${u.kind}:${u.tm.id}`));
       for (const u of used) {
         for (const [kind2, list] of [["rec", u.rec], ["similar", u.sim]]) {
@@ -12475,7 +12586,7 @@
       }
       const ranked = [...cands.values()]
         .filter((c) => c.votes >= 40)
-        .map((c) => ({ ...c, score: recoMath.score(c, profile, year) }))
+        .map((c) => ({ ...c, score: recoMath.score(c, profile, year) * lean[c.kind === "movie" ? "movie" : "series"] }))
         .sort((a, b) => b.score - a.score);
       // IMDb ids are what Stremio opens (looked up for the best ones only, cached)
       const wanted = new Set(ranked.slice(0, 30).map((c) => c.key));
@@ -12502,7 +12613,7 @@
         names.add(dupe);
         scored.push({ ...c, type: c.kind === "movie" ? "movie" : "series" });
       }
-      const ordered = await this.rank(taste, scored, skip);
+      const ordered = recoMath.mix(await this.rank(taste, scored, skip), this.prefer());
       return this.rows(used.map((u) => u.s), ordered.filter((c) => c && /^tt\d+$/.test(c.id) && !skip.has(c.id)));
     },
 
@@ -12524,7 +12635,7 @@
       const wants = new Map();
       for (const m of used) for (const g of m.genres.slice(0, 3)) {
         const k = `${m.s.item.type}|${g}`;
-        wants.set(k, (wants.get(k) || 0) + m.s.weight * (profile[g] || 0.3));
+        wants.set(k, (wants.get(k) || 0) + m.s.weight * (profile[g] || 0.3) * recoMath.lean(this.prefer())[m.s.item.type === "series" ? "series" : "movie"]);
       }
       const tuned = store.get(viewers.key("taste"), null);
       for (const g of (tuned && Array.isArray(tuned.genres) ? tuned.genres : []).slice(0, 4)) {
@@ -12558,9 +12669,9 @@
       }
       const scored = [...cands.values()]
         .filter((c) => !skip.has(c.id) && c.pointers.length)
-        .map((c) => ({ ...c, score: recoMath.score(c, profile, year) }))
+        .map((c) => ({ ...c, score: recoMath.score(c, profile, year) * recoMath.lean(this.prefer())[c.type === "series" ? "series" : "movie"] }))
         .sort((a, b) => b.score - a.score);
-      const ordered = await this.rank(taste, scored, skip);
+      const ordered = recoMath.mix(await this.rank(taste, scored, skip), this.prefer());
       return this.rows(used.map((u) => u.s), ordered.filter((c) => c && /^tt\d+$/.test(c.id) && !skip.has(c.id)));
     },
   };
@@ -16411,6 +16522,205 @@
         writeCached(key, result);
         return result;
       },
+      // A director's or writer's page, from TMDB (needs the TMDB key): who they are, as person() tells it, and
+      // their work behind the camera as rows of its own: the films they directed and the films they wrote
+      // (newest first), what they're best known for, and the series they made. [id]: TMDB's person id, else
+      // [name] is searched (someone who directs or writes, when there's a namesake). null without a key.
+      async filmmaker(id, name) {
+        if (!settings.tmdbKey.trim()) return null;
+        const get = (path) => this.tmdbGet(path);
+        let pid = /^\d+$/.test(String(id || "")) ? String(id) : "";
+        if (!pid && name) {
+          const found = await get(`/search/person?query=${encodeURIComponent(String(name))}&include_adult=false&language=en-US`);
+          const hits = (found && found.results) || [];
+          const hit = hits.find((p) => /^(Directing|Writing)$/.test(p.known_for_department || "")) || hits[0];
+          pid = hit ? String(hit.id) : "";
+        }
+        if (!pid) return null;
+        const key = `filmmaker1:${pid}`;
+        const cached = readCached(key);
+        if (cached !== undefined) return cached;
+        const [info, credits] = await Promise.all([get(`/person/${pid}?language=en-US`), get(`/person/${pid}/combined_credits?language=en-US`)]);
+        if (!info || !credits) return null;
+        const works = new Map();
+        const pick = (kind, jobs) => {
+          const out = [];
+          for (const c of credits.crew || []) {
+            // (shorts, music videos and the like have few votes: their films and series are what's wanted)
+            if (c.media_type !== kind || !jobs.test(c.job || "") || !c.poster_path || c.video || (c.vote_count || 0) < 20) continue;
+            const k = `${kind}:${c.id}`;
+            if (!works.has(k)) works.set(k, { kind, tmdb: c.id, name: c.title || c.name || "", date: c.release_date || c.first_air_date || "", votes: c.vote_count || 0, poster: `https://image.tmdb.org/t/p/w342${c.poster_path}` });
+            if (!out.includes(works.get(k))) out.push(works.get(k));
+          }
+          return out.sort((a, b) => (b.date || "9999").localeCompare(a.date || "9999"));
+        };
+        const directed = pick("movie", /^Director$/).slice(0, 40);
+        const wrote = pick("movie", /^(Screenplay|Writer|Story)$/);
+        // (a writer's page has everything they wrote; a director's, what they wrote for someone else)
+        const writer = info.known_for_department === "Writing";
+        const written = (writer ? wrote : wrote.filter((w) => !directed.includes(w))).slice(0, 30);
+        const shows = pick("tv", /^(Creator|Director|Writer|Executive Producer)$/).sort((a, b) => b.votes - a.votes).slice(0, 12);
+        const known = [...new Set([...directed, ...wrote])].sort((a, b) => b.votes - a.votes).slice(0, 12);
+        // IMDb ids, which are what Stremio opens (in small batches)
+        const todo = [...new Set([...known, ...directed, ...written, ...shows])];
+        let failed = false;
+        for (let i = 0; i < todo.length; i += 12) {
+          await Promise.all(todo.slice(i, i + 12).map(async (w) => {
+            const ext = await get(`/${w.kind}/${w.tmdb}/external_ids`);
+            if (!ext) failed = true;
+            w.id = ext && /^tt\d+$/.test(ext.imdb_id || "") ? ext.imdb_id : null;
+          }));
+        }
+        const out = (list) => list.filter((w) => w.id).map((w) => ({ id: w.id, type: w.kind === "movie" ? "movie" : "series", name: w.name, year: w.date.slice(0, 4), poster: w.poster }));
+        const born = info.birthday || "";
+        const died = info.deathday || "";
+        let age = null;
+        if (/^\d{4}-\d\d-\d\d$/.test(born)) {
+          const end = /^\d{4}-\d\d-\d\d$/.test(died) ? new Date(died) : new Date();
+          const b = new Date(born);
+          age = end.getFullYear() - b.getFullYear() - (end.getMonth() < b.getMonth() || (end.getMonth() === b.getMonth() && end.getDate() < b.getDate()) ? 1 : 0);
+        }
+        const result = {
+          id: pid,
+          name: info.name || name || "",
+          photo: info.profile_path ? `https://image.tmdb.org/t/p/h632${info.profile_path}` : null,
+          department: info.known_for_department || "",
+          born, died, age,
+          place: info.place_of_birth || "",
+          bio: String(info.biography || "").trim(),
+          known: out(known), directed: out(directed), written: out(written), shows: out(shows),
+        };
+        // (kept only when every lookup answered: a row with holes in it isn't)
+        if (!failed) writeCached(key, result);
+        return result;
+      },
+      // What TMDB links a film to (needs the key): the collection it belongs to, and who directed and wrote
+      // it. null for what isn't a film TMDB knows, and when it couldn't be asked
+      async filmLinks(imdb) {
+        if (!settings.tmdbKey.trim() || !/^tt\d+$/.test(String(imdb || ""))) return null;
+        const key = `filmlinks1:${imdb}`;
+        const cached = readCached(key);
+        if (cached !== undefined) return cached;
+        const found = await this.tmdbGet(`/find/${imdb}?external_source=imdb_id`);
+        if (!found) return null;
+        const first = (found.movie_results || [])[0];
+        let result = null;
+        if (first) {
+          const film = await this.tmdbGet(`/movie/${first.id}?append_to_response=credits&language=en-US`);
+          if (!film) return null;
+          const c = film.belongs_to_collection;
+          const people = [];
+          for (const p of (film.credits && film.credits.crew) || []) {
+            const job = p.job === "Director" ? "Director" : /^(Screenplay|Writer)$/.test(p.job || "") ? "Writer" : null;
+            if (!job) continue;
+            const have = people.find((x) => x.id === p.id);
+            if (have) { if (!have.jobs.includes(job)) have.jobs.push(job); } else people.push({ id: p.id, name: p.name, photo: p.profile_path ? `https://image.tmdb.org/t/p/h632${p.profile_path}` : null, jobs: [job] });
+          }
+          result = {
+            collection: c ? { id: c.id, name: String(c.name || "").replace(/\s+collection$/i, ""), backdrop: c.backdrop_path ? `https://image.tmdb.org/t/p/w780${c.backdrop_path}` : null } : null,
+            people: people.slice(0, 5),
+          };
+        }
+        writeCached(key, result);
+        return result;
+      },
+      // A film franchise, from TMDB (needs the key): the collection with TMDB's [id], or the collections the
+      // [seeds] belong to (IMDb ids of films in it: Middle-earth is two), with every film in them oldest
+      // first, as titles Stremio can open. null without a key or when TMDB has no such collection.
+      async franchise(id, seeds) {
+        if (!settings.tmdbKey.trim()) return null;
+        const get = (path) => this.tmdbGet(path);
+        const ids = /^\d+$/.test(String(id || "")) ? [String(id)] : [];
+        for (const imdb of Array.isArray(seeds) ? seeds.slice(0, 4) : []) {
+          const links = await this.filmLinks(imdb);
+          if (links && links.collection && !ids.includes(String(links.collection.id))) ids.push(String(links.collection.id));
+        }
+        if (!ids.length) return null;
+        const key = `franchise1:${ids.join(",")}`;
+        const cached = readCached(key);
+        if (cached !== undefined) return cached;
+        const found = (await Promise.all(ids.map((c) => get(`/collection/${c}?language=en-US`)))).filter(Boolean);
+        if (!found.length) return null;
+        const parts = found.flatMap((c) => c.parts || []).filter((p) => p.release_date && p.poster_path)
+          .sort((a, b) => a.release_date.localeCompare(b.release_date)).slice(0, 60);
+        let failed = found.length < ids.length;
+        for (let i = 0; i < parts.length; i += 12) {
+          await Promise.all(parts.slice(i, i + 12).map(async (p) => {
+            const ext = await get(`/movie/${p.id}/external_ids`);
+            if (!ext) failed = true;
+            p.imdb = ext && /^tt\d+$/.test(ext.imdb_id || "") ? ext.imdb_id : null;
+          }));
+        }
+        const first = found[0];
+        const result = {
+          id: ids.join(","),
+          name: String(first.name || "").replace(/\s+collection$/i, ""),
+          overview: found.length === 1 ? String(first.overview || "").trim() : "",
+          backdrop: first.backdrop_path ? `https://image.tmdb.org/t/p/w1280${first.backdrop_path}` : null,
+          films: parts.filter((p) => p.imdb).map((p) => ({ id: p.imdb, type: "movie", name: p.title || "", year: p.release_date.slice(0, 4), released: p.release_date, poster: `https://image.tmdb.org/t/p/w342${p.poster_path}` })),
+        };
+        if (!failed) writeCached(key, result);
+        return result;
+      },
+      // Where the films in [ids] lead (IMDb ids: the Library's and what's been watched), from TMDB with the
+      // key: the franchises they belong to, and whoever directed or wrote two or more of them, the most
+      // watched first. Each with the films of [ids] that led to it. null without a key.
+      async connections(ids) {
+        if (!settings.tmdbKey.trim()) return null;
+        const list = [...new Set((Array.isArray(ids) ? ids : []).filter((x) => /^tt\d+$/.test(String(x))))].slice(0, 40);
+        const franchises = new Map();
+        const people = new Map();
+        for (let i = 0; i < list.length; i += 8) {
+          const batch = await Promise.all(list.slice(i, i + 8).map((imdb) => this.filmLinks(imdb).catch(() => null)));
+          batch.forEach((links, j) => {
+            if (!links) return;
+            const imdb = list[i + j];
+            if (links.collection) {
+              const k = String(links.collection.id);
+              if (!franchises.has(k)) franchises.set(k, { id: k, name: links.collection.name, backdrop: links.collection.backdrop, films: [] });
+              franchises.get(k).films.push(imdb);
+            }
+            for (const p of links.people) {
+              const k = String(p.id);
+              if (!people.has(k)) people.set(k, { id: k, name: p.name, photo: p.photo, jobs: [], films: [] });
+              const have = people.get(k);
+              for (const job of p.jobs) if (!have.jobs.includes(job)) have.jobs.push(job);
+              have.films.push(imdb);
+            }
+          });
+        }
+        const most = (a, b) => b.films.length - a.films.length;
+        return {
+          franchises: [...franchises.values()].sort(most).slice(0, 20),
+          filmmakers: [...people.values()].filter((p) => p.films.length >= 2).sort(most).slice(0, 12),
+        };
+      },
+      // Photos for Discover's filmmakers ([{key, id, name, wiki}]: TMDB's person id where it's known, and
+      // their Wikipedia page's name): TMDB's with the key, else Wikipedia's. {key: the photo's address}
+      async faces(people) {
+        const keyed = !!settings.tmdbKey.trim();
+        const out = {};
+        await Promise.all((Array.isArray(people) ? people : []).slice(0, 40).map(async (p) => {
+          const name = String((p && p.name) || "");
+          if (!name) return;
+          const key = `face1:${name}`;
+          let photo = readCached(key);
+          if (photo === undefined || (keyed && photo && !photo.includes("tmdb.org"))) {
+            let fromTmdb = null;
+            if (keyed) {
+              // (by name: the one who directs or writes, when there's a namesake)
+              const hits = /^\d+$/.test(String(p.id || "")) ? [] : ((await this.tmdbGet(`/search/person?query=${encodeURIComponent(name)}&include_adult=false&language=en-US`)) || {}).results || [];
+              const info = /^\d+$/.test(String(p.id || "")) ? await this.tmdbGet(`/person/${p.id}?language=en-US`)
+                : hits.find((h) => /^(Directing|Writing)$/.test(h.known_for_department || "")) || hits[0];
+              if (info && info.profile_path) fromTmdb = `https://image.tmdb.org/t/p/h632${info.profile_path}`;
+            }
+            photo = fromTmdb || photo || await this.wikipediaPhoto(p.wiki || name);
+            if (photo) writeCached(key, photo);
+          }
+          out[p.key || name] = photo || null;
+        }));
+        return out;
+      },
       // A TMDB v3 request (the key or the read access token from dx.bi settings); null when it fails
       tmdbGet(path) {
         const token = settings.tmdbKey.trim();
@@ -16853,9 +17163,13 @@
       ratings() {
         return ratings.all();
       },
-      async setRating(id, score) {
+      // [meta]: {type, name, year, genres} of the title, as the screen that rated it knows it
+      async setRating(id, score, meta) {
         ratings.set(id, score);
-        recommender.get();
+        if (meta && typeof meta === "object") ratings.remember(id, meta);
+        // (ten rated in a row are one new set of picks, not ten: worked out half a minute after the last)
+        clearTimeout(ratings.later);
+        ratings.later = setTimeout(() => recommender.get(), 30000);
         return true;
       },
     },

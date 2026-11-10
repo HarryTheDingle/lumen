@@ -120,7 +120,7 @@ struct TitleView: View {
         .sheet(isPresented: $reviewsOpen) { ReviewsView(title: title, reviews: reviews) }
         .sheet(isPresented: $ratingSheetOpen) {
             RatingSheet(titleName: title.name, userRating: $userRating) { score in
-                await stremio.setRating(score, for: ref.id)
+                await stremio.setRating(score, for: ref.id, title: title)
             }
         }
         .task {

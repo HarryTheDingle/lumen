@@ -10,6 +10,8 @@ struct TasteSetup: View {
     @State private var step = 0
     @State private var genres: [String] = []
     @State private var picked: [Taste.Seed] = []
+    /** Films or series ("movie", "series"), or nil for a mix */
+    @State private var prefer: String?
     @State private var candidates: [Title] = []
     @State private var loading = false
 
@@ -29,12 +31,29 @@ struct TasteSetup: View {
             .padding(.bottom, 14)
 
             ScrollView {
-                if step == 0 { genreGrid } else { titleGrid }
+                if step == 0 {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Suggest mostly").font(.subheadline.weight(.semibold)).foregroundStyle(Dx.muted)
+                        Picker("Suggest mostly", selection: $prefer) {
+                            Text("Films").tag(String?.some("movie"))
+                            Text("A Mix").tag(String?.none)
+                            Text("TV Shows").tag(String?.some("series"))
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 420)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Dx.gutter)
+                    .padding(.bottom, 16)
+                    genreGrid
+                } else {
+                    titleGrid
+                }
             }
             .scrollIndicators(.hidden)
 
             HStack {
-                Button(step == 0 ? "Skip" : "Back") {
+                Button(step == 0 ? (prefer != nil && genres.isEmpty ? "Save" : "Skip") : "Back") {
                     if step == 0 { finish(skipped: true) } else { step = 0 }
                 }
                 .foregroundStyle(Dx.muted)
@@ -57,7 +76,7 @@ struct TasteSetup: View {
         .onAppear {
             stremio.tuningShown = true
             // (opened again from Profile: what was chosen before)
-            if let t = stremio.taste { genres = t.genres; picked = t.titles }
+            if let t = stremio.taste { genres = t.genres; picked = t.titles; prefer = t.prefer }
         }
     }
 
@@ -166,7 +185,8 @@ struct TasteSetup: View {
 
     private func finish(skipped: Bool) {
         var t = Taste(genres: genres, titles: picked)
-        t.skipped = skipped && genres.isEmpty && picked.isEmpty
+        t.prefer = prefer
+        t.skipped = skipped && genres.isEmpty && picked.isEmpty && prefer == nil
         stremio.finishTaste(t)
     }
 }

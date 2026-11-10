@@ -34,6 +34,8 @@ struct Taste: Codable, Equatable {
     /** Names of Genre.all */
     var genres: [String] = []
     var titles: [Seed] = []
+    /** What they'd rather be suggested: "movie" or "series" (nil: a mix). The plugin's picks lean that way */
+    var prefer: String?
     /** They closed it without choosing: not asked again (it's still in Profile → Tune Suggestions) */
     var skipped = false
 

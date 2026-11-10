@@ -87,7 +87,7 @@ struct QuickRateView: View {
                     ratings.removeValue(forKey: target.id)
                 }
                 titleCache[target.id] = target
-                await stremio.setRating(newScore, for: target.id)
+                await stremio.setRating(newScore, for: target.id, title: target)
                 let fresh = await stremio.allRatings()
                 await MainActor.run {
                     ratings = fresh

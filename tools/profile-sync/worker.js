@@ -26,7 +26,8 @@ const MAX_ACCOUNT = 1024 * 1024;
 const OVERLAP = 60 * 1000;
 const PICKS_TTL = 12 * 3600 * 1000;
 const CF_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
-const GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-flash-lite-latest"];
+// (the alias first: it answered at once where the named model timed out or said 503)
+const GEMINI_MODELS = ["gemini-flash-lite-latest", "gemini-3.5-flash-lite"];
 
 function cors(request) {
   const origin = request.headers.get("Origin") || "";
@@ -91,10 +92,11 @@ async function askModel(env, system, user) {
   if (apiKey) {
     for (const model of GEMINI_MODELS) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        // (the key in a header, not the address: addresses end up in logs)
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
         const r = await fetch(url, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: system }] },
             contents: [{ role: "user", parts: [{ text: user }] }],
@@ -173,8 +175,14 @@ async function handlePicks(request, env, account) {
     .map((r) => {
       const entry = { id: r.id.slice(0, 24), rating: r.rating };
       if (typeof r.name === "string" && r.name.trim()) entry.name = r.name.trim().slice(0, 120);
+      if (r.type === "movie" || r.type === "series") entry.type = r.type;
+      if (Number(r.year) > 1880) entry.year = Number(r.year);
       return entry;
-    });
+    })
+    // (a score with no name tells the model nothing)
+    .filter((r) => r.name);
+  // Films or series: what the viewer said they'd rather be suggested (null: no preference)
+  const prefer = body.prefer === "movie" || body.prefer === "series" ? body.prefer : null;
   const candidates = body.candidates.slice(0, 25)
     .filter((c) => c && typeof c.id === "string" && /^tt\d+$/.test(c.id) && typeof c.name === "string" && c.name.trim())
     .map((c) => ({
@@ -204,12 +212,23 @@ async function handlePicks(request, env, account) {
     return reply(request, 503, { error: "AI suggestions aren't configured on this Worker." });
   }
 
+  const kinds = prefer === "movie"
+    ? "The viewer prefers FILMS to series. Put films first in \"ranked\" unless a series is a far better fit, and make at least 6 of the \"additions\" films (type \"movie\"), at most 2 series. "
+    : prefer === "series"
+      ? "The viewer prefers SERIES to films. Put series first in \"ranked\" unless a film is a far better fit, and make at least 6 of the \"additions\" series, at most 2 films. "
+      : "Keep a fair mix of films and series, in about the proportion of \"watched\". ";
   const system =
-    "You are a film and television curator. Return ONLY strict JSON with shape {\"ranked\":[\"tt...\"],\"additions\":[{\"type\":\"movie\"|\"series\",\"name\":\"Title\",\"year\":2021,\"seeds\":[\"tt...\"]}]}. " +
-    "Explicit 1-10 \"ratings\" reflect the viewer's exact taste (Criticker TCI/PSI philosophy): scores 8-10 are high-affinity anchors and auteur/stylistic benchmarks; scores 1-4 are hard negatives whose tone, tropes, and creators must be avoided. " +
-    "1) In \"ranked\", reorder up to 20 of the best fitting candidate IDs from \"candidates\" for this viewer's weighted \"watched\" titles, \"genres\", and \"ratings\", demoting generic crowd-pleasers and avoiding more than 2 titles from the same seed in the top 10. " +
-    "2) In \"additions\", suggest 6-8 additional films or series not in \"watched\", \"dropped\", \"ratings\" (unless rated 8-10 as inspiration), or \"candidates\" (~70% strong tonal/creator/theme matches and ~30% adjacent discovery), avoiding the tone, tropes, creators, and franchises of \"dropped\" titles and titles rated 1-4. Each addition must have \"type\" (\"movie\" or \"series\"), exact \"name\", 4-digit \"year\", and \"seeds\" (1-2 watched or 8-10 rated IDs that inspired it).";
-  const user = JSON.stringify({ watched, genres, dropped, ratings, candidates });
+    "You choose what one viewer should watch next. Return ONLY strict JSON of the shape {\"ranked\":[\"tt...\"],\"additions\":[{\"type\":\"movie\"|\"series\",\"name\":\"Title\",\"year\":2021,\"seeds\":[\"tt...\"]}]}. " +
+    "The input JSON has: \"watched\" (the titles that say most about their taste; a higher \"weight\" says more), \"ratings\" (their own scores out of 10: 8 to 10 are what they love, 1 to 4 what they dislike), " +
+    "\"genres\" (genres they chose), \"dropped\" (titles they gave up on or hid), and \"candidates\" (titles already found for them). " +
+    kinds +
+    "1) \"ranked\": up to 20 candidate ids, best fit first. Judge fit by tone, themes, writing and the people who made it, not by genre label or popularity alone. Rank well-known crowd-pleasers below a closer match, " +
+    "and put no more than 2 titles that share a seed in the first 10. Leave out candidates that resemble the \"dropped\" titles or those rated 1 to 4. " +
+    "2) \"additions\": 8 titles that are NOT in \"watched\", \"ratings\", \"dropped\" or \"candidates\". About 5 should be close matches to what they love (same director or writer, same tone, the same kind of story); " +
+    "about 3 should be less obvious finds they are unlikely to have come across: older, foreign-language or lesser-known titles of high quality. No sequels or other entries of a franchise already in \"watched\" or \"ratings\". " +
+    "Nothing that resembles the \"dropped\" titles or those rated 1 to 4. Each needs \"type\", the exact original release \"name\" as IMDb lists it, the 4-digit release \"year\", " +
+    "and \"seeds\": 1 or 2 ids from \"watched\" or from \"ratings\" of 8 or more that it follows from.";
+  const user = JSON.stringify({ prefer: prefer || "no preference", watched, genres, dropped, ratings, candidates });
 
   let parsed;
   try {
@@ -221,7 +240,7 @@ async function handlePicks(request, env, account) {
   if (!parsed) return reply(request, 502, { error: "AI returned an invalid response." });
 
   const candIds = new Set(candidates.map((c) => c.id));
-  const watchedIds = new Set(watched.map((w) => w.id));
+  const watchedIds = new Set([...watched.map((w) => w.id), ...ratings.filter((r) => r.rating >= 8).map((r) => r.id)]);
   const defaultSeed = watched[0] ? watched[0].id : "";
   const ranked = [...new Set((Array.isArray(parsed.ranked) ? parsed.ranked : []).filter((id) => typeof id === "string" && candIds.has(id)))].slice(0, 40);
   const additions = (Array.isArray(parsed.additions) ? parsed.additions : [])

@@ -2,7 +2,7 @@ import SwiftUI
 
 /**
  * Discover, by streaming service: For You (what's new on digital, from the Library first, then popular
- * and genre rows), or one service's own page, in its colours (new, popular series and films, its genres).
+ * and genre rows, with genres, franchises and filmmakers between them), or one service's own page, in its colours (new, popular series and films, its genres).
  * The full catalog browser is at the bottom.
  */
 struct DiscoverView: View {
@@ -39,6 +39,9 @@ struct DiscoverView: View {
                     shelf(row)
                     // (Genres after the first couple of rows: tiles, as Apple TV's Search has)
                     if selected.isEmpty && i == min(1, rows.count - 1) { GenresSection() }
+                    // (then franchises, and the people behind the films, each a couple of rows further down)
+                    if selected.isEmpty && i == min(3, rows.count - 1) { FranchisesSection() }
+                    if selected.isEmpty && i == min(5, rows.count - 1) { FilmmakersSection() }
                 }
                 NavigationLink { CatalogBrowserView() } label: {
                     Label("Browse All Catalogs", systemImage: "square.grid.2x2")

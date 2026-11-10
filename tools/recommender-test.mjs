@@ -146,3 +146,41 @@ assert.deepEqual(
   "reorders by AI ranked, interleaves valid additions, appends unranked tail, and blocks seen/posterless/invalid/duplicate items"
 );
 console.log("PASS AI mergeRanked and guardrails");
+
+// Films or series: the seeds are never all one kind, and lean the way the viewer said
+{
+  const seed = (id, type, weight) => ({ item: { _id: id, type }, weight });
+  // (as a real history looks: series, watched for hours, outweigh every film)
+  const history = [
+    ...Array.from({ length: 14 }, (_, i) => seed(`s${i}`, "series", 9 - i * 0.2)),
+    ...Array.from({ length: 14 }, (_, i) => seed(`m${i}`, "movie", 3 - i * 0.1)),
+  ];
+  const count = (list, type) => list.filter((x) => (x.item ? x.item.type : x.type) === type).length;
+  const even = recoMath.pickSeeds(history, null, 12);
+  assert.equal(even.length, 12);
+  assert.equal(count(even, "movie"), 6, "with nothing said, half the seeds are films however much series weigh");
+  const films = recoMath.pickSeeds(history, "movie", 12);
+  assert.equal(count(films, "movie"), 9, "preferring films: three seeds in four are films");
+  assert.equal(films[0].item.type, "movie", "and the films come first (the Because you watched rows)");
+  assert.equal(films[0].item._id, "m0", "strongest first within a kind");
+  assert.equal(count(recoMath.pickSeeds(history, "series", 12), "series"), 9);
+  const fewFilms = recoMath.pickSeeds([...history.filter((x) => x.item.type === "series"), seed("m0", "movie", 1)], "movie", 12);
+  assert.equal(fewFilms.length, 12, "too few of the kind they prefer: made up from the other");
+  assert.equal(count(fewFilms, "movie"), 1);
+  assert.equal(recoMath.pickSeeds([], "movie", 12).length, 0);
+
+  assert.ok(recoMath.lean("movie").series < recoMath.lean("movie").movie);
+  assert.equal(recoMath.lean(null).series, recoMath.lean(null).movie);
+
+  const row = [..."abcdefgh"].map((c, i) => ({ id: c, type: i % 2 ? "movie" : "series" }));
+  assert.deepEqual(Array.from(recoMath.mix(row, null), (c) => c.id), row.map((c) => c.id), "no preference: the order as scored");
+  const mixed = recoMath.mix(row, "movie");
+  assert.equal(mixed.length, row.length, "nothing lost in the mix");
+  assert.deepEqual(Array.from(mixed.slice(0, 4), (c) => c.type), ["movie", "movie", "movie", "series"], "three films, then a series");
+  assert.equal(count(mixed.slice(0, 4), "movie"), 3);
+  assert.deepEqual(Array.from(mixed.filter((c) => c.type === "movie"), (c) => c.id), ["b", "d", "f", "h"], "each kind keeps its own order");
+
+  assert.ok(recoMath.ratedWeight(10) > recoMath.ratedWeight(7) && recoMath.ratedWeight(7) > 0, "rated from memory is a taste too");
+  assert.equal(recoMath.ratedWeight(6), 0);
+}
+console.log("ok: films or series, mixed seeds, rated-only titles");

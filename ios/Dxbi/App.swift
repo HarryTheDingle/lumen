@@ -66,6 +66,10 @@ enum Route: Hashable {
     /** A genre's page, and the festive one (Discover's Genres) */
     case genre(String)
     case christmas
+    /** A franchise's page (Discover's Franchises): the list's own id, or "tmdb:" and TMDB's collection id */
+    case franchise(id: String, name: String)
+    /** A director's or writer's page: as a person's, with what they directed and wrote ([id] can be empty: found by name) */
+    case filmmaker(id: String, name: String, photo: String?)
 }
 
 struct RootView: View {
@@ -207,6 +211,10 @@ struct Stack<Content: View>: View {
                             GenreView(name: name)
                         case .christmas:
                             ChristmasView()
+                        case .franchise(let id, let name):
+                            FranchiseView(id: id, name: name)
+                        case .filmmaker(let id, let name, let photo):
+                            PersonView(id: id, name: name, photo: photo, crew: true)
                         }
                     }
                 }

@@ -1115,8 +1115,14 @@ final class Stremio {
     }
 
     @MainActor
-    func setRating(_ score: Int?, for id: String) async {
-        _ = await dx("phone.setRating", id, score ?? 0)
+    /** [title]: what was rated. A title rated from memory isn't in the library, and the suggestions need its name and kind */
+    func setRating(_ score: Int?, for id: String, title: Title? = nil) async {
+        guard let title, !title.name.isEmpty else {
+            _ = await dx("phone.setRating", id, score ?? 0)
+            return
+        }
+        let meta: JSON = ["type": title.type == "movie" ? "movie" : "series", "name": title.name, "year": Int(title.year?.prefix(4) ?? "") ?? 0, "genres": Array(title.genres.prefix(4))]
+        _ = await dx("phone.setRating", id, score ?? 0, meta)
     }
 
     /** The next episode to start, once the player has closed (the title's page starts it: TitleView) */
