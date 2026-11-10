@@ -26,7 +26,7 @@ const MAX_ACCOUNT = 1024 * 1024;
 const OVERLAP = 60 * 1000;
 const PICKS_TTL = 12 * 3600 * 1000;
 const CF_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
-const GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+const GEMINI_MODELS = ["gemini-3.5-flash-lite"];
 
 function cors(request) {
   const origin = request.headers.get("Origin") || "";
@@ -100,17 +100,17 @@ async function askModel(env, system, user) {
             generationConfig: {
               responseMimeType: "application/json",
               temperature: 0.3,
-              thinkingConfig: { thinkingBudget: 0 },
             },
           }),
-          signal: AbortSignal.timeout(16000),
+          signal: AbortSignal.timeout(8000),
         });
         if (r.ok) {
           const j = await r.json();
           const parsed = parseJsonAnswer(j && j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts && j.candidates[0].content.parts[0] && j.candidates[0].content.parts[0].text);
           if (parsed) return parsed;
         } else {
-          console.warn(`Gemini ${model} returned ${r.status}`);
+          const errText = await r.text().catch(() => "");
+          console.warn(`Gemini ${model} returned ${r.status}: ${errText.slice(0, 200)}`);
         }
       } catch (err) {
         console.warn(`Gemini ${model} request error:`, (err && err.message) || err);
