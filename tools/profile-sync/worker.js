@@ -26,7 +26,7 @@ const MAX_ACCOUNT = 1024 * 1024;
 const OVERLAP = 60 * 1000;
 const PICKS_TTL = 12 * 3600 * 1000;
 const CF_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
-const GEMINI_MODELS = ["gemini-3.5-flash-lite"];
+const GEMINI_MODELS = ["gemini-flash-latest"];
 
 function cors(request) {
   const origin = request.headers.get("Origin") || "";
@@ -87,10 +87,11 @@ function parseJsonAnswer(raw) {
 }
 
 async function askModel(env, system, user) {
-  if (env.GEMINI_API_KEY) {
+  const apiKey = typeof env.GEMINI_API_KEY === "string" ? env.GEMINI_API_KEY.trim() : "";
+  if (apiKey) {
     for (const model of GEMINI_MODELS) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
         const r = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -100,9 +101,10 @@ async function askModel(env, system, user) {
             generationConfig: {
               responseMimeType: "application/json",
               temperature: 0.3,
+              maxOutputTokens: 550,
             },
           }),
-          signal: AbortSignal.timeout(8000),
+          signal: AbortSignal.timeout(6000),
         });
         if (r.ok) {
           const j = await r.json();
@@ -123,7 +125,7 @@ async function askModel(env, system, user) {
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      max_tokens: 900,
+      max_tokens: 550,
       temperature: 0.4,
     });
     return parseJsonAnswer(res);
@@ -144,41 +146,41 @@ async function handlePicks(request, env, account) {
   if (!body || typeof body.viewer !== "string" || !/^[\w-]{1,40}$/.test(body.viewer) || typeof body.sig !== "string" || !body.sig || body.sig.length > 1024 || !Array.isArray(body.candidates)) {
     return reply(request, 400, { error: "Invalid picks request." });
   }
-  const watched = (Array.isArray(body.watched) ? body.watched : []).slice(0, 16)
+  const watched = (Array.isArray(body.watched) ? body.watched : []).slice(0, 10)
     .filter((w) => w && typeof w.id === "string" && typeof w.name === "string" && w.name.trim())
     .map((w) => ({
       id: w.id.slice(0, 24),
       type: w.type === "series" ? "series" : "movie",
       name: w.name.trim().slice(0, 120),
       year: Number(w.year) || 0,
-      genres: (Array.isArray(w.genres) ? w.genres : []).slice(0, 6).map((g) => String(g).slice(0, 30)),
+      genres: (Array.isArray(w.genres) ? w.genres : []).slice(0, 4).map((g) => String(g).slice(0, 30)),
       weight: Math.round((Number(w.weight) || 1) * 100) / 100,
     }));
-  const genres = (Array.isArray(body.genres) ? body.genres : []).slice(0, 12)
+  const genres = (Array.isArray(body.genres) ? body.genres : []).slice(0, 8)
     .filter((g) => typeof g === "string" && g.trim())
     .map((g) => g.trim().slice(0, 30));
   if (!watched.length && !genres.length) return reply(request, 400, { error: "Need watched titles or genres." });
 
-  const dropped = (Array.isArray(body.dropped) ? body.dropped : []).slice(0, 12)
+  const dropped = (Array.isArray(body.dropped) ? body.dropped : []).slice(0, 8)
     .filter((d) => d && typeof d.name === "string" && d.name.trim())
     .map((d) => ({ id: String(d.id || "").slice(0, 24), type: d.type === "series" ? "series" : "movie", name: d.name.trim().slice(0, 120) }));
-  const ratings = (Array.isArray(body.ratings) ? body.ratings : []).slice(0, 40)
+  const ratings = (Array.isArray(body.ratings) ? body.ratings : []).slice(0, 20)
     .filter((r) => r && typeof r.id === "string" && Number.isInteger(r.rating) && r.rating >= 1 && r.rating <= 10)
     .map((r) => {
       const entry = { id: r.id.slice(0, 24), rating: r.rating };
       if (typeof r.name === "string" && r.name.trim()) entry.name = r.name.trim().slice(0, 120);
       return entry;
     });
-  const candidates = body.candidates.slice(0, 50)
+  const candidates = body.candidates.slice(0, 25)
     .filter((c) => c && typeof c.id === "string" && /^tt\d+$/.test(c.id) && typeof c.name === "string" && c.name.trim())
     .map((c) => ({
       id: c.id,
       type: c.type === "series" ? "series" : "movie",
       name: c.name.trim().slice(0, 120),
       year: Number(c.year) || 0,
-      genres: (Array.isArray(c.genres) ? c.genres : []).slice(0, 6).map((g) => String(g).slice(0, 30)),
+      genres: (Array.isArray(c.genres) ? c.genres : []).slice(0, 4).map((g) => String(g).slice(0, 30)),
       rating: Math.round((Number(c.rating) || 0) * 10) / 10,
-      seeds: (Array.isArray(c.seeds) ? c.seeds : []).slice(0, 4).map((s) => String(s).slice(0, 24)),
+      seeds: (Array.isArray(c.seeds) ? c.seeds : []).slice(0, 3).map((s) => String(s).slice(0, 24)),
     }));
 
   const cacheKey = `picks:${body.viewer}`;
@@ -201,8 +203,8 @@ async function handlePicks(request, env, account) {
   const system =
     "You are a film and television curator. Return ONLY strict JSON with shape {\"ranked\":[\"tt...\"],\"additions\":[{\"type\":\"movie\"|\"series\",\"name\":\"Title\",\"year\":2021,\"seeds\":[\"tt...\"]}]}. " +
     "Explicit 1-10 \"ratings\" reflect the viewer's exact taste (Criticker TCI/PSI philosophy): scores 8-10 are high-affinity anchors and auteur/stylistic benchmarks; scores 1-4 are hard negatives whose tone, tropes, and creators must be avoided. " +
-    "1) In \"ranked\", reorder up to 30 of the best fitting candidate IDs from \"candidates\" for this viewer's weighted \"watched\" titles (higher weight = finished/rewatched/binged or newly tuned seed), \"genres\", and \"ratings\", prioritizing high-affinity stylistic matches while demoting generic crowd-pleasers, and avoiding more than 2 titles from the same seed in the top 10. " +
-    "2) In \"additions\", suggest 10-15 additional films or series not in \"watched\", \"dropped\", \"ratings\" (unless rated 8-10 as inspiration), or \"candidates\" (~70% strong tonal/creator/theme matches and ~30% adjacent discovery), strictly avoiding the tone, tropes, creators, and franchises of \"dropped\" titles and titles rated 1-4. Each addition must have \"type\" (\"movie\" or \"series\"), exact \"name\", 4-digit \"year\", and \"seeds\" (1-2 watched or 8-10 rated IDs that inspired it).";
+    "1) In \"ranked\", reorder up to 20 of the best fitting candidate IDs from \"candidates\" for this viewer's weighted \"watched\" titles, \"genres\", and \"ratings\", demoting generic crowd-pleasers and avoiding more than 2 titles from the same seed in the top 10. " +
+    "2) In \"additions\", suggest 6-8 additional films or series not in \"watched\", \"dropped\", \"ratings\" (unless rated 8-10 as inspiration), or \"candidates\" (~70% strong tonal/creator/theme matches and ~30% adjacent discovery), avoiding the tone, tropes, creators, and franchises of \"dropped\" titles and titles rated 1-4. Each addition must have \"type\" (\"movie\" or \"series\"), exact \"name\", 4-digit \"year\", and \"seeds\" (1-2 watched or 8-10 rated IDs that inspired it).";
   const user = JSON.stringify({ watched, genres, dropped, ratings, candidates });
 
   let parsed;
