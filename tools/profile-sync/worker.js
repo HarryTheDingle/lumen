@@ -26,7 +26,7 @@ const MAX_ACCOUNT = 1024 * 1024;
 const OVERLAP = 60 * 1000;
 const PICKS_TTL = 12 * 3600 * 1000;
 const CF_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
-const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+const GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
 
 function cors(request) {
   const origin = request.headers.get("Origin") || "";
@@ -88,19 +88,34 @@ function parseJsonAnswer(raw) {
 
 async function askModel(env, system, user) {
   if (env.GEMINI_API_KEY) {
-    const r = await fetch(`${GEMINI_URL}?key=${encodeURIComponent(env.GEMINI_API_KEY)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: "user", parts: [{ text: user }] }],
-        generationConfig: { responseMimeType: "application/json", temperature: 0.4 },
-      }),
-      signal: AbortSignal.timeout(12000),
-    });
-    if (!r.ok) throw new Error(`Gemini ${r.status}`);
-    const j = await r.json();
-    return parseJsonAnswer(j && j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts && j.candidates[0].content.parts[0] && j.candidates[0].content.parts[0].text);
+    for (const model of GEMINI_MODELS) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: system }] },
+            contents: [{ role: "user", parts: [{ text: user }] }],
+            generationConfig: {
+              responseMimeType: "application/json",
+              temperature: 0.3,
+              thinkingConfig: { thinkingBudget: 0 },
+            },
+          }),
+          signal: AbortSignal.timeout(16000),
+        });
+        if (r.ok) {
+          const j = await r.json();
+          const parsed = parseJsonAnswer(j && j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts && j.candidates[0].content.parts[0] && j.candidates[0].content.parts[0].text);
+          if (parsed) return parsed;
+        } else {
+          console.warn(`Gemini ${model} returned ${r.status}`);
+        }
+      } catch (err) {
+        console.warn(`Gemini ${model} request error:`, (err && err.message) || err);
+      }
+    }
   }
   if (env.AI && typeof env.AI.run === "function") {
     const res = await env.AI.run(CF_MODEL, {

@@ -73,6 +73,7 @@ final class DiscoverFeed {
     }
 
     private var memory: [String: (at: Date, items: [Item])] = [:]
+    private var memoryTitle: [String: Title] = [:]
 
     /** A catalog's title, with when it came out (for "New on…") */
     struct Item: Codable, Hashable {
@@ -109,6 +110,45 @@ final class DiscoverFeed {
     func rated(_ type: String, genre: String) async -> [Item] {
         let extra = "/genre=\(genre.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? genre)"
         return await catalog("\(Self.cinemeta)/catalog/\(type)/imdbRating\(extra).json", keep: 6 * 3600)
+    }
+
+    /** Search Cinemeta for movies and series matching a query */
+    func search(_ query: String) async -> [Item] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty, let encoded = q.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return [] }
+        async let movies = catalog("\(Self.cinemeta)/catalog/movie/top/search=\(encoded).json", keep: 600)
+        async let series = catalog("\(Self.cinemeta)/catalog/series/top/search=\(encoded).json", keep: 600)
+        let (m, s) = await (movies, series)
+        var out: [Item] = []
+        var seen = Set<String>()
+        let maxCount = max(m.count, s.count)
+        for i in 0..<maxCount {
+            if i < m.count, seen.insert(m[i].title.id).inserted { out.append(m[i]) }
+            if i < s.count, seen.insert(s[i].title.id).inserted { out.append(s[i]) }
+        }
+        return out
+    }
+
+    /** Lookup title metadata by IMDb ID (from Cinemeta) */
+    func title(for id: String) async -> Title? {
+        if let saved = memoryTitle[id] { return saved }
+        let fetchMeta: (String) async -> Title? = { type in
+            guard let u = URL(string: "\(Self.cinemeta)/meta/\(type)/\(id).json"),
+                  let (data, _) = try? await URLSession.shared.data(from: u),
+                  let o = try? JSONSerialization.jsonObject(with: data) as? JSON,
+                  let meta = o["meta"] as? JSON,
+                  let name = meta["name"] as? String, !name.isEmpty else { return nil }
+            return Title(meta)
+        }
+        if let movie = await fetchMeta("movie") {
+            memoryTitle[id] = movie
+            return movie
+        }
+        if let series = await fetchMeta("series") {
+            memoryTitle[id] = series
+            return series
+        }
+        return nil
     }
 
     private func catalog(_ url: String, keep: TimeInterval) async -> [Item] {

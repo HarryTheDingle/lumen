@@ -16850,6 +16850,9 @@
       rating(id) {
         return ratings.get(id);
       },
+      ratings() {
+        return ratings.all();
+      },
       async setRating(id, score) {
         ratings.set(id, score);
         recommender.get();

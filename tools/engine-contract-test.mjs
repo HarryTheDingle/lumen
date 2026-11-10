@@ -36,7 +36,7 @@ for (const name of ["settings", "viewers", "whoIsWatching", "homeLayout", "episo
 assert.match(plugin, /window\.__dxbi = api/, "the api is window.__dxbi");
 // the phone app's own entry (Home's billboard and rows as data), and what it builds on
 const phone = block(api, "    phone: {");
-for (const name of ["billboard", "myList", "forYou", "airing", "layout", "viewers", "reviews", "streams", "play"]) {
+for (const name of ["billboard", "myList", "forYou", "airing", "layout", "viewers", "reviews", "streams", "play", "ratings"]) {
   assert.match(phone, new RegExp(`\\n\\s+(async\\s+)?${name}\\(`), `api.phone.${name}`);
 }
 for (const [owner, method] of [["hero", "load"], ["hero", "background"], ["myList", "groups"], ["forYou", "seed"], ["forYou", "saved"], ["forYou", "load"],

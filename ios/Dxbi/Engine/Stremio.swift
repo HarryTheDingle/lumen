@@ -1101,6 +1101,20 @@ final class Stremio {
     }
 
     @MainActor
+    func allRatings() async -> [String: Int] {
+        guard let dict = await dx("phone.ratings") as? [String: Any] else { return [:] }
+        var result: [String: Int] = [:]
+        for (k, v) in dict {
+            if let n = v as? NSNumber {
+                result[k] = n.intValue
+            } else if let i = v as? Int {
+                result[k] = i
+            }
+        }
+        return result
+    }
+
+    @MainActor
     func setRating(_ score: Int?, for id: String) async {
         _ = await dx("phone.setRating", id, score ?? 0)
     }

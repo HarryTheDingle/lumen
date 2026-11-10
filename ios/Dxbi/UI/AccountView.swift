@@ -129,6 +129,7 @@ struct AccountView: View {
                     NavigationLink { DownloadsView() } label: { Label("Downloads", systemImage: "arrow.down.circle.fill") }
                     NavigationLink { StatsView() } label: { Label("Your Stats", systemImage: "chart.bar.fill") }
                     Button { dismiss(); stremio.tuningPending = true } label: { Label("Tune Suggestions", systemImage: "wand.and.stars") }
+                    NavigationLink { QuickRateView() } label: { Label("Rate Movies & Series", systemImage: "star.circle.fill").foregroundStyle(.yellow) }
                     NavigationLink { CustomiseHomeView() } label: { Label("Customise Home", systemImage: "square.stack.3d.up.fill") }
                     NavigationLink { DxbiSettingsView() } label: { Label("Lumen Settings", systemImage: "slider.horizontal.3") }
                     NavigationLink { PlaybackSettingsView() } label: { Label("Playback", systemImage: "play.rectangle.fill") }
@@ -249,6 +250,7 @@ struct AddonsView: View {
 struct DxbiSettingsView: View {
     @Environment(Stremio.self) private var stremio
     @State private var settings: [Setting]?
+    @State private var ratedCount: Int?
 
     /** How Stremio's page looks: the app's own screens don't use these */
     private static let webOnly: Set<String> = [
@@ -259,6 +261,23 @@ struct DxbiSettingsView: View {
 
     var body: some View {
         List {
+            Section("Recommendations & Taste") {
+                NavigationLink {
+                    QuickRateView()
+                } label: {
+                    HStack {
+                        Label("Rate Movies & Series", systemImage: "star.circle.fill")
+                            .foregroundStyle(.yellow)
+                        Spacer()
+                        if let count = ratedCount, count > 0 {
+                            Text("\(count) rated")
+                                .font(.footnote)
+                                .foregroundStyle(Dx.muted)
+                        }
+                    }
+                }
+            }
+
             if let settings {
                 let groups = settings.reduce(into: [String]()) { if !$0.contains($1.group) { $0.append($1.group) } }
                 ForEach(groups, id: \.self) { group in
@@ -271,7 +290,15 @@ struct DxbiSettingsView: View {
             }
         }
         .navigationTitle("Lumen Settings")
-        .task { settings = await stremio.settings().filter { !Self.webOnly.contains($0.key) } }
+        .task {
+            settings = await stremio.settings().filter { !Self.webOnly.contains($0.key) }
+            ratedCount = (await stremio.allRatings()).count
+        }
+        .onAppear {
+            Task {
+                ratedCount = (await stremio.allRatings()).count
+            }
+        }
     }
 
     private func save(_ s: Setting, _ json: String) {
