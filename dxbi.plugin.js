@@ -12266,7 +12266,8 @@
       if (!seeds.length) return { rows: [] };
       const sig = this.sig(seeds);
       const saved = this.saved();
-      const fresh = saved && saved.sig === sig && Date.now() - saved.t < this.KEEP;
+      const ttl = !settings.aiPicks || (saved && saved.ai) ? this.KEEP : 60e3;
+      const fresh = saved && saved.sig === sig && Date.now() - saved.t < ttl;
       if (fresh) return { rows: saved.rows };
       if (this.loading !== sig) {
         this.loading = sig;
@@ -12278,6 +12279,7 @@
     // AI curation via Lumen's Worker (/picks): reorders candidates and resolves new additions through Cinemeta,
     // then enforces id, poster, skip and duplicate guardrails on the device. Falls back to scored on any error.
     async rank(taste, scored, skip) {
+      this.lastAi = false;
       if (!settings.aiPicks || !scored.length || !SYNC_ENDPOINT) return scored;
       const auth = cloudSync.auth();
       if (!auth || cloudSync.rejectedKey === auth.key) return scored;
@@ -12309,7 +12311,7 @@
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Stremio ${auth.key}` },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(25000),
       }).catch(() => null);
       if (!r || !r.ok) {
         if (r && r.status === 401) cloudSync.rejectedKey = auth.key;
@@ -12317,6 +12319,7 @@
       }
       const answer = await r.json().catch(() => null);
       if (!answer) return scored;
+      this.lastAi = true;
       const additions = (Array.isArray(answer.additions) ? answer.additions : []).slice(0, 15);
       const resolved = [];
       const topSeed = taste[0] && taste[0].item && taste[0].item._id;
@@ -12344,7 +12347,7 @@
       const skip = this.skip();
       taste.forEach((s) => skip.add(s.item._id));
       const result = settings.tmdbKey.trim() ? await this.fromTmdb(taste, skip) : await this.fromCinemeta(taste, skip);
-      try { localStorage.setItem(this.key(), JSON.stringify({ sig, t: Date.now(), rows: result })); } catch (_) { /* full */ }
+      try { localStorage.setItem(this.key(), JSON.stringify({ sig, t: Date.now(), ai: !!this.lastAi, rows: result })); } catch (_) { /* full */ }
       scheduleSync();
     },
 

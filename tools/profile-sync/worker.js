@@ -108,8 +108,7 @@ async function askModel(env, system, user) {
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      response_format: { type: "json_object" },
-      max_tokens: 1800,
+      max_tokens: 900,
       temperature: 0.4,
     });
     return parseJsonAnswer(res);
@@ -186,8 +185,9 @@ async function handlePicks(request, env, account) {
   let parsed;
   try {
     parsed = await askModel(env, system, user);
-  } catch (_) {
-    return reply(request, 502, { error: "AI model request failed." });
+  } catch (err) {
+    console.error("picks model error:", err && err.message ? err.message : err);
+    return reply(request, 502, { error: "AI model request failed.", detail: String((err && err.message) || err) });
   }
   if (!parsed) return reply(request, 502, { error: "AI returned an invalid response." });
 

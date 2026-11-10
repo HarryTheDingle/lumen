@@ -275,6 +275,7 @@ final class Stremio {
                 myList = list.compactMap { $0 as? JSON }.map(ListRow.init)
                 cache.set(Json.encode(list), forKey: "x.myList")
             }
+            _ = await dx("phone.picks")
             // (and the Top Picks the billboard suggests: picks can come without their story)
             // The billboard's own few first, then the rest: asked for all together, one slow title held up
             // every answer past the wait, and the billboard said no more than "TV Show"
