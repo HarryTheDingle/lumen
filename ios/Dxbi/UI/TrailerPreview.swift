@@ -21,7 +21,14 @@ struct TrailerPreview: UIViewRepresentable {
             muted = on
             run(on ? "player && player.mute()" : "player && player.unMute()")
         }
-        func pause() { run("player && player.pauseVideo()") }
+        /** It was stopped (a video played, another page was on top): YouTube shows its pause mark as it starts again */
+        @ObservationIgnored var stopped = false
+
+        func pause() {
+            playing = false
+            stopped = true
+            run("player && player.pauseVideo()")
+        }
         func resume() { run("player && player.playVideo()") }
 
         private func run(_ js: String) { web?.evaluateJavaScript(js, completionHandler: nil) }
@@ -56,13 +63,24 @@ struct TrailerPreview: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKScriptMessageHandler {
         let controller: Controller
+        @MainActor private var last: String?
         init(_ controller: Controller) { self.controller = controller }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             let state = message.body as? String
             Task { @MainActor in
-                if state == "playing" { self.controller.playing = true }
-                if state == "error" { self.controller.playing = false }
+                self.last = state
+                if state == "playing" {
+                    // (a moment for YouTube's own play mark to go, so it's never seen over the page: longer after a
+                    // stop, when its pause mark lingers)
+                    try? await Task.sleep(for: .milliseconds(self.controller.stopped ? 2600 : 700))
+                    if self.last == "playing" {
+                        self.controller.stopped = false
+                        self.controller.playing = true
+                    }
+                } else {
+                    self.controller.playing = false
+                }
             }
         }
     }
@@ -91,6 +109,7 @@ struct TrailerPreview: UIViewRepresentable {
                 onReady: function(e){ e.target.mute(); e.target.playVideo() },
                 onStateChange: function(e){
                   if (e.data === YT.PlayerState.PLAYING) say('playing');
+                  if (e.data === YT.PlayerState.PAUSED) say('paused');
                   if (e.data === YT.PlayerState.ENDED) { e.target.seekTo(0); e.target.playVideo() }
                 },
                 onError: function(){ say('error') }

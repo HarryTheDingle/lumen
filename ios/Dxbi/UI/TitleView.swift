@@ -366,11 +366,12 @@ struct TitleView: View {
                 }
                 Art(url: title.backdrop)
                     .opacity(preview.playing ? 0 : 1)
-                    .animation(.easeIn(duration: 0.9), value: preview.playing)
+                    // (in slowly over the trailer's start; back at once when it stops)
+                    .animation(preview.playing ? .easeIn(duration: 0.9) : .easeOut(duration: 0.25), value: preview.playing)
             }
                 .frame(width: width, height: artHeight)
                 .clipped()
-                .overlay(LinearGradient(stops: [.init(color: .black.opacity(0.35), location: 0), .init(color: .clear, location: 0.22), .init(color: .clear, location: 0.42), .init(color: .black.opacity(0.72), location: 0.8), .init(color: .black, location: 1)], startPoint: .top, endPoint: .bottom))
+                .overlay(LinearGradient(stops: [.init(color: .black.opacity(0.35), location: 0), .init(color: .clear, location: 0.22), .init(color: .clear, location: wide ? 0.42 : 0.3), .init(color: .black.opacity(wide ? 0.4 : 0.55), location: 0.6), .init(color: .black.opacity(wide ? 0.72 : 0.82), location: 0.8), .init(color: .black, location: 1)], startPoint: .top, endPoint: .bottom))
                 .overlay(wide ? LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .leading, endPoint: UnitPoint(x: 0.55, y: 0.5)) : nil)
                 .visualEffect { content, proxy in
                     let y = proxy.frame(in: .scrollView(axis: .vertical)).minY
@@ -392,7 +393,7 @@ struct TitleView: View {
             episodeLabel: label, episodeText: video?.overview ?? (label == nil ? nil : title.description),
             more: $moreText, formats: formats
         ) {
-            if title.watched { Badge(text: "WATCHED") }
+            if watchedAll { Badge(text: "WATCHED") }
             if let scores = reviews?.scores, !scores.isEmpty {
                 Button { reviewsOpen = true } label: {
                     HStack(spacing: 10) {
@@ -412,6 +413,17 @@ struct TitleView: View {
         }
     }
 
+    /**
+     * Seen all of it. Stremio marks a show watched once one episode has been, and a film as soon as it's been
+     * on a while: so a show needs every episode that's out, and a film mustn't have a place to go back to
+     */
+    private var watchedAll: Bool {
+        guard title.watched else { return false }
+        guard ref.type == "series" else { return !hasPlace }
+        let out = (details?.videos ?? []).filter { ($0.season ?? 0) > 0 && !$0.upcoming }
+        return !out.isEmpty && out.allSatisfy(\.watched)
+    }
+
     /** What the best stream offers, as small badges: 4K, Dolby Vision or HDR, Dolby Atmos, IMAX */
     private var formats: [String] {
         guard let p = current?.picked else { return [] }
@@ -428,6 +440,8 @@ struct TitleView: View {
             }
             .font(.subheadline)
             .lineLimit(3)
+            // (its full three lines: squeezed by the art's height, a phone showed one, cut short)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -553,7 +567,7 @@ struct TitleView: View {
                 ScrollView(.horizontal) {
                     LazyHStack(alignment: .top, spacing: 14) {
                         ForEach(related, id: \.id) { t in
-                            NavigationLink(value: Route.title(t.ref)) { PosterCard(title: t, width: Dx.poster) }
+                            NavigationLink(value: Route.title(t.ref)) { PosterCard(title: t, width: Dx.poster).zoomSource(t.id) }
                                 .buttonStyle(.plain)
                                 .titleMenu(t)
                         }

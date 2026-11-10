@@ -135,8 +135,6 @@ struct AccountView: View {
                     NavigationLink { NetworksView() } label: { Label("Networks", systemImage: "wifi") }
                 }
                 Section {
-                }
-                Section {
                     if stremio.account?.signedIn == true {
                         Button("Sign Out", role: .destructive) {
                             stremio.signOut()

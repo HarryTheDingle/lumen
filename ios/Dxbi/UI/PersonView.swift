@@ -144,7 +144,7 @@ struct PersonView: View {
                 ForEach(titles) { title in
                     NavigationLink(value: Route.title(title.ref)) {
                         VStack(alignment: .leading, spacing: 6) {
-                            PosterCard(title: title, width: Dx.poster)
+                            PosterCard(title: title, width: Dx.poster).zoomSource(title.id)
                             if let y = title.year, !y.isEmpty { Text(y).font(.caption).foregroundStyle(Dx.muted) }
                         }
                     }

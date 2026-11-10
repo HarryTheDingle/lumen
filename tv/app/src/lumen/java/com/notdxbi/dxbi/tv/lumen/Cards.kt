@@ -87,7 +87,7 @@ fun FocusCard(
                 scaleX = s
                 scaleY = s
                 this.shape = shape
-                shadowElevation = 26.dp.toPx() * lift
+                shadowElevation = 14.dp.toPx() * lift
                 ambientShadowColor = Color.Black
                 spotShadowColor = Color.Black
             },
@@ -203,7 +203,7 @@ fun Shelf(title: String, modifier: Modifier = Modifier, content: LazyListScope.(
         CompositionLocalProvider(LocalBringIntoViewSpec provides RowScrolling) {
             LazyRow(
                 // (room around the cards for them to grow and glow when chosen)
-                contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 12.dp),
+                contentPadding = PaddingValues(start = Dx.Gutter, end = Dx.Gutter, top = 14.dp, bottom = 0.dp),
                 horizontalArrangement = Arrangement.spacedBy(18.dp),
                 content = content,
             )
@@ -267,7 +267,7 @@ fun BoxScope.PosterName(title: Title, width: Dp) {
 /** New episodes this week: the episode's picture, the show and when */
 @Composable
 fun AiringCard(item: Airing, onClick: () -> Unit, width: Dp = 300.dp) {
-    FocusCard(onClick = onClick, corner = 16.dp, modifier = Modifier.size(width, width * 0.56f)) {
+    FocusCard(onClick = onClick, corner = 16.dp, modifier = Modifier.size(width, width * 0.64f)) {
         Box(Modifier.fillMaxSize()) {
             Art(item.still ?: item.background, Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.85f))))
@@ -278,7 +278,7 @@ fun AiringCard(item: Airing, onClick: () -> Unit, width: Dp = 300.dp) {
                     fontWeight = FontWeight.Bold,
                     color = if (item.out) Color.White else Dx.Muted,
                 )
-                Text(item.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(item.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
                     "S${item.season}, E${item.episode}${if (item.more > 0) " +${item.more}" else ""} · ${item.whenText}",
                     fontSize = 12.sp,
@@ -296,7 +296,7 @@ fun LoadingShelf(title: String) {
     Column(Modifier.fillMaxWidth()) {
         Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Dx.Faint, modifier = Modifier.padding(horizontal = Dx.Gutter))
         Spacer(Modifier.height(10.dp))
-        Row(Modifier.padding(horizontal = Dx.Gutter, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+        Row(Modifier.padding(horizontal = Dx.Gutter, vertical = 18.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             repeat(6) { Box(Modifier.size(Dx.Poster, Dx.Poster * 1.5f).background(Dx.Raised, RoundedCornerShape(12.dp))) }
         }
     }

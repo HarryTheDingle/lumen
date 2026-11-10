@@ -251,7 +251,7 @@ private struct GenreShelf: View {
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 14) {
                     ForEach(items, id: \.id) { t in
-                        NavigationLink(value: Route.title(t.ref)) { PosterCard(title: t, width: Dx.poster) }
+                        NavigationLink(value: Route.title(t.ref)) { PosterCard(title: t, width: Dx.poster).zoomSource(t.id) }
                             .buttonStyle(.plain)
                             .titleMenu(t)
                     }

@@ -33,6 +33,8 @@ extension Stremio {
 
     /** Asked once, on a profile with nothing watched: not again after Skip, or once it has chosen */
     func offerTuning() {
+        // (not over the sign-in screen: the page answers for nobody there too)
+        guard account?.signedIn == true || guest else { return }
         guard profileChosen, !tuningPending, taste == nil else { return }
         tuningPending = true
     }

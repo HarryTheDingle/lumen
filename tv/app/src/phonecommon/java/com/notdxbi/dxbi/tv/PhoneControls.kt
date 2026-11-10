@@ -662,7 +662,7 @@ class PhoneControls(
         val a = exo.audioFormat
         fun codec(mime: String?) = mime?.substringAfter('/')?.removePrefix("x-")?.uppercase() ?: "—"
         return listOfNotNull(
-            v?.let { "${it.width} × ${it.height} · ${codec(it.sampleMimeType)}" + (it.frameRate.takeIf { r -> r > 0 }?.let { r -> " · %.0f fps".format(r) } ?: "") },
+            v?.let { "${it.width} × ${it.height} · ${codec(it.sampleMimeType)}${hdrName(exo, it)}" + (it.frameRate.takeIf { r -> r > 0 }?.let { r -> " · %.0f fps".format(r) } ?: "") },
             a?.let { codec(it.sampleMimeType) + (channelName(it.channelCount)?.let { c -> " · $c" } ?: "") },
             v?.bitrate?.takeIf { it > 0 }?.let { "%.1f Mbps".format(it / 1_000_000f) },
             "%.0f s buffered".format(exo.totalBufferedDuration / 1000f),

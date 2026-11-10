@@ -23,6 +23,8 @@ struct PlayerScreen: View {
     @State private var level: (icon: String, value: Double, left: Bool)?
     @State private var hideLevel: Task<Void, Never>?
     @State private var scrubbing: Double?
+    /** Where a seek was let go, shown until the video is there (without it the bar fell back to the old place, then jumped past the new one) */
+    @State private var landing: Double?
     @State private var now = Date()
     @State private var streamsOpen = false
     /** More's buttons out (Streams, stats, another app) */
@@ -62,6 +64,9 @@ struct PlayerScreen: View {
             if shown, playback.duration > 0, !locked { playback.thumbs?.warm(at: playback.position) }
         }
         // Scrubbing: the preview follows the finger (and rests when it lets go)
+        .onChange(of: playback.position) { _, now in
+            if let to = landing, abs(now - to) < 12 { landing = nil }
+        }
         .onChange(of: scrubbing) { _, target in
             if let target { playback.thumbs?.show(target) } else { playback.thumbs?.rest() }
         }
@@ -246,18 +251,23 @@ struct PlayerScreen: View {
 
     private var bottomBar: some View {
         VStack(spacing: 10) {
-            Scrubber(position: scrubbing ?? playback.position, duration: playback.duration, accent: Color(playback.accent), segments: playback.segments, buffered: playback.buffered) { value, done in
+            Scrubber(position: scrubbing ?? landing ?? playback.position, duration: playback.duration, accent: Color(playback.accent), segments: playback.segments, buffered: playback.buffered) { value, done in
                 if done {
                     playback.mpv.seek(to: value)
+                    landing = value
                     scrubbing = nil
                     poke()
+                    Task {
+                        try? await Task.sleep(for: .seconds(3))
+                        if landing == value { landing = nil }
+                    }
                 } else {
                     scrubbing = value
                     hideTask?.cancel()
                 }
             }
             HStack(spacing: 10) {
-                Text(time(scrubbing ?? playback.position)).monospacedDigit()
+                Text(time(scrubbing ?? landing ?? playback.position)).monospacedDigit()
                 Text("/ " + time(playback.duration)).monospacedDigit().foregroundStyle(Dx.muted)
                 Spacer()
                 // (each menu is its own view: it redraws only when what it shows changes, not with the

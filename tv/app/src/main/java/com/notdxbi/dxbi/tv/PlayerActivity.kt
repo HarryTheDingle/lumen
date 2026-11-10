@@ -25,6 +25,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -154,6 +155,23 @@ class PlayerActivity : AppCompatActivity() {
     // Lumen: its seeking (pause, choose, OK), and each show's sound and subtitles remembered
     private var scrubber: Scrubber? = null
     private var tracks: TrackMemory? = null
+    private var audioChecked = false
+
+    /**
+     * The track to start on when the one chosen is a commentary (or isn't English while the file has English): the English
+     * track that isn't a commentary, the file's own default first, then the most channels. Null when the one playing is fine.
+     */
+    private fun plainAudio(tracks: Tracks): Pair<Tracks.Group, Int>? {
+        val all = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }.flatMap { g -> (0 until g.length).filter { g.isTrackSupported(it) }.map { g to it } }
+        fun english(f: androidx.media3.common.Format) = f.language?.let { l -> runCatching { java.util.Locale(l.substringBefore('-')).isO3Language }.getOrDefault(l).lowercase() } == "eng"
+        val playing = all.firstOrNull { (g, i) -> g.isTrackSelected(i) } ?: return null
+        val pf = playing.first.getTrackFormat(playing.second)
+        val fine = !isCommentary(pf) && (english(pf) || pf.language == null || pf.language == "und" || all.none { (g, i) -> english(g.getTrackFormat(i)) && !isCommentary(g.getTrackFormat(i)) })
+        if (fine) return null
+        return all.filter { (g, i) -> g.getTrackFormat(i).let { english(it) && !isCommentary(it) } }
+            .maxWithOrNull(compareBy({ (g, i) -> g.getTrackFormat(i).selectionFlags and C.SELECTION_FLAG_DEFAULT }, { (g, i) -> g.getTrackFormat(i).channelCount }))
+            ?: all.filter { (g, i) -> !isCommentary(g.getTrackFormat(i)) }.firstOrNull()?.takeIf { playing.first.getTrackFormat(playing.second).let(::isCommentary) }
+    }
     /** How fast the stream came, as the player measured it while loading (bits a second) */
     private var measuredBps = 0L
     private var pictureReported = false
@@ -456,6 +474,13 @@ class PlayerActivity : AppCompatActivity() {
 
             override fun onTracksChanged(tracks: Tracks) {
                 this@PlayerActivity.tracks?.changed(tracks)
+                // (whatever the file started on, a commentary or a description track isn't the film: its English sound is)
+                if (!audioChecked && tracks.groups.any { it.type == C.TRACK_TYPE_AUDIO }) {
+                    audioChecked = true
+                    plainAudio(tracks)?.let { (group, i) ->
+                        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon().setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, i)).build()
+                    }
+                }
                 if (!subtitlesChosen && subtitleLanguage != null) subtitlesChosen = preferOwnSubtitles(tracks, subtitleLanguage, sideloaded)
                 val text = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }.flatMap { g -> (0 until g.length).filter { g.isTrackSelected(it) }.map { i -> g.getTrackFormat(i).id } }
                 if (text.isNotEmpty() && text != lastText) exo.seekTo(exo.currentPosition)

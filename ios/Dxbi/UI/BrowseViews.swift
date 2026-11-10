@@ -12,7 +12,7 @@ struct PosterGrid: View {
                 NavigationLink(value: Route.title(title.ref)) {
                     Color.clear
                         .aspectRatio(2 / 3, contentMode: .fit)
-                        .overlay { Art(url: title.art) }
+                        .overlay { PosterArt(title: title) }
                         .clipShape(.rect(cornerRadius: 14))
                         .overlay(alignment: .topTrailing) {
                             if stremio.isWatched(title) {
@@ -66,7 +66,8 @@ struct SearchView: View {
                 LazyVStack(alignment: .leading, spacing: 28) {
                     let rows = stremio.search.filter { !$0.items.isEmpty }
                     ForEach(rows) { row in
-                        Shelf(title: row.heading, see: row.discover.map { .browse(link: $0, name: row.heading) }) {
+                        let heading = heading(row, among: rows)
+                        Shelf(title: heading, see: row.discover.map { .browse(link: $0, name: heading) }) {
                             ForEach(row.items) { title in
                                 NavigationLink(value: Route.title(title.ref)) {
                                     PosterCard(title: title, width: Dx.pad ? 160 : Dx.poster).zoomSource(title.id)
@@ -86,7 +87,8 @@ struct SearchView: View {
                 }
             }
         }
-        .padding(.bottom, 30)
+        // (room at the foot inside the scrolling, not under it: the list was cut off short of the screen's edge)
+        .contentMargins(.bottom, 30, for: .scrollContent)
         .screenBackground()
         .navigationTitle("Search")
         .searchable(text: $query, prompt: "Films, shows, people")
@@ -108,22 +110,10 @@ struct SearchView: View {
         }
     }
 
-    /** Nothing typed yet: what Search finds, as Stremio's desktop app says it */
-    private var hints: some View {
-        VStack(spacing: 30) {
-            Text("You can search anything…").font(.title3).foregroundStyle(Dx.muted)
-            HStack(alignment: .top, spacing: 12) {
-                ForEach([("film.stack", "Movies"), ("tv", "TV shows & anime"), ("person.fill", "Actors, directors & writers")], id: \.0) { icon, label in
-                    VStack(spacing: 12) {
-                        Image(systemName: icon).font(.system(size: 34)).frame(height: 40)
-                        Text(label).font(.footnote).multilineTextAlignment(.center)
-                    }
-                    .foregroundStyle(Dx.muted)
-                    .frame(maxWidth: .infinity)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
+    /** "Films", "TV Shows": what the row holds, and whose it is when two addons found the same kind */
+    private func heading(_ row: Row, among rows: [Row]) -> String {
+        let kind = row.type == "movie" ? "Films" : row.type == "series" ? "TV Shows" : typeName(row.type)
+        return rows.filter { $0.type == row.type }.count > 1 && !row.addon.isEmpty ? "\(kind) · \(row.addon)" : kind
     }
 
     private func run() {
@@ -225,7 +215,7 @@ struct BrowseView: View {
                 if d.state == .loading { ProgressView().padding() }
             }
         }
-        .padding(.bottom, 30)
+        .contentMargins(.bottom, 30, for: .scrollContent)
         .screenBackground()
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)

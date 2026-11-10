@@ -87,7 +87,7 @@ class TrackMemory(context: Context, private val exo: ExoPlayer, private val show
     /** The track of [type] in [language] (the same name first), that can play */
     private fun find(tracks: Tracks, type: Int, language: String, label: String): Pair<Tracks.Group, Int>? {
         if (language.isEmpty()) return null
-        val all = tracks.groups.filter { it.type == type }.flatMap { g -> (0 until g.length).filter { g.isTrackSupported(it) }.map { g to it } }
+        val all = tracks.groups.filter { it.type == type }.flatMap { g -> (0 until g.length).filter { g.isTrackSupported(it) && !(type == C.TRACK_TYPE_AUDIO && isCommentary(g.getTrackFormat(it))) }.map { g to it } }
         val inLanguage = all.filter { (g, i) -> g.getTrackFormat(i).language?.let(::iso3) == iso3(language) }
         return inLanguage.firstOrNull { (g, i) -> label.isNotEmpty() && g.getTrackFormat(i).label == label } ?: inLanguage.firstOrNull()
     }

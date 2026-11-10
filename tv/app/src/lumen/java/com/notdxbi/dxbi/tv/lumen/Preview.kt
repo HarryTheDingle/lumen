@@ -219,9 +219,10 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
     // Apple TV's caption: the name and what it is, fading in under the poster the remote is on (the card that
     // opens out has them itself, so it goes then). The room for it is there in every row, so nothing moves.
     val captionAlpha by animateFloatAsState(if (focused && !open) 1f else 0f, tween(220), label = "caption")
-    Column(Modifier.width(width).height(46.dp).padding(top = 14.dp).graphicsLayer { alpha = captionAlpha }) {
-        Text(title.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(listOfNotNull(typeName(title.type), title.genres.firstOrNull()).joinToString(" · "), fontSize = 11.sp, color = Dx.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    // (just what it is, riding down with the poster as it grows: the poster is 10% larger, so its foot is 5% of its height lower)
+    val drop = with(androidx.compose.ui.platform.LocalDensity.current) { (width * 1.5f * 0.05f).toPx() }
+    Column(Modifier.width(width).height(30.dp).padding(top = 10.dp).graphicsLayer { alpha = captionAlpha; translationY = drop * captionAlpha }) {
+        Text(listOfNotNull(typeName(title.type), title.genres.firstOrNull()).joinToString(" · "), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.8f), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
     }
 }
@@ -233,9 +234,9 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 300.dp, onLongClick: (() -> Unit)? = null) {
+fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 270.dp, onLongClick: (() -> Unit)? = null) {
     val title = item.title
-    val height = width * 0.56f
+    val height = width * 0.64f
     val actions = LocalCardActions.current
     var focused by remember { mutableStateOf(false) }
     var open by remember { mutableStateOf(false) }
@@ -303,7 +304,7 @@ fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 300.dp,
                     title.name,
                     style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold, shadow = Shadow(Color.Black, blurRadius = 8f)),
                     color = Color.White,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (open) {

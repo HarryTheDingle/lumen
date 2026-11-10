@@ -476,7 +476,7 @@ class PlayerControls(
         fun codec(mime: String?) = mime?.substringAfter('/')?.removePrefix("x-")?.uppercase() ?: "—"
         val lines = mutableListOf<String>()
         lines += "Picture  " + (if (video != null) "${video.width} × ${video.height}" else "—")
-        lines += "Video  " + codec(video?.sampleMimeType) + (video?.frameRate?.takeIf { it > 0 }?.let { " · %.0f fps".format(it) } ?: "")
+        lines += "Video  " + codec(video?.sampleMimeType) + hdrName(exo, video) + (video?.frameRate?.takeIf { it > 0 }?.let { " · %.0f fps".format(it) } ?: "")
         lines += "Audio  " + codec(audio?.sampleMimeType) + (audio?.channelCount?.takeIf { it > 0 }?.let { " · " + channelName(it) } ?: "")
         (video?.bitrate?.takeIf { it > 0 })?.let { lines += "Bitrate  %.1f Mbps".format(it / 1_000_000f) }
         lines += "Buffered  %.0f s".format(exo.totalBufferedDuration / 1000f)

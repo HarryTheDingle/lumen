@@ -15,12 +15,13 @@ struct HomeView: View {
         GeometryReader { g in
             let width = g.size.width
             let wide = width > g.size.height
+            let billboardHeight = wide ? g.size.height * 0.92 : min(g.size.height * 0.74, width * 1.55)
             ScrollView {
                 // (not lazy: rows arriving above, Top Picks among them, left a lazy column with blank gaps
                 // where rows should be, coming and going. Each row's own posters are still lazy)
                 VStack(alignment: .leading, spacing: 30) {
                     if !billboardTitles.isEmpty {
-                        Billboard(titles: billboardTitles, playLabels: playLabels, height: wide ? g.size.height * 0.92 : min(g.size.height * 0.74, width * 1.55))
+                        Billboard(titles: billboardTitles, playLabels: playLabels, height: billboardHeight)
                     } else {
                         Color.clear.frame(height: 90)
                     }
@@ -79,7 +80,7 @@ struct HomeView: View {
             .scrollIndicators(.hidden)
             // the billboard shows through the top bar, as on Apple TV; once it's scrolled away, rows
             // fade out under the title instead of running into it
-            .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > min(g.size.height * 0.74, width * 1.55) - 140 } action: { _, past in
+            .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > billboardHeight - 140 } action: { _, past in
                 pastBillboard = past
             }
             .scrollEdgeEffectHidden(!pastBillboard, for: .top)
@@ -452,7 +453,7 @@ private struct Billboard: View {
             .frame(height: height)
             .overlay { Art(url: title.backdrop) }
             .clipped()
-            .overlay(LinearGradient(stops: [.init(color: .black.opacity(0.35), location: 0), .init(color: .clear, location: 0.25), .init(color: .clear, location: 0.45), .init(color: .black, location: 0.92)], startPoint: .top, endPoint: .bottom))
+            .overlay(LinearGradient(stops: [.init(color: .black.opacity(0.35), location: 0), .init(color: .clear, location: 0.25), .init(color: .clear, location: 0.4), .init(color: .black.opacity(0.6), location: 0.7), .init(color: .black, location: 0.92)], startPoint: .top, endPoint: .bottom))
     }
 
     private func info(_ title: Title) -> some View {

@@ -108,6 +108,7 @@ final class Stremio {
         myList = (savedList("x.myList") ?? []).map(ListRow.init)
         forYou = savedList("x.forYou")?.first.map(ListRow.init).flatMap { $0.items.isEmpty ? nil : $0 }
         picks = (savedList("x.picks") ?? []).map(ListRow.init).filter { !$0.items.isEmpty }
+        described = (cache.string(forKey: "x.described").flatMap { Json.decode($0) as? JSON } ?? [:]).compactMapValues { $0 as? JSON }
         viewers = (savedList("x.viewers") ?? []).map(Viewer.init)
         viewer = viewers.first { $0.id == cache.string(forKey: "x.viewer") } ?? viewers.first
         currentAccountId = cache.string(forKey: "accounts.current")
@@ -275,9 +276,16 @@ final class Stremio {
                 cache.set(Json.encode(list), forKey: "x.myList")
             }
             // (and the Top Picks the billboard suggests: picks can come without their story)
-            let toDescribe = continueWatching.prefix(12).map(\.title) + (picks.first?.items.prefix(8) ?? [])
-            if let o = await dx("phone.describe", toDescribe.map { [$0.type, $0.id] }) as? JSON {
-                described = o.compactMapValues { $0 as? JSON }
+            // The billboard's own few first, then the rest: asked for all together, one slow title held up
+            // every answer past the wait, and the billboard said no more than "TV Show"
+            let lead = continueWatching.prefix(4).map(\.title) + (picks.first?.items.prefix(4) ?? [])
+            let rest = continueWatching.dropFirst(4).prefix(8).map(\.title) + (picks.first?.items.dropFirst(4).prefix(4) ?? [])
+            for group in [lead, rest] where !group.isEmpty {
+                if Task.isCancelled { return }
+                guard let o = await ask("dx", ["method": "phone.describe", "args": [group.map { [$0.type, $0.id] }]], timeout: 30) as? JSON else { continue }
+                if described.count > 80 { described = [:] }
+                described.merge(o.compactMapValues { $0 as? JSON }) { _, new in new }
+                cache.set(Json.encode(described), forKey: "x.described")
             }
             if let list = await dx("phone.airing") as? [Any] {
                 airing = list.compactMap { $0 as? JSON }.map(Airing.init)
@@ -468,7 +476,8 @@ final class Stremio {
     /** In the Library, or watched: from [inLibrary] and [watchedIds], else what the title came with */
     /** (a title in the Library tab is in it, whatever the marks say: a just-played film is saved only for a while, and couldn't be removed) */
     func isInLibrary(_ title: Title) -> Bool { marksKnown ? inLibrary.contains(title.id) || library.contains { $0.id == title.id } : title.inLibrary }
-    func isWatched(_ title: Title) -> Bool { marksKnown ? watchedIds.contains(title.id) : title.watched }
+    /** (Stremio counts a show as watched once one episode has been: one still in Continue Watching isn't) */
+    func isWatched(_ title: Title) -> Bool { (marksKnown ? watchedIds.contains(title.id) : title.watched) && !isStarted(title) }
     /** Partly seen (it's in Continue Watching): Mark as Unwatched is offered too, and puts it back to the start */
     func isStarted(_ title: Title) -> Bool { continueWatching.contains { $0.title.id == title.id } }
 
@@ -517,7 +526,13 @@ final class Stremio {
      */
     func lighter(mbps: Double, nowMbps: Double) async -> [StreamOption] {
         let list = await dx("phone.lighter", mbps, nowMbps) as? [Any] ?? []
-        return list.compactMap { $0 as? JSON }.map { StreamOption($0.int("index", -1), $0) }.filter { $0.index >= 0 }
+        return Self.once(list.compactMap { $0 as? JSON }.map { StreamOption($0.int("index", -1), $0) }.filter { $0.index >= 0 })
+    }
+
+    /** Streams that read the same (quality, addon, size) once: a list of three identical rows is no choice */
+    private static func once(_ options: [StreamOption]) -> [StreamOption] {
+        var seen = Set<String>()
+        return options.filter { seen.insert("\($0.label)|\($0.addon)|\(Int($0.size))|\($0.mbps)").inserted }
     }
 
     /** Where to start the next player after a stream switch: the same video, at this place */
@@ -568,7 +583,7 @@ final class Stremio {
     func alternatives(nowMbps: Double) async -> [StreamGroup] {
         let o = await dx("phone.alternatives", nowMbps) as? JSON
         return (o?.objects("groups") ?? []).map { g in
-            StreamGroup(title: g.string("title"), options: g.objects("options").map { StreamOption($0.int("index", -1), $0) }.filter { $0.index >= 0 })
+            StreamGroup(title: g.string("title"), options: Self.once(g.objects("options").map { StreamOption($0.int("index", -1), $0) }.filter { $0.index >= 0 }))
         }.filter { !$0.options.isEmpty }
     }
 
@@ -891,15 +906,25 @@ final class Stremio {
     /** Who's watching: their own Continue Watching, watched marks and picks follow */
     func chooseViewer(_ id: String) {
         profileChosen = true
+        // (the same person as last time: what's on Home is theirs already. Emptied, Continue Watching stayed
+        // empty, since the page only sends it again when it changes)
+        let same = viewer?.id == id
         if let v = viewers.first(where: { $0.id == id }) { viewer = v }
         Task {
             await dx("viewers.select", id)
-            // (Home waits on the page: this person's rows come from the same page)
-            continueWatching = []
-            picks = []
-            forYou = nil
-            taste = nil
-            tasteRows = []
+            if !same {
+                // (Home waits on the page: this person's rows come from the same page)
+                continueWatching = []
+                picks = []
+                forYou = nil
+                taste = nil
+                tasteRows = []
+                // (asked for, in case the page doesn't say: it only sends what it sees change)
+                try? await Task.sleep(for: .milliseconds(400))
+                if continueWatching.isEmpty, let now = await ask("get", ["field": "continue_watching_preview"]) as? JSON {
+                    apply("continue_watching_preview", now, save: true)
+                }
+            }
             refreshExtras()
         }
     }
@@ -951,10 +976,10 @@ final class Stremio {
     func clearScreens() {
         account = nil
         continueWatching = []; rows = []; allRows = []; billboard = []; myList = []; forYou = nil; picks = []; airing = []
-        taste = nil; tasteRows = []; tuning = false; tuningPending = false
+        taste = nil; tasteRows = []; tuning = false; tuningPending = false; described = [:]
         library = []; inLibrary = []; watchedIds = []; marksKnown = false; viewers = []; viewer = nil; details = nil
         profileChosen = false
-        for key in ["state.ctx", "state.board", "state.continue_watching_preview", "x.billboard", "x.myList", "x.forYou", "x.picks", "x.airing", "x.layout", "x.viewers", "x.viewer"] {
+        for key in ["state.ctx", "state.board", "state.continue_watching_preview", "x.billboard", "x.myList", "x.forYou", "x.picks", "x.airing", "x.layout", "x.viewers", "x.viewer", "x.described"] {
             cache.removeObject(forKey: key)
         }
     }

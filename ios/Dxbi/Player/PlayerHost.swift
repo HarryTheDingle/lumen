@@ -82,6 +82,9 @@ final class PlayerHost: UIHostingController<AnyView> {
         }
         let host = PlayerHost(rootView: AnyView(PlayerScreen(playback: playback).environment(stremio).preferredColorScheme(.dark)))
         host.modalPresentationStyle = .fullScreen
+        // (a fade, as Apple TV's player closes: sliding away, it uncovered the upright page lying on its side
+        // before the phone had turned back)
+        host.modalTransitionStyle = .crossDissolve
         host.view.backgroundColor = .black
         host.playback = playback
         shown = host

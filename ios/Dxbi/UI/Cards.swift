@@ -14,7 +14,7 @@ struct PosterCard: View {
         ZStack(alignment: .bottom) {
             // (the poster names the title itself; an anime's (Kitsu's) often doesn't, in a language you can read:
             // so its name goes on it in text)
-            Art(url: title.art)
+            PosterArt(title: title)
                 .frame(width: width, height: width * 1.5)
             if title.id.hasPrefix("kitsu:") || title.id.hasPrefix("mal:") {
                 LinearGradient(colors: [.clear, .black.opacity(0.78)], startPoint: .center, endPoint: .bottom)
@@ -60,6 +60,30 @@ struct PosterCard: View {
         .overlay(RoundedRectangle(cornerRadius: corner).strokeBorder(LinearGradient(colors: [.white.opacity(0.32), .white.opacity(0.06), .white.opacity(0.14)], startPoint: .top, endPoint: .bottom), lineWidth: 1))
         .contentShape(.rect(cornerRadius: corner))
         .contentShape(.contextMenuPreview, .rect(cornerRadius: corner))
+    }
+}
+
+/** A title's poster, filling its frame; one that has no picture says the title's name (search finds plenty of those) */
+struct PosterArt: View {
+    var title: Title
+
+    var body: some View {
+        WebImage(url: title.art) { image in
+            image.resizable().aspectRatio(contentMode: .fill)
+        } placeholder: { missing in
+            Rectangle().fill(Dx.raised)
+                .overlay {
+                    if missing {
+                        Text(title.name)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Dx.muted)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(5)
+                            .minimumScaleFactor(0.8)
+                            .padding(10)
+                    }
+                }
+        }
     }
 }
 

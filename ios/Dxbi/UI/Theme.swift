@@ -91,6 +91,53 @@ enum Pictures {
         return .missing
     }
 
+    private static let trimmed: NSCache<NSURL, UIImage> = {
+        let c = NSCache<NSURL, UIImage>()
+        c.countLimit = 80
+        return c
+    }()
+    /** Logos looked at already that had nothing to trim */
+    private static var untrimmed: Set<URL> = []
+
+    /**
+     * A logo without the empty space around it. Many are drawn in the middle of a wider see-through picture, so
+     * "left-aligned" left them floating in from the edge, out of line with the words under them
+     */
+    static func trimmedLogo(_ url: URL?) -> UIImage? {
+        guard let url, !untrimmed.contains(url) else { return nil }
+        if let known = trimmed.object(forKey: url as NSURL) { return known }
+        guard let image = memory.object(forKey: url as NSURL), let cg = image.cgImage else { return nil }
+        let w = cg.width, h = cg.height
+        guard w > 0, h > 0, w * h <= 1_500_000 else { untrimmed.insert(url); return nil }
+        var pixels = [UInt8](repeating: 0, count: w * h * 4)
+        let drawn: Bool = pixels.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        guard drawn else { untrimmed.insert(url); return nil }
+        var minX = w, maxX = -1, minY = h, maxY = -1
+        for y in 0..<h {
+            let row = y * w * 4
+            for x in 0..<w where pixels[row + x * 4 + 3] > 16 {
+                if x < minX { minX = x }
+                if x > maxX { maxX = x }
+                if y < minY { minY = y }
+                if y > maxY { maxY = y }
+            }
+        }
+        // (nothing drawn, or next to nothing to take off)
+        guard maxX >= minX, maxY >= minY, (maxX - minX + 1) * (maxY - minY + 1) < w * h * 94 / 100,
+              let cut = cg.cropping(to: CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)) else {
+            untrimmed.insert(url)
+            return nil
+        }
+        let out = UIImage(cgImage: cut, scale: image.scale, orientation: image.imageOrientation)
+        trimmed.setObject(out, forKey: url as NSURL)
+        return out
+    }
+
     private static var darkness: [URL: Bool] = [:]
 
     /** Mostly dark (its visible pixels): a logo drawn in black, lost on a dark page */
@@ -176,7 +223,8 @@ struct TitleLogo: View {
 
     var body: some View {
         WebImage(url: title.logoURL) { image in
-            image.renderingMode(Pictures.isDark(title.logoURL) ? .template : .original)
+            (Pictures.trimmedLogo(title.logoURL).map(Image.init(uiImage:)) ?? image)
+                .renderingMode(Pictures.isDark(title.logoURL) ? .template : .original)
                 .resizable().scaledToFit().frame(maxHeight: maxHeight, alignment: alignment)
                 .foregroundStyle(.white)
                 .shadow(color: .black.opacity(0.5), radius: 12)
