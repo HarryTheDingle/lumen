@@ -16,7 +16,7 @@ const ALLOWED_ORIGINS = new Set(["https://web.stremio.com"]);
 const STREMIO_API = "https://api.strem.io/api/getUser";
 
 // What can be kept: the profiles and their choices, and dx.bi's settings, nothing else
-const KEY = /^(viewers|libraryOwners|kidsAllow|(homeLayout|hidden|cwDismissed|taste):[\w-]{1,40})$/;
+const KEY = /^(viewers|libraryOwners|kidsAllow|(homeLayout|hidden|cwDismissed|taste|ratings):[\w-]{1,40})$/;
 const MAX_BODY = 1536 * 1024;
 const MAX_PICKS_BODY = 128 * 1024;
 const MAX_ENTRIES = 200;
@@ -147,6 +147,13 @@ async function handlePicks(request, env, account) {
   const dropped = (Array.isArray(body.dropped) ? body.dropped : []).slice(0, 12)
     .filter((d) => d && typeof d.name === "string" && d.name.trim())
     .map((d) => ({ id: String(d.id || "").slice(0, 24), type: d.type === "series" ? "series" : "movie", name: d.name.trim().slice(0, 120) }));
+  const ratings = (Array.isArray(body.ratings) ? body.ratings : []).slice(0, 40)
+    .filter((r) => r && typeof r.id === "string" && Number.isInteger(r.rating) && r.rating >= 1 && r.rating <= 10)
+    .map((r) => {
+      const entry = { id: r.id.slice(0, 24), rating: r.rating };
+      if (typeof r.name === "string" && r.name.trim()) entry.name = r.name.trim().slice(0, 120);
+      return entry;
+    });
   const candidates = body.candidates.slice(0, 50)
     .filter((c) => c && typeof c.id === "string" && /^tt\d+$/.test(c.id) && typeof c.name === "string" && c.name.trim())
     .map((c) => ({
@@ -178,9 +185,10 @@ async function handlePicks(request, env, account) {
 
   const system =
     "You are a film and television curator. Return ONLY strict JSON with shape {\"ranked\":[\"tt...\"],\"additions\":[{\"type\":\"movie\"|\"series\",\"name\":\"Title\",\"year\":2021,\"seeds\":[\"tt...\"]}]}. " +
-    "1) In \"ranked\", reorder up to 30 of the best fitting candidate IDs from \"candidates\" for this viewer's weighted \"watched\" titles (higher weight = finished/rewatched/binged or newly tuned seed) and \"genres\", demoting generic mainstream sitcoms/crowd-pleasers that don't fit their tone, and avoiding more than 2 titles from the same seed in the top 10. " +
-    "2) In \"additions\", suggest 10-15 additional films or series not in \"watched\", \"dropped\", or \"candidates\" (~70% strong tonal/creator/theme matches and ~30% adjacent discovery), avoiding the tone and franchises of \"dropped\" titles. Each addition must have \"type\" (\"movie\" or \"series\"), exact \"name\", 4-digit \"year\", and \"seeds\" (1-2 watched IDs that inspired it).";
-  const user = JSON.stringify({ watched, genres, dropped, candidates });
+    "Explicit 1-10 \"ratings\" reflect the viewer's exact taste (Criticker TCI/PSI philosophy): scores 8-10 are high-affinity anchors and auteur/stylistic benchmarks; scores 1-4 are hard negatives whose tone, tropes, and creators must be avoided. " +
+    "1) In \"ranked\", reorder up to 30 of the best fitting candidate IDs from \"candidates\" for this viewer's weighted \"watched\" titles (higher weight = finished/rewatched/binged or newly tuned seed), \"genres\", and \"ratings\", prioritizing high-affinity stylistic matches while demoting generic crowd-pleasers, and avoiding more than 2 titles from the same seed in the top 10. " +
+    "2) In \"additions\", suggest 10-15 additional films or series not in \"watched\", \"dropped\", \"ratings\" (unless rated 8-10 as inspiration), or \"candidates\" (~70% strong tonal/creator/theme matches and ~30% adjacent discovery), strictly avoiding the tone, tropes, creators, and franchises of \"dropped\" titles and titles rated 1-4. Each addition must have \"type\" (\"movie\" or \"series\"), exact \"name\", 4-digit \"year\", and \"seeds\" (1-2 watched or 8-10 rated IDs that inspired it).";
+  const user = JSON.stringify({ watched, genres, dropped, ratings, candidates });
 
   let parsed;
   try {

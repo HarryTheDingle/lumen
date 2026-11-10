@@ -1094,6 +1094,17 @@ final class Stremio {
         return (list ?? []).compactMap { $0 as? JSON }.map(Title.init)
     }
 
+    @MainActor
+    func rating(for id: String) async -> Int? {
+        let r = await dx("phone.rating", id)
+        return r.int
+    }
+
+    @MainActor
+    func setRating(_ score: Int?, for id: String) async {
+        _ = await dx("phone.setRating", id, score ?? 0)
+    }
+
     /** The next episode to start, once the player has closed (the title's page starts it: TitleView) */
     var nextEpisode: (metaId: String, videoId: String)?
 
@@ -1188,5 +1199,12 @@ final class Stremio {
 private final class NoRedirects: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         completionHandler(nil)
+    }
+}
+
+private extension Optional where Wrapped == Any {
+    var int: Int? {
+        if let n = self as? NSNumber { return n.intValue }
+        return self as? Int
     }
 }

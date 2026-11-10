@@ -72,7 +72,30 @@ assert.ok(!recoMath.dropped(movie({ lastWatched: ago(5), timeOffset: 2 * 60000 }
 assert.ok(!recoMath.dropped(movie({ lastWatched: ago(5), timesWatched: 1, timeOffset: 10 * 60000 }), now), "already finished film isn't dropped");
 assert.ok(recoMath.dropped(show({ lastWatched: ago(6), overallTimeWatched: 12 * 60000 }), now), "series abandoned after 12m (>3d ago) is dropped");
 assert.ok(!recoMath.dropped(show({ lastWatched: ago(6), overallTimeWatched: 45 * 60000 }), now), "series watched for 45m is seen, not dropped");
+assert.ok(recoMath.dropped(movie({ lastWatched: ago(1), timesWatched: 1 }), now, 4), "movie rated 4 is dropped");
+assert.ok(recoMath.dropped(movie({ lastWatched: ago(1), timesWatched: 1 }), now, 1), "movie rated 1 is dropped");
+assert.ok(!recoMath.dropped(movie({ lastWatched: ago(1), timesWatched: 1 }), now, 8), "movie rated 8 is not dropped");
 console.log("PASS dropped negative signals");
+
+// Ratings weigh in: 9-10 (2.5x), 7-8 (1.8x), 5-6 (1.0x), 1-4 (0 - disliked)
+const baseWeight = recoMath.weight(movie({ lastWatched: ago(3), timesWatched: 1, timeOffset: 6000000 }), now);
+const rated10 = recoMath.weight(movie({ lastWatched: ago(3), timesWatched: 1, timeOffset: 6000000 }), now, 10);
+const rated9 = recoMath.weight(movie({ lastWatched: ago(3), timesWatched: 1, timeOffset: 6000000 }), now, 9);
+const rated8 = recoMath.weight(movie({ lastWatched: ago(3), timesWatched: 1, timeOffset: 6000000 }), now, 8);
+const rated7 = recoMath.weight(movie({ lastWatched: ago(3), timesWatched: 1, timeOffset: 6000000 }), now, 7);
+const rated6 = recoMath.weight(movie({ lastWatched: ago(3), timesWatched: 1, timeOffset: 6000000 }), now, 6);
+const rated5 = recoMath.weight(movie({ lastWatched: ago(3), timesWatched: 1, timeOffset: 6000000 }), now, 5);
+const rated4 = recoMath.weight(movie({ lastWatched: ago(3), timesWatched: 1, timeOffset: 6000000 }), now, 4);
+const rated1 = recoMath.weight(movie({ lastWatched: ago(3), timesWatched: 1, timeOffset: 6000000 }), now, 1);
+assert.equal(Math.round(rated10 * 100), Math.round(baseWeight * 2.5 * 100), "rating 10 is 2.5x");
+assert.equal(Math.round(rated9 * 100), Math.round(baseWeight * 2.5 * 100), "rating 9 is 2.5x");
+assert.equal(Math.round(rated8 * 100), Math.round(baseWeight * 1.8 * 100), "rating 8 is 1.8x");
+assert.equal(Math.round(rated7 * 100), Math.round(baseWeight * 1.8 * 100), "rating 7 is 1.8x");
+assert.equal(Math.round(rated6 * 100), Math.round(baseWeight * 1.0 * 100), "rating 6 is 1.0x");
+assert.equal(Math.round(rated5 * 100), Math.round(baseWeight * 1.0 * 100), "rating 5 is 1.0x");
+assert.equal(rated4, 0, "rating 4 is 0 (disliked)");
+assert.equal(rated1, 0, "rating 1 is 0 (disliked)");
+console.log("PASS 1-10 rating weights");
 
 // Cold-to-warm seed blending: Tune Suggestions seeds start strong, decay as watch history grows, and boost when freshly re-tuned
 const tune = {

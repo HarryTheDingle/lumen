@@ -59,6 +59,8 @@ check(r.json.entries.some((e) => e.k === "homeLayout:v2"), "since: later changes
 
 r = await sync("key-u1", { since: 0, entries: [{ k: "libraryOwners", t: Date.now(), v: { tt1: ["v2"] } }] });
 check(r.status === 200, "who owns a title is kept (libraryOwners)");
+r = await sync("key-u1", { since: 0, entries: [{ k: "ratings:v2", t: Date.now(), v: { tt1: 9, tt2: 3 } }] });
+check(r.status === 200, "viewer ratings are kept (ratings:v2)");
 r = await sync("key-u1", { since: 0, entries: [{ k: "parentPin", t: Date.now(), v: "hash" }] });
 check(r.status === 400, "the parental PIN is refused: it stays on each device");
 r = await sync("key-u1", { since: 0, entries: [{ k: "dxbi.meta.tt1", t: Date.now(), v: {} }] });
@@ -129,6 +131,34 @@ check(pr.status === 200 && pr.json.cached === true && aiCalls === 1, "/picks ser
 
 pr = await picks("key-u1", { ...samplePicksReq, sig: "main|t|a|Sci-Fi|tt0816692|tt0000003" });
 check(pr.status === 200 && pr.json.cached === false && aiCalls === 2, "/picks recomputes when sig changes");
+
+let lastPayload = null;
+const origAiRun = env.AI.run;
+env.AI.run = async (model, input) => {
+  lastPayload = JSON.parse(input.messages[1].content);
+  return origAiRun(model, input);
+};
+
+const picksWithRatings = {
+  ...samplePicksReq,
+  sig: "main|ratings-sig",
+  ratings: [
+    { id: "tt0816692", name: "Interstellar", rating: 9 },
+    { id: "tt0000999", name: "Bad Film", rating: 2 },
+    { id: "ttInvalid", rating: 15 },
+  ],
+};
+pr = await picks("key-u1", picksWithRatings);
+check(
+  pr.status === 200 &&
+  lastPayload &&
+  Array.isArray(lastPayload.ratings) &&
+  lastPayload.ratings.length === 2 &&
+  lastPayload.ratings[0].rating === 9 &&
+  lastPayload.ratings[1].rating === 2,
+  "/picks validates ratings array and passes sanitized 1-10 scores to AI model"
+);
+env.AI.run = origAiRun;
 
 let geminiCalls = 0;
 const prevFetch = globalThis.fetch;

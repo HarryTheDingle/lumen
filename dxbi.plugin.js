@@ -9422,7 +9422,7 @@
   // Lumen's own sync server (tools/profile-sync, a Cloudflare Worker in Lumen's account): the Stremio sign-in
   // key goes there and nowhere else, never to dx.bi's
   const SYNC_ENDPOINT = "https://lumen-sync.hedigital.workers.dev/sync";
-  const SYNCED = /^(viewers|libraryOwners|kidsAllow|(homeLayout|hidden|cwDismissed|taste):[\w-]{1,40})$/;
+  const SYNCED = /^(viewers|libraryOwners|kidsAllow|(homeLayout|hidden|cwDismissed|taste|ratings):[\w-]{1,40})$/;
   const SYNC_MAX_VALUE = 100 * 1024;
 
   // Two copies of the same thing, from two devices. Nothing here touches the page or the store.
@@ -9506,6 +9506,10 @@
     // it just sends nothing: only on() lets anything leave
     pull() {
       return !!SYNC_ENDPOINT && settings.profileSync !== false;
+    },
+
+    push() {
+      return this.run();
     },
 
     auth() {
@@ -9738,7 +9742,7 @@
   const VIEWER_COLOURS = ["#e50914", "#2f80ff", "#1db954", "#f5a524", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
 
   // What belongs to one Stremio account on this device (not the parental PIN, which is the device's)
-  const ACCOUNT_DATA = /^(viewers|libraryOwners|kidsAllow|(homeLayout|hidden|cwDismissed|taste|stats|playback|quickPlay|tune|librarySort):[\w-]{1,40})$/;
+  const ACCOUNT_DATA = /^(viewers|libraryOwners|kidsAllow|(homeLayout|hidden|cwDismissed|taste|ratings|stats|playback|quickPlay|tune|librarySort):[\w-]{1,40})$/;
 
   const viewers = {
     list() {
@@ -12079,7 +12083,7 @@
   // The maths, with no page and no network in it (tools/recommender-test.mjs runs it on its own)
   const recoMath = {
     // How much a library item says about the viewer's taste (0: nothing, or they gave up on it)
-    weight(item, now) {
+    weight(item, now, rating) {
       const s = (item && item.state) || {};
       const last = s.lastWatched ? Date.parse(s.lastWatched) || 0 : 0;
       if (!last || !item || (item.type !== "movie" && item.type !== "series")) return 0;
@@ -12099,7 +12103,15 @@
       const days = Math.max(0, (now - last) / 86400e3);
       const recent = 0.15 + Math.exp(-days / 120);
       const hours = item.type === "series" ? 1 + Math.log10(1 + minutes / 60) : 1;
-      return (0.4 + completion) * again * recent * hours;
+      const base = (0.4 + completion) * again * recent * hours;
+      const r = Number(rating);
+      if (Number.isFinite(r) && r >= 1) {
+        if (r >= 9) return base * 2.5;
+        if (r >= 7) return base * 1.8;
+        if (r >= 5) return base * 1.0;
+        if (r <= 4) return 0;
+      }
+      return base;
     },
     // Already seen it, or started it properly (so it's not a recommendation)
     seen(item, now) {
@@ -12108,8 +12120,9 @@
       const part = s.duration > 0 ? (s.timeOffset || 0) / s.duration : 0;
       return item.type === "movie" ? part >= 0.5 : (s.overallTimeWatched || 0) >= 20 * 60000;
     },
-    // Started and given up on (>3 days ago, >5 min played, <30% of a film or <20 min of a series)
-    dropped(item, now) {
+    // Started and given up on (>3 days ago, >5 min played, <30% of a film or <20 min of a series), or disliked rating (1-4)
+    dropped(item, now, rating) {
+      if (rating != null && Number(rating) >= 1 && Number(rating) <= 4) return true;
       const s = (item && item.state) || {};
       const last = s.lastWatched ? Date.parse(s.lastWatched) || 0 : 0;
       if (!last || now - last < 3 * 86400e3 || !item || (item.type !== "movie" && item.type !== "series") || this.seen(item, now)) return false;
@@ -12197,6 +12210,35 @@
   };
   // </reco-pure>
 
+  const ratings = {
+    key: () => viewers.key("ratings"),
+    all() {
+      const data = store.get(this.key(), null);
+      return data && typeof data === "object" ? { ...data } : {};
+    },
+    get(id) {
+      if (!id) return null;
+      const all = this.all();
+      const val = all[id];
+      const n = Number(val);
+      return Number.isInteger(n) && n >= 1 && n <= 10 ? n : null;
+    },
+    set(id, score) {
+      if (!id) return false;
+      const key = this.key();
+      const all = { ...this.all() };
+      const n = Number(score);
+      if (Number.isInteger(n) && n >= 1 && n <= 10) {
+        all[id] = n;
+      } else {
+        delete all[id];
+      }
+      store.set(key, all);
+      if (typeof cloudSync.push === "function") cloudSync.push();
+      return true;
+    },
+  };
+
   const recommender = {
     KEEP: 12 * 3600e3,
     loading: null,
@@ -12208,7 +12250,7 @@
       const now = Date.now();
       const watched = [...viewerLibrary.raw().values()]
         .filter((i) => /^tt\d+$/.test(i._id) && viewerLibrary.mine(i._id))
-        .map((i) => ({ item: i, weight: recoMath.weight(i, now) }))
+        .map((i) => ({ item: i, weight: recoMath.weight(i, now, ratings.get(i._id)) }))
         .filter((x) => x.weight > 0)
         .sort((a, b) => b.weight - a.weight);
       const tasteKey = viewers.key("taste");
@@ -12234,8 +12276,14 @@
         const item = raw.get(id);
         if (item) add(id, item.type, item.name);
       }
+      for (const [id, r] of Object.entries(ratings.all())) {
+        if (Number(r) >= 1 && Number(r) <= 4) {
+          const item = raw.get(id);
+          add(id, (item && item.type) || "movie", (item && item.name) || id);
+        }
+      }
       const abandoned = [...raw.values()]
-        .filter((i) => /^tt\d+$/.test(i._id) && viewerLibrary.mine(i._id) && recoMath.dropped(i, now))
+        .filter((i) => /^tt\d+$/.test(i._id) && viewerLibrary.mine(i._id) && recoMath.dropped(i, now, ratings.get(i._id)))
         .sort((a, b) => Date.parse((b.state && b.state.lastWatched) || 0) - Date.parse((a.state && a.state.lastWatched) || 0));
       for (const i of abandoned) add(i._id, i.type, i.name);
       return out;
@@ -12253,7 +12301,8 @@
     sig(seeds) {
       const taste = store.get(viewers.key("taste"), null);
       const genres = taste && Array.isArray(taste.genres) ? taste.genres.join(",") : "";
-      return [viewers.current().id, settings.tmdbKey.trim() ? "t" : "c", settings.aiPicks ? "a" : "n", genres, ...seeds.slice(0, 8).map((s) => s.item._id)].join("|");
+      const rated = Object.entries(ratings.all()).sort(([a], [b]) => a.localeCompare(b)).map(([id, r]) => `${id}:${r}`).join(",");
+      return [viewers.current().id, settings.tmdbKey.trim() ? "t" : "c", settings.aiPicks ? "a" : "n", genres, rated, ...seeds.slice(0, 8).map((s) => s.item._id)].join("|");
     },
     key: () => `dxbi.picks.${viewers.current().id}`,
     saved() {
@@ -12297,6 +12346,15 @@
         })),
         genres: ((tuned && Array.isArray(tuned.genres) ? tuned.genres : [])).slice(0, 12),
         dropped: this.dropped(),
+        ratings: Object.entries(ratings.all())
+          .filter(([, r]) => Number.isInteger(r) && r >= 1 && r <= 10)
+          .slice(0, 40)
+          .map(([id, r]) => {
+            const rawItem = viewerLibrary.raw().get(id);
+            const entry = { id, rating: r };
+            if (rawItem && rawItem.name) entry.name = rawItem.name;
+            return entry;
+          }),
         candidates: scored.slice(0, 40).map((c) => ({
           id: c.id,
           type: c.type === "series" ? "series" : "movie",
@@ -16209,6 +16267,7 @@
     convert,
     streamInfo,
     viewers,
+    ratings,
     restrict,
     whoIsWatching,
     homeLayout,
@@ -16784,6 +16843,14 @@
       viewers() {
         const v = viewers.list();
         return { current: viewers.current().id, list: v.list.map((x) => ({ id: x.id, name: x.name || "", colour: x.colour || null, kids: !!x.kids })) };
+      },
+      rating(id) {
+        return ratings.get(id);
+      },
+      async setRating(id, score) {
+        ratings.set(id, score);
+        recommender.get();
+        return true;
       },
     },
     // dx.bi TV's player: intro, recap and credits times for an episode ([] when nobody has added them)

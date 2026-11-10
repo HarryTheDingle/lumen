@@ -26,6 +26,8 @@ struct TitleView: View {
     @State private var autoPlayed = false
     /** Started from Shuffle: Next episode carries on with random ones */
     @State private var shuffling = false
+    @State private var userRating: Int?
+    @State private var ratingSheetOpen = false
     /** The cast with photos (TMDB, with a key in Lumen settings), else nil */
     @State private var cast: [JSON]?
     /** The trailer, fading in over the art a moment after the page opens */
@@ -116,6 +118,11 @@ struct TitleView: View {
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $reviewsOpen) { ReviewsView(title: title, reviews: reviews) }
+        .sheet(isPresented: $ratingSheetOpen) {
+            RatingSheet(titleName: title.name, userRating: $userRating) { score in
+                await stremio.setRating(score, for: ref.id)
+            }
+        }
         .task {
             let all = await stremio.settings()
             blurUnwatched = all.first { $0.key == "blurUnwatched" }?.value == "true"
@@ -124,6 +131,7 @@ struct TitleView: View {
         .task(id: ref.id) {
             if stremio.details?.metaId != ref.id { stremio.open(ref.type, ref.id) }
             reviews = await stremio.reviews(ref.type, ref.id)
+            userRating = await stremio.rating(for: ref.id)
         }
         .task(id: "\(ref.id)-\(details?.state == .ready)") {
             guard let d = details, d.state == .ready else { return }
@@ -454,6 +462,11 @@ struct TitleView: View {
                 stremio.setInLibrary(!inList)
                 stremio.show(inList ? "Removed from your Library" : "Added to your Library")
             }
+            GlassCircle(icon: userRating != nil ? "star.fill" : "star", label: userRating != nil ? "Rated \(userRating!)/10" : "Rate") {
+                ratingSheetOpen = true
+            }
+            .foregroundStyle(userRating != nil ? Color.yellow : Color.white)
+            .tint(userRating != nil ? Color.yellow : Color.white)
             Menu {
                 if hasPlace {
                     Button { start(details.flatMap(nextVideo)?.id, fromStart: true) } label: { Label("Start from the Beginning", systemImage: "arrow.counterclockwise") }
@@ -722,5 +735,121 @@ struct TitleView: View {
             if let role, !role.isEmpty { Text(role).font(.caption).foregroundStyle(Dx.muted).lineLimit(2).multilineTextAlignment(.center) }
         }
         .frame(width: size + 16)
+    }
+}
+
+struct RatingSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let titleName: String
+    @Binding var userRating: Int?
+    let onSetRating: (Int?) async -> Void
+
+    private static let tiers: [Int: String] = [
+        10: "Masterpiece",
+        9: "Outstanding",
+        8: "Great",
+        7: "Good",
+        6: "Decent",
+        5: "Average",
+        4: "Mediocre",
+        3: "Bad",
+        2: "Terrible",
+        1: "Unwatchable"
+    ]
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                VStack(spacing: 6) {
+                    if let rating = userRating {
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            Text("\(rating)")
+                                .font(.system(size: 60, weight: .bold, design: .rounded))
+                                .foregroundStyle(Color.yellow)
+                            Text("/10")
+                                .font(.title.weight(.semibold))
+                                .foregroundStyle(Dx.muted)
+                        }
+                        if let label = Self.tiers[rating] {
+                            Text(label)
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(.white)
+                        }
+                    } else {
+                        Text("Not Rated")
+                            .font(.system(size: 40, weight: .bold, design: .rounded))
+                            .foregroundStyle(Dx.muted)
+                        Text("Tap a score to rate")
+                            .font(.subheadline)
+                            .foregroundStyle(Dx.muted)
+                    }
+                }
+                .padding(.top, 16)
+
+                VStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        ForEach(1...5, id: \.self) { score in
+                            scoreButton(score)
+                        }
+                    }
+                    HStack(spacing: 8) {
+                        ForEach(6...10, id: \.self) { score in
+                            scoreButton(score)
+                        }
+                    }
+                }
+                .padding(.horizontal, Dx.gutter)
+
+                if userRating != nil {
+                    Button(role: .destructive) {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        userRating = nil
+                        Task {
+                            await onSetRating(nil)
+                        }
+                    } label: {
+                        Text("Remove Rating")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.red)
+                    }
+                    .padding(.top, 6)
+                }
+
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
+            .background(Color.black.ignoresSafeArea())
+            .navigationTitle("Rate \(titleName)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
+                }
+            }
+        }
+        .presentationDetents([.height(380), .medium])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func scoreButton(_ score: Int) -> some View {
+        let isSelected = userRating == score
+        return Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            userRating = score
+            Task {
+                await onSetRating(score)
+            }
+        } label: {
+            Text("\(score)")
+                .font(.headline.weight(isSelected ? .bold : .medium))
+                .frame(maxWidth: .infinity, minHeight: 46)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(isSelected ? Color.yellow : Color.white.opacity(0.12))
+                )
+                .foregroundStyle(isSelected ? Color.black : Color.white)
+        }
+        .buttonStyle(.plain)
     }
 }
