@@ -189,6 +189,11 @@ struct TitleView: View {
         }
         // While Play waits for streams, every half second: ask again (nothing may have changed the stream
         // list's key), move the bar, and once the addons have had a few seconds, play the pick
+        // The loading screen's gone (the player's up, or Play was cancelled): nothing's waiting to play any more. (Play
+        // straight to the stream from last time left it set, and closing the player then played it again)
+        .onChange(of: stremio.launch == nil) { _, gone in
+            if gone { waitingFor = nil }
+        }
         .task(id: waitingFor) {
             guard waitingFor != nil else { return }
             let began = Date()
