@@ -190,7 +190,8 @@ final class Playback: Identifiable {
                 }
             }
         }
-        mpv.load(payload.string("url"), start: start, headers: headers, audioLanguage: payload.text("audioLanguage"), subtitleLanguage: payload.text("subtitleLanguage"))
+        // (a debrid link already followed goes straight to its file: RedirectMemory)
+        mpv.load(RedirectMemory.target(payload.string("url")) ?? payload.string("url"), start: start, headers: headers, audioLanguage: payload.text("audioLanguage"), subtitleLanguage: payload.text("subtitleLanguage"))
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }

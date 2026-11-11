@@ -145,7 +145,9 @@ final class Stremio {
         guard launch != nil else { return show(text) }
         if text.hasPrefix("That stream didn't play") {
             launch?.failed = false
-            stepLaunch("Trying another stream", detail: text.replacingOccurrences(of: "That stream didn't play. ", with: ""), progress: 0.9)
+            // (quietly: the next best is just starting; only when none plays does the screen say anything went wrong)
+            Log.note("trying another stream: \(text)")
+            stepLaunch("Starting", progress: 0.9)
             restartLaunchTimeout()
         } else if text.hasPrefix("This stream couldn't play") {
             failLaunch("Couldn't play a stream", "None of the best few would play here. Try Choose a Stream on the title's page.")
@@ -664,7 +666,7 @@ final class Stremio {
                     guard let why = await whyNotVideo(chosen) else { break }
                     Log.note("passed over before playing: \(why)")
                     _ = await dx("phone.reject", chosen.index, why)
-                    if launch != nil { stepLaunch("That stream isn't available", detail: "Trying another…", progress: 0.85) }
+                    if let now = launch { stepLaunch(now.text, detail: now.detail, progress: 0.85) }
                     guard let next = await streams()?.picked else {
                         if launch != nil { failLaunch("Couldn't find a stream that plays", "Try … → Choose a Stream on the title's page.") }
                         return
@@ -722,6 +724,8 @@ final class Stremio {
                 continue
             }
             if http.statusCode >= 400 { return "The server answered \(http.statusCode)" }
+            // (where the link leads, for the player to go straight there: RedirectMemory)
+            RedirectMemory.remember(address, url.absoluteString)
             let type = (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
             if type.hasPrefix("text/") || type.contains("json") || type.contains("xml") { return "It isn't a video (\(type))" }
             let name = url.lastPathComponent
@@ -736,6 +740,17 @@ final class Stremio {
         }
         return nil
     }
+
+    /**
+     * The intro, recap and credits times for a video, fetched ahead (the plugin keeps them): the player's start waited
+     * for them before it opened
+     */
+    func prefetchSkips(_ type: String, _ metaId: String, _ videoId: String) {
+        guard !skipsAsked.contains(videoId) else { return }
+        skipsAsked.insert(videoId)
+        Task { _ = await dx("skipSegments", type, metaId, videoId) }
+    }
+    @ObservationIgnored private var skipsAsked = Set<String>()
 
     /** Continue Watching: Stremio's own player link for where they left off */
     func play(link: String) {
@@ -1187,7 +1202,7 @@ final class Stremio {
         // (with an error the page tries the next best stream, and says so: toast above)
         if launch != nil, switching == nil {
             if error != nil {
-                stepLaunch("That stream didn't play", detail: "Looking for another…", progress: 0.9)
+                stepLaunch("Starting", progress: 0.9)
                 restartLaunchTimeout()
             } else {
                 failLaunch("Couldn't play this stream", "Try Choose a Stream on the title's page.")
@@ -1212,6 +1227,30 @@ final class Stremio {
         page.js("window.__dxbiIos.active = ''; window.__dxbiIos.pendingClose = \(Json.quote(Json.encode(close))); window.__dxbiTv && window.__dxbiTv.playerClosed && window.__dxbiTv.playerClosed()")
         playback = nil
         PlayerHost.hide()
+    }
+}
+
+/**
+ * Where a stream's link really leads, once the check before Play has followed it. Debrid links through an addon
+ * (StremThru's /playback/…) redirect to the debrid's own server, and the addon asks the debrid afresh on every request
+ * (0.5 to 2.7 s, measured on the TV); the player makes several as it starts and seeks, so it's given the real address.
+ */
+enum RedirectMemory {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var known: [String: (to: String, at: Date)] = [:]
+
+    static func remember(_ from: String, _ to: String) {
+        guard from != to else { return }
+        lock.lock(); defer { lock.unlock() }
+        if known.count > 50 { known = [:] }
+        known[from] = (to, Date())
+    }
+
+    /** Where [from] leads, if it was followed in the last half hour */
+    static func target(_ from: String) -> String? {
+        lock.lock(); defer { lock.unlock() }
+        guard let hop = known[from], Date().timeIntervalSince(hop.at) < 1800 else { return nil }
+        return hop.to
     }
 }
 

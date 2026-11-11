@@ -178,6 +178,12 @@ struct TitleView: View {
         .task(id: details?.streamsKey) {
             guard details?.videoId != nil else { return }
             choices = await stremio.streams()
+            // The pick checked (its server asked for the file) and its skip times fetched while the page is read, once the
+            // addons have answered or it's a ready one: Play then has nothing left to wait for
+            if let c = current, let pick = c.picked, c.settled || c.sameAsLastTime || pick.instant, !NetworkStatus.shared.saving {
+                stremio.probeAhead(pick)
+                if let v = c.videoId { stremio.prefetchSkips(ref.type, ref.id, v) }
+            }
             justPlayIfSure()
             updateLaunch()
         }
@@ -187,7 +193,7 @@ struct TitleView: View {
             guard waitingFor != nil else { return }
             let began = Date()
             while !Task.isCancelled, waitingFor != nil, stremio.launch != nil {
-                try? await Task.sleep(for: .milliseconds(500))
+                try? await Task.sleep(for: .milliseconds(250))
                 if Task.isCancelled || waitingFor == nil || stremio.launch == nil { return }
                 if details?.videoId != nil, let fresh = await stremio.streams() { choices = fresh }
                 if waitingFor == nil || stremio.launch == nil { return }
@@ -262,6 +268,8 @@ struct TitleView: View {
      */
     private func soonEnough(_ pick: StreamOption) -> Bool {
         guard pick.instant, let d = details, d.addonsAsked > 0 else { return false }
+        // (or ready from the addon first in Stremio's order, once it's answered: a fallback like Easynews+ needn't be waited for)
+        if d.firstAddonAnswered, !d.firstAddon.isEmpty, pick.addon == d.firstAddon { return true }
         return pick.res >= 2160 || d.addonsAnswered * 3 >= d.addonsAsked * 2
     }
 

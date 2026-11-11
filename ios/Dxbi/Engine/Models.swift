@@ -379,6 +379,9 @@ struct Details {
     /** How many addons were asked for streams, and how many have answered */
     var addonsAsked = 0
     var addonsAnswered = 0
+    /** The addon first in Stremio's order (the one relied on: Harry's StremThru Torz), and whether it's answered */
+    var firstAddon = ""
+    var firstAddonAnswered = false
 
     init(_ o: JSON) {
         let meta = o.object("meta")
@@ -398,6 +401,8 @@ struct Details {
         let groups = o.objects("streams")
         addonsAsked = groups.count
         addonsAnswered = groups.filter { $0.string("state") != "Loading" }.count
+        firstAddon = groups.first?.string("addon") ?? ""
+        firstAddonAnswered = groups.first.map { $0.string("state") != "Loading" } ?? false
         streamsKey = (selected?.object("streamPath")?.string("id") ?? "") + o.objects("streams").map { "\($0.string("state")):\($0.objects("items").count)" }.joined(separator: ",")
     }
 

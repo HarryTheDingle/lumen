@@ -43,16 +43,8 @@ struct LoadingScreen: View {
                         if let detail = screen.detail, !detail.isEmpty {
                             Text(detail).font(.subheadline).foregroundStyle(Dx.muted).lineLimit(2)
                         }
-                        Capsule().fill(.white.opacity(0.22))
-                            .frame(height: 5)
-                            .overlay(alignment: .leading) {
-                                GeometryReader { bar in
-                                    Capsule().fill(screen.failed ? Color(red: 1, green: 0.42, blue: 0.42) : .white)
-                                        .frame(width: bar.size.width * min(max(screen.progress, 0), 1))
-                                }
-                            }
+                        LoadingBar(progress: screen.progress, failed: screen.failed)
                             .padding(.top, 6)
-                            .animation(.easeInOut(duration: 0.5), value: screen.progress)
                         // (down here by the thumb: at the top it sat by the status bar, hard to press)
                         Button { stremio.cancelLaunch() } label: {
                             Label(screen.failed ? "Close" : "Cancel", systemImage: "xmark")
@@ -102,5 +94,51 @@ struct LoadingScreen: View {
             }
             .buttonStyle(.glass)
         }
+    }
+}
+
+/**
+ * The bar never stands still (as Lumen TV's): up to each step as it comes, then on towards the next, slower and slower
+ * (never getting there: the next step carries it on), with a soft light running along it, so a slow server never looks
+ * like a hang.
+ */
+struct LoadingBar: View {
+    var progress: Double
+    var failed: Bool
+    @State private var shown: Double = 0
+    @State private var sweep = false
+
+    var body: some View {
+        Capsule().fill(.white.opacity(0.22))
+            .frame(height: 5)
+            .overlay(alignment: .leading) {
+                GeometryReader { bar in
+                    let width = bar.size.width * min(max(shown, 0), 1)
+                    Capsule().fill(failed ? Color(red: 1, green: 0.42, blue: 0.42) : .white.opacity(0.85))
+                        .frame(width: width)
+                        .overlay {
+                            if !failed {
+                                LinearGradient(colors: [.clear, .white, .clear], startPoint: .leading, endPoint: .trailing)
+                                    .frame(width: max(width * 0.35, 1))
+                                    .offset(x: sweep ? width * 0.8 : -width * 0.8)
+                                    .animation(.linear(duration: 1.6).repeatForever(autoreverses: false), value: sweep)
+                            }
+                        }
+                        .clipShape(Capsule())
+                }
+            }
+            .onAppear {
+                sweep = true
+                move(to: progress)
+            }
+            .onChange(of: progress) { _, p in move(to: p) }
+            .onChange(of: failed) { _, f in if f { withAnimation(.easeOut(duration: 0.4)) { shown = 1 } } }
+    }
+
+    private func move(to p: Double) {
+        guard !failed else { return }
+        if shown < p { withAnimation(.easeInOut(duration: 0.5)) { shown = p } }
+        let ceiling = min(p + 0.55 * (1 - p), 0.97)
+        withAnimation(.easeOut(duration: 12).delay(0.5)) { shown = ceiling }
     }
 }
