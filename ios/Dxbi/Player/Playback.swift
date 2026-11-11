@@ -657,6 +657,26 @@ final class Playback: Identifiable {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
 
+    // MARK: - Kept after closing
+
+    /** Taken back after it was closed (HeldPlayback): playing again, where it was unless Play asked for elsewhere */
+    func revive(startMs: Double) {
+        closing = false
+        claimSound()
+        try? AVAudioSession.sharedInstance().setActive(true)
+        UIApplication.shared.isIdleTimerDisabled = true
+        UIApplication.shared.beginReceivingRemoteControlEvents()
+        let wanted = startMs / 1000
+        if abs(wanted - position) > 5 { mpv.seek(to: wanted) }
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+        remoteCommands()
+        nowPlaying()
+        mpv.play()
+        Log.note("player taken back from before, at \(Int(position)) s")
+    }
+
     // MARK: - Closing
 
     func finish(ended: Bool, error: String? = nil, next: Bool = false) {
@@ -672,7 +692,14 @@ final class Playback: Identifiable {
             stremio?.networkSample(sorted[sorted.count * 3 / 4])
         }
         pip.end()
-        mpv.quit()
+        // Closed by the viewer (not the end, not a failure): kept a few minutes, paused, with all it's downloaded, for Play
+        // or Resume on the same stream to carry straight on (HeldPlayback)
+        if !ended, error == nil, !next, ready, party == nil, payload.text("offline") == nil {
+            mpv.pause()
+            HeldPlayback.hold(self, url: payload.string("url"))
+        } else {
+            mpv.quit()
+        }
         UIApplication.shared.isIdleTimerDisabled = false
         clearRemoteCommands()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -720,5 +747,47 @@ enum ShowChoices {
     private static func all() -> [String: Choice] {
         guard let data = UserDefaults.standard.data(forKey: key) else { return [:] }
         return (try? JSONDecoder().decode([String: Choice].self, from: data)) ?? [:]
+    }
+}
+
+/**
+ * A player closed by the viewer, kept paused for a few minutes with everything it had downloaded: closed by accident, or
+ * gone back to the title's page for a moment, Play or Resume on the same stream takes it back and it carries on at once
+ * (as Lumen TV's HeldPlayer). Anything else played, or the few minutes up, and it's let go.
+ */
+@MainActor
+enum HeldPlayback {
+    private static var kept: Playback?
+    private static var url: String?
+    private static var drop: Task<Void, Never>?
+
+    static func hold(_ playback: Playback, url: String) {
+        release()
+        kept = playback
+        self.url = url
+        drop = Task {
+            try? await Task.sleep(for: .seconds(180))
+            if !Task.isCancelled { release() }
+        }
+        Log.note("player kept for 3 minutes")
+    }
+
+    /** The kept player, when it's playing [url]; anything else lets it go */
+    static func take(url: String) -> Playback? {
+        guard let p = kept else { return nil }
+        let same = self.url == url
+        drop?.cancel()
+        kept = nil
+        self.url = nil
+        if same { return p }
+        p.mpv.quit()
+        return nil
+    }
+
+    static func release() {
+        drop?.cancel()
+        kept?.mpv.quit()
+        kept = nil
+        url = nil
     }
 }

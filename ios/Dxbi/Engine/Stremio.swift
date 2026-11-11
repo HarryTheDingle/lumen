@@ -1051,6 +1051,13 @@ final class Stremio {
             }
             show("No external player found: install Infuse, VLC, Outplayer or SenPlayer. Playing it here.")
         }
+        // The player closed a moment ago on this same stream: taken back, with all it had downloaded (HeldPlayback)
+        if payload.text("offline") == nil, let kept = HeldPlayback.take(url: payload.string("url")) {
+            self.playback = kept
+            kept.revive(startMs: payload.double("startMs"))
+            PlayerHost.show(kept, stremio: self)
+            return
+        }
         let playback = Playback(payload: payload, stremio: self)
         self.playback = playback
         Log.note("player: \(payload.text("title") ?? "") \(payload.text("videoId") ?? "")")
@@ -1179,6 +1186,7 @@ final class Stremio {
     /** A download, from the phone */
     func play(download item: Downloads.Item) {
         guard let payload = Downloads.shared.playback(item) else { return }
+        HeldPlayback.release()
         let playback = Playback(payload: payload, stremio: self)
         self.playback = playback
         PlayerHost.show(playback, stremio: self)
