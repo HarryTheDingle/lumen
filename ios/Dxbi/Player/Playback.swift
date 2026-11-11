@@ -666,8 +666,9 @@ final class Playback: Identifiable {
         try? AVAudioSession.sharedInstance().setActive(true)
         UIApplication.shared.isIdleTimerDisabled = true
         UIApplication.shared.beginReceivingRemoteControlEvents()
-        let wanted = startMs / 1000
-        if abs(wanted - position) > 5 { mpv.seek(to: wanted) }
+        // Where it is now is the latest place: the page's can be older (a scrub back to the very start isn't recorded, so
+        // it still had the place from before, and the player jumped back there). Only Start from the Beginning moves it
+        if startMs <= 0 && position > 5 { mpv.seek(to: 0) }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }

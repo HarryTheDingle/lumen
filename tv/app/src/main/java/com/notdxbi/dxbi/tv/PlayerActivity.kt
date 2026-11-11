@@ -571,9 +571,9 @@ class PlayerActivity : AppCompatActivity() {
             }
         })
         if (reused) {
-            // (where it was, unless Play asked for somewhere else: Start from the Beginning)
-            val wanted = stream.optLong("startMs", 0L).coerceAtLeast(0L)
-            if (kotlin.math.abs(wanted - exo.currentPosition) > 5_000) exo.seekTo(wanted)
+            // (where it is now is the latest place: the page's can be older, as after a scrub back to the very start, which
+            // isn't recorded. Only Start from the Beginning moves it)
+            if (stream.optLong("startMs", 0L) <= 0L && exo.currentPosition > 5_000) exo.seekTo(0)
             step("taken back from before, ${exo.totalBufferedDuration / 1000} s in hand")
             // (its picture's already there: the cover goes as soon as the screen shows it)
             handler.postDelayed({ uncover(); loading?.ready() }, 400)
