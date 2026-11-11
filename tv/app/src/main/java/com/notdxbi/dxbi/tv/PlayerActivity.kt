@@ -100,8 +100,15 @@ class PlayerActivity : AppCompatActivity() {
             }
         }
     }
-    private val sound = SoundMode()
-    @Volatile private var subtitleDelayMs = 0L
+    // (both go with the player when it's kept after Back: HeldPlayer)
+    private var sound = SoundMode()
+    private var subtitleDelay = SubtitleDelay()
+    private val subtitleDelayMs get() = subtitleDelay.ms
+    /** The screen's own listeners on the player, taken off it when it's kept */
+    private val exoAnalytics = mutableListOf<androidx.media3.exoplayer.analytics.AnalyticsListener>()
+    private val exoListeners = mutableListOf<Player.Listener>()
+    /** This player was kept from before (Back, then Play again on the same stream) */
+    private var reused = false
     private val refreshSubtitles = Runnable { player?.let { it.seekTo(it.currentPosition) } }
     // Up next: what's after this episode, how long the card counts down (0: never), the card's state
     private var nextTitle = ""
@@ -121,11 +128,12 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
-    private inner class Renderers : DefaultRenderersFactory(this) {
+    // (on the app's context, and the sound and delay its own: the player can outlive this screen, see HeldPlayer)
+    private class Renderers(context: android.content.Context, private val sound: SoundMode, private val delay: SubtitleDelay) : DefaultRenderersFactory(context) {
         override fun buildTextRenderers(context: android.content.Context, output: TextOutput, outputLooper: Looper, extensionRendererMode: Int, out: ArrayList<Renderer>) {
             val own = ArrayList<Renderer>()
             super.buildTextRenderers(context, output, outputLooper, extensionRendererMode, own)
-            own.mapTo(out) { DelayedText(it) { subtitleDelayMs * 1000 } }
+            own.mapTo(out) { DelayedText(it) { delay.ms * 1000 } }
         }
 
         override fun buildAudioSink(context: android.content.Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink =
@@ -316,7 +324,14 @@ class PlayerActivity : AppCompatActivity() {
         val dataSource = extras?.dataSource(online) ?: online
 
         // The TV's own decoders first, falling back to software ones when a format isn't supported
-        val renderers = Renderers()
+        // A player kept after Back on this same stream: taken back, with all it had downloaded (HeldPlayer)
+        val held = if (lumenLook && !torrent) HeldPlayer.take(url) else HeldPlayer.release().let { null }
+        if (held != null) {
+            sound = held.sound
+            subtitleDelay = held.delay
+            reused = true
+        }
+        val renderers = Renderers(applicationContext, sound, subtitleDelay)
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
 
@@ -343,7 +358,7 @@ class PlayerActivity : AppCompatActivity() {
                 return fast || bufferedDurationUs >= 15_000_000L * playbackSpeed
             }
         }
-        val exo = ExoPlayer.Builder(this, renderers)
+        val exo = held?.exo ?: ExoPlayer.Builder(applicationContext, renderers)
             .setLoadControl(loadControl)
             .setBandwidthMeter(bandwidth)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource))
@@ -397,6 +412,7 @@ class PlayerActivity : AppCompatActivity() {
         }
         // how fast the stream comes (not a torrent's: that's the TV's own server), for the network's memory
         exo.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+            init { exoAnalytics += this }
             override fun onBandwidthEstimate(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, totalLoadTimeMs: Int, totalBytesLoaded: Long, bitrateEstimate: Long) {
                 if (!torrent && totalBytesLoaded > 4_000_000) measuredBps = bitrateEstimate
             }
@@ -452,6 +468,7 @@ class PlayerActivity : AppCompatActivity() {
         fun step(what: String) { if (!firstShown) android.util.Log.i("lumen-play", "player +${android.os.SystemClock.elapsedRealtime() - openedAt} ms $what") }
         step("open, from ${stream.optLong("startMs", 0L) / 1000} s")
         exo.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+            init { exoAnalytics += this }
             override fun onLoadCompleted(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, load: androidx.media3.exoplayer.source.LoadEventInfo, data: androidx.media3.exoplayer.source.MediaLoadData) {
                 step("read ${load.dataSpec.position / 1_000_000} MB +${load.bytesLoaded / 1000} kB in ${load.loadDurationMs} ms (type ${data.dataType})")
             }
@@ -472,8 +489,9 @@ class PlayerActivity : AppCompatActivity() {
                 firstShown = true
             }
         })
-        exo.setMediaItem(mediaItem(url), stream.optLong("startMs", 0L).coerceAtLeast(0L))
+        if (!reused) exo.setMediaItem(mediaItem(url), stream.optLong("startMs", 0L).coerceAtLeast(0L))
         exo.addListener(object : Player.Listener {
+            init { exoListeners += this }
             override fun onPlaybackStateChanged(state: Int) {
                 // (Lumen: a video of a few seconds, for a film or an episode, is an addon's error clip (ElfHosted's
                 // "Couldn't fetch this release"): passed over like a stream that won't play, not counted as watched)
@@ -552,7 +570,14 @@ class PlayerActivity : AppCompatActivity() {
                 if (isPlaying) handler.postDelayed({ loading?.ready() }, 2500)
             }
         })
-        exo.prepare()
+        if (reused) {
+            // (where it was, unless Play asked for somewhere else: Start from the Beginning)
+            val wanted = stream.optLong("startMs", 0L).coerceAtLeast(0L)
+            if (kotlin.math.abs(wanted - exo.currentPosition) > 5_000) exo.seekTo(wanted)
+            step("taken back from before, ${exo.totalBufferedDuration / 1000} s in hand")
+            // (its picture's already there: the cover goes as soon as the screen shows it)
+            handler.postDelayed({ uncover(); loading?.ready() }, 400)
+        } else exo.prepare()
         exo.playWhenReady = true
         // (no picture in 40 seconds: as good as failed, so the page moves on to the next best)
         handler.postDelayed({
@@ -585,7 +610,7 @@ class PlayerActivity : AppCompatActivity() {
                     controls.hide()
                     return
                 }
-                finishWith()
+                finishWith(keep = true)
             }
         })
     }
@@ -838,7 +863,7 @@ class PlayerActivity : AppCompatActivity() {
     /** Moves the subtitles by [byMs] and returns where they are now */
     private fun shiftSubtitles(byMs: Long): Long {
         if (byMs != 0L) {
-            subtitleDelayMs += byMs
+            subtitleDelay.ms += byMs
             // lines already passed only come back from a seek; once, after the last press
             handler.removeCallbacks(refreshSubtitles)
             handler.postDelayed(refreshSubtitles, 600)
@@ -884,7 +909,7 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     /** Closes the player and says how it went ([positionMs]/[durationMs]: where another app left it, instead of this one) */
-    private fun finishWith(ended: Boolean = false, error: String? = null, next: Boolean = false, positionMs: Long? = null, durationMs: Long? = null) {
+    private fun finishWith(ended: Boolean = false, error: String? = null, next: Boolean = false, positionMs: Long? = null, durationMs: Long? = null, keep: Boolean = false) {
         if (closed) return
         closed = true
         handler.removeCallbacksAndMessages(null)
@@ -899,6 +924,18 @@ class PlayerActivity : AppCompatActivity() {
         // (Lumen starts the next episode itself, as Play does: the page just goes back, as for any close)
         if (extras?.keep(position, ended) != true) PlaybackBus.closed(position, duration, ended, error, next && !toNext, measuredBps / 1_000_000.0)
         if (torrent) TorrentEngine.close()
+        // Back (not the end, not a failure): the player's kept a few minutes, paused, with what it's downloaded, for Play
+        // or Resume on the same stream to carry straight on (HeldPlayer)
+        val exoNow = player
+        if (keep && exoNow != null && lumenLook && !torrent && error == null && !ended && !next && returnTo == null &&
+            loading?.showing != true && exoNow.playbackState != Player.STATE_IDLE) {
+            exoAnalytics.forEach { exoNow.removeAnalyticsListener(it) }
+            exoListeners.forEach { exoNow.removeListener(it) }
+            exoNow.pause()
+            playerView.player = null
+            HeldPlayer.hold(HeldPlayer.Kept(exoNow, sound, subtitleDelay, currentUrl))
+            player = null
+        }
         finish()
         // (failed while loading: the app's loading screen is already behind it, so no slide)
         if ((error != null && loading?.showing == true) || toNext || switchingAway) {

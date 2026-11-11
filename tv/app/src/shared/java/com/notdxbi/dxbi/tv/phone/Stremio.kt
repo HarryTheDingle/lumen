@@ -345,8 +345,17 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
     fun play(option: StreamOption, target: Phone.Target = Phone.Target.Player) = scope.launch {
         Phone.route(app, option, target, playInOtherApp.value)
         val link = dx("phone.play", option.index) as? String ?: option.play
+        // (for Play or Resume on this film or episode again: straight back to this stream, PlayedLinks)
+        if (target == Phone.Target.Player) com.notdxbi.dxbi.tv.PlayedLinks.put(app, link)
         ask("play", JSONObject().put("link", link))
     }
+
+    /** The stream last played of [videoId], when it was in the last few hours (PlayedLinks) */
+    fun playedLink(videoId: String): String? = com.notdxbi.dxbi.tv.PlayedLinks.get(app, videoId)
+    fun forgetPlayed(videoId: String) = com.notdxbi.dxbi.tv.PlayedLinks.forget(app, videoId)
+
+    /** Plays a player link as it is (one played before: PlayedLinks) */
+    fun playLink(link: String) = scope.launch { ask("play", JSONObject().put("link", link)) }
 
     /** Plays through Stremio's player route, which dxbi-tv.js hands to the native player */
     fun play(stream: Stream) = scope.launch {

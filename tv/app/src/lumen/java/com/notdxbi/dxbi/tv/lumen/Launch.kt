@@ -142,9 +142,28 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
      * Back from a player whose stream failed while loading: the loading screen again, while the page opens
      * the next best (its player carries the screen on). None comes: there were no more to try
      */
+    /** Play went straight to the stream from last time (PlayedLinks): the title and video, for retry() */
+    private var fromSaved: Pair<Title, String>? = null
+
     fun retry() {
         val r = LoadingHandoff.takeRetry() ?: return
         job?.cancel()
+        // (the stream from last time wouldn't play: forgotten, and Play goes the long way, choosing and checking, at once)
+        fromSaved?.takeIf { it.first.id == r.title.id && !r.step.text.startsWith("Starting the next") }?.let { (t, video) ->
+            fromSaved = null
+            stremio.forgetPlayed(video)
+            android.util.Log.w("lumen-play", "the stream from last time didn't play: the long way")
+            seenFront = false
+            title = r.title
+            episode = r.episode
+            step = r.step
+            job = scope.launch {
+                delay(1300)
+                play(t, video)
+            }
+            return
+        }
+        fromSaved = null
         // (put up while the app is behind the player: it stays until the next player has opened)
         seenFront = false
         title = r.title
@@ -183,6 +202,7 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
 
     private fun begin(t: Title, work: suspend () -> Unit) {
         job?.cancel()
+        fromSaved = null
         title = t
         episode = null
         step = Step("Opening ${t.name}", progress = 0.03f)
@@ -215,6 +235,19 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
         // (Start from the Beginning, or an ordinary Play clearing it)
         stremio.startFromBeginning(video ?: d.videoId ?: t.id, fromStart)
         mark("episode settled")
+        // The stream played last time, in the last few hours: straight back to it, with no asking the addons, no choosing
+        // and no checking (PlayedLinks). If it won't play, retry() forgets it and goes the long way at once
+        val target = video ?: d.videoId ?: t.id
+        stremio.playedLink(target)?.let { link ->
+            mark("the stream from last time")
+            fromSaved = t to target
+            step = Step("Starting", null, 0.88f)
+            title?.let { LoadingHandoff.put(it, episode, step) }
+            stremio.playLink(link)
+            delay(25_000)
+            if (title != null) done()
+            return
+        }
         d.videos.firstOrNull { it.id == (video ?: d.videoId) }?.let { v ->
             if (v.season != null && v.episode != null) episode = "S${v.season}, E${v.episode}" + (if (v.title.isNotEmpty()) " · ${v.title}" else "")
         }
