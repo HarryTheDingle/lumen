@@ -15156,6 +15156,21 @@
 
     get() {
       if (this.at && Date.now() - this.at < 600000) return Promise.resolve(this.mbps);
+      // A reading of this line from before (the last test, or what this network is known to do) goes straight away,
+      // and the test runs behind it for next time: Play waited the 4 seconds of the test every 10 minutes
+      const before = this.mbps || this.known;
+      if (before > 0) {
+        this.refresh().catch(() => {});
+        return Promise.resolve(before);
+      }
+      return this.refresh();
+    },
+
+    // what this network's memory said as the app started (warm())
+    known: 0,
+
+    // The test itself, one at a time
+    refresh() {
       if (!this.pending) this.pending = (async () => {
         // Measured every time (once in 10 minutes), while the addons answer: what it learnt on this network
         // alone kept it to what the player had read, and the best stream for the line was never tried
@@ -15169,6 +15184,14 @@
         return m || this.mbps;
       });
       return this.pending;
+    },
+
+    // As the app starts (Match my internet speed on): this network's remembered speed read in, and a fresh test a little
+    // later, once the start's own work is done, so the first Play has a speed to go on without waiting for one
+    warm() {
+      if (!settings.quickPlaySpeed) return;
+      netMemory.estimate().then((m) => { if (m > 0) this.known = m; }).catch(() => {});
+      setTimeout(() => this.refresh().catch(() => {}), 20000);
     },
 
     // Reads for up to 4 seconds; the first half second is left out, while the connection gets going
@@ -15283,6 +15306,8 @@
       const kept = Object.entries(list).sort((a, b) => (b[1].at || 0) - (a[1].at || 0)).slice(0, 20);
       this.save(Object.fromEntries(kept));
       netSpeed.at = 0; // (the next pick uses what it's learnt)
+      // (and a stall lowers it at once: the reading kept from before mustn't be handed out while the test reruns)
+      if (from === "stall") { netSpeed.mbps = Math.min(netSpeed.mbps || Infinity, this.speed(rec)); netSpeed.known = 0; }
     },
 
     // This network's own quality cap (0: none), on top of the Highest quality setting
@@ -16214,6 +16239,8 @@
     const loading = loadSettings();
     splash();
     loading.finally(scheduleSync);
+    // (Match my internet speed: a speed ready before the first Play, not measured while it waits)
+    loading.finally(() => netSpeed.warm());
     mo.observe(document.getElementById("app") || document.body, { childList: true, subtree: true });
     const titleEl = document.querySelector("title");
     if (titleEl) onTitle.observe(titleEl, { childList: true, characterData: true, subtree: true });

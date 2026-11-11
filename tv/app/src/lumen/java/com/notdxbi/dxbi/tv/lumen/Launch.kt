@@ -24,6 +24,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -93,6 +95,43 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
         starting(option)
     }
 
+    private var warming: Job? = null
+
+    /**
+     * The remote's resting on [t] (a Continue Watching card): what Play would do is done ahead, quietly, a moment later:
+     * the title opened, the episode it'd start found, its streams asked for, and the pick checked with its server. Play
+     * then finds it all ready and goes straight to starting it. Moving on to another card starts that one's instead.
+     */
+    fun warm(t: Title) {
+        warming?.cancel()
+        if (title != null) return
+        warming = scope.launch {
+            delay(1200)
+            if (title != null) return@launch
+            if (stremio.details.value?.metaId != t.id) stremio.open(t.type, t.id, null)
+            var d: Details? = null
+            for (i in 0 until 60) {
+                val x = stremio.details.value
+                if (x?.metaId == t.id && x.state == Load.Ready) { d = x; break }
+                delay(150)
+            }
+            val dd = d ?: return@launch
+            val video = nextVideo(dd)?.id
+            if (video != null && dd.videoId != video) stremio.open(t.type, t.id, video)
+            for (i in 0 until 40) {
+                if (title != null) return@launch
+                val c = stremio.streams()
+                val pick = c?.picked
+                if (c != null && pick != null && (video == null || c.videoId == video) && (c.settled || c.sameAsLastTime || pick.instant)) {
+                    stremio.probeAhead(pick)
+                    c.videoId?.let { stremio.prefetchSkips(t.type, t.id, it) }
+                    return@launch
+                }
+                delay(300)
+            }
+        }
+    }
+
     fun cancel() {
         LoadingHandoff.clear()
         job?.cancel()
@@ -150,13 +189,20 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
         job = scope.launch { work() }
     }
 
+    // (how long each step of Play takes, in the log: adb logcat -s lumen-play)
+    private var playStarted = 0L
+    private fun mark(what: String) = android.util.Log.i("lumen-play", "+${System.currentTimeMillis() - playStarted} ms $what")
+
     private suspend fun run(t: Title, wanted: String?, fromStart: Boolean) {
+        playStarted = System.currentTimeMillis()
+        mark("Play ${t.name}")
         val checkSpeed = runCatching { stremio.settings().firstOrNull { it.key == "quickPlaySpeed" }?.value == true }.getOrDefault(false)
 
         // 1. The title (and for a show, which episode)
         val now = stremio.details.value
         if (now?.metaId != t.id || (wanted != null && now.videoId != wanted)) stremio.open(t.type, t.id, wanted)
         var d = awaitDetails(t.id, 0.03f, 0.12f) ?: return fail("Couldn't open ${t.name}", "Check the TV's connection and try again.")
+        mark("title open")
         val video = wanted ?: nextVideo(d)?.id
         if (video != null && d.videoId != video) {
             stremio.open(t.type, t.id, video)
@@ -168,25 +214,25 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
         }
         // (Start from the Beginning, or an ordinary Play clearing it)
         stremio.startFromBeginning(video ?: d.videoId ?: t.id, fromStart)
+        mark("episode settled")
         d.videos.firstOrNull { it.id == (video ?: d.videoId) }?.let { v ->
             if (v.season != null && v.episode != null) episode = "S${v.season}, E${v.episode}" + (if (v.title.isNotEmpty()) " · ${v.title}" else "")
         }
 
         // 2. The connection (only when Match my internet speed is on: the plugin measures it first)
-        if (checkSpeed) step = Step("Checking your internet speed", "A quick download, to pick a stream that won't buffer", 0.16f)
+        // (no "Checking your internet speed" step: the speed's known before Play now, from the last test or this network's memory)
 
         // 3. The streams, as the addons answer
         val began = System.currentTimeMillis()
         var speedShown = !checkSpeed
+        var reads = 0
         while (System.currentTimeMillis() - began < 30_000) {
             val c = stremio.streams()
+            if (reads++ < 4) mark("streams read: ${c?.items?.size ?: 0}, settled ${c?.settled}, for ${if (c?.videoId == (video ?: d.videoId)) "this video" else c?.videoId}")
             val dd = stremio.details.value
             if (!speedShown && c != null) {
                 speedShown = true
-                if (c.speed > 0) {
-                    step = Step("Checking your internet speed", "Your connection: ${c.speed.toInt()} Mbps", 0.22f)
-                    delay(900)
-                }
+                // (the speed goes on the next line of the screen with the streams: Play used to stop here for 0.9 s to show it)
             }
             val groups = dd?.takeIf { it.metaId == t.id }?.streams.orEmpty()
             val answered = groups.count { it.state != Load.Loading }
@@ -211,7 +257,14 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
             // Good enough not to wait for the slower addons: ready at once (cached) and 4K, or most have answered
             // (waiting for every addon, or 6 seconds, was most of the time on the loading screen)
             val soon = pick != null && pick.instant && groups.isNotEmpty() && (pick.res >= 2160 || answered * 3 >= groups.size * 2)
-            if (pick != null && (c.sameAsLastTime || c.settled || waited > 6_000 || soon)) return starting(pick)
+            // (or ready to play from the addon that's first in Stremio's order, once that one's answered: the one the
+            // viewer relies on, Harry's StremThru Torz; the rest, a fallback like Easynews+, needn't be waited for)
+            val top = groups.firstOrNull()
+            val fromTop = pick != null && pick.instant && top != null && top.state != Load.Loading && pick.addon == top.addon
+            if (pick != null && (c.sameAsLastTime || c.settled || waited > 6_000 || soon || fromTop)) {
+                mark("picked ${pick.quality} ${pick.bitrateText.orEmpty()} from ${pick.addon} (${if (c.sameAsLastTime) "same as last time" else if (c.settled) "all answered" else if (fromTop) "first addon ready" else if (soon) "ready 4K" else "waited 6 s"})")
+                return starting(pick)
+            }
             if (c != null && c.settled && pick == null) return fail("No streams found", "Your addons may not have this one yet.")
             delay(400)
         }
@@ -227,14 +280,17 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
             val why = stremio.whyNotVideo(option) ?: break
             android.util.Log.w("dxbi-player", "stream passed over before playing: $why")
             stremio.reject(option, why)
-            step = Step("That stream isn't available", "Trying another…", 0.85f)
+            // (quietly: the next best goes in its place, and only when none plays does the screen say anything went wrong)
+            step = step.copy(progress = 0.85f)
             option = stremio.streams()?.picked ?: return fail("Couldn't find a stream that plays", "Try … → Choose a Stream on the title's page.")
         }
+        mark("stream checked")
         val what = listOfNotNull(option.quality, if (option.dv) "Dolby Vision" else if (option.hdr) "HDR" else null).joinToString(" · ")
         step = Step("Starting $what", listOf(option.provider, option.sizeText.orEmpty(), option.bitrateText?.let { "$it stream" }.orEmpty(), internet.orEmpty(), option.source).filter { it.isNotEmpty() && it != "Other" }.joinToString(" · "), 0.88f)
         // (the player carries this screen on from here, to the video's first picture)
         title?.let { LoadingHandoff.put(it, episode, step) }
         stremio.play(option)
+        mark("handed to the player")
         // (the player's slow to open, or didn't: either way the screen doesn't stay)
         delay(25_000)
         if (title != null) done()
@@ -296,7 +352,22 @@ fun LoadingScreen(launcher: Launcher) {
 /** What the loading screen draws (here, and in the player until its first picture): [progressMs] is how slowly the bar moves */
 @Composable
 fun LoadingContent(title: Title, episode: String?, step: Launcher.Step, modifier: Modifier = Modifier, progressMs: Int = 500) {
-    val progress by animateFloatAsState(step.progress, tween(progressMs), label = "loading")
+    // The bar never stands still: up to each step as it comes, then on towards the next, slower and slower (never
+    // getting there: the next step carries it on), with a soft light running along it, so a slow server never looks
+    // like a hang
+    // (from where the last screen's bar had got to: the player's carries on the app's, it doesn't start again from nothing)
+    val shown = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (step.progress > 0.05f) LoadingBar.last.coerceAtMost(step.progress) else 0f) }
+    androidx.compose.runtime.SideEffect { LoadingBar.last = shown.value }
+    LaunchedEffect(step.progress, step.failed) {
+        if (step.failed) return@LaunchedEffect shown.animateTo(1f, tween(400)).let { }
+        if (shown.value < step.progress) shown.animateTo(step.progress, tween(progressMs, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+        val ceiling = (step.progress + 0.55f * (1f - step.progress)).coerceAtMost(0.97f)
+        shown.animateTo(ceiling, tween(12_000, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
+    }
+    val progress = shown.value
+    val sweep by androidx.compose.animation.core.rememberInfiniteTransition(label = "bar-light").animateFloat(
+        -0.3f, 1.3f, androidx.compose.animation.core.infiniteRepeatable(tween(1600, easing = androidx.compose.animation.core.LinearEasing)), label = "bar-light",
+    )
     Box(Modifier.fillMaxSize().background(Color.Black).then(modifier)) {
         Art(title.backdrop, Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.8f), 0.6f to Color.Black.copy(alpha = 0.35f))))
@@ -328,9 +399,24 @@ fun LoadingContent(title: Title, episode: String?, step: Launcher.Step, modifier
                     Modifier
                         .fillMaxWidth(progress.coerceIn(0f, 1f))
                         .fillMaxHeight()
-                        .background(if (step.failed) Color(0xFFFF6B6B) else Color.White, CircleShape),
+                        .background(if (step.failed) Color(0xFFFF6B6B) else Color.White.copy(alpha = 0.85f), CircleShape)
+                        .drawWithContent {
+                            drawContent()
+                            if (step.failed) return@drawWithContent
+                            val x = size.width * sweep
+                            val band = size.width.coerceAtLeast(1f) * 0.35f
+                            drawRect(
+                                Brush.horizontalGradient(
+                                    0f to Color.Transparent, 0.5f to Color.White, 1f to Color.Transparent,
+                                    startX = x - band / 2, endX = x + band / 2,
+                                ),
+                            )
+                        },
                 )
             }
         }
     }
 }
+
+/** How far the loading bar had got, for the next screen's to carry on from */
+object LoadingBar { @Volatile var last = 0f }

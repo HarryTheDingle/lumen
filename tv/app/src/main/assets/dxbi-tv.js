@@ -582,12 +582,14 @@
     if (!/^#\/player\//.test(hash) || (handoff && handoff.hash === hash)) return;
     handoff = { hash, pending: true };
     let state = null;
-    // With no streaming server online, torrents play on the TV itself: nothing to wait for
-    const serverUp = await streamingServerUp();
+    // With no streaming server online, torrents play on the TV itself: nothing to wait for. (Asked alongside the rest,
+    // and waited for only by a torrent: a debrid stream never needs the server, and the check held every Play up)
+    const serverUpSoon = streamingServerUp().catch(() => false);
+    let serverUp;
     // The player screen fills in over a moment: wait until the stream is known, and give the
     // title's details (name, episode, saved position) a few seconds more to arrive
     let known = 0;
-    for (let i = 0; i < 60 && location.hash === hash; i++) {
+    for (let i = 0; i < 150 && location.hash === hash; i++) {
       state = await playerState();
       const stream = state && state.selected && state.selected.stream;
       if (stream && stream.ytId) break;
@@ -597,11 +599,15 @@
         const metaReady = state.metaItem && state.metaItem.type !== "Loading";
         // A torrent's address comes from the streaming server, which can take a while to answer:
         // wait for it (up to ~10 s) before saying there's no server
+        if (stream.infoHash && serverUp === undefined) serverUp = await serverUpSoon;
         const waitingForServer = serverUp && !stream.url && stream.infoHash && !(state.stream && /^(Ready|Err)$/.test(state.stream.type));
-        if ((metaReady && state.libraryItem !== undefined && !waitingForServer) || known >= (waitingForServer ? 40 : 12)) break;
+        if ((metaReady && state.libraryItem !== undefined && !waitingForServer) || known >= (waitingForServer ? 100 : 30)) break;
       }
-      await new Promise((r) => setTimeout(r, 250));
+      // (looked at every tenth of a second: the details usually come in well under one, and a quarter-second step
+      // added up to most of a second before the player opened)
+      await new Promise((r) => setTimeout(r, 100));
     }
+    if (serverUp === undefined) serverUp = (state && state.selected && state.selected.stream && state.selected.stream.infoHash) ? await serverUpSoon : false;
     if (location.hash !== hash || !state || !state.selected) { handoff = null; return; }
     const stream = state.selected.stream || {};
     // Trailers are YouTube videos, which Stremio plays through a streaming server (none on a TV).
@@ -689,6 +695,8 @@
     const headers = (stream.behaviorHints && stream.behaviorHints.proxyHeaders && stream.behaviorHints.proxyHeaders.request) || {};
     const episode = video && video.season != null ? `S${video.season} E${video.episode}${video.title || video.name ? ` · ${video.title || video.name}` : ""}` : "";
 
+    // (the player's colour, worked out alongside the rest rather than after it: it took up to 0.9 s more before the player opened)
+    const accentSoon = accentFor(meta).catch(() => "");
     const profile = await profileSettings();
     const subtitleLanguage = await startSubtitleLanguage();
     // Skip intro / recap / credits: the times dx.bi has for this episode (looked up while the player
@@ -696,9 +704,12 @@
     const metaPath = state.selected.metaRequest && state.selected.metaRequest.path;
     const dx = window.__dxbi;
     const [withSubtitles, skips] = await Promise.all([
-      subtitlesSoon(state, subtitleLanguage, hash, 4000),
+      // (2 s at most for the subtitle addons: their search held every Play for up to 4)
+      subtitlesSoon(state, subtitleLanguage, hash, 2000),
       dx && dx.skipSegments && videoId
-        ? Promise.race([dx.skipSegments(meta.type || (metaPath && metaPath.type), meta.id || (metaPath && metaPath.id), videoId).catch(() => []), new Promise((r) => setTimeout(() => r([]), 4000))])
+        // (1.5 s at most: they're fetched ahead while the title's page or card is up, so this is only a quick Play's wait;
+        // 4 s held the player back for the whole of it when the intro times were slow to come)
+        ? Promise.race([dx.skipSegments(meta.type || (metaPath && metaPath.type), meta.id || (metaPath && metaPath.id), videoId).catch(() => []), new Promise((r) => setTimeout(() => r([]), 1500))])
         : [],
     ]);
     if (location.hash !== hash) { handoff = null; return; }
@@ -725,7 +736,7 @@
       torrent,
       autoSkip: (dx && dx.settings && dx.settings.autoSkip) || "off",
       clock: !(dx && dx.settings) || dx.settings.playerClock !== false,
-      accent: await accentFor(meta),
+      accent: await accentSoon,
       next: nextLink(state, shuffled) ? { id: nextOf(state, shuffled).id, title: nextTitle(nextOf(state, shuffled)), thumbnail: nextOf(state, shuffled).thumbnail || "" } : null,
       upNext: (dx && dx.settings && dx.settings.upNext) || "10",
       audioLanguage: profile.audioLanguage || "",

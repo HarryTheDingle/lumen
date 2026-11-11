@@ -40,7 +40,9 @@ object LoadingHandoff {
     val retries = kotlinx.coroutines.flow.MutableStateFlow<Info?>(null)
 
     fun retry(title: Title, episode: String?, why: String) {
-        retries.value = Info(title, episode, Launcher.Step("Trying another stream", why.ifEmpty { null }?.let { "The last one didn't play: $it" }, 0.9f), System.currentTimeMillis())
+        // (said as just starting: a stream that didn't play isn't news while the next one does; why is in the log)
+        android.util.Log.w("dxbi-player", "trying another stream: $why")
+        retries.value = Info(title, episode, Launcher.Step("Starting", null, 0.9f), System.currentTimeMillis())
     }
 
     /** The next episode: the same screen, while it's started the way Play starts one (see Launcher.retry) */
@@ -87,7 +89,7 @@ class PlayerLoading(private val info: LoadingHandoff.Info, private val onGone: (
 
     override fun retrying(message: String) {
         ready = false
-        step = Launcher.Step("That stream didn't play", "Trying another…", 0.9f)
+        step = Launcher.Step("Starting", null, 0.9f)
         LoadingHandoff.retry(info.title, info.episode, message)
     }
 

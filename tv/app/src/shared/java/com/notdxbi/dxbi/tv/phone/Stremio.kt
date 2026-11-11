@@ -632,6 +632,16 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
     suspend fun cast(type: String, imdb: String, names: JSONArray): List<JSONObject>? =
         (engine.runCatching { call("dx", JSONObject().put("method", "phone.cast").put("args", JSONArray().put(type).put(imdb).put(names)), 25_000) }.getOrNull() as? JSONArray)?.objects()
 
+    /**
+     * The intro, recap and credits times for a video, fetched ahead (the plugin keeps them): the player's start waited for
+     * them, up to 4 seconds, before it opened
+     */
+    fun prefetchSkips(type: String, metaId: String, videoId: String) {
+        if (!skipsAsked.add(videoId)) return
+        scope.launch { runCatching { dx("skipSegments", type, metaId, videoId) } }
+    }
+    private val skipsAsked = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
     /** This profile's own score for a title, 1 to 10 (null: not rated). The iPad's Rate, shared through the plugin (phone.rating) */
     suspend fun rating(id: String): Int? = (runCatching { dx("phone.rating", id) }.getOrNull() as? Number)?.toInt()?.takeIf { it in 1..10 }
 

@@ -215,7 +215,15 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
     val streamsKey = mine?.videoId?.let { v -> v + mine.streams.joinToString("|") { "${it.addon}${it.state}${it.streams.size}" } }
     LaunchedEffect(streamsKey) {
         if (streamsKey == null) return@LaunchedEffect
-        choices = stremio.streams()
+        val c = stremio.streams()
+        choices = c
+        // The pick checked (and its server asked for the file) while the page is read, once the addons have answered or it's
+        // a ready one: Play then goes straight to starting it, with nothing left to wait for
+        val pick = c?.picked
+        if (pick != null && (c.settled || c.sameAsLastTime || pick.instant)) {
+            stremio.probeAhead(pick)
+            c.videoId?.let { stremio.prefetchSkips(ref.type, ref.id, it) }
+        }
     }
 
     val list = rememberLazyListState()

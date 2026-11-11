@@ -261,6 +261,9 @@ fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 270.dp,
         }
     }
     val cardWidth by animateDpAsState(if (open) width * 1.5f else width, tween(300), label = "continue-width")
+    // (resting on it: Play's work done ahead, so it starts at once: Launcher.warm)
+    val launcher = LocalLauncher.current
+    LaunchedEffect(focused) { if (focused) launcher?.warm(title) }
     val marks = actions?.listMarks?.collectAsState()?.value.orEmpty()
     val inList = marks[title.id] ?: title.inLibrary
 
