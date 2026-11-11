@@ -1,8 +1,8 @@
 import SwiftUI
 
 /**
- * QuickRateView: Rate Movies & Series interface in Lumen Settings and Profile
- * to rapidly train personalized recommendations.
+ * Rate Movies & Series (Lumen Settings): pick from popular titles, search, or change what's already rated.
+ * The ratings feed Top Picks and suggestions.
  */
 struct QuickRateView: View {
     @Environment(Stremio.self) private var stremio
@@ -88,10 +88,6 @@ struct QuickRateView: View {
                 }
                 titleCache[target.id] = target
                 await stremio.setRating(newScore, for: target.id, title: target)
-                let fresh = await stremio.allRatings()
-                await MainActor.run {
-                    ratings = fresh
-                }
             }
         }
         .task {
@@ -359,11 +355,16 @@ struct QuickRateView: View {
             let existing = titleCache[id]
             return (existing == nil || existing?.name.isEmpty == true) && !libraryIds.contains(id)
         }
-        for id in missingIds {
-            if let found = await DiscoverFeed.shared.title(for: id) {
-                await MainActor.run {
-                    titleCache[id] = found
-                }
+        // A few at a time, so a long list doesn't wait on one lookup after another
+        await withTaskGroup(of: (String, Title?).self) { group in
+            var it = missingIds.makeIterator()
+            func next() {
+                if let id = it.next() { group.addTask { (id, await DiscoverFeed.shared.title(for: id)) } }
+            }
+            for _ in 0..<6 { next() }
+            while let (id, found) = await group.next() {
+                if let found { titleCache[id] = found }
+                next()
             }
         }
     }
@@ -398,7 +399,7 @@ struct TitleRateCard: View {
                                 .strokeBorder(LinearGradient(colors: [.white.opacity(0.3), .white.opacity(0.08)], startPoint: .top, endPoint: .bottom), lineWidth: 1)
                         )
 
-                    // Rating badge or rate prompt
+                    // Only rated posters get a badge
                     if let rating {
                         HStack(spacing: 3) {
                             Image(systemName: "star.fill")
@@ -414,22 +415,6 @@ struct TitleRateCard: View {
                         .background(Color.black.opacity(0.6))
                         .clipShape(Capsule())
                         .overlay(Capsule().strokeBorder(Color.yellow.opacity(0.4), lineWidth: 1))
-                        .padding(6)
-                    } else {
-                        HStack(spacing: 3) {
-                            Image(systemName: "star")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(Color.yellow)
-                            Text("Rate")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.white)
-                        }
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(.ultraThinMaterial)
-                        .background(Color.black.opacity(0.5))
-                        .clipShape(Capsule())
-                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.2), lineWidth: 0.5))
                         .padding(6)
                     }
                 }

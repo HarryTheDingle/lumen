@@ -12264,29 +12264,38 @@
   // </reco-pure>
 
   const ratings = {
+    // (timer for the bridge's refresh of the picks, half a minute after the last rating)
+    later: 0,
     key: () => viewers.key("ratings"),
+    // Only scores that mean something: a stray key or a value outside 1-10 (old or hand-edited data) is dropped here, once
     all() {
       const data = store.get(this.key(), null);
-      return data && typeof data === "object" ? { ...data } : {};
+      const out = {};
+      if (!data || typeof data !== "object") return out;
+      for (const [id, val] of Object.entries(data)) {
+        const n = typeof val === "string" && !val.trim() ? NaN : Number(val);
+        if (id && Number.isInteger(n) && n >= 1 && n <= 10) out[id] = n;
+      }
+      return out;
     },
     get(id) {
       if (!id) return null;
-      const all = this.all();
-      const val = all[id];
-      const n = Number(val);
-      return Number.isInteger(n) && n >= 1 && n <= 10 ? n : null;
+      return this.all()[id] ?? null;
     },
+    // True only when something changed, so an unchanged tap costs no write and no cloud push
     set(id, score) {
-      if (!id) return false;
-      const key = this.key();
-      const all = { ...this.all() };
+      if (!id || typeof id !== "string") return false;
+      const all = this.all();
       const n = Number(score);
       if (Number.isInteger(n) && n >= 1 && n <= 10) {
+        if (all[id] === n) return false;
         all[id] = n;
       } else {
+        if (!Object.hasOwn(all, id)) return false;
         delete all[id];
+        this.forget(id);
       }
-      store.set(key, all);
+      store.set(this.key(), all);
       if (typeof cloudSync.push === "function") cloudSync.push();
       return true;
     },
@@ -12306,6 +12315,13 @@
       if (!/^tt\d+$/.test(id || "") || !meta || !meta.name) return;
       const all = this.metas();
       all[id] = { type: meta.type === "series" ? "series" : "movie", name: String(meta.name).slice(0, 120), year: Number(meta.year) || 0, genres: (meta.genres || []).slice(0, 4) };
+      try { localStorage.setItem(this.META, JSON.stringify(all)); } catch (_) { /* full */ }
+    },
+    // A removed rating's title details go too, so they don't pile up
+    forget(id) {
+      const all = this.metas();
+      if (!Object.hasOwn(all, id)) return;
+      delete all[id];
       try { localStorage.setItem(this.META, JSON.stringify(all)); } catch (_) { /* full */ }
     },
     // Looks up the rated titles this device doesn't know yet (rated on another device, or before names were kept)
@@ -12456,7 +12472,6 @@
         dropped: this.dropped(),
         // (the scores that say most first, loved and hated; one whose name isn't known tells the model nothing)
         ratings: Object.entries(ratings.all())
-          .filter(([, r]) => Number.isInteger(r) && r >= 1 && r <= 10)
           .map(([id, r]) => ({ id, rating: r, meta: ratings.meta(id) }))
           .filter((e) => e.meta)
           .sort((a, b) => Math.abs(b.rating - 5.5) - Math.abs(a.rating - 5.5))
@@ -17195,8 +17210,9 @@
       },
       // [meta]: {type, name, year, genres} of the title, as the screen that rated it knows it
       async setRating(id, score, meta) {
-        ratings.set(id, score);
-        if (meta && typeof meta === "object") ratings.remember(id, meta);
+        const changed = ratings.set(id, score);
+        if (ratings.get(id) !== null && meta && typeof meta === "object") ratings.remember(id, meta);
+        if (!changed) return true;
         // (ten rated in a row are one new set of picks, not ten: worked out half a minute after the last)
         clearTimeout(ratings.later);
         ratings.later = setTimeout(() => recommender.get(), 30000);

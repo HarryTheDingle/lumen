@@ -1141,11 +1141,7 @@ final class Stremio {
         guard let dict = await dx("phone.ratings") as? [String: Any] else { return [:] }
         var result: [String: Int] = [:]
         for (k, v) in dict {
-            if let n = v as? NSNumber {
-                result[k] = n.intValue
-            } else if let i = v as? Int {
-                result[k] = i
-            }
+            if let n = (v as? NSNumber)?.intValue, (1...10).contains(n) { result[k] = n }
         }
         return result
     }

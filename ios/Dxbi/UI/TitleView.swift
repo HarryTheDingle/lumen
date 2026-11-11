@@ -825,11 +825,7 @@ struct RatingSheet: View {
 
                 if userRating != nil {
                     Button(role: .destructive) {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        userRating = nil
-                        Task {
-                            await onSetRating(nil)
-                        }
+                        pick(nil)
                     } label: {
                         Text("Remove Rating")
                             .font(.subheadline.weight(.semibold))
@@ -855,14 +851,21 @@ struct RatingSheet: View {
         .presentationDragIndicator(.visible)
     }
 
+    /** Save the pick, then close after a short beat so the yellow choice is seen */
+    private func pick(_ score: Int?) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        userRating = score
+        Task {
+            await onSetRating(score)
+            try? await Task.sleep(for: .milliseconds(350))
+            dismiss()
+        }
+    }
+
     private func scoreButton(_ score: Int) -> some View {
         let isSelected = userRating == score
         return Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            userRating = score
-            Task {
-                await onSetRating(score)
-            }
+            pick(score)
         } label: {
             Text("\(score)")
                 .font(.headline.weight(isSelected ? .bold : .medium))

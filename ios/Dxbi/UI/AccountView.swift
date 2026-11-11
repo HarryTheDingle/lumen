@@ -292,7 +292,6 @@ struct DxbiSettingsView: View {
         .navigationTitle("Lumen Settings")
         .task {
             settings = await stremio.settings().filter { !Self.webOnly.contains($0.key) }
-            ratedCount = (await stremio.allRatings()).count
         }
         .onAppear {
             Task {
