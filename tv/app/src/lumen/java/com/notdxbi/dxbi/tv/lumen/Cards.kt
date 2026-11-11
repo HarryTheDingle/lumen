@@ -41,6 +41,10 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import coil3.toBitmap
+import coil3.request.allowHardware
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
@@ -61,8 +65,9 @@ import com.notdxbi.dxbi.tv.phone.Continue
 import com.notdxbi.dxbi.tv.phone.Title
 
 /**
- * A card the remote can choose, the Apple TV way: it lifts towards you when chosen, larger, casting a
- * soft shadow down under it, with a faint white edge
+ * A card the remote can choose, the Apple TV way: it lifts towards you when chosen, larger, with a faint white edge and a
+ * soft glow around it in the main colour of its picture ([art]; a soft white when it has none). On black there's
+ * nothing for a shadow to fall on, so the glow does what the shadow did.
  */
 @Composable
 fun FocusCard(
@@ -70,26 +75,45 @@ fun FocusCard(
     modifier: Modifier = Modifier,
     corner: Dp = 12.dp,
     onLongClick: (() -> Unit)? = null,
+    art: String? = null,
     content: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(corner)
+    val context = androidx.compose.ui.platform.LocalContext.current
     var focused by remember { mutableStateOf(false) }
     val lift by animateFloatAsState(if (focused) 1f else 0f, tween(180), label = "lift")
+    // (worked out only once the remote's on it: a row of cards does nothing until then)
+    val tint by produceState<Color?>(artColours[art], art, focused) {
+        if (focused && art != null && value == null) value = artColour(context, art)
+    }
+    val glow by androidx.compose.animation.animateColorAsState(tint ?: GlowNeutral, tween(300), label = "glow")
+    val cornerPx = with(androidx.compose.ui.platform.LocalDensity.current) { corner.toPx() }
     Card(
         onClick = onClick,
         onLongClick = onLongClick,
-        // (grown and lifted here rather than by the card, so the shadow grows with it: Android's light
-        // sits above the screen, so a lifted card's shadow falls below it)
+        // (grown here rather than by the card, so the glow grows with it)
         modifier = modifier
             .onFocusChanged { focused = it.isFocused || it.hasFocus }
             .graphicsLayer {
                 val s = 1f + 0.1f * lift
                 scaleX = s
                 scaleY = s
-                this.shape = shape
-                shadowElevation = 14.dp.toPx() * lift
-                ambientShadowColor = Color.Black
-                spotShadowColor = Color.Black
+            }
+            .drawBehind {
+                if (lift <= 0f) return@drawBehind
+                // A soft halo: rounded rings, fainter as they spread (cheap for a TV's graphics, unlike a real blur)
+                val spread = 16.dp.toPx()
+                val rings = 8
+                for (i in rings downTo 1) {
+                    val f = i / rings.toFloat()
+                    val out = spread * f
+                    drawRoundRect(
+                        glow.copy(alpha = 0.11f * (1f - f * 0.85f) * lift),
+                        topLeft = androidx.compose.ui.geometry.Offset(-out, -out),
+                        size = androidx.compose.ui.geometry.Size(size.width + out * 2, size.height + out * 2),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerPx + out),
+                    )
+                }
             },
         shape = CardDefaults.shape(shape),
         colors = CardDefaults.colors(containerColor = Dx.Raised, focusedContainerColor = Dx.Raised),
@@ -102,6 +126,35 @@ fun FocusCard(
     ) {
         content()
     }
+}
+
+private val GlowNeutral = Color(0xFFBFC6D0)
+private val artColours = java.util.concurrent.ConcurrentHashMap<String, Color>()
+
+/**
+ * A picture's main colour, for its card's glow: the most colourful of an 8×8 copy's pixels (an average of the whole
+ * comes out a muddy brown), lifted so it glows on black. Kept for as long as Lumen's open.
+ */
+private suspend fun artColour(context: android.content.Context, url: String): Color? {
+    artColours[url]?.let { return it }
+    val request = coil3.request.ImageRequest.Builder(context).data(url).size(8, 8).allowHardware(false).build()
+    val result = coil3.SingletonImageLoader.get(context).execute(request) as? coil3.request.SuccessResult ?: return null
+    val bitmap = result.image.toBitmap()
+    val hsv = FloatArray(3)
+    var best = -1f
+    var picked = FloatArray(3)
+    for (y in 0 until bitmap.height) for (x in 0 until bitmap.width) {
+        android.graphics.Color.colorToHSV(bitmap.getPixel(x, y), hsv)
+        // colourful and not too dark
+        val score = hsv[1] * (0.35f + hsv[2])
+        if (score > best) { best = score; picked = hsv.copyOf() }
+    }
+    if (best < 0f) return null
+    // (a grey picture glows a soft white; anything with colour, that colour, bright)
+    val colour = if (picked[1] < 0.18f) GlowNeutral
+    else Color(android.graphics.Color.HSVToColor(floatArrayOf(picked[0], picked[1].coerceIn(0.45f, 0.85f), picked[2].coerceAtLeast(0.85f))))
+    artColours[url] = colour
+    return colour
 }
 
 /**
@@ -217,7 +270,7 @@ fun Shelf(title: String, modifier: Modifier = Modifier, content: LazyListScope.(
  */
 @Composable
 fun PosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, width: Dp = Dx.Poster, fill: Boolean = false) {
-    FocusCard(onClick = onClick, modifier = if (fill) Modifier.fillMaxWidth().aspectRatio(2f / 3f) else Modifier.size(width, width * 1.5f)) {
+    FocusCard(onClick = onClick, art = title.art, modifier = if (fill) Modifier.fillMaxWidth().aspectRatio(2f / 3f) else Modifier.size(width, width * 1.5f)) {
         Box(Modifier.fillMaxSize()) {
             // (no poster, or one that won't load: its name instead of a blank grey card, as search results had)
             var noArt by remember(title.art) { mutableStateOf(title.art == null) }
@@ -267,7 +320,7 @@ fun BoxScope.PosterName(title: Title, width: Dp) {
 /** New episodes this week: the episode's picture, the show and when */
 @Composable
 fun AiringCard(item: Airing, onClick: () -> Unit, width: Dp = 300.dp) {
-    FocusCard(onClick = onClick, corner = 16.dp, modifier = Modifier.size(width, width * 0.64f)) {
+    FocusCard(onClick = onClick, corner = 16.dp, art = item.still ?: item.background, modifier = Modifier.size(width, width * 0.64f)) {
         Box(Modifier.fillMaxSize()) {
             Art(item.still ?: item.background, Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.85f))))

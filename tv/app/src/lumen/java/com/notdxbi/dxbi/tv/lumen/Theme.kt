@@ -67,9 +67,10 @@ object Dx {
     val Spectrum = Brush.horizontalGradient(listOf(Accent, Blue, Amber))
     /** Text on the accent (it's light) */
     val OnAccent = Color(0xFF06141A)
-    /** Apple TV's page grey (#2C2C2E): cards and shadows have something to sit on, which black doesn't give them */
-    val Background = Color(0xFF2C2C2E)
-    val Raised = Color(0xFF3A3A3C)
+    /** Black, as Harry wants it (2026-11-11; it was Apple TV's #2C2C2E grey): a chosen card glows in its own colour instead of casting a shadow */
+    val Background = Color.Black
+    /** A card's face before its picture comes */
+    val Raised = Color(0xFF1C1C1E)
     val Muted = Color.White.copy(alpha = 0.62f)
     val Faint = Color.White.copy(alpha = 0.4f)
     /** TV-safe margin at the screen's sides */

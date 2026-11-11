@@ -632,6 +632,16 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
     suspend fun cast(type: String, imdb: String, names: JSONArray): List<JSONObject>? =
         (engine.runCatching { call("dx", JSONObject().put("method", "phone.cast").put("args", JSONArray().put(type).put(imdb).put(names)), 25_000) }.getOrNull() as? JSONArray)?.objects()
 
+    /** This profile's own score for a title, 1 to 10 (null: not rated). The iPad's Rate, shared through the plugin (phone.rating) */
+    suspend fun rating(id: String): Int? = (runCatching { dx("phone.rating", id) }.getOrNull() as? Number)?.toInt()?.takeIf { it in 1..10 }
+
+    /** Rates a title (null: takes the rating away); its name and kind go with it for the suggestions, as the iPad sends them */
+    fun setRating(title: Title, score: Int?) = scope.launch {
+        val meta = JSONObject().put("type", if (title.type == "movie") "movie" else "series").put("name", title.name)
+            .put("year", title.year?.take(4)?.toIntOrNull() ?: 0).put("genres", JSONArray(title.genres.take(4)))
+        dx("phone.setRating", title.id, score ?: 0, meta)
+    }
+
     /** Someone's page (TMDB, with a key in dx.bi settings): by TMDB's id from the cast list, else by name. null without a key */
     suspend fun person(id: String?, name: String): JSONObject? =
         engine.runCatching { call("dx", JSONObject().put("method", "phone.person").put("args", JSONArray().put(id ?: "").put(name)), 40_000) }.getOrNull() as? JSONObject

@@ -16740,6 +16740,9 @@
         let photo = null;
         try {
           const r = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name.replace(/ /g, "_"))}?redirect=true`, { signal: AbortSignal.timeout(8000) });
+          // (Wikipedia busy or refusing, not "no such page": try again another time. Kept as "no photo", one refusal left the
+          // whole cast as initials on the TV for good)
+          if (!r.ok && r.status !== 404) return null;
           const j = r.ok ? await r.json() : null;
           if (j && j.type === "standard" && screen.test(j.description || "") && j.thumbnail && /^https:/.test(j.thumbnail.source)) photo = j.thumbnail.source;
         } catch (_) {

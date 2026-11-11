@@ -225,13 +225,13 @@ fun PlayButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier
 
 /** The round button beside Play: +, ✓, … */
 @Composable
-fun RoundButton(icon: ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun RoundButton(icon: ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, tint: Color = Color.White) {
     IconButton(
         onClick = onClick,
         modifier = modifier,
         colors = IconButtonDefaults.colors(
             containerColor = Color.Black.copy(alpha = 0.42f),
-            contentColor = Color.White,
+            contentColor = tint,
             focusedContainerColor = Color(0xFFE8E8E8),
             focusedContentColor = Color.Black,
         ),

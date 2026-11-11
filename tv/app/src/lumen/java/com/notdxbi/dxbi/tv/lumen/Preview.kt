@@ -156,6 +156,7 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
     val buttons = open && actions != null
     Column {
     FocusCard(
+        art = title.art,
         onClick = {
             when (lit) {
                 1 -> actions?.play?.invoke(title)
@@ -267,6 +268,7 @@ fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 270.dp,
     LaunchedEffect(open) { if (!open) lit = 0 }
     val buttons = open && actions != null
     FocusCard(
+        art = title.backdrop,
         onClick = {
             when (lit) {
                 1 -> actions?.play?.invoke(title)

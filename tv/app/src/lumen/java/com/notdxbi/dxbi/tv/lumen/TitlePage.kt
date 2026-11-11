@@ -57,6 +57,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
@@ -138,6 +140,10 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
     var reviews by remember { mutableStateOf<Reviews?>(null) }
     /** The cast with photos (TMDB, with a key in Lumen settings), else null */
     var cast by remember { mutableStateOf<List<JSONObject>?>(null) }
+    // this profile's own score (the iPad's Rate): the star beside ✓, yellow once rated
+    var myRating by remember(ref.id) { mutableStateOf<Int?>(null) }
+    var rating by remember { mutableStateOf(false) }
+    LaunchedEffect(ref.id) { myRating = stremio.rating(ref.id) }
     var menu by remember { mutableStateOf<Pair<String, List<Action>>?>(null) }
     // In the Library: what was just chosen here, else what the title came with, what its own page says, or the Library's
     // own list (a title opened from a catalogue or Continue Watching doesn't carry it, and showed + for one that was in)
@@ -280,8 +286,9 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
         BoxWithConstraints(
             Modifier
                 .fillMaxSize()
-                // (clear while the trailer shows: it plays under the page)
-                .background(Dx.Background)
+                // (clear while the trailer shows: it plays under the page. Opaque, the picture faded away to leave a black
+                // page with the trailer hidden behind it)
+                .background(if (trailerShowing) Color.Transparent else Dx.Background)
                 // Back: down the page, to the top; at the top, the page closes
                 .onPreviewKeyEvent {
                     if (still.key(it)) return@onPreviewKeyEvent true
@@ -355,6 +362,8 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                                 stremio.setInList(add)
                                 Toast.makeText(context, if (add) "Added to your Library" else "Removed from your Library", Toast.LENGTH_SHORT).show()
                             },
+                            rated = myRating,
+                            onRate = { rating = true },
                             onMore = {
                                 menu = title.name to buildList {
                                     // (a saved place to go back to: the film's, or the episode Play would start's)
@@ -450,6 +459,11 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
             )
         }
         menu?.let { (heading, actions) -> ActionMenu(heading, actions, onDismiss = { menu = null }) }
+        if (rating) RatingSheet(title.name, myRating, onDismiss = { rating = false }) { score ->
+            myRating = score
+            stremio.setRating(title, score)
+            Toast.makeText(context, if (score == null) "Rating removed" else "Rated $score/10", Toast.LENGTH_SHORT).show()
+        }
     }
 }
 
@@ -466,7 +480,10 @@ private class PageScrollingSpec(private val list: androidx.compose.foundation.la
         val target = section()
         val item = list.layoutInfo.visibleItemsInfo.firstOrNull { it.index == target }
         // (a section that's one screen tall or less, entered: its top to the top of the screen)
-        if (item != null && target <= 2 && item.size <= containerSize * 1.05f) return settle(item.offset.toFloat(), containerSize)
+        // (a taller one too, while the remote's in its first screen: entering Related from Play put Related a fifth of
+        // the way down, with Play's row still hanging at the top; now Related's name comes to the top and the cast is
+        // in view under it)
+        if (item != null && target <= 2 && (item.size <= containerSize * 1.05f || offset - item.offset < containerSize * 0.6f)) return settle(item.offset.toFloat(), containerSize)
         if (offset >= 0f && offset + size <= containerSize) return 0f
         return settle(offset - containerSize * 0.2f, containerSize)
     }
@@ -520,6 +537,8 @@ private fun Header(
     onFocused: () -> Unit,
     onPlay: () -> Unit,
     onList: () -> Unit,
+    rated: Int?,
+    onRate: () -> Unit,
     onMore: () -> Unit,
 ) {
     Box(Modifier.fillMaxWidth().height(height)) {
@@ -540,6 +559,11 @@ private fun Header(
         ) {
             PlayButton(playLabel, onPlay, Modifier.focusRequester(playFocus))
             RoundButton(if (inList) Icons.Filled.Check else Icons.Filled.Add, if (inList) "In your Library" else "Add to Library", onList)
+            RoundButton(
+                if (rated != null) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                if (rated != null) "Rated $rated/10" else "Rate", onRate,
+                tint = if (rated != null) RatingYellow else Color.White,
+            )
             RoundButton(Icons.Filled.MoreHoriz, "More", onMore)
         }
         // who's in it, and who made it
@@ -636,6 +660,7 @@ private fun SeasonsRow(
                 Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     FocusCard(
                         onClick = { if (!s.current) onOpen(s.title) },
+                        art = s.title.art,
                         modifier = Modifier.size(width, width * 1.5f).then(if (i == here) Modifier.focusRequester(landing) else Modifier),
                     ) {
                         Box(Modifier.fillMaxSize()) {
@@ -727,7 +752,7 @@ private fun Episodes(
 @Composable
 private fun EpisodeCard(v: Video, fallbackArt: String?, isCurrent: Boolean, blur: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier = Modifier, width: Dp = 250.dp, showSeason: Boolean = false) {
     Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        FocusCard(onClick = onClick, onLongClick = onLongClick, modifier = modifier.width(width).height(width * 0.64f)) {
+        FocusCard(onClick = onClick, onLongClick = onLongClick, art = v.thumbnail ?: fallbackArt, modifier = modifier.width(width).height(width * 0.64f)) {
             Box(Modifier.fillMaxSize()) {
                 // (Blur unwatched episodes: hidden until it's watched or started; TVs before Android 12 can't
                 // blur, so the picture's covered instead)
@@ -836,4 +861,92 @@ private fun releasedText(v: Video): String? {
     val date = runCatching { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(day) }.getOrNull() ?: return null
     val text = java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault()).format(date)
     return if (v.upcoming) "Coming $text" else text
+}
+
+private val RatingYellow = Color(0xFFFFD60A)
+
+/**
+ * Rate a title out of 10, as on the iPad (TitleView's RatingSheet): the score big in the middle with its word
+ * (Masterpiece … Unwatchable), 1 to 5 and 6 to 10 in two rows to choose from, and Remove Rating once rated.
+ * Choosing a score saves it and closes, the remote's way: no Done button to go and find.
+ */
+@Composable
+private fun RatingSheet(name: String, current: Int?, onDismiss: () -> Unit, onRate: (Int?) -> Unit) {
+    val tiers = mapOf(10 to "Masterpiece", 9 to "Outstanding", 8 to "Great", 7 to "Good", 6 to "Decent", 5 to "Average", 4 to "Mediocre", 3 to "Bad", 2 to "Terrible", 1 to "Unwatchable")
+    val start = remember { FocusRequester() }
+    // the score the remote's on, shown big as it moves (what OK would give)
+    var showing by remember { mutableStateOf(current) }
+    var armed by remember { mutableStateOf(false) }
+    PageWindow(onBack = onDismiss, dim = 0.75f, fadeIn = false) {
+        FocusOnOpen(start)
+        Box(
+            Modifier.fillMaxSize().onPreviewKeyEvent {
+                // (opened with OK held: letting go mustn't rate)
+                val ok = it.key == Key.DirectionCenter || it.key == Key.Enter || it.key == Key.NumPadEnter
+                if (!ok || armed) return@onPreviewKeyEvent false
+                if (it.type == KeyEventType.KeyDown && it.nativeKeyEvent.repeatCount == 0) { armed = true; false } else true
+            },
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                Modifier.width(520.dp).background(Color(0xFF161618), RoundedCornerShape(26.dp)).padding(horizontal = 28.dp, vertical = 26.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                Text("Rate $name", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.height(96.dp), verticalArrangement = Arrangement.Center) {
+                    val n = showing
+                    if (n != null) {
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text("$n", fontSize = 54.sp, fontWeight = FontWeight.Bold, color = RatingYellow)
+                            Text("/10", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted, modifier = Modifier.padding(bottom = 10.dp, start = 4.dp))
+                        }
+                        Text(tiers[n].orEmpty(), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                    } else {
+                        Text("Not Rated", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Dx.Muted)
+                    }
+                }
+                listOf(1..5, 6..10).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        row.forEach { score ->
+                            val mine = score == current
+                            Surface(
+                                onClick = { onRate(score); onDismiss() },
+                                modifier = Modifier.size(width = 80.dp, height = 52.dp)
+                                    .then(if (score == (current ?: 5)) Modifier.focusRequester(start) else Modifier)
+                                    .onFocusChanged { if (it.isFocused) showing = score },
+                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = if (mine) RatingYellow else Color.White.copy(alpha = 0.12f),
+                                    contentColor = if (mine) Color.Black else Color.White,
+                                    focusedContainerColor = Color.White,
+                                    focusedContentColor = Color.Black,
+                                ),
+                                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                            ) {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("$score", fontSize = 18.sp, fontWeight = if (mine) FontWeight.Bold else FontWeight.Medium)
+                                }
+                            }
+                        }
+                    }
+                }
+                if (current != null) {
+                    Surface(
+                        onClick = { onRate(null); onDismiss() },
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = Color.Transparent,
+                            contentColor = Color(0xFFFF6961),
+                            focusedContainerColor = Color.White,
+                            focusedContentColor = Color(0xFFD70015),
+                        ),
+                        modifier = Modifier.onFocusChanged { if (it.isFocused) showing = null },
+                    ) {
+                        Text("Remove Rating", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
+                    }
+                }
+            }
+        }
+    }
 }
