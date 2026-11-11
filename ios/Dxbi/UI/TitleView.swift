@@ -195,6 +195,8 @@ struct TitleView: View {
             while !Task.isCancelled, waitingFor != nil, stremio.launch != nil {
                 try? await Task.sleep(for: .milliseconds(250))
                 if Task.isCancelled || waitingFor == nil || stremio.launch == nil { return }
+                // (the stream from last time is starting: nothing else is, unless it won't play)
+                if stremio.savedAttempt != nil { continue }
                 if details?.videoId != nil, let fresh = await stremio.streams() { choices = fresh }
                 if waitingFor == nil || stremio.launch == nil { return }
                 justPlayIfSure()
@@ -246,6 +248,14 @@ struct TitleView: View {
         stremio.onLaunchMore = {
             waitingFor = nil
             streamsOpen = true
+        }
+        // The stream played last time, in the last few hours: straight back to it (PlayedLinks); the page's own pick waits
+        // behind it, for if it won't play
+        stremio.savedAttempt = nil
+        if !NetworkStatus.shared.saving, let link = PlayedLinks.get(target) {
+            stremio.stepLaunch("Starting", progress: 0.88)
+            stremio.playSaved(link, video: target)
+            return
         }
         justPlayIfSure()
         updateLaunch()
@@ -302,7 +312,7 @@ struct TitleView: View {
      * else once every addon has answered
      */
     private func justPlayIfSure() {
-        guard let c = current, c.justPlay || stremio.launch != nil, waitingFor == c.videoId, let pick = c.picked else { return }
+        guard stremio.savedAttempt == nil, let c = current, c.justPlay || stremio.launch != nil, waitingFor == c.videoId, let pick = c.picked else { return }
         // (on mobile data or Low Data Mode the loading screen offers a choice instead: the loop above)
         guard !NetworkStatus.shared.saving else { return }
         if c.sameAsLastTime || c.settled { play(pick) }

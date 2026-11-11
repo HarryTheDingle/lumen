@@ -675,8 +675,22 @@ final class Stremio {
                 }
             }
             let link = await dx("phone.play", chosen.index) as? String ?? chosen.play
+            // (for Play or Resume on this film or episode again: straight back to this stream, PlayedLinks)
+            if target == .player { PlayedLinks.put(link) }
             await ask("play", ["link": link])
         }
+    }
+
+    /**
+     * Play went straight to the stream last played of [video] (PlayedLinks): while it's starting the title's page doesn't
+     * start its own pick; if it won't play it's forgotten and the page's pick goes instead
+     */
+    @ObservationIgnored var savedAttempt: String?
+
+    func playSaved(_ link: String, video: String) {
+        savedAttempt = video
+        Log.note("the stream from last time: \(video)")
+        Task { await ask("play", ["link": link]) }
     }
 
     /**
@@ -1189,6 +1203,14 @@ final class Stremio {
     /** The player closed: the page records where it got to, and goes on to the next episode when asked */
     func closed(position: Double, duration: Double, ended: Bool, error: String?, next: Bool = false) {
         let active = playback?.payload
+        // (the stream from last time wouldn't play: forgotten, and the title's page plays its own pick)
+        if let video = savedAttempt {
+            savedAttempt = nil
+            if error != nil {
+                PlayedLinks.forget(video)
+                Log.note("the stream from last time didn't play: the long way")
+            }
+        }
         // On to the next episode: the loading screen first (it stays until the next one's picture plays), and
         // the title's page starts it as Play does (stream picked, failed ones passed over). The page's own
         // way (Stremio's player link for it) often found nothing, went back, and opened the last one again
@@ -1235,6 +1257,45 @@ final class Stremio {
  * (StremThru's /playback/…) redirect to the debrid's own server, and the addon asks the debrid afresh on every request
  * (0.5 to 2.7 s, measured on the TV); the player makes several as it starts and seeks, so it's given the real address.
  */
+/**
+ * The stream last played of each film or episode (Stremio's player link, which carries the stream itself), kept on this
+ * device for a few hours: Play or Resume on it again goes straight to that stream (no asking the addons, no choosing, no
+ * checking). One that won't play is forgotten (Stremio.closed).
+ */
+enum PlayedLinks {
+    private static let key = "lumen.playedLinks"
+    private static let keep: TimeInterval = 6 * 3600
+
+    /** The video a player link is for: its route ends …/type/id/videoId */
+    static func video(of link: String) -> String? {
+        let path = link.split(separator: "?").first.map(String.init) ?? link
+        guard let last = path.split(separator: "/").last else { return nil }
+        return String(last).removingPercentEncoding ?? String(last)
+    }
+
+    static func put(_ link: String) {
+        guard let video = video(of: link) else { return }
+        var all = UserDefaults.standard.dictionary(forKey: key) as? [String: [String: Any]] ?? [:]
+        let now = Date().timeIntervalSince1970
+        all = all.filter { now - (($0.value["at"] as? Double) ?? 0) < keep }
+        all[video] = ["link": link, "at": now]
+        UserDefaults.standard.set(all, forKey: key)
+    }
+
+    static func get(_ video: String) -> String? {
+        guard let e = (UserDefaults.standard.dictionary(forKey: key) as? [String: [String: Any]])?[video],
+              let link = e["link"] as? String, let at = e["at"] as? Double,
+              Date().timeIntervalSince1970 - at < keep else { return nil }
+        return link
+    }
+
+    static func forget(_ video: String) {
+        var all = UserDefaults.standard.dictionary(forKey: key) as? [String: [String: Any]] ?? [:]
+        all[video] = nil
+        UserDefaults.standard.set(all, forKey: key)
+    }
+}
+
 enum RedirectMemory {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var known: [String: (to: String, at: Date)] = [:]
