@@ -16,8 +16,10 @@ object StreamProbe {
     /** Why it isn't a video, or null when it looks like one */
     fun check(address: String, headers: Map<String, String>, listedBytes: Double): String? {
         var url = address
+        val began = System.currentTimeMillis()
         try {
             for (hop in 0 until 6) {
+                val hopAt = System.currentTimeMillis()
                 val c = URL(url).openConnection() as HttpURLConnection
                 c.connectTimeout = 4000
                 c.readTimeout = 5000
@@ -26,12 +28,15 @@ object StreamProbe {
                 c.setRequestProperty("Range", "bytes=0-2047")
                 try {
                     val code = c.responseCode
+                    android.util.Log.i("lumen-play", "check: ${URL(url).host} answered $code in ${System.currentTimeMillis() - hopAt} ms")
                     if (code in 300..399) {
                         val to = c.getHeaderField("Location") ?: return null
                         url = URL(URL(url), to).toString()
                         continue
                     }
                     if (code >= 400) return "The server answered $code"
+                    // (where the link leads, for the player to go straight there: see RedirectMemory)
+                    com.notdxbi.dxbi.tv.RedirectMemory.remember(address, url)
                     val type = c.contentType.orEmpty().lowercase()
                     if (type.startsWith("text/") || type.contains("json") || type.contains("xml")) return "It isn't a video ($type)"
                     val name = URL(url).path.substringAfterLast('/')

@@ -304,6 +304,8 @@ class PlayerActivity : AppCompatActivity() {
             // a torrent's first bytes wait for its details and first pieces to come from peers
             .readTimeout(if (torrent) 150L else 30L, TimeUnit.SECONDS)
             .followRedirects(true)
+            // (a debrid link that's been followed once goes straight to its file: RedirectMemory)
+            .addInterceptor(RedirectMemory.interceptor)
             .build()
         // (an addon's own User-Agent replaces ours: Media3 would send both)
         val ownAgent = headers.keys.any { it.equals("User-Agent", ignoreCase = true) }
@@ -322,7 +324,13 @@ class PlayerActivity : AppCompatActivity() {
         // quicker than the stream needs: more than 3 times its bitrate); starting out stays quick
         val bandwidth = androidx.media3.exoplayer.upstream.DefaultBandwidthMeter.getSingletonInstance(this)
         var exoRef: ExoPlayer? = null
-        val loadControl = object : androidx.media3.exoplayer.DefaultLoadControl() {
+        // (the picture comes once 1.5 s of it is in hand, not Media3's 2.5: a 4K remux over Wi-Fi took a second more to
+        // show its first picture for nothing, the line filling far faster than it plays; the rest are Media3's own)
+        val loadControl = object : androidx.media3.exoplayer.DefaultLoadControl(
+            androidx.media3.exoplayer.upstream.DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE),
+            DEFAULT_MIN_BUFFER_MS, DEFAULT_MAX_BUFFER_MS, 1500, DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+            DEFAULT_TARGET_BUFFER_BYTES, DEFAULT_PRIORITIZE_TIME_OVER_SIZE_THRESHOLDS, DEFAULT_BACK_BUFFER_DURATION_MS, DEFAULT_RETAIN_BACK_BUFFER_FROM_KEYFRAME,
+        ) {
             override fun shouldStartPlayback(
                 timeline: androidx.media3.common.Timeline, mediaPeriodId: androidx.media3.exoplayer.source.MediaSource.MediaPeriodId,
                 bufferedDurationUs: Long, playbackSpeed: Float, rebuffering: Boolean, targetLiveOffsetUs: Long,
@@ -438,6 +446,32 @@ class PlayerActivity : AppCompatActivity() {
         }
 
         subtitleItems = subtitles
+        // (each step to the first picture in the log, timed from here: adb logcat -s lumen-play)
+        val openedAt = android.os.SystemClock.elapsedRealtime()
+        var firstShown = false
+        fun step(what: String) { if (!firstShown) android.util.Log.i("lumen-play", "player +${android.os.SystemClock.elapsedRealtime() - openedAt} ms $what") }
+        step("open, from ${stream.optLong("startMs", 0L) / 1000} s")
+        exo.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+            override fun onLoadCompleted(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, load: androidx.media3.exoplayer.source.LoadEventInfo, data: androidx.media3.exoplayer.source.MediaLoadData) {
+                step("read ${load.dataSpec.position / 1_000_000} MB +${load.bytesLoaded / 1000} kB in ${load.loadDurationMs} ms (type ${data.dataType})")
+            }
+            override fun onLoadCanceled(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, load: androidx.media3.exoplayer.source.LoadEventInfo, data: androidx.media3.exoplayer.source.MediaLoadData) {
+                step("read cancelled at ${load.dataSpec.position / 1_000_000} MB after ${load.bytesLoaded / 1000} kB, ${load.loadDurationMs} ms")
+            }
+            override fun onVideoDecoderInitialized(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
+                step("video decoder $decoderName ($initializationDurationMs ms)")
+            }
+            override fun onAudioDecoderInitialized(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
+                step("audio decoder $decoderName ($initializationDurationMs ms)")
+            }
+            override fun onPlaybackStateChanged(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, state: Int) {
+                step("state ${when (state) { Player.STATE_BUFFERING -> "buffering"; Player.STATE_READY -> "ready"; Player.STATE_ENDED -> "ended"; else -> "idle" }}, ${exo.totalBufferedDuration} ms in hand")
+            }
+            override fun onRenderedFirstFrame(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, output: Any, renderTimeMs: Long) {
+                step("FIRST PICTURE")
+                firstShown = true
+            }
+        })
         exo.setMediaItem(mediaItem(url), stream.optLong("startMs", 0L).coerceAtLeast(0L))
         exo.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
