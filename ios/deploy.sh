@@ -66,7 +66,8 @@ for d in json.load(sys.stdin)["result"]["devices"]:
     # (a failure here still lets the other devices have it)
     if xcrun devicectl device install app --device "$id" "$APP" >/tmp/lumen-device.log 2>&1; then
       echo "  Installed"
-      xcrun devicectl device process launch --device "$id" --terminate-existing "$BUNDLE" >/dev/null 2>&1 && echo "  Opened"
+      # (LUMEN_NO_LAUNCH: the scheduled renewal puts the new build on without closing the app someone's using)
+      if [ -z "${LUMEN_NO_LAUNCH:-}" ] && xcrun devicectl device process launch --device "$id" --terminate-existing "$BUNDLE" >/dev/null 2>&1; then echo "  Opened"; fi
     else
       grep -m1 'ERROR' /tmp/lumen-device.log | sed 's/^/  /'
       echo "  Couldn't install on the $name. If it's about the developer disk image, restart it, then try again."

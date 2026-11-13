@@ -30,6 +30,9 @@ import androidx.tv.material3.Text
 import com.notdxbi.dxbi.tv.phone.Load
 import com.notdxbi.dxbi.tv.phone.Stremio
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.Search
 
 /** Search: a box to type in with the TV's keyboard, and what each addon finds, in rows */
 @OptIn(ExperimentalFoundationApi::class)
@@ -62,6 +65,15 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
     val addons by stremio.installedAddons.collectAsState()
     LaunchedEffect(Unit) { stremio.loadAddons() }
     val hasKitsu = addons.any { it.id.contains("kitsu", ignoreCase = true) || it.transportUrl.contains("kitsu", ignoreCase = true) }
+    // Search chosen from the menu: the keyboard comes up at once, once the menu has gone and the corner's had its focus
+    // (not when it opened with a name to look for, chosen on a title's page)
+    var openKeyboard by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (nav.query.isNotEmpty()) return@LaunchedEffect
+        androidx.compose.runtime.snapshotFlow { nav.menuOpen }.first { !it }
+        delay(250)
+        openKeyboard = true
+    }
 
     Box(Modifier.fillMaxSize().background(Dx.Background)) {
         val pageListState = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -76,6 +88,10 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
                         Modifier.padding(horizontal = Dx.Gutter).width(560.dp).focusProperties {
                             down = if (firstRow != null) firstResult else androidx.compose.ui.focus.FocusRequester.Default
                         },
+                        // (round at the ends, as Apple TV's)
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
+                        open = openKeyboard,
+                        leading = { androidx.tv.material3.Icon(androidx.compose.material.icons.Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(22.dp)) },
                     )
                 }
                 val anyShown = firstRow != null || (patient && rows.any { it.state == Load.Loading })
@@ -83,7 +99,7 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
                     item(key = "hint") {
                         Text(
                             when {
-                                text.trim().length < 2 -> "Choose the box to type with the remote."
+                                text.trim().length < 2 -> "Type with the remote, or choose a genre."
                                 rows.isEmpty() || patient -> "Searching…"
                                 else -> "Nothing found for \"${text.trim()}\"."
                             },

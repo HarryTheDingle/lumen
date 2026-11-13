@@ -73,6 +73,8 @@ fun TitleInfo(
     episode: Video? = null,
     reviews: Reviews? = null,
     badges: List<String> = emptyList(),
+    /** A film not out on digital yet: "In Cinemas", "Digital 18 Nov" */
+    notice: String? = null,
     buttonsModifier: Modifier = Modifier,
     buttons: @Composable RowScope.() -> Unit,
 ) {
@@ -85,7 +87,7 @@ fun TitleInfo(
                 val lead = episode?.let(::episodeLead)?.takeIf { episode.overview != null }
                 val body = if (lead != null) episode.overview else t.description
                 if (body != null) Synopsis(lead, body, onMore = { full = true })
-                Facts(t, reviews, badges)
+                Facts(t, reviews, badges, notice)
             } else {
                 t.description?.let {
                     Text(it, fontSize = 14.sp, color = Dx.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 19.sp)

@@ -34,6 +34,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -106,7 +107,17 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
     }
 
     /** Starts [t]: [videoId] (an episode), else the one they're on, else the first that's out. [fromStart]: from 0, not the saved place */
-    fun play(t: Title, videoId: String? = null, fromStart: Boolean = false, shuffle: Boolean = false) = begin(t) {
+    fun play(t: Title, videoId: String? = null, fromStart: Boolean = false, shuffle: Boolean = false) {
+        // (On mobile data nothing starts by itself: the best stream may be a 4K one. The list is asked for instead)
+        if (stremio.onMeteredNetwork()) { asking = Ask(t, videoId); return }
+        start(t, videoId, fromStart, shuffle)
+    }
+
+    /** A stream wanted on mobile data: the list, to choose from (Shell shows it) */
+    data class Ask(val title: Title, val videoId: String?)
+    var asking by mutableStateOf<Ask?>(null)
+
+    private fun start(t: Title, videoId: String?, fromStart: Boolean, shuffle: Boolean) = begin(t) {
         // (Shuffle carries on with random episodes after this one; any other Play ends it)
         shuffling = shuffle
         stremio.shuffling(t.id, shuffle)
@@ -293,8 +304,9 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
         var option = first
         // A stream whose server answers with an error, or with a clip saying so, is passed over before it's
         // played: the next best goes in its place. (Not for a download, another app or a cast: they check for themselves)
-        if (target == Phone.Target.Player) for (tried in 0 until 4) {
+        if (target == Phone.Target.Player) for (tried in 0 until 8) {
             val why = stremio.whyNotVideo(option) ?: break
+            if (tried == 7) return fail("Couldn't find a stream that plays", "The providers are returning errors. Try again in a few minutes.")
             android.util.Log.w(TAG, "stream ${option.index} passed over before playing: $why")
             stremio.reject(option, why)
             step = Step("That stream isn't available", "Trying another…", 0.85f)
@@ -401,5 +413,29 @@ fun LoadingContent(title: Title, episode: String?, step: Launcher.Step, modifier
                 modifier = Modifier.padding(top = 16.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.18f)).clickable { onClose() }.padding(horizontal = 20.dp, vertical = 8.dp),
             )
         }
+    }
+}
+
+/**
+ * On mobile data Play asks which stream (as the iPad does) rather than start the best, which may be a 4K one that
+ * uses a lot of data: the list, over wherever Play was pressed. A stream chosen here isn't remembered for the title.
+ */
+@Composable
+fun MobileDataAsk(stremio: Stremio, launcher: Launcher) {
+    val ask = launcher.asking ?: return
+    var choices by remember(ask) { mutableStateOf<StreamChoices?>(null) }
+    LaunchedEffect(ask) {
+        val now = stremio.details.value
+        if (now?.metaId != ask.title.id || (ask.videoId != null && now.videoId != ask.videoId)) stremio.open(ask.title.type, ask.title.id, ask.videoId)
+        while (true) {
+            val c = stremio.streams()
+            if (c != null) choices = c
+            if (c?.settled == true) break
+            delay(800)
+        }
+    }
+    StreamsModal(choices, ask.title.name, "You're on mobile data: choose a stream", { launcher.asking = null }) { option, target ->
+        launcher.asking = null
+        launcher.play(ask.title, option, null, target)
     }
 }

@@ -125,6 +125,7 @@ fun Shell(stremio: Stremio, layout: AppLayout) {
             }
             // Play's loading screen, over everything until the player is up
             LoadingScreen(launcher)
+            MobileDataAsk(stremio, launcher)
         }
     }
 }

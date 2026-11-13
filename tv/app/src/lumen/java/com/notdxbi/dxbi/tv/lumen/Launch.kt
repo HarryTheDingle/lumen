@@ -295,7 +295,7 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
             val top = groups.firstOrNull()
             val fromTop = pick != null && pick.instant && top != null && top.state != Load.Loading && pick.addon == top.addon
             if (pick != null && (c.sameAsLastTime || c.settled || waited > 6_000 || soon || fromTop)) {
-                mark("picked ${pick.quality} ${pick.bitrateText.orEmpty()} from ${pick.addon} (${if (c.sameAsLastTime) "same as last time" else if (c.settled) "all answered" else if (fromTop) "first addon ready" else if (soon) "ready 4K" else "waited 6 s"})")
+                mark("picked ${pick.quality} ${pick.bitrateText.orEmpty()} from ${pick.addon} (${if (c.sameAsLastTime) "same as last time" else if (c.settled) "all answered" else if (fromTop) "first addon ready" else if (soon) "ready 4K" else "waited 6 s"})" + (c.lowered?.let { " — " + it.note } ?: ""))
                 return starting(pick)
             }
             if (c != null && c.settled && pick == null) return fail("No streams found", "Your addons may not have this one yet.")
@@ -309,8 +309,9 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
         var option = first
         // A stream whose server answers with an error, or with a clip saying so (ElfHosted's "Couldn't fetch this
         // release"), is passed over before it's played: the next best goes in its place
-        for (tried in 0 until 4) {
+        for (tried in 0 until 8) {
             val why = stremio.whyNotVideo(option) ?: break
+            if (tried == 7) return fail("Couldn't find a stream that plays", "The providers are returning errors. Try again in a few minutes.")
             android.util.Log.w("dxbi-player", "stream passed over before playing: $why")
             stremio.reject(option, why)
             // (quietly: the next best goes in its place, and only when none plays does the screen say anything went wrong)

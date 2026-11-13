@@ -3977,14 +3977,43 @@
       const k = this.key(x);
       if (!k || /connection/i.test(String(why || ""))) return;
       const list = this.load();
-      list[k] = { at: Date.now(), why: String(why || "") };
+      // (a server's error answer or error clip is a service having trouble, not the stream: it's tried again in an hour, not a month)
+      list[k] = { at: Date.now(), why: String(why || ""), ...(this.serverSide(why) ? { ttl: 3600000 } : {}) };
       const keys = Object.keys(list);
       if (keys.length > 400) keys.sort((a, b) => list[a].at - list[b].at).slice(0, keys.length - 400).forEach((old) => delete list[old]);
       try { localStorage.setItem(this.KEY, JSON.stringify(list)); } catch (_) { /* full */ }
+      if (this.serverSide(why)) providerTrouble.add(x);
     },
+    serverSide: (why) => /error clip|error video|server answered|isn't a video/i.test(String(why || "")),
     has(x) {
       const k = this.key(x);
-      return !!k && !!this.load()[k];
+      const v = k && this.load()[k];
+      return !!v && !(v.ttl && Date.now() - v.at > v.ttl);
+    },
+  };
+
+  // A provider (TorBox, Easynews) whose streams keep coming back as errors, even for different files, is down for
+  // now: for a quarter of an hour its streams are left for another provider's, when there is one. In memory only
+  // (an outage doesn't outlive the app), and two errors from it in ten minutes is enough.
+  const providerTrouble = {
+    seen: new Map(),
+    name: (x) => String((x && ((x.d && x.d.provider) || x.addon)) || "").toLowerCase(),
+    add(x) {
+      const n = this.name(x);
+      if (!n) return;
+      const now = Date.now();
+      const recent = (this.seen.get(n) || []).filter((t) => now - t < 600000);
+      recent.push(now);
+      this.seen.set(n, recent);
+    },
+    down(x) {
+      const recent = (this.seen.get(this.name(x)) || []).filter((t) => Date.now() - t < 900000);
+      return recent.length >= 2;
+    },
+    // [list] without the streams of a provider that's down, unless that leaves none
+    live(list) {
+      const up = list.filter((x) => !this.down(x));
+      return up.length ? up : list;
     },
   };
 
@@ -4110,7 +4139,7 @@
     // items: [{ hint, d, torrent }]. memory: what this viewer chose last. Returns { item, how } or null.
     choose(items, memory, { limit = Infinity, fallback = "best", torrents = true, ...fit } = {}) {
       const short = this.samples(items, fit.minutes);
-      const playable = items.filter((x) => !short.has(x) && x.d.source !== "CAM" && !x.d.pending && (torrents || !x.torrent) && !streamFailures.has(x));
+      const playable = providerTrouble.live(items.filter((x) => !short.has(x) && x.d.source !== "CAM" && !x.d.pending && (torrents || !x.torrent) && !streamFailures.has(x)));
       const m = memory || null;
       // What the viewer chose for this title themselves: theirs, even when the speed check says it's heavy (a 4K
       // stream picked by hand went back to 1080p the next time)
@@ -4144,9 +4173,18 @@
     // What to try if the pick won't play: at most two, each a different release
     // Streams this device can decode in hardware (only AV1 is ever missing: the iOS app says so), else all of them
     decodable(items) {
-      if (!(window.__dxbiIos && window.__dxbiIos.noAv1)) return items;
-      const kept = items.filter((x) => x.d.codec !== "AV1");
-      return kept.length ? kept : items;
+      let out = items;
+      if (window.__dxbiIos && window.__dxbiIos.noAv1) {
+        const kept = out.filter((x) => x.d.codec !== "AV1");
+        if (kept.length) out = kept;
+      }
+      // (Dolby Vision with no HDR10 under it, a profile 5 file: the iPhone's and iPad's player can't decode it, so the
+      // picture comes out green and purple. Left for when nothing else is there)
+      if (window.__dxbiIos) {
+        const kept = out.filter((x) => !x.d.dvOnly);
+        if (kept.length) out = kept;
+      }
+      return out;
     },
 
     spares(items, picked, { limit = Infinity, torrents = true, speed = 0, minutes = 0 } = {}) {
@@ -4154,6 +4192,8 @@
       const rest = items.filter((x) => x !== picked && !short.has(x) && x.d.source !== "CAM" && !x.d.pending && (torrents || !x.torrent) && x.d.res <= limit && !streamFailures.has(x) &&
         !(speed > 0 && this.mbps(x.d, minutes) > speed * this.HEADROOM));
       const out = [];
+      const preferred = providerTrouble.live(rest);
+      rest.splice(0, rest.length, ...preferred);
       while (rest.length && out.length < 2) {
         const next = this.best(rest, minutes);
         rest.splice(rest.indexOf(next), 1);
@@ -16925,6 +16965,38 @@
           out: ep.t <= Date.now(),
         }));
       },
+      // The Calendar: every dated episode of the Library's shows from last month to three months ahead,
+      // soonest first (fetched now if the episode index isn't up yet, whatever the airing settings)
+      async calendar() {
+        episodes.refresh(true);
+        if (episodes.loading) await episodes.loading.catch(() => {});
+        const now = Date.now();
+        // (last month's start to three months ahead: the Calendar's months)
+        const start = new Date(now);
+        const from = new Date(start.getFullYear(), start.getMonth() - 1, 1).getTime();
+        const to = new Date(start.getFullYear(), start.getMonth() + 3, 1).getTime();
+        const seen = new Set();
+        const out = [];
+        for (const [id, e] of episodes.index) {
+          for (const v of e.all || []) {
+            if (!(v.t >= from && v.t <= to)) continue;
+            // (one show under two ids, as Cinemeta and TMDB both list it: each episode once)
+            const key = String(e.name || id).toLowerCase().replace(/[^a-z0-9]+/g, "") + ":" + v.s + ":" + v.e;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({
+              id,
+              name: e.name || "",
+              poster: e.poster || null,
+              background: e.background || (isImdb(id) ? art.backgroundMedium(id) : null),
+              season: v.s,
+              episode: v.e,
+              time: v.t,
+            });
+          }
+        }
+        return out.sort((a, b) => a.time - b.time).slice(0, 800);
+      },
       // Customise Home, for this viewer: rows by `${addon id}/${type}/${catalog id}`
       layout() {
         const { order, hidden, names } = homeLayout.data();
@@ -16984,6 +17056,13 @@
           videoId: (state && state.selected && state.selected.streamPath && state.selected.streamPath.id) || null,
           pick: choice ? items.indexOf(choice.item) : -1,
           how: choice ? choice.how : null,
+          // (why a lighter stream than the best was picked: the quality cap, or the connection's speed)
+          lowered: (() => {
+            if (!choice || choice.how === "same") return null;
+            const top = streamChoice.best(playable, options.minutes);
+            if (!top || choice.item.d.res >= top.d.res) return null;
+            return { from: top.d.res, to: choice.item.d.res, why: options.limit < top.d.res ? "cap" : "speed" };
+          })(),
           // the connection's speed in Mbps, when Match my internet speed measured it (else 0)
           speed: options.speed || 0,
           // (mbps: the bitrate, its size over the title's length; 0 when either isn't known, never a guess)
@@ -16991,11 +17070,12 @@
         };
       },
       // Playing one of those: like Just press Play, the next best are kept in case it won't play
-      play(index) {
+      play(index, metered) {
         const item = phoneStreams && phoneStreams.items[index];
         if (!item) return null;
-        // (one chosen from the list, not Lumen's own pick: remembered for this title)
-        if (item !== phoneStreams.pick) rememberChoice(item);
+        // (one chosen from the list, not Lumen's own pick: remembered for this title, unless it was chosen on
+        // mobile data: that was chosen to save data, not the one wanted, and is never played again by itself)
+        if (item !== phoneStreams.pick && !metered) rememberChoice(item);
         phonePlaying = item;
         quickPlay.from = location.hash;
         quickPlay.spares = streamChoice.spares(streamChoice.decodable(phoneStreams.items), item, phoneStreams.options);

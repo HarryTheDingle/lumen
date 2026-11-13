@@ -1,5 +1,6 @@
 package com.notdxbi.dxbi.tv.lumen
 
+import java.util.Date
 import android.text.Html
 import android.util.Base64
 import androidx.compose.ui.graphics.Color
@@ -28,6 +29,9 @@ import java.util.concurrent.ConcurrentHashMap
  * addon, for this country), Cinemeta's popular and genre catalogs, and the films out on digital this year
  * (dvdsreleasedates.com, which links each to IMDb). Kept for a while on the TV so Discover opens at once.
  */
+/** The feed, for pages that need its dates (a film's page: whether it's out on digital yet) */
+val LocalDiscoverFeed = androidx.compose.runtime.staticCompositionLocalOf<DiscoverFeed?> { null }
+
 class DiscoverFeed(cacheDir: File) {
 
     /** A streaming service: its catalog's code at the addon, and its colours for Discover's look */
@@ -103,6 +107,68 @@ class DiscoverFeed(cacheDir: File) {
         return catalog("$CINEMETA/catalog/$type/top$extra.json", 6 * HOUR, max = 60)
     }
 
+    /** A film's dates: in cinemas (Cinemeta's release date) and out on digital (dvdsreleasedates.com), each null when not known */
+    data class ReleaseDates(val cinema: Long?, val digital: Long?) {
+        /**
+         * The tag a film's page shows while it isn't out on digital ("In Cinemas", "Coming 21 Nov", "Digital 18 Nov"),
+         * and what the streams list says about it; null once it's out (or too old to be worth saying)
+         */
+        fun notice(now: Long = System.currentTimeMillis()): Pair<String, String>? {
+            val day = SimpleDateFormat("d MMM", Locale.getDefault())
+            if (digital != null && digital <= now) return null
+            val cam = "Not on digital yet: streams now are likely cinema recordings (CAM)"
+            return when {
+                digital != null && cinema != null && cinema <= now -> "In Cinemas · Digital ${day.format(Date(digital))}" to cam
+                digital != null -> "Digital ${day.format(Date(digital))}" to cam
+                cinema == null -> null
+                cinema > now -> "Not Released · Cinemas ${day.format(Date(cinema))}" to "Not out yet: any streams are likely fakes or trailers"
+                now - cinema < 150 * DAY -> "In Cinemas" to cam
+                else -> null
+            }
+        }
+    }
+
+    @Volatile private var digitalIndex: Pair<Long, Map<String, Long>>? = null
+
+    /** When a film comes out in cinemas and on digital: the digital months from eight back to three ahead, and Cinemeta's date */
+    suspend fun releaseDates(id: String): ReleaseDates = coroutineScope {
+        val cinema = async(Dispatchers.IO) {
+            val key = "movie-$id"
+            val text = load(key, DAY) ?: fetch("$CINEMETA/meta/movie/$id.json")?.also { save(key, it) }
+            runCatching {
+                val released = JSONObject(text ?: "").optJSONObject("meta")?.optString("released").orEmpty()
+                SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.parse(released)?.time
+            }.getOrNull()
+        }
+        val index = digitalIndex?.takeIf { System.currentTimeMillis() - it.first < 6 * HOUR }?.second ?: run {
+            val months = (-8..3).map { d -> Calendar.getInstance().apply { set(Calendar.DAY_OF_MONTH, 1); add(Calendar.MONTH, d) } }
+            val all = months.map { c -> async { runCatching { digital(c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1) }.getOrDefault(emptyList()) } }.awaitAll().flatten()
+            val map = HashMap<String, Long>()
+            for (r in all) map[r.id] = minOf(map[r.id] ?: Long.MAX_VALUE, r.date)
+            digitalIndex = System.currentTimeMillis() to map
+            map
+        }
+        ReleaseDates(cinema.await(), index[id])
+    }
+
+    /** A dated episode of a show (the Calendar's popular shows) */
+    data class Episode(val season: Int, val episode: Int, val time: Long)
+
+    /** A show's dated episodes, from Cinemeta (kept a day): for the popular shows the Calendar shows as well as the Library's */
+    suspend fun episodes(id: String): List<Episode> = withContext(Dispatchers.IO) {
+        val key = "episodes-$id"
+        val text = load(key, DAY) ?: fetch("$CINEMETA/meta/series/$id.json")?.also { save(key, it) } ?: return@withContext emptyList()
+        runCatching {
+            val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+            JSONObject(text).optJSONObject("meta")?.optJSONArray("videos").objects().mapNotNull { v ->
+                val s = v.optInt("season")
+                val released = v.optString("released").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                val t = runCatching { iso.parse(released)?.time }.getOrNull() ?: return@mapNotNull null
+                if (s > 0) Episode(s, v.optInt("episode"), t) else null
+            }
+        }.getOrDefault(emptyList())
+    }
+
     /** A later season, part or preview of an anime ("… Season 2", "… 3", "… Final Season", "… PV"): the lists show each show once */
     fun isSequel(name: String): Boolean = SEQUEL.containsMatchIn(name)
 
@@ -143,6 +209,24 @@ class DiscoverFeed(cacheDir: File) {
             ?: meta?.optJSONArray("trailers").objects().firstOrNull { it.optString("type") == "Trailer" }?.optString("source")?.takeIf { it.isNotEmpty() }
         trailers["$type/$id"] = found.orEmpty()
         found
+    }
+
+    /** Every trailer Cinemeta has for a title: its YouTube id and name (the first is the one Home plays) */
+    suspend fun trailerList(type: String, id: String): List<Pair<String, String>> = withContext(Dispatchers.IO) {
+        if (!id.startsWith("tt")) return@withContext emptyList()
+        val key = "trailer-$type-$id"
+        val body = load(key, 7 * DAY) ?: fetch("$CINEMETA/meta/$type/$id.json")?.also { save(key, it) } ?: return@withContext emptyList()
+        val meta = runCatching { JSONObject(body).optJSONObject("meta") }.getOrNull() ?: return@withContext emptyList()
+        val out = LinkedHashMap<String, String>()
+        meta.optJSONArray("trailerStreams").objects().forEach { o ->
+            val yt = o.optString("ytId").takeIf { it.isNotEmpty() } ?: return@forEach
+            out.putIfAbsent(yt, o.optString("title").takeIf { it.isNotEmpty() } ?: "Trailer")
+        }
+        meta.optJSONArray("trailers").objects().forEach { o ->
+            val yt = o.optString("source").takeIf { it.isNotEmpty() } ?: return@forEach
+            out.putIfAbsent(yt, o.optString("type").takeIf { it.isNotEmpty() } ?: "Trailer")
+        }
+        out.map { it.key to it.value }
     }
 
     // ---------------------------------------------------------------------------------------------

@@ -348,6 +348,8 @@ struct StreamChoices {
     /** The connection's speed in Mbps, when Match my internet speed measured it (else 0) */
     var speed: Double
     var items: [StreamOption]
+    /** Why a lighter stream than the best was picked, in words (the quality cap or the connection's speed), else nil */
+    var loweredNote: String?
     var picked: StreamOption? { items.indices.contains(pick) ? items[pick] : nil }
 
     init(_ o: JSON) {
@@ -358,6 +360,10 @@ struct StreamChoices {
         pick = o.int("pick", -1)
         sameAsLastTime = o.string("how") == "same"
         items = o.objects("items").enumerated().map { StreamOption($0.offset, $0.element) }
+        if let l = o.object("lowered") {
+            func name(_ r: Int) -> String { r == 2160 ? "4K" : r == 1440 ? "1440p" : r == 1080 ? "1080p" : r == 720 ? "720p" : "SD" }
+            loweredNote = "\(name(l.int("to"))) rather than \(name(l.int("from"))): " + (l.string("why") == "cap" ? "this network's quality is capped" : "the connection's speed")
+        }
     }
 }
 

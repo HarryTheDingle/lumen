@@ -226,14 +226,33 @@ data class StreamChoices(
     val justPlay: Boolean, val settled: Boolean, val videoId: String?, val pick: Int, val sameAsLastTime: Boolean, val items: List<StreamOption>,
     /** The connection's speed in Mbps, when dx.bi's Match my internet speed measured it (else 0) */
     val speed: Double = 0.0,
+    /** Why a lighter stream than the best was picked: "cap" (the quality set for this network) or "speed", with both qualities */
+    val lowered: Lowered? = null,
 ) {
+    data class Lowered(val from: Int, val to: Int, val why: String) {
+        private fun name(r: Int) = when (r) { 2160 -> "4K"; 1440 -> "1440p"; 1080 -> "1080p"; 720 -> "720p"; else -> "SD" }
+        val note: String get() = "${name(to)} rather than ${name(from)}: " + if (why == "cap") "this network's quality is capped" else "the connection's speed"
+    }
     val picked: StreamOption? get() = items.getOrNull(pick)
+
+    /**
+     * The same choices, with a Dolby Vision-only stream (no HDR10 under it: a profile 5 file, which comes out green and purple
+     * without a Dolby Vision decoder) swapped for the best other one, when this device can't decode it
+     */
+    fun withoutDolbyVisionOnly(decoderPresent: Boolean): StreamChoices {
+        val p = picked ?: return this
+        if (!p.dvOnly || decoderPresent) return this
+        val next = items.filter { it.index != p.index && !it.dvOnly && !it.pending && it.source != "CAM" && !it.lesser && (speed <= 0 || it.mbps <= 0 || it.mbps <= speed * 0.8) }
+            .sortedWith(compareByDescending<StreamOption> { it.instant }.thenComparing(StreamOption.BEST)).firstOrNull() ?: return this
+        return copy(pick = items.indexOf(next))
+    }
 
     companion object {
         fun from(o: JSONObject) = StreamChoices(
             o.optBoolean("justPlay"), o.optBoolean("settled"), o.text("videoId"), o.optInt("pick", -1), o.optString("how") == "same",
             o.optJSONArray("items").objects().mapIndexed(StreamOption::from),
             o.optDouble("speed", 0.0),
+            o.optJSONObject("lowered")?.let { Lowered(it.optInt("from"), it.optInt("to"), it.optString("why")) },
         )
     }
 }
@@ -345,6 +364,17 @@ data class Airing(
         fun from(o: JSONObject) = Airing(
             o.optString("id"), o.optString("name"), o.text("background"), o.text("still"), o.optInt("season"), o.optInt("episode"),
             o.optString("title"), o.optInt("more"), o.optLong("time"), o.optString("when"), o.optString("countdown"), o.optBoolean("out"),
+        )
+    }
+}
+
+/** An episode of a Library show on the Calendar: the show, which episode, and the day it comes out */
+data class CalendarEpisode(
+    val id: String, val name: String, val poster: String?, val background: String?, val season: Int, val episode: Int, val time: Long,
+) {
+    companion object {
+        fun from(o: JSONObject) = CalendarEpisode(
+            o.optString("id"), o.optString("name"), o.text("poster"), o.text("background"), o.optInt("season"), o.optInt("episode"), o.optLong("time"),
         )
     }
 }

@@ -131,6 +131,17 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
 
     var choices by remember { mutableStateOf<StreamChoices?>(null) }
     var streamsOpen by remember { mutableStateOf(false) }
+    // A film not out on digital yet (however many cinema copies there are): its dates, and whether any stream is a proper
+    // release (WEB, Blu-ray or remux), which says it's out whatever the dates say
+    val feed = LocalDiscoverFeed.current
+    val trailerList by androidx.compose.runtime.produceState(emptyList<Pair<String, String>>(), ref.id) {
+        if (feed != null) value = runCatching { feed.trailerList(ref.type, ref.id) }.getOrDefault(emptyList())
+    }
+    val releaseDates by androidx.compose.runtime.produceState<DiscoverFeed.ReleaseDates?>(null, ref.id) {
+        if (ref.type == "movie" && feed != null) value = runCatching { feed.releaseDates(ref.id) }.getOrNull()
+    }
+    val properRelease = choices?.items?.any { it.source in setOf("Remux", "BluRay", "WEB") } == true
+    val notice = if (properRelease) null else releaseDates?.notice()
     var wantPlay by remember { mutableStateOf(autoPlay) }
     var season by remember { mutableStateOf<Int?>(null) }
     var related by remember { mutableStateOf<List<Title>>(emptyList()) }
@@ -234,7 +245,11 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
     // from the top, and stays quiet.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val lifeState by lifecycle.currentStateFlow.collectAsState()
-    val trailerAllowed = title.trailer != null && playTrailers == true && !covered && !streamsOpen && launcher?.title == null && lifeState.isAtLeast(Lifecycle.State.RESUMED)
+    // a trailer from the Trailers row, being watched in the app (its id)
+    var watching by remember { mutableStateOf<String?>(null) }
+    var watchPaused by remember { mutableStateOf(false) }
+    var watchJump by remember { mutableStateOf(0) }
+    val trailerAllowed = watching == null && title.trailer != null && playTrailers == true && !covered && !streamsOpen && launcher?.title == null && lifeState.isAtLeast(Lifecycle.State.RESUMED)
     var hushed by remember { mutableStateOf(false) }
     var trailerOn by remember { mutableStateOf(false) }
     var trailerShowing by remember { mutableStateOf(false) }
@@ -296,9 +311,20 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                 .fillMaxSize()
                 // (clear while the trailer shows: it plays under the page. Opaque, the picture faded away to leave a black
                 // page with the trailer hidden behind it)
-                .background(if (trailerShowing) Color.Transparent else Dx.Background)
+                .background(if (trailerShowing || watching != null) Color.Transparent else Dx.Background)
                 // Back: down the page, to the top; at the top, the page closes
                 .onPreviewKeyEvent {
+                    // a trailer being watched: OK pauses, left and right skip, Back closes it
+                    if (watching != null) {
+                        if (it.type == KeyEventType.KeyDown) when (it.key) {
+                            Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.MediaPlayPause -> watchPaused = !watchPaused
+                            Key.DirectionLeft, Key.MediaRewind -> watchJump -= 10
+                            Key.DirectionRight, Key.MediaFastForward -> watchJump += 10
+                        }
+                        // (closed as Back comes up, so the same press doesn't then go on to the page)
+                        if (it.key == Key.Back && it.type == KeyEventType.KeyUp) { watching = null; watchPaused = false }
+                        return@onPreviewKeyEvent true
+                    }
                     if (still.key(it)) return@onPreviewKeyEvent true
                     if (it.key != Key.Back) return@onPreviewKeyEvent false
                     if (it.type == KeyEventType.KeyUp) {
@@ -321,7 +347,7 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
             // (alpha read as it draws, not as it composes: the page's scroll moved it, and rebuilt the page every frame;
             // the fade into black is a gradient laid over the art, except while a trailer plays through it)
             Box(Modifier.fillMaxSize().graphicsLayer {
-                alpha = (1f - covering) * uiAlpha
+                alpha = (1f - covering) * uiAlpha * (if (watching != null) 0f else 1f)
                 // (as on Home: the picture lifts slower than the page, which moves up over it)
                 val moved = if (list.firstVisibleItemIndex > 0) screenPx else list.firstVisibleItemScrollOffset.toFloat()
                 translationY = -moved.coerceAtMost(screenPx) * 0.4f
@@ -334,7 +360,7 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
             }
 
             CompositionLocalProvider(LocalBringIntoViewSpec provides pageScrolling, LocalPageScroller provides pageScroller) {
-                LazyColumn(state = list, modifier = Modifier.alpha(uiAlpha).onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(30.dp)) {
+                LazyColumn(state = list, modifier = Modifier.alpha(if (watching != null) 0f else uiAlpha).onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(30.dp)) {
                     item(key = "header") {
                         Header(
                             title = title,
@@ -342,6 +368,7 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                             reviews = reviews,
                             episode = if (ref.type == "series") d?.let(::nextVideo) else null,
                             badges = streamBadges(choices?.takeIf { c -> c.videoId == d?.videoId }?.let { c -> c.picked ?: c.items.minWithOrNull(StreamOption.BEST) }),
+                            notice = notice?.first,
                             height = screen,
                             playLabel = playLabel(ref, d),
                             inList = inList,
@@ -444,6 +471,17 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                                 .onFocusChanged { if (it.hasFocus && list.firstVisibleItemIndex < moreIndex) snap(moreIndex) },
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
+                            if (trailerList.isNotEmpty()) {
+                                Shelf("Trailers") {
+                                    items(trailerList, key = { it.first }) { (yt, name) ->
+                                        TrailerCard(yt, if (name.equals("Trailer", true) || name.isBlank()) "${title.name} Trailer" else name) {
+                                            watchPaused = false
+                                            watchJump = 0
+                                            watching = yt
+                                        }
+                                    }
+                                }
+                            }
                             if (related.isNotEmpty()) {
                                 Shelf("Related") {
                                     items(related, key = { it.id }) { t -> PreviewPosterCard(t, onClick = { nav.open(t) }) }
@@ -457,11 +495,30 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
             }
         }
 
+        watching?.let { yt ->
+            var started by remember(yt) { mutableStateOf(false) }
+            Box(Modifier.fillMaxSize()) {
+                Trailer(yt, Modifier.fillMaxSize(), loop = false, watching = true, paused = watchPaused, jump = watchJump, onPlaying = { started = true }, onEnded = { watching = null })
+                if (!started) Text("Loading trailer…", color = Color.White.copy(alpha = 0.7f), fontSize = 18.sp, modifier = Modifier.align(Alignment.Center))
+                else if (watchPaused) Icon(Icons.Filled.PlayArrow, null, tint = Color.White, modifier = Modifier.align(Alignment.Center).size(72.dp))
+            }
+            // (one YouTube won't play outside its own app: it opens there instead)
+            LaunchedEffect(yt) {
+                delay(12000)
+                if (!started && watching == yt) {
+                    watching = null
+                    val link = android.net.Uri.parse("https://www.youtube.com/watch?v=$yt")
+                    runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, link).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                        .onFailure { Toast.makeText(context, "This trailer won't play here", Toast.LENGTH_SHORT).show() }
+                }
+            }
+        }
+
         if (streamsOpen) {
             StreamsPanel(
                 choices = currentChoices(),
                 heading = title.name,
-                subheading = d?.let(::episodeLine),
+                subheading = notice?.second ?: d?.let(::episodeLine),
                 onPlay = { play(it) },
                 onDismiss = { streamsOpen = false },
             )
@@ -548,6 +605,7 @@ private fun Header(
     rated: Int?,
     onRate: () -> Unit,
     onMore: () -> Unit,
+    notice: String? = null,
 ) {
     Box(Modifier.fillMaxWidth().height(height)) {
         TitleInfo(
@@ -557,6 +615,7 @@ private fun Header(
             episode = episode,
             reviews = reviews,
             badges = badges,
+            notice = notice,
             buttonsModifier = Modifier
                 .onFocusChanged { if (it.hasFocus) onFocused() }
                 .onPreviewKeyEvent {
@@ -606,7 +665,7 @@ private fun Credit(role: String, names: String) {
 /** "2026 · 47 min", Watched, and the scores */
 @Composable
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-fun Facts(title: Title, reviews: Reviews?, badges: List<String> = emptyList()) {
+fun Facts(title: Title, reviews: Reviews?, badges: List<String> = emptyList(), notice: String? = null) {
     // (wraps onto a second line when the badges and the scores are more than fit across, rather than running off the edge)
     androidx.compose.foundation.layout.FlowRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -614,6 +673,13 @@ fun Facts(title: Title, reviews: Reviews?, badges: List<String> = emptyList()) {
     ) {
         val when_ = listOfNotNull(title.year, title.runtime).joinToString(" · ")
         if (when_.isNotEmpty()) Text(when_, fontSize = 14.sp, color = Color.White)
+        // (a film that isn't on digital yet, whatever cinema copies are about: said plainly, first)
+        notice?.let {
+            Text(
+                it.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Black, maxLines = 1,
+                modifier = Modifier.background(Color(0xFFFFC94D), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
         badges.forEach { FormatBadge(it) }
         if (title.watched) Text("Watched", fontSize = 14.sp, color = Dx.Muted)
         // Rotten Tomatoes, then Metacritic, the audience score, IMDb: each in its own soft chip, as the open card had them
@@ -668,7 +734,6 @@ private fun SeasonsRow(
                 Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     FocusCard(
                         onClick = { if (!s.current) onOpen(s.title) },
-                        art = s.title.art,
                         modifier = Modifier.size(width, width * 1.5f).then(if (i == here) Modifier.focusRequester(landing) else Modifier),
                     ) {
                         Box(Modifier.fillMaxSize()) {
@@ -760,7 +825,7 @@ private fun Episodes(
 @Composable
 private fun EpisodeCard(v: Video, fallbackArt: String?, isCurrent: Boolean, blur: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier = Modifier, width: Dp = 250.dp, showSeason: Boolean = false) {
     Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        FocusCard(onClick = onClick, onLongClick = onLongClick, art = v.thumbnail ?: fallbackArt, modifier = modifier.width(width).height(width * 0.64f)) {
+        FocusCard(onClick = onClick, onLongClick = onLongClick, modifier = modifier.width(width).height(width * 0.64f)) {
             Box(Modifier.fillMaxSize()) {
                 // (Blur unwatched episodes: hidden until it's watched or started; TVs before Android 12 can't
                 // blur, so the picture's covered instead)
@@ -954,6 +1019,22 @@ private fun RatingSheet(name: String, current: Int?, onDismiss: () -> Unit, onRa
                         Text("Remove Rating", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
                     }
                 }
+            }
+        }
+    }
+}
+
+/** One of a title's trailers: YouTube's picture of it, with its name */
+@Composable
+private fun TrailerCard(id: String, name: String, onClick: () -> Unit) {
+    val width = 270.dp
+    FocusCard(onClick = onClick, corner = 16.dp, modifier = Modifier.size(width, width * 0.64f)) {
+        Box(Modifier.fillMaxSize()) {
+            Art("https://img.youtube.com/vi/$id/hqdefault.jpg", Modifier.fillMaxSize())
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.85f))))
+            Column(Modifier.align(Alignment.BottomStart).padding(12.dp)) {
+                Text("TRAILER", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Dx.Muted)
+                Text(name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
     }

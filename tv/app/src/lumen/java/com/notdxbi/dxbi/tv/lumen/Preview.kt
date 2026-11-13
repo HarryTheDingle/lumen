@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.runtime.collectAsState
@@ -100,6 +101,27 @@ class CardActions(
 
 val LocalCardActions = staticCompositionLocalOf<CardActions?> { null }
 
+/**
+ * A poster held down: Play, the title's page, and adding it to (or taking it out of) the Library, as Home's Continue
+ * Watching cards have their own. Shown while [open]; every poster row has it, Discover's included.
+ */
+@Composable
+fun TitleHoldMenu(title: Title, onOpen: () -> Unit, onDismiss: () -> Unit) {
+    val actions = LocalCardActions.current ?: return onDismiss()
+    val marks by actions.listMarks.collectAsState()
+    val inList = marks[title.id] ?: title.inLibrary
+    ActionMenu(
+        title.name,
+        listOf(
+            Action("Play", Icons.Filled.PlayArrow) { actions.play(title) },
+            Action("Go to ${if (title.type == "movie") "Film" else "Show"}", Icons.Outlined.Info) { onOpen() },
+            if (inList) Action("Remove from Library", Icons.Filled.Check) { actions.setInList(title, false) }
+            else Action("Add to Library", Icons.Filled.Add) { actions.setInList(title, true) },
+        ),
+        onDismiss = onDismiss,
+    )
+}
+
 /** Each title's scores, once fetched (kept while Lumen's open: they're slow to come) */
 private val scoreMemory = ConcurrentHashMap<String, List<Score>>()
 
@@ -154,9 +176,11 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
     var lit by remember { mutableIntStateOf(0) }
     LaunchedEffect(open) { if (!open) lit = 0 }
     val buttons = open && actions != null
+    var held by remember { mutableStateOf(false) }
+    if (held) TitleHoldMenu(title, onOpen = onClick, onDismiss = { held = false })
     Column {
     FocusCard(
-        art = title.art,
+        onLongClick = { held = true },
         onClick = {
             when (lit) {
                 1 -> actions?.play?.invoke(title)
@@ -271,7 +295,6 @@ fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 270.dp,
     LaunchedEffect(open) { if (!open) lit = 0 }
     val buttons = open && actions != null
     FocusCard(
-        art = title.backdrop,
         onClick = {
             when (lit) {
                 1 -> actions?.play?.invoke(title)
@@ -397,6 +420,10 @@ fun Trailer(
     loop: Boolean = true,
     onPlaying: () -> Unit = {},
     onEnded: () -> Unit = {},
+    /** Watching it, not a picture behind a page: the whole frame (not cropped), from the start, with [paused] and [jump] (seconds, added up) from the remote */
+    watching: Boolean = false,
+    paused: Boolean = false,
+    jump: Int = 0,
 ) {
     val host = LocalView.current
     val context = LocalContext.current
@@ -406,7 +433,7 @@ fun Trailer(
     val ended by rememberUpdatedState(onEnded)
     val hush by rememberUpdatedState(muted)
     // (carrying on where it got to before, when a title's page opens from Home's billboard)
-    val start = remember(id) { trailerTimes[id] ?: 0.0 }
+    val start = remember(id) { if (watching) 0.0 else trailerTimes[id] ?: 0.0 }
     val web = remember(id) {
         WebView(context).apply {
             // the remote never lands on it: it's a picture, nothing more
@@ -420,10 +447,10 @@ fun Trailer(
             webChromeClient = WebChromeClient()
             // the page says when its video's going, how far it's got, and when it's over
             addJavascriptInterface(TrailerSignal(id, onPlaying = { post { shown = true; playing() } }, onEnded = { post { ended() } }), "LumenTrailer")
-            val script = trailerScript(start)
+            val script = trailerScript(start, watching)
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView, url: String) {
-                    view.evaluateJavascript("window.lumenMuted=$hush;$script", null)
+                    view.evaluateJavascript("window.lumenMuted=$hush;window.lumenPaused=false;$script", null)
                 }
             }
             val q = "autoplay=1&mute=0&controls=0&cc_load_policy=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&playsinline=1&rel=0" +
@@ -446,6 +473,12 @@ fun Trailer(
     LaunchedEffect(web) { snapshotFlow { alpha }.collect { web.alpha = it } }
     // quiet when asked (the page's moved away from it), and it stays playing
     LaunchedEffect(muted) { web.evaluateJavascript("window.lumenMuted=$muted", null) }
+    LaunchedEffect(paused) { web.evaluateJavascript("window.lumenPaused=$paused", null) }
+    var jumped by remember { mutableStateOf(jump) }
+    LaunchedEffect(jump) {
+        if (jump != jumped) web.evaluateJavascript("window.lumenSeek=(window.lumenSeek||0)+${jump - jumped}", null)
+        jumped = jump
+    }
     // where it goes: under this space, following it as it moves
     var place by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     LaunchedEffect(place) {
@@ -488,10 +521,10 @@ val trailerTimes = ConcurrentHashMap<String, Double>()
  * video filling the space. Then it plays from [start] seconds, quiet while window.lumenMuted, and says
  * once it's going, how far it's got, and when it's over.
  */
-private fun trailerScript(start: Double): String {
+private fun trailerScript(start: Double, whole: Boolean = false): String {
     val css = "html,body{margin:0!important;overflow:hidden!important;background:#000!important}" +
         "body *{visibility:hidden!important}" +
-        "video{visibility:visible!important;object-fit:cover!important;width:100vw!important;height:100vh!important;left:0!important;top:0!important}"
+        "video{visibility:visible!important;object-fit:${if (whole) "contain" else "cover"}!important;width:100vw!important;height:100vh!important;left:0!important;top:0!important}"
     return """
         (function () {
           var s = document.createElement('style');
@@ -505,7 +538,10 @@ private fun trailerScript(start: Double): String {
             if (v.muted !== quiet) v.muted = quiet;
             if (!sought && v.readyState > 0) { v.currentTime = $start; sought = true; }
             if (v.ended) { if (!over) { over = true; LumenTrailer.ended(); } return; }
-            if (v.paused) v.play().catch(function () {});
+            if (window.lumenSeek) { v.currentTime = Math.max(0, v.currentTime + window.lumenSeek); window.lumenSeek = 0; }
+            var hold = !!window.lumenPaused;
+            if (!v.paused && hold) v.pause();
+            if (v.paused && !hold) v.play().catch(function () {});
             if (!said && !v.paused && v.currentTime > 0.3) { said = true; LumenTrailer.playing(); }
             LumenTrailer.time(v.currentTime);
           }, 300);

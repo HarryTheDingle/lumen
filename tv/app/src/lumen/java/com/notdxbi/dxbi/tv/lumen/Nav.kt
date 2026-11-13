@@ -1,5 +1,6 @@
 package com.notdxbi.dxbi.tv.lumen
 
+import androidx.compose.animation.animateContentSize
 import android.view.WindowManager
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
@@ -73,6 +75,7 @@ enum class Tab(val label: String, val icon: ImageVector) {
     Search("Search", Icons.Filled.Search),
     Home("Home", Icons.Filled.Home),
     Discover("Discover", Icons.Filled.Explore),
+    Calendar("Calendar", Icons.Filled.CalendarMonth),
     Settings("Settings", Icons.Filled.Settings),
 }
 
@@ -90,6 +93,8 @@ sealed interface Page {
     /** A genre's own page (Discover's Genres row), and Christmas at Home */
     data class Genre(val name: String) : Page
     data object Christmas : Page
+    /** A franchise's page (Discover's Franchises row) */
+    data class Franchise(val id: String, val name: String) : Page
 }
 
 /**
@@ -345,11 +350,14 @@ fun Pill(
     modifier: Modifier = Modifier,
     tint: Color? = null,
     leading: (@Composable () -> Unit)? = null,
+    /** Just the icon until the remote's on it or it's chosen (a long row of them fits across the screen) */
+    compact: Boolean = false,
 ) {
     val shape = RoundedCornerShape(50)
+    var focused by remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.onFocusChanged { focused = it.isFocused || it.hasFocus },
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) (tint?.copy(alpha = 0.45f) ?: Color.White.copy(alpha = 0.18f)) else Color.Transparent,
@@ -360,12 +368,13 @@ fun Pill(
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
     ) {
         Row(
-            Modifier.padding(start = if (leading != null) 8.dp else 16.dp, end = 16.dp, top = 7.dp, bottom = 7.dp),
+            Modifier.padding(start = if (leading != null) 8.dp else 16.dp, end = if (compact && !focused && !selected && leading != null) 8.dp else 16.dp, top = 7.dp, bottom = 7.dp)
+                .animateContentSize(androidx.compose.animation.core.tween(220)),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             leading?.invoke()
-            Text(text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            if (!compact || focused || selected || leading == null) Text(text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
     }
 }

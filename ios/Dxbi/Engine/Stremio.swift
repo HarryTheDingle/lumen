@@ -662,19 +662,27 @@ final class Stremio {
             // A stream whose server answers with an error, or with a clip saying so (ElfHosted's "Couldn't fetch
             // this release"), is passed over before it's played: the next best goes in its place
             if target == .player {
-                for _ in 0..<4 {
-                    guard let why = await whyNotVideo(chosen) else { break }
+                var good = false
+                for _ in 0..<8 {
+                    guard let why = await whyNotVideo(chosen) else { good = true; break }
                     Log.note("passed over before playing: \(why)")
                     _ = await dx("phone.reject", chosen.index, why)
                     if let now = launch { stepLaunch(now.text, detail: now.detail, progress: 0.85) }
-                    guard let next = await streams()?.picked else {
+                    // (on mobile data the best left may be a 4K one: asked, not chosen)
+                    guard !NetworkStatus.shared.saving, let next = await streams()?.picked else {
                         if launch != nil { failLaunch("Couldn't find a stream that plays", "Try … → Choose a Stream on the title's page.") }
                         return
                     }
                     chosen = next
                 }
+                // (every one tried was an error: not played, rather than the last of them started unchecked)
+                if !good {
+                    if launch != nil { failLaunch("Couldn't find a stream that plays", "The providers are returning errors. Try again in a few minutes, or choose another in the list.") }
+                    else { show("Those streams are returning errors. Try another, or try again in a few minutes.") }
+                    return
+                }
             }
-            let link = await dx("phone.play", chosen.index) as? String ?? chosen.play
+            let link = await dx("phone.play", chosen.index, NetworkStatus.shared.saving) as? String ?? chosen.play
             // (for Play or Resume on this film or episode again: straight back to this stream, PlayedLinks)
             if target == .player { PlayedLinks.put(link) }
             await ask("play", ["link": link])

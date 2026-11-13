@@ -66,6 +66,8 @@ import com.notdxbi.dxbi.tv.phone.Title
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -153,7 +155,7 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
         )
     }
 
-    CompositionLocalProvider(LocalCardActions provides cardActions, LocalLauncher provides launcher, LocalTaste provides taste) {
+    CompositionLocalProvider(LocalCardActions provides cardActions, LocalLauncher provides launcher, LocalTaste provides taste, LocalDiscoverFeed provides feed) {
     // (noted, so the corner opens the menu only when the remote moves onto it)
     Box(Modifier.fillMaxSize().onPreviewKeyEvent {
         if (it.type == KeyEventType.KeyDown && (it.key == Key.DirectionUp || it.key == Key.DirectionLeft)) nav.movedAt = System.currentTimeMillis()
@@ -175,6 +177,7 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
             )
             Tab.Discover -> DiscoverScreen(stremio, nav, feed)
             Tab.Search -> SearchScreen(stremio, nav)
+            Tab.Calendar -> CalendarScreen(stremio, nav, feed)
             Tab.Settings -> SettingsScreen(stremio, nav)
         }
         }
@@ -196,6 +199,7 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
                     Page.Networks -> PageWindow(onBack = { nav.back() }) { NetworksScreen(stremio) }
                     is Page.Genre -> GenrePage(nav, feed, page.name)
                     Page.Christmas -> ChristmasPage(stremio, nav)
+                    is Page.Franchise -> FranchisePage(stremio, nav, page.id, page.name)
                     Page.Addons -> PageWindow(onBack = { nav.back() }) { AddonsScreen(stremio) }
                     Page.Profiles -> PageWindow(onBack = { nav.back() }) { ProfilePicker(stremio) { nav.back() } }
                 }
@@ -274,17 +278,38 @@ private fun SignIn(stremio: Stremio) {
  * again. (A text field that's simply moved onto would open the keyboard at once, and keep the arrows.)
  */
 @Composable
-fun Field(label: String, value: String, onChange: (String) -> Unit, type: KeyboardType, modifier: Modifier = Modifier) {
+fun Field(
+    label: String,
+    value: String,
+    onChange: (String) -> Unit,
+    type: KeyboardType,
+    modifier: Modifier = Modifier,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(12.dp),
+    /** Set true to open the keyboard without OK being pressed (Search, as it opens) */
+    open: Boolean = false,
+    leading: (@Composable () -> Unit)? = null,
+) {
     var editing by remember { mutableStateOf(false) }
+    LaunchedEffect(open) { if (open) editing = true }
     val box = remember { FocusRequester() }
     val input = remember { FocusRequester() }
     val password = type == KeyboardType.Password
-    val shape = RoundedCornerShape(12.dp)
     fun done() {
         editing = false
         runCatching { box.requestFocus() }
     }
     LaunchedEffect(editing) { if (editing) runCatching { input.requestFocus() } }
+    // The keyboard closed by its own Back (which the box never sees): out of typing too, so the remote moves on again
+    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+    val keyboardUp = WindowInsets.isImeVisible
+    var keyboardSeen by remember { mutableStateOf(false) }
+    // (not while the voice typing the remote's mic starts has the keyboard away or the window: the box has to stay for what it types)
+    val windowFocused = androidx.compose.ui.platform.LocalWindowInfo.current.isWindowFocused
+    LaunchedEffect(editing, keyboardUp, windowFocused) {
+        if (!editing) { keyboardSeen = false; return@LaunchedEffect }
+        if (keyboardUp) keyboardSeen = true
+        else if (keyboardSeen && windowFocused) { delay(2500); done() }
+    }
 
     if (editing) {
         BasicTextField(
@@ -300,11 +325,16 @@ fun Field(label: String, value: String, onChange: (String) -> Unit, type: Keyboa
                 .fillMaxWidth()
                 .focusRequester(input)
                 .onPreviewKeyEvent {
-                    if (it.type == KeyEventType.KeyUp && it.key == Key.Back) { done(); true } else false
+                    when {
+                        it.type == KeyEventType.KeyUp && it.key == Key.Back -> { done(); true }
+                        // (up or down with the keyboard away: out of the box, so the next press moves on)
+                        it.type == KeyEventType.KeyDown && (it.key == Key.DirectionUp || it.key == Key.DirectionDown) -> { done(); true }
+                        else -> false
+                    }
                 }
                 .background(Color.White.copy(alpha = 0.16f), shape)
                 .border(1.5.dp, Color.White.copy(alpha = 0.6f), shape)
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(horizontal = if (leading != null) 22.dp else 16.dp, vertical = 14.dp),
         )
     } else {
         Surface(
@@ -321,12 +351,18 @@ fun Field(label: String, value: String, onChange: (String) -> Unit, type: Keyboa
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
         ) {
             val shown = if (password) "•".repeat(value.length) else value
-            Text(
-                shown.ifEmpty { label },
-                fontSize = 18.sp,
-                color = if (value.isEmpty()) androidx.tv.material3.LocalContentColor.current.copy(alpha = 0.5f) else Color.Unspecified,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            )
+            androidx.compose.foundation.layout.Row(
+                Modifier.padding(horizontal = if (leading != null) 22.dp else 16.dp, vertical = 14.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
+            ) {
+                leading?.invoke()
+                Text(
+                    shown.ifEmpty { label },
+                    fontSize = 18.sp,
+                    color = if (value.isEmpty()) androidx.tv.material3.LocalContentColor.current.copy(alpha = 0.5f) else Color.Unspecified,
+                )
+            }
         }
     }
 }

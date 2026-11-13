@@ -183,6 +183,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // (the screen's back: Stremio reads it as it starts, a moment later, then it goes)
+        window.decorView.postDelayed({ getSharedPreferences("phone-cache", MODE_PRIVATE).edit().remove("x.playerUntil").apply() }, 4000)
         hideSystemBars()
         if (::web.isInitialized) {
             web.requestFocus()
@@ -250,6 +252,8 @@ class MainActivity : AppCompatActivity() {
         PlaybackBus.started(json)
         // (the phone app can send it to another app, a Chromecast or a download instead)
         if (Phone.play(this, json)) return
+        // (the TV may close this screen while the player has it: coming back mustn't ask who's watching again)
+        getSharedPreferences("phone-cache", MODE_PRIVATE).edit().putLong("x.playerUntil", System.currentTimeMillis() + 12 * 3600_000L).apply()
         startActivity(Intent(this, PlayerActivity::class.java).putExtra(PlayerActivity.EXTRA_STREAM, json))
     }
 

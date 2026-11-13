@@ -70,7 +70,8 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
     /** Top Picks for You, then Because you watched … (the plugin's recommender) */
     val picks = MutableStateFlow(saved("x.picks").objects().map { ListRow(it.optString("name"), it.optJSONArray("items").objects().map(Title::from)) }.filter { it.items.isNotEmpty() })
     /** Who's watching? has been answered since the app opened (or there's only one to be) */
-    val profileChosen = MutableStateFlow(false)
+    // (also when the app's screen was closed while the player had the TV, and comes back as the player ends: asked once already)
+    val profileChosen = MutableStateFlow(cache.getLong("x.playerUntil", 0L) > System.currentTimeMillis())
     /** Who's watching? was skipped only because there was one person to be: when the account's other profiles arrive (synced), it's asked after all */
     private var profileAutoChosen = false
     private var profileWatch: Job? = null
@@ -317,6 +318,9 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
      * Christmas at Home: the plugin looks up ~50 titles, so the first call takes a few seconds; the answer is
      * kept for an hour (null when it couldn't be had)
      */
+    /** The Calendar's episodes: every dated episode of the Library's shows, last month to three months ahead (null: couldn't ask) */
+    suspend fun calendar(): List<CalendarEpisode>? = (dx("phone.calendar") as? JSONArray)?.objects()?.map(CalendarEpisode::from)
+
     suspend fun christmas(): Christmas? {
         christmasKept?.let { (at, c) -> if (System.currentTimeMillis() - at < 3_600_000L) return c }
         val o = dx("phone.christmas") as? JSONObject ?: return christmasKept?.second
@@ -335,8 +339,19 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
         return a.objects().map { AnimeSeason(Title.from(it), it.optString("label"), it.optInt("episodes"), it.optBoolean("current")) }
     }
 
+    /** Whether the connection is metered (mobile data, or a hotspot): a stream chosen on it isn't remembered */
+    fun onMeteredNetwork(): Boolean =
+        (app.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager)?.isActiveNetworkMetered == true
+
+    /** Whether this device decodes Dolby Vision (else a Dolby Vision-only file shows green and purple) */
+    private val hasDolbyVisionDecoder: Boolean by lazy {
+        runCatching {
+            android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos.any { c -> !c.isEncoder && c.supportedTypes.any { it.equals("video/dolby-vision", true) } }
+        }.getOrDefault(false)
+    }
+
     /** The open title's streams, described by dx.bi, with Just press Play's pick */
-    suspend fun streams(): StreamChoices? = (dx("phone.streams") as? JSONObject)?.let(StreamChoices::from)
+    suspend fun streams(): StreamChoices? = (dx("phone.streams") as? JSONObject)?.let(StreamChoices::from)?.withoutDolbyVisionOnly(hasDolbyVisionDecoder)
 
     /**
      * Plays one of [streams] (dx.bi keeps the next best ready in case it won't play): in dx.bi's
@@ -344,7 +359,7 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
      */
     fun play(option: StreamOption, target: Phone.Target = Phone.Target.Player) = scope.launch {
         Phone.route(app, option, target, playInOtherApp.value)
-        val link = dx("phone.play", option.index) as? String ?: option.play
+        val link = dx("phone.play", option.index, onMeteredNetwork()) as? String ?: option.play
         // (for Play or Resume on this film or episode again: straight back to this stream, PlayedLinks)
         if (target == Phone.Target.Player) com.notdxbi.dxbi.tv.PlayedLinks.put(app, link)
         ask("play", JSONObject().put("link", link))

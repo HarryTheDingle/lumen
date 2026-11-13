@@ -59,6 +59,9 @@ struct StreamsSheet: View {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     if NetworkStatus.shared.saving { savingNote }
                     if let best = choices?.picked { pick(best) }
+                    if let why = choices?.loweredNote, !NetworkStatus.shared.saving {
+                        Text(why).font(.footnote).foregroundStyle(Dx.muted)
+                    }
                     if all.count > 1 { filters }
                     ForEach(shown) { s in row(s, picked: s.index == choices?.pick) }
                     status
