@@ -174,7 +174,7 @@ private fun Synopsis(lead: String?, body: String, onMore: () -> Unit) {
 
 /** The whole text, over the page; Back closes it */
 @Composable
-private fun FullText(heading: String, body: String, onDismiss: () -> Unit) {
+internal fun FullText(heading: String, body: String, onDismiss: () -> Unit) {
     PageWindow(onBack = onDismiss, dim = 0.7f, fadeIn = false) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(

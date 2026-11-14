@@ -496,7 +496,7 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                                 }
                             }
                             if (d != null && (d.cast.isNotEmpty() || d.directors.isNotEmpty())) CastRow(d, cast, onPerson = { name, id, photo -> if (id != null) nav.push(Page.Person(id, name, photo)) else nav.search(name) })
-                            if (title.description != null || title.genres.isNotEmpty()) About(title, d)
+                            if (title.description != null || title.genres.isNotEmpty()) About(title, d, facts)
                         }
                     }
                 }
@@ -934,22 +934,76 @@ fun Person(name: String, role: String?, photo: String?, size: Dp = 96.dp, onClic
     }
 }
 
-/** The title, its genres and the whole story, in a box (and the facts, as Apple TV's Information) */
+/**
+ * Apple TV's About and Information: the name, its genres and the story in a frosted box the remote can choose (OK opens
+ * the whole story), then the facts in columns on a darker band: Information (released, run time, rated, where it's
+ * from) and Languages.
+ */
 @Composable
-private fun About(title: Title, d: Details?) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = Dx.Gutter)) {
-        Text("About", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
+private fun About(title: Title, d: Details?, facts: TitleFacts?) {
+    var full by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth()) {
+        Text("About", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = Dx.Gutter))
         Spacer(Modifier.height(12.dp))
-        Column(Modifier.widthIn(max = 640.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(title.name, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            if (title.genres.isNotEmpty()) Text(title.genres.joinToString(", ").uppercase(), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted)
-            title.description?.let { Text(it, fontSize = 14.sp, color = Color.White.copy(alpha = 0.85f), lineHeight = 20.sp, modifier = Modifier.padding(top = 6.dp)) }
-            val info = listOfNotNull(
-                title.year?.let { "Released $it" },
-                title.runtime,
-                d?.directors?.takeIf { it.isNotEmpty() }?.let { "Directed by ${it.joinToString(", ")}" },
-            )
-            if (info.isNotEmpty()) Text(info.joinToString(" · "), fontSize = 12.sp, color = Dx.Muted, modifier = Modifier.padding(top = 6.dp))
+        Surface(
+            onClick = { full = true },
+            modifier = Modifier.padding(horizontal = Dx.Gutter).width(420.dp).centredWhenFocused(),
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
+            colors = ClickableSurfaceDefaults.colors(containerColor = Glass.Fill, contentColor = Color.White, focusedContainerColor = Color.White.copy(alpha = 0.32f), focusedContentColor = Color.White),
+            border = ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Glass.Edge), shape = RoundedCornerShape(16.dp))),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+        ) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title.name, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (title.genres.isNotEmpty()) Text(title.genres.take(3).joinToString(", "), fontSize = 12.sp, color = Color.White.copy(alpha = 0.7f))
+                title.description?.let { Text(it, fontSize = 13.sp, color = Color.White.copy(alpha = 0.9f), lineHeight = 18.sp, maxLines = 5, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp)) }
+            }
+        }
+        // Information and Languages, on a darker band across the screen
+        val info = listOfNotNull(
+            title.year?.let { "Released" to it },
+            runtimeText(title.runtime)?.let { "Run Time" to it },
+            d?.seasons?.count { it > 0 }?.takeIf { it > 0 && title.type != "movie" }?.let { "Seasons" to "$it" },
+            facts?.rating?.let { "Rated" to it },
+            facts?.countries?.takeIf { it.isNotEmpty() }?.let { (if (it.size > 1) "Regions of Origin" else "Region of Origin") to it.joinToString(", ") },
+            d?.directors?.takeIf { it.isNotEmpty() }?.let { (if (it.size > 1) "Directors" else "Director") to it.take(3).joinToString(", ") },
+            facts?.studio?.let { (if (title.type == "movie") "Studio" else "Network") to it },
+        )
+        val languages = listOfNotNull(
+            facts?.language?.let { "Original Audio" to it },
+            facts?.spoken?.filter { it != facts.language }?.takeIf { it.isNotEmpty() }?.let { "Also Spoken" to it.joinToString(", ") },
+        )
+        if (info.isNotEmpty() || languages.isNotEmpty()) {
+            Spacer(Modifier.height(30.dp))
+            // (the remote can move down onto it, so the page comes up to show all of it; it lightens a little when it's there)
+            Surface(
+                onClick = {},
+                modifier = Modifier.fillMaxWidth().centredWhenFocused(),
+                shape = ClickableSurfaceDefaults.shape(androidx.compose.ui.graphics.RectangleShape),
+                colors = ClickableSurfaceDefaults.colors(containerColor = Color.Black.copy(alpha = 0.32f), contentColor = Color.White, focusedContainerColor = Color.White.copy(alpha = 0.08f), focusedContentColor = Color.White),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+            ) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = Dx.Gutter, vertical = 26.dp), horizontalArrangement = Arrangement.spacedBy(48.dp)) {
+                    if (info.isNotEmpty()) InfoColumn("Information", info, Modifier.weight(1f))
+                    if (languages.isNotEmpty()) InfoColumn("Languages", languages, Modifier.weight(1f))
+                    // (the third column's room, as Apple TV's three)
+                    if (info.isNotEmpty() && languages.isNotEmpty()) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+    if (full) FullText(title.name, title.description.orEmpty(), onDismiss = { full = false })
+}
+
+@Composable
+private fun InfoColumn(heading: String, rows: List<Pair<String, String>>, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(heading, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.75f))
+        rows.forEach { (k, v) ->
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(k, fontSize = 12.sp, color = Dx.Muted)
+                Text(v, fontSize = 14.sp, color = Color.White, lineHeight = 19.sp)
+            }
         }
     }
 }
