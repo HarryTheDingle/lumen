@@ -74,6 +74,9 @@ fun PersonPage(stremio: Stremio, nav: Nav, page: Page.Person) {
 
     PageWindow(onBack = { nav.back() }, home = first) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
+            // (as a title's page: what they're best known for, blurred, under the whole page)
+            val known = titles("known").firstOrNull() ?: titles("films").firstOrNull() ?: titles("shows").firstOrNull()
+            if (known != null) BlurredArt(known.backdrop, Modifier.fillMaxSize(), dim = 0.55f)
             LazyColumn(contentPadding = PaddingValues(top = 56.dp, bottom = 60.dp), verticalArrangement = Arrangement.spacedBy(26.dp)) {
                 item(key = "header") {
                     Row(Modifier.fillMaxWidth().padding(horizontal = Dx.Gutter), horizontalArrangement = Arrangement.spacedBy(32.dp)) {

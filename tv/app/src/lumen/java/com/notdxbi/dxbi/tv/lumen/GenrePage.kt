@@ -178,7 +178,7 @@ fun GenrePage(nav: Nav, feed: DiscoverFeed, name: String) {
         val pageScope = androidx.compose.runtime.rememberCoroutineScope()
         val pageScroller = remember { PageScroller(pageListState, pageScope) }
         CompositionLocalProvider(LocalBringIntoViewSpec provides CentredScrolling, LocalPageScroller provides pageScroller) {
-            LazyColumn(state = pageListState, modifier = Modifier.onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(top = 48.dp, bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(state = pageListState, modifier = Modifier.onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(top = 48.dp, bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 item(key = "title") {
                     Text(name, fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = Dx.Gutter))
                 }
