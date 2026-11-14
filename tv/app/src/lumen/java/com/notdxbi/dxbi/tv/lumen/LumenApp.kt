@@ -83,7 +83,17 @@ import kotlinx.coroutines.withContext
 fun LumenApp(engine: Engine) {
     val context = LocalContext.current
     // pictures come up with a soft fade as they arrive, not a pop
-    coil3.compose.setSingletonImageLoaderFactory { ctx -> coil3.ImageLoader.Builder(ctx).crossfade(350).build() }
+    // (with an app's own name as its user agent: Wikimedia turns away OkHttp's default one, and every cast photo from
+    // Wikipedia came back refused, leaving only initials)
+    coil3.compose.setSingletonImageLoaderFactory { ctx ->
+        val client = okhttp3.OkHttpClient.Builder()
+            .addNetworkInterceptor { chain -> chain.proceed(chain.request().newBuilder().header("User-Agent", "Lumen/1.0 (Android TV)").build()) }
+            .build()
+        coil3.ImageLoader.Builder(ctx)
+            .crossfade(350)
+            .components { add(coil3.network.okhttp.OkHttpNetworkFetcherFactory(callFactory = { client })) }
+            .build()
+    }
     // (Stremio's state is read and turned into screens' data off the main thread, so moving never waits for it)
     val scope = rememberCoroutineScope { Dispatchers.Default }
     val stremio = remember { Stremio(context.applicationContext, engine, scope) }
