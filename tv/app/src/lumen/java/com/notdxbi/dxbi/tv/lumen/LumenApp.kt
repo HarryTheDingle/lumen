@@ -66,6 +66,7 @@ import com.notdxbi.dxbi.tv.phone.Title
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.isImeVisible
 import kotlinx.coroutines.flow.SharingStarted
@@ -294,12 +295,34 @@ fun Field(
     val box = remember { FocusRequester() }
     val input = remember { FocusRequester() }
     val password = type == KeyboardType.Password
-    fun done() {
+    // (the box the remote goes back to isn't there until typing has finished: focus is asked of it once it's drawn, not at
+    // once, which found nothing and dropped the remote on the screen's name in the corner. [then]: a move to make after, as
+    // Down out of the box with the keyboard away goes on to the results)
+    var refocus by remember { mutableStateOf<androidx.compose.ui.focus.FocusDirection?>(null) }
+    var refocusAsked by remember { mutableStateOf(false) }
+    var boxFocused by remember { mutableStateOf(false) }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    fun done(then: androidx.compose.ui.focus.FocusDirection? = null) {
         editing = false
-        runCatching { box.requestFocus() }
+        refocus = then
+        refocusAsked = true
+    }
+    LaunchedEffect(editing, refocusAsked) {
+        if (editing || !refocusAsked) return@LaunchedEffect
+        refocusAsked = false
+        // (a few frames at most for the box to be drawn and take it)
+        for (i in 0 until 20) {
+            androidx.compose.runtime.withFrameNanos { }
+            if (boxFocused) break
+            runCatching { box.requestFocus() }
+        }
+        delay(60)
+        refocus?.let { focusManager.moveFocus(it) }
+        refocus = null
     }
     LaunchedEffect(editing) { if (editing) runCatching { input.requestFocus() } }
     // The keyboard closed by its own Back (which the box never sees): out of typing too, so the remote moves on again
+    // (soon: the text box has lost the remote by then, and a press in the meantime started from nowhere, the corner)
     @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
     val keyboardUp = WindowInsets.isImeVisible
     var keyboardSeen by remember { mutableStateOf(false) }
@@ -308,7 +331,7 @@ fun Field(
     LaunchedEffect(editing, keyboardUp, windowFocused) {
         if (!editing) { keyboardSeen = false; return@LaunchedEffect }
         if (keyboardUp) keyboardSeen = true
-        else if (keyboardSeen && windowFocused) { delay(2500); done() }
+        else if (keyboardSeen && windowFocused) { delay(400); done() }
     }
 
     if (editing) {
@@ -328,7 +351,10 @@ fun Field(
                     when {
                         it.type == KeyEventType.KeyUp && it.key == Key.Back -> { done(); true }
                         // (up or down with the keyboard away: out of the box, so the next press moves on)
-                        it.type == KeyEventType.KeyDown && (it.key == Key.DirectionUp || it.key == Key.DirectionDown) -> { done(); true }
+                        it.type == KeyEventType.KeyDown && (it.key == Key.DirectionUp || it.key == Key.DirectionDown) -> {
+                            done(if (it.key == Key.DirectionDown) androidx.compose.ui.focus.FocusDirection.Down else androidx.compose.ui.focus.FocusDirection.Up)
+                            true
+                        }
                         else -> false
                     }
                 }
@@ -339,7 +365,7 @@ fun Field(
     } else {
         Surface(
             onClick = { editing = true },
-            modifier = modifier.fillMaxWidth().focusRequester(box),
+            modifier = modifier.fillMaxWidth().focusRequester(box).onFocusChanged { boxFocused = it.isFocused },
             shape = ClickableSurfaceDefaults.shape(shape),
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = Color.White.copy(alpha = 0.08f),
