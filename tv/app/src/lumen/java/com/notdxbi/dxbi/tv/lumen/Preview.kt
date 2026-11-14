@@ -60,6 +60,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -562,22 +564,28 @@ val CAPTION_ROOM = 30.dp
 private fun PosterFace(title: Title, rank: Int?, width: Dp, watched: Boolean = title.watched, grow: () -> Float = { 0f }) {
     val context = androidx.compose.ui.platform.LocalContext.current
     Box(Modifier.fillMaxSize()) {
-        // the strip under the poster: its own colours, smeared (a tiny copy stretched, cheap for the TV), darkening
-        val smear = remember(title.art) { title.art?.let { coil3.request.ImageRequest.Builder(context).data(it).size(8, 12).build() } }
-        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(CAPTION_ROOM + 24.dp).graphicsLayer { alpha = grow() }) {
-            if (smear != null) coil3.compose.AsyncImage(
-                model = smear, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                alignment = Alignment.BottomCenter, modifier = Modifier.fillMaxSize(),
-            )
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.15f), 1f to Color.Black.copy(alpha = 0.6f))))
+        // the strip under the poster: the poster's own foot carried on, blurred, darkening (only the chosen card has it, so
+        // the blur is one small one at a time; TVs before Android 12 can't blur, and get a tiny copy stretched instead)
+        val grown = grow() > 0f
+        if (grown) {
+            val canBlur = android.os.Build.VERSION.SDK_INT >= 31
+            val smear = remember(title.art, canBlur) {
+                title.art?.let { coil3.request.ImageRequest.Builder(context).data(it).apply { if (!canBlur) size(8, 12) }.build() }
+            }
+            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(CAPTION_ROOM + 56.dp).graphicsLayer { alpha = grow() }) {
+                if (smear != null) coil3.compose.AsyncImage(
+                    model = smear, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    alignment = Alignment.BottomCenter,
+                    modifier = Modifier.fillMaxSize().then(if (canBlur) Modifier.blur(14.dp, androidx.compose.ui.draw.BlurredEdgeTreatment.Rectangle) else Modifier),
+                )
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, 0.45f to Color.Black.copy(alpha = 0.2f), 1f to Color.Black.copy(alpha = 0.55f))))
+            }
         }
-        Box(Modifier.fillMaxWidth().height(width * 1.5f)) {
+        // (the poster's foot fades into the strip, so there's no edge between them)
+        Box(Modifier.fillMaxWidth().height(width * 1.5f).then(if (grown) Modifier.fadeFoot(grow) else Modifier)) {
             // (no poster, or one that won't load: its name instead of a blank grey card, as search results had)
             var noArt by remember(title.art) { mutableStateOf(title.art == null) }
             Art(title.art, Modifier.fillMaxSize(), onError = { noArt = true })
-            // (its foot melting into the strip)
-            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(36.dp).graphicsLayer { alpha = grow() }
-                .background(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.3f))))
             if (hasNameOnPoster(title) || noArt) PosterName(title, width)
             if (rank != null) {
                 Text(
@@ -609,3 +617,12 @@ fun WatchedMark(modifier: Modifier = Modifier, size: Dp = 22.dp) {
         Icon(Icons.Filled.Check, contentDescription = "Watched", tint = Color.White, modifier = Modifier.size(size * 0.62f))
     }
 }
+
+/** The bottom fifth of what's drawn fading away as [amount] goes to 1 (a grown poster's foot into its blurred strip) */
+private fun Modifier.fadeFoot(amount: () -> Float): Modifier = this
+    .graphicsLayer(compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen)
+    .drawWithContent {
+        drawContent()
+        val a = amount()
+        drawRect(Brush.verticalGradient(0.78f to Color.Black, 1f to Color.Black.copy(alpha = 1f - a)), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
+    }
