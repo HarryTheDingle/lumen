@@ -101,6 +101,8 @@ class CardActions(
     val scores: suspend (Title) -> List<Score>,
     /** A title's trailer, when its row didn't come with one (Home's billboard plays it) */
     val trailer: suspend (Title) -> String?,
+    /** A title's genres, for the chosen card's caption when its row didn't bring them */
+    val genres: suspend (Title) -> List<String> = { emptyList() },
     /** Every title watched (Stremio.watchedIds): a card's ✓, whatever row it came in */
     val watched: StateFlow<Set<String>> = kotlinx.coroutines.flow.MutableStateFlow(emptySet()),
 )
@@ -127,6 +129,9 @@ fun TitleHoldMenu(title: Title, onOpen: () -> Unit, onDismiss: () -> Unit) {
         onDismiss = onDismiss,
     )
 }
+
+/** Each title's genres, once looked up (kept while Lumen's open) */
+private val genreMemory = ConcurrentHashMap<String, List<String>>()
 
 /** Each title's scores, once fetched (kept while Lumen's open: they're slow to come) */
 private val scoreMemory = ConcurrentHashMap<String, List<Score>>()
@@ -188,6 +193,14 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
     // the poster's own colours with what it is ("Movie · Drama") in it. The room is there in every row, so nothing moves.
     val grow by animateFloatAsState(if (focused && !open) 1f else 0f, tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "grow")
     // (a show's own flag in a row counts one episode seen; the library's list counts a show only watched as a whole)
+    // what it is for the caption under it: "Movie · Drama", the genre looked up once it's chosen if its row had none
+    var genres by remember(title.id) { mutableStateOf(title.genres.ifEmpty { genreMemory[title.id].orEmpty() }) }
+    LaunchedEffect(focused) {
+        if (!focused || genres.isNotEmpty() || actions == null) return@LaunchedEffect
+        // (a moment first: the remote running along a row doesn't ask for every card it passes)
+        delay(150)
+        genres = actions.genres(title).also { genreMemory[title.id] = it }
+    }
     val watchedNow = actions?.watched?.collectAsState()?.value?.contains(title.id) == true || (title.watched && title.type == "movie")
     Column(Modifier.height(height + CAPTION_ROOM)) {
     FocusCard(
@@ -217,7 +230,7 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
     ) {
         Crossfade(open, animationSpec = tween(250), label = "preview") { wide ->
             if (!wide) {
-                PosterFace(title, rank, width, watched = watchedNow, grow = { grow })
+                PosterFace(title, rank, width, watched = watchedNow, grow = { grow }, caption = listOfNotNull(typeName(title.type), genres.firstOrNull()).joinToString(" · "))
             } else {
                 Box(Modifier.fillMaxSize()) {
                     Art(title.backdrop, Modifier.fillMaxSize())
@@ -562,7 +575,7 @@ val CAPTION_ROOM = 30.dp
  * down into its caption strip.
  */
 @Composable
-private fun PosterFace(title: Title, rank: Int?, width: Dp, watched: Boolean = title.watched, grow: () -> Float = { 0f }) {
+private fun PosterFace(title: Title, rank: Int?, width: Dp, watched: Boolean = title.watched, grow: () -> Float = { 0f }, caption: String = typeName(title.type)) {
     val context = androidx.compose.ui.platform.LocalContext.current
     Box(Modifier.fillMaxSize()) {
         // the strip under the poster: the poster's own foot carried on, blurred, darkening (only the chosen card has it, so
@@ -600,9 +613,10 @@ private fun PosterFace(title: Title, rank: Int?, width: Dp, watched: Boolean = t
         }
         // what it is, in the strip (a moment after it opens)
         Text(
-            listOfNotNull(typeName(title.type), title.genres.firstOrNull()).joinToString(" · "),
-            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 9.dp, vertical = 7.dp)
+            caption,
+            // (small enough for "TV Show · Comedy" across a poster)
+            fontSize = 11.sp, letterSpacing = (-0.1).sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 7.dp, vertical = 7.dp)
                 .graphicsLayer { alpha = ((grow() - 0.5f) * 2f).coerceIn(0f, 1f) },
         )
     }
