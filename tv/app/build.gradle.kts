@@ -251,7 +251,7 @@ dependencies {
     "lumenphoneImplementation"("androidx.window:window:1.3.0")
     "lumenphoneImplementation"("androidx.profileinstaller:profileinstaller:1.3.1")
     // Lumen: its screens drawn with Compose for TV (focus, the remote's D-pad, cards that grow when chosen)
-    "lumenImplementation"(platform("androidx.compose:compose-bom:2024.12.01"))
+    "lumenImplementation"(platform("androidx.compose:compose-bom:2025.04.01"))
     "lumenImplementation"("androidx.compose.ui:ui")
     "lumenImplementation"("androidx.compose.foundation:foundation")
     "lumenImplementation"("androidx.tv:tv-material:1.0.0")
