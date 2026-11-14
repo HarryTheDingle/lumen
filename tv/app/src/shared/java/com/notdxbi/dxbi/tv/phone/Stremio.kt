@@ -195,6 +195,10 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
                 myList.value = it.objects().map { r -> ListRow(r.optString("name"), r.optJSONArray("items").objects().map(Title::from)) }
                 cache.edit().putString("x.myList", it.toString()).apply()
             }
+            // what's watched, everywhere the library knows of (a card's ✓, whichever row it's in)
+            (dx("phone.marks") as? JSONObject)?.optJSONArray("watched")?.let { a ->
+                watchedIds.value = (0 until a.length()).map { a.optString(it) }.toSet()
+            }
             (dx("phone.describe", JSONArray(continueWatching.value.take(12).map { JSONArray(listOf(it.title.type, it.title.id)) })) as? JSONObject)?.let { o ->
                 described.value = o.keys().asSequence().mapNotNull { k -> o.optJSONObject(k)?.let { k to it } }.toMap()
             }
@@ -265,6 +269,9 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
         refreshExtras()
     }
 
+    /** Every title watched (from the library: a card shows ✓ for these, whatever row it came in) */
+    val watchedIds = MutableStateFlow<Set<String>>(emptySet())
+
     /** Titles added to or taken out of the Library here, before Stremio's own lists catch up */
     val listMarks = MutableStateFlow<Map<String, Boolean>>(emptyMap())
 
@@ -294,7 +301,10 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
         refreshExtras()
     }
 
-    fun setWatched(watched: Boolean) = scope.launch { ask("watched", JSONObject().put("value", watched)) }
+    fun setWatched(watched: Boolean) = scope.launch {
+        details.value?.metaId?.let { id -> watchedIds.value = if (watched) watchedIds.value + id else watchedIds.value - id }
+        ask("watched", JSONObject().put("value", watched))
+    }
 
     /** One video of the open title watched or not (a film: its own id); [upTo]: and the episodes before it in its season */
     fun setWatched(videoId: String, watched: Boolean, upTo: Boolean = false) = scope.launch {

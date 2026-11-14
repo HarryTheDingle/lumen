@@ -16910,7 +16910,9 @@
         const items = stremioLibrary();
         return {
           library: items.filter((i) => !i.removed && !i.temp).map((i) => i._id),
-          watched: items.filter((i) => (i.state.timesWatched || 0) > 0 || (i.state.flaggedWatched || 0) > 0).map((i) => i._id),
+          // (a show only once it's marked watched as a whole: one episode seen counts it in timesWatched, and a show part
+          // way through isn't watched)
+          watched: items.filter((i) => (i.state.flaggedWatched || 0) > 0 || (i.type === "movie" && (i.state.timesWatched || 0) > 0)).map((i) => i._id),
         };
       },
       // What a person said they like (genres and titles), kept with the account's other synced data: null if not told

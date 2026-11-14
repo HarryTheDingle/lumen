@@ -32,6 +32,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Add
@@ -97,6 +99,8 @@ class CardActions(
     val scores: suspend (Title) -> List<Score>,
     /** A title's trailer, when its row didn't come with one (Home's billboard plays it) */
     val trailer: suspend (Title) -> String?,
+    /** Every title watched (Stremio.watchedIds): a card's ✓, whatever row it came in */
+    val watched: StateFlow<Set<String>> = kotlinx.coroutines.flow.MutableStateFlow(emptySet()),
 )
 
 val LocalCardActions = staticCompositionLocalOf<CardActions?> { null }
@@ -178,7 +182,11 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
     val buttons = open && actions != null
     var held by remember { mutableStateOf(false) }
     if (held) TitleHoldMenu(title, onOpen = onClick, onDismiss = { held = false })
-    Column {
+    // Apple TV's: the poster the remote is on grows down into the room kept under every poster, the strip a smear of
+    // the poster's own colours with what it is ("Movie · Drama") in it. The room is there in every row, so nothing moves.
+    val grow by animateFloatAsState(if (focused && !open) 1f else 0f, tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "grow")
+    val watchedNow = actions?.watched?.collectAsState()?.value?.contains(title.id) == true || title.watched
+    Column(Modifier.height(height + CAPTION_ROOM)) {
     FocusCard(
         onLongClick = { held = true },
         onClick = {
@@ -190,7 +198,7 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
         },
         modifier = Modifier
             .width(cardWidth)
-            .height(height)
+            .height(height + CAPTION_ROOM * grow)
             .bringIntoViewRequester(reveal)
             .onFocusChanged { focused = it.isFocused || it.hasFocus }
             .onPreviewKeyEvent {
@@ -206,7 +214,7 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
     ) {
         Crossfade(open, animationSpec = tween(250), label = "preview") { wide ->
             if (!wide) {
-                PosterFace(title, rank, width)
+                PosterFace(title, rank, width, watched = watchedNow, grow = { grow })
             } else {
                 Box(Modifier.fillMaxSize()) {
                     Art(title.backdrop, Modifier.fillMaxSize())
@@ -240,14 +248,6 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
                 }
             }
         }
-    }
-    // Apple TV's caption: the name and what it is, fading in under the poster the remote is on (the card that
-    // opens out has them itself, so it goes then). The room for it is there in every row, so nothing moves.
-    val captionAlpha by animateFloatAsState(if (focused && !open) 1f else 0f, tween(220), label = "caption")
-    // (just what it is, riding down with the poster as it grows: the poster is 10% larger, so its foot is 5% of its height lower)
-    val drop = with(androidx.compose.ui.platform.LocalDensity.current) { (width * 1.5f * 0.05f).toPx() }
-    Column(Modifier.width(width).height(30.dp).padding(top = 10.dp).graphicsLayer { alpha = captionAlpha; translationY = drop * captionAlpha }) {
-        Text(listOfNotNull(typeName(title.type), title.genres.firstOrNull()).joinToString(" · "), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.8f), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
     }
 }
@@ -551,29 +551,61 @@ private fun trailerScript(start: Double, whole: Boolean = false): String {
     """.trimIndent()
 }
 
-/** The poster side of the card (and Netflix's Top 10 number) */
+/** The room kept under every poster, which the one the remote is on grows down into */
+val CAPTION_ROOM = 30.dp
+
+/**
+ * The poster side of the card (and Netflix's Top 10 number). [grow] (0 to 1, read as it draws): how far it has grown
+ * down into its caption strip.
+ */
 @Composable
-private fun PosterFace(title: Title, rank: Int?, width: Dp) {
+private fun PosterFace(title: Title, rank: Int?, width: Dp, watched: Boolean = title.watched, grow: () -> Float = { 0f }) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     Box(Modifier.fillMaxSize()) {
-        // (no poster, or one that won't load: its name instead of a blank grey card, as search results had)
-        var noArt by remember(title.art) { mutableStateOf(title.art == null) }
-        Art(title.art, Modifier.fillMaxSize(), onError = { noArt = true })
-        if (hasNameOnPoster(title) || noArt) PosterName(title, width)
-        if (rank != null) {
-            Text(
-                "$rank",
-                style = TextStyle(fontSize = (width.value * 0.3f).sp, fontWeight = FontWeight.Black, shadow = Shadow(Color.Black.copy(alpha = 0.6f), blurRadius = 12f)),
-                color = Color.White,
-                modifier = Modifier.padding(start = 8.dp),
+        // the strip under the poster: its own colours, smeared (a tiny copy stretched, cheap for the TV), darkening
+        val smear = remember(title.art) { title.art?.let { coil3.request.ImageRequest.Builder(context).data(it).size(8, 12).build() } }
+        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(CAPTION_ROOM + 24.dp).graphicsLayer { alpha = grow() }) {
+            if (smear != null) coil3.compose.AsyncImage(
+                model = smear, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                alignment = Alignment.BottomCenter, modifier = Modifier.fillMaxSize(),
             )
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.15f), 1f to Color.Black.copy(alpha = 0.6f))))
         }
-        if (title.watched) {
-            Icon(
-                Icons.Filled.CheckCircle,
-                contentDescription = "Watched",
-                tint = Color.White,
-                modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(20.dp).background(Color.Black, CircleShape),
-            )
+        Box(Modifier.fillMaxWidth().height(width * 1.5f)) {
+            // (no poster, or one that won't load: its name instead of a blank grey card, as search results had)
+            var noArt by remember(title.art) { mutableStateOf(title.art == null) }
+            Art(title.art, Modifier.fillMaxSize(), onError = { noArt = true })
+            // (its foot melting into the strip)
+            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(36.dp).graphicsLayer { alpha = grow() }
+                .background(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.3f))))
+            if (hasNameOnPoster(title) || noArt) PosterName(title, width)
+            if (rank != null) {
+                Text(
+                    "$rank",
+                    style = TextStyle(fontSize = (width.value * 0.3f).sp, fontWeight = FontWeight.Black, shadow = Shadow(Color.Black.copy(alpha = 0.6f), blurRadius = 12f)),
+                    color = Color.White,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+            if (watched) WatchedMark(Modifier.align(Alignment.TopEnd).padding(6.dp))
         }
+        // what it is, in the strip (a moment after it opens)
+        Text(
+            listOfNotNull(typeName(title.type), title.genres.firstOrNull()).joinToString(" · "),
+            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 9.dp, vertical = 7.dp)
+                .graphicsLayer { alpha = ((grow() - 0.5f) * 2f).coerceIn(0f, 1f) },
+        )
+    }
+}
+
+/** Watched: a white tick on a small frosted disc, so it shows on any poster */
+@Composable
+fun WatchedMark(modifier: Modifier = Modifier, size: Dp = 22.dp) {
+    Box(
+        modifier.size(size).background(Color.Black.copy(alpha = 0.38f), CircleShape).border(BorderStroke(1.dp, Glass.Edge), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.Filled.Check, contentDescription = "Watched", tint = Color.White, modifier = Modifier.size(size * 0.62f))
     }
 }

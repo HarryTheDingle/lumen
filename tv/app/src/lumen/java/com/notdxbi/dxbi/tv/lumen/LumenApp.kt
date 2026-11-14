@@ -153,6 +153,7 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
                 .stateIn(scope, SharingStarted.Eagerly, stremio.listMarks.value),
             scores = { t -> stremio.reviews(t.type, t.id)?.scores.orEmpty() },
             trailer = { t -> feed.trailer(t.type, t.id) },
+            watched = stremio.watchedIds,
         )
     }
 

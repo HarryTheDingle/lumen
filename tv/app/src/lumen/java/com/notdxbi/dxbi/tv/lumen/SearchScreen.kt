@@ -80,7 +80,7 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
         val pageScope = androidx.compose.runtime.rememberCoroutineScope()
         val pageScroller = remember { PageScroller(pageListState, pageScope) }
         CompositionLocalProvider(LocalBringIntoViewSpec provides CentredScrolling, LocalPageScroller provides pageScroller) {
-            LazyColumn(state = pageListState, modifier = Modifier.onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(state = pageListState, modifier = Modifier.onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 item(key = "top") { ScreenTag(nav) }
                 item(key = "box") {
                     Field(
