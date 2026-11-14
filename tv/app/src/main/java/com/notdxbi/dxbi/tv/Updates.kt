@@ -6,7 +6,6 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.core.content.FileProvider
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -125,19 +124,19 @@ object Updates {
             activity.runOnUiThread {
                 if (activity.isFinishing || offering) return@runOnUiThread
                 offering = true
-                val dialog = AlertDialog.Builder(activity)
-                    .setTitle("${BuildConfig.APP_NAME} $latest is out")
-                    .setMessage(
-                        if (BuildConfig.PHONE_UI) "You have $current. Update now? It downloads in the background and installs (Android may ask you to confirm)."
-                        else "You have $current. Update now? It downloads in the background, then Android asks you to install it.",
-                    )
-                    .setPositiveButton("Update") { _, _ -> download(activity, found.url, found.size, latest) }
-                    .setNegativeButton("Not now", null)
-                    .setNeutralButton("Skip this version") { _, _ -> prefs.edit().putString("skipped", latest).apply() }
-                    .setOnDismissListener { offering = false }
-                    .show()
-                // Android selects the first button on a remote: OK must never mean Skip
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.requestFocus()
+                // (Lumen's own panel, not Android's grey dialog; the remote starts on Update, so OK never means Skip)
+                UpdatePanel.show(
+                    activity,
+                    "${BuildConfig.APP_NAME} $latest is ready",
+                    if (BuildConfig.PHONE_UI) "You have $current. It downloads in the background and installs (Android may ask you to confirm)."
+                    else "You have $current. It downloads in the background, then Android asks you to install it.",
+                    listOf(
+                        UpdatePanel.Choice("Update") { download(activity, found.url, found.size, latest) },
+                        UpdatePanel.Choice("Later") {},
+                        UpdatePanel.Choice("Skip This Version") { prefs.edit().putString("skipped", latest).apply() },
+                    ),
+                    onDismiss = { offering = false },
+                )
             }
         } catch (_: Exception) { /* offline: try again next launch */ }
     }
@@ -147,15 +146,31 @@ object Updates {
     private fun download(activity: MainActivity, url: String, size: Long, version: String) {
         // Android only installs apps from dx.bi once it's allowed to ("Install unknown apps")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
-            // It carries on by itself when they come back from that screen having allowed it
-            pendingInstall = { download(it, url, size, version) }
-            try {
-                activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
-                Toast.makeText(activity, "Allow ${BuildConfig.APP_NAME} to install apps, then come back", Toast.LENGTH_LONG).show()
-            } catch (_: Exception) {
-                // Some TVs (Fire OS among them) have no such screen to open directly
-                Toast.makeText(activity, "Allow ${BuildConfig.APP_NAME} to install apps in the TV's settings (on Fire TV: My Fire TV → Developer options → Install unknown apps), then come back", Toast.LENGTH_LONG).show()
-            }
+            // It carries on by itself when they come back from that screen having allowed it. First, what to do there:
+            // some TVs (the Mi Box) open the list of every app, not Lumen's own switch, with another app chosen
+            val name = BuildConfig.APP_NAME
+            UpdatePanel.show(
+                activity,
+                "One thing first",
+                if (BuildConfig.PHONE_UI) "To update itself, $name needs permission to install apps. On the next screen, switch on \"Allow from this source\", then come back. You only need to do this once."
+                else "To update itself, $name needs permission to install apps. On the next screen, move down to $name, switch it on, then press Back. You only need to do this once.",
+                listOf(
+                    UpdatePanel.Choice("Continue") {
+                        pendingInstall = { download(it, url, size, version) }
+                        try {
+                            activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
+                        } catch (_: Exception) {
+                            // Some TVs (Fire OS among them) have no such screen to open directly
+                            UpdatePanel.show(
+                                activity, "Allow $name to install apps",
+                                "This TV has no shortcut to the setting. In its settings, find Install unknown apps (on Fire TV: My Fire TV → Developer options), switch on $name, then come back and choose Update again.",
+                                listOf(UpdatePanel.Choice("OK") {}),
+                            )
+                        }
+                    },
+                    UpdatePanel.Choice("Not Now") {},
+                ),
+            )
             return
         }
         // One download at a time: pressing Update twice had two downloads writing the same file, and
@@ -180,11 +195,11 @@ object Updates {
             } catch (e: Exception) {
                 activity.runOnUiThread {
                     if (activity.isFinishing) return@runOnUiThread
-                    AlertDialog.Builder(activity)
-                        .setTitle("The update didn't download")
-                        .setMessage("${e.message}\n\nTry again later, or install it with the Downloader app from:\ngithub.com/$REPO/releases/latest/download/$APK_ASSET")
-                        .setPositiveButton("OK", null)
-                        .show()
+                    UpdatePanel.show(
+                        activity, "The update didn't download",
+                        "${e.message?.replaceFirstChar { it.uppercase() }}.\n\nTry again later, or install it with the Downloader app from github.com/$REPO/releases/latest/download/$APK_ASSET",
+                        listOf(UpdatePanel.Choice("OK") {}),
+                    )
                 }
             } finally {
                 downloading.set(false)
