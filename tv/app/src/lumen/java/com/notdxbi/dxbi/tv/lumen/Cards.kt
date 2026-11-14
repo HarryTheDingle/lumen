@@ -41,6 +41,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRestorer
 import coil3.toBitmap
 import coil3.request.allowHardware
 import androidx.compose.ui.draw.drawBehind
@@ -200,6 +201,8 @@ fun Shelf(title: String, modifier: Modifier = Modifier, content: LazyListScope.(
         Spacer(Modifier.height(10.dp))
         CompositionLocalProvider(LocalBringIntoViewSpec provides RowScrolling) {
             LazyRow(
+                // (back into the row, the remote lands on the card it was last on, as Apple TV's rows do, not whichever is nearest)
+                modifier = @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.focusRestorer(),
                 // (room around the cards for them to grow and glow when chosen)
                 contentPadding = PaddingValues(start = Dx.Gutter, end = Dx.Gutter, top = 14.dp, bottom = 0.dp),
                 horizontalArrangement = Arrangement.spacedBy(18.dp),

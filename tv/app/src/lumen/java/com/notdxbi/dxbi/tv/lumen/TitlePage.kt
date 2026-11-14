@@ -67,6 +67,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.Brush
@@ -352,7 +353,9 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
             }
             val trailerSeen by animateFloatAsState(if (trailerShowing) 1f else 0f, tween(900), label = "art")
             if (watching == null) {
-                if (trailerOn) title.trailer?.let { Trailer(it, Modifier.fillMaxSize(), muted = hushed || menu != null, onPlaying = { trailerShowing = true }) }
+                // (only at the top: a trailer that got going just after the page moved down said so then, and hid the
+                // picture and its blur with the trailer already gone, leaving the page black)
+                if (trailerOn) title.trailer?.let { Trailer(it, Modifier.fillMaxSize(), muted = hushed || menu != null, onPlaying = { if (atTop) trailerShowing = true }) }
                 // (alphas read as it draws, not as it composes: the page's scroll moved them, and rebuilt the page every frame)
                 BlurredArt(title.backdrop, Modifier.fillMaxSize().graphicsLayer { alpha = 1f - trailerSeen })
                 Box(Modifier.fillMaxSize().graphicsLayer { alpha = (1f - covering) * (1f - trailerSeen) }) { Art(title.backdrop, Modifier.fillMaxSize()) }
@@ -749,7 +752,8 @@ private fun SeasonsRow(
             state = row,
             contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 18.dp),
             horizontalArrangement = Arrangement.spacedBy(18.dp),
-            modifier = Modifier.onPreviewKeyEvent {
+            // (back into the seasons: the one it was on, else the one open)
+            modifier = @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.focusRestorer { landing }.onPreviewKeyEvent {
                 if (it.key == Key.DirectionDown) {
                     if (it.type == KeyEventType.KeyDown) onDown()
                     true
@@ -830,6 +834,9 @@ private fun Episodes(
         }
         LazyRow(
             state = row,
+            // (back up into the episodes: the one the remote was last on, else the one they're on; it landed on whichever was
+            // nearest the card it came from, often one half off the screen)
+            modifier = @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.focusRestorer { landing },
             contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 18.dp),
             horizontalArrangement = Arrangement.spacedBy(18.dp),
         ) {

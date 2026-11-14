@@ -187,7 +187,8 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
     // Apple TV's: the poster the remote is on grows down into the room kept under every poster, the strip a smear of
     // the poster's own colours with what it is ("Movie · Drama") in it. The room is there in every row, so nothing moves.
     val grow by animateFloatAsState(if (focused && !open) 1f else 0f, tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "grow")
-    val watchedNow = actions?.watched?.collectAsState()?.value?.contains(title.id) == true || title.watched
+    // (a show's own flag in a row counts one episode seen; the library's list counts a show only watched as a whole)
+    val watchedNow = actions?.watched?.collectAsState()?.value?.contains(title.id) == true || (title.watched && title.type == "movie")
     Column(Modifier.height(height + CAPTION_ROOM)) {
     FocusCard(
         onLongClick = { held = true },
