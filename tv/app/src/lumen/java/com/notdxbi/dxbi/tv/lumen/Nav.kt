@@ -148,7 +148,16 @@ val LocalCovered = compositionLocalOf { false }
  * has nowhere in the page (as it's back from the player, which leaves it nowhere)
  */
 @Composable
-fun PageWindow(onBack: () -> Unit, dim: Float = 0f, home: FocusRequester? = null, windowAnimation: Boolean = false, fadeIn: Boolean = true, content: @Composable () -> Unit) {
+fun PageWindow(
+    onBack: () -> Unit,
+    dim: Float = 0f,
+    home: FocusRequester? = null,
+    windowAnimation: Boolean = false,
+    fadeIn: Boolean = true,
+    /** Black behind everything in the window (fading in with the page): nothing of the page under it shows through, even where the page is clear for a trailer playing behind it */
+    solid: Boolean = false,
+    content: @Composable () -> Unit,
+) {
     Dialog(
         onDismissRequest = onBack,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
@@ -182,6 +191,13 @@ fun PageWindow(onBack: () -> Unit, dim: Float = 0f, home: FocusRequester? = null
             if (fadeIn) {
                 delay(140)
                 rise.animateTo(1f, tween(420, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+            }
+        }
+        if (solid && window != null) {
+            val backing = remember { android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK) }
+            LaunchedEffect(window) {
+                window.setBackgroundDrawable(backing)
+                androidx.compose.runtime.snapshotFlow { rise.value }.collect { backing.alpha = (it * 255).toInt() }
             }
         }
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = rise.value }.onFocusChanged { hasFocus = it.hasFocus }) { content() }

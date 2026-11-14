@@ -50,6 +50,10 @@ import androidx.tv.material3.darkColorScheme
 import androidx.compose.ui.platform.LocalContext
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
+import coil3.request.allowHardware
+import coil3.toBitmap
+import coil3.SingletonImageLoader
+import androidx.compose.ui.graphics.asImageBitmap
 import com.notdxbi.dxbi.tv.R
 import com.notdxbi.dxbi.tv.phone.Title
 
@@ -242,3 +246,84 @@ fun Modifier.fadeBottom(from: Float = 0.62f): Modifier = this
         drawContent()
         drawRect(Brush.verticalGradient(from to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
     }
+
+/**
+ * Apple TV's title-page background: the art blurred right down and dimmed, still under the whole page. The blur is
+ * worked out once per picture on a small copy (a box blur, three passes, much like a Gaussian) and the result stretched
+ * over the screen: nothing for the TV to redo as the page moves, which a live blur would be on every frame.
+ */
+@Composable
+fun BlurredArt(url: String?, modifier: Modifier = Modifier, dim: Float = 0.42f) {
+    val context = LocalContext.current
+    val image by androidx.compose.runtime.produceState(url?.let { blurCache.get(it) }, url) {
+        if (url == null || value != null) return@produceState
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            runCatching {
+                val request = ImageRequest.Builder(context).data(url).size(BLUR_W, BLUR_W * 9 / 16)
+                    .allowHardware(false).build()
+                val result = SingletonImageLoader.get(context).execute(request)
+                val bmp = (result as? coil3.request.SuccessResult)?.image?.toBitmap() ?: return@runCatching null
+                blurred(bmp).asImageBitmap().also { blurCache.put(url, it) }
+            }.getOrNull()
+        }
+    }
+    Box(modifier.background(Color(0xFF14181C))) {
+        androidx.compose.animation.AnimatedVisibility(image != null, enter = androidx.compose.animation.fadeIn(tween(400)), modifier = Modifier.fillMaxSize()) {
+            image?.let {
+                Image(it, contentDescription = null, contentScale = ContentScale.Crop, filterQuality = androidx.compose.ui.graphics.FilterQuality.High, modifier = Modifier.fillMaxSize())
+            }
+        }
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = dim)))
+    }
+}
+
+private const val BLUR_W = 160
+private val blurCache = android.util.LruCache<String, androidx.compose.ui.graphics.ImageBitmap>(8)
+
+/** A copy of [src] at [BLUR_W] wide, blurred (three box passes each way, radius 7: about a 12 px Gaussian at that size) */
+private fun blurred(src: android.graphics.Bitmap): android.graphics.Bitmap {
+    val w = BLUR_W
+    val h = (src.height * w / src.width.coerceAtLeast(1)).coerceAtLeast(1)
+    val small = android.graphics.Bitmap.createScaledBitmap(src.copy(android.graphics.Bitmap.Config.ARGB_8888, false), w, h, true)
+    val px = IntArray(w * h)
+    small.getPixels(px, 0, w, 0, 0, w, h)
+    val tmp = IntArray(w * h)
+    repeat(3) {
+        boxPass(px, tmp, w, h, 7, horizontal = true)
+        boxPass(tmp, px, w, h, 7, horizontal = false)
+    }
+    return android.graphics.Bitmap.createBitmap(px, w, h, android.graphics.Bitmap.Config.ARGB_8888)
+}
+
+private fun boxPass(src: IntArray, dst: IntArray, w: Int, h: Int, r: Int, horizontal: Boolean) {
+    val lines = if (horizontal) h else w
+    val len = if (horizontal) w else h
+    val span = 2 * r + 1
+    for (line in 0 until lines) {
+        fun at(i: Int): Int { val c = i.coerceIn(0, len - 1); return if (horizontal) line * w + c else c * w + line }
+        var rs = 0; var gs = 0; var bs = 0
+        for (i in -r..r) { val p = src[at(i)]; rs += (p shr 16) and 255; gs += (p shr 8) and 255; bs += p and 255 }
+        for (i in 0 until len) {
+            dst[at(i)] = (0xFF shl 24) or ((rs / span) shl 16) or ((gs / span) shl 8) or (bs / span)
+            val out = src[at(i - r)]; val inn = src[at(i + r + 1)]
+            rs += ((inn shr 16) and 255) - ((out shr 16) and 255)
+            gs += ((inn shr 8) and 255) - ((out shr 8) and 255)
+            bs += (inn and 255) - (out and 255)
+        }
+    }
+}
+
+/**
+ * Apple TV's frosted glass for small things over dark or busy pictures (round buttons, badges, boxes): a light
+ * see-through fill with a faint top-lit edge, so they read on black as well as on bright art.
+ */
+object Glass {
+    val Fill = Color.White.copy(alpha = 0.16f)
+    val FillStrong = Color.White.copy(alpha = 0.24f)
+    val Edge = Brush.verticalGradient(0f to Color.White.copy(alpha = 0.38f), 1f to Color.White.copy(alpha = 0.08f))
+    val Focused = Color.White.copy(alpha = 0.30f)
+}
+
+/** A glass fill and edge in [shape] */
+fun Modifier.glass(shape: androidx.compose.ui.graphics.Shape, fill: Color = Glass.Fill): Modifier =
+    this.background(fill, shape).border(BorderStroke(1.dp, Glass.Edge), shape)

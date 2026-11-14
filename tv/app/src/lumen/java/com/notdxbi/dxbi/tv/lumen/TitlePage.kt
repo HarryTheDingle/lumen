@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -262,12 +263,15 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
             trailerOn = false
         }
     }
-    LaunchedEffect(trailerAllowed) {
+    LaunchedEffect(trailerAllowed, atTop) {
         if (!trailerAllowed) {
             trailerOn = false
             trailerShowing = false
             return@LaunchedEffect
         }
+        // (only at the top: back from a trailer watched further down, the page's own one waits until the page is back up
+        // there, rather than starting behind the rows)
+        if (!atTop) return@LaunchedEffect
         delay(if (title.trailer?.let { trailerTimes[it] } != null) 150 else 2000)
         // (the art lifts off it once its video's going: Trailer says)
         trailerOn = true
@@ -305,13 +309,11 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
     val still = rememberStillness(trailerShowing && atTop && !streamsOpen && menu == null)
     val uiAlpha = still.alpha()
 
-    PageWindow(onBack = { nav.back() }, home = playFocus) {
+    PageWindow(onBack = { nav.back() }, home = playFocus, solid = true) {
         BoxWithConstraints(
             Modifier
                 .fillMaxSize()
-                // (clear while the trailer shows: it plays under the page. Opaque, the picture faded away to leave a black
-                // page with the trailer hidden behind it)
-                .background(if (trailerShowing || watching != null) Color.Transparent else Dx.Background)
+                // (clear: the window is black under it, and the trailer plays between the two)
                 // Back: down the page, to the top; at the top, the page closes
                 .onPreviewKeyEvent {
                     // a trailer being watched: OK pauses, left and right skip, Back closes it
@@ -339,24 +341,22 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
             val gapPx = with(LocalDensity.current) { 30.dp.toPx() }
             val pageScrolling = remember(list) { PageScrollingSpec(list, { glideBusy.value }) { section.intValue } }
             val pageScroller = remember(list) { PageScroller(list, scope) }
-            // the art stays where it is as the page moves up over it, fading as it's covered
+            // Apple TV's: the art stays where it is, and as the page moves down it blurs into the background of the whole
+            // page (the sharp picture fading off a blurred copy of itself), the trailer playing under both while it's at the top
             val covering by remember {
-                derivedStateOf { if (list.firstVisibleItemIndex > 0) 1f else (list.firstVisibleItemScrollOffset / (screenPx * 0.7f)).coerceIn(0f, 1f) }
+                derivedStateOf { if (list.firstVisibleItemIndex > 0) 1f else (list.firstVisibleItemScrollOffset / (screenPx * 0.45f)).coerceIn(0f, 1f) }
             }
-            val artAlpha by animateFloatAsState(if (trailerShowing) 0f else 1f, tween(900), label = "art")
-            // (alpha read as it draws, not as it composes: the page's scroll moved it, and rebuilt the page every frame;
-            // the fade into black is a gradient laid over the art, except while a trailer plays through it)
-            Box(Modifier.fillMaxSize().graphicsLayer {
-                alpha = (1f - covering) * uiAlpha * (if (watching != null) 0f else 1f)
-                // (as on Home: the picture lifts slower than the page, which moves up over it)
-                val moved = if (list.firstVisibleItemIndex > 0) screenPx else list.firstVisibleItemScrollOffset.toFloat()
-                translationY = -moved.coerceAtMost(screenPx) * 0.4f
-            }.then(if (trailerShowing) Modifier.fadeBottom(0.72f) else Modifier)) {
+            val trailerSeen by animateFloatAsState(if (trailerShowing) 1f else 0f, tween(900), label = "art")
+            if (watching == null) {
                 if (trailerOn) title.trailer?.let { Trailer(it, Modifier.fillMaxSize(), muted = hushed || menu != null, onPlaying = { trailerShowing = true }) }
-                Art(title.backdrop, Modifier.fillMaxSize().alpha(artAlpha))
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.3f), 0.2f to Color.Transparent, 0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.55f))))
-                Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.65f), 0.55f to Color.Transparent)))
-                if (!trailerShowing) Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.72f to Color.Transparent, 1f to Dx.Background)))
+                // (alphas read as it draws, not as it composes: the page's scroll moved them, and rebuilt the page every frame)
+                BlurredArt(title.backdrop, Modifier.fillMaxSize().graphicsLayer { alpha = 1f - trailerSeen })
+                Box(Modifier.fillMaxSize().graphicsLayer { alpha = (1f - covering) * (1f - trailerSeen) }) { Art(title.backdrop, Modifier.fillMaxSize()) }
+                // the shade the words at the top sit on, going with the sharp picture (and with the words, while the trailer plays on its own)
+                Box(Modifier.fillMaxSize().graphicsLayer { alpha = (1f - covering) * uiAlpha }) {
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.3f), 0.2f to Color.Transparent, 0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.6f))))
+                    Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.65f), 0.55f to Color.Transparent)))
+                }
             }
 
             CompositionLocalProvider(LocalBringIntoViewSpec provides pageScrolling, LocalPageScroller provides pageScroller) {
@@ -469,8 +469,10 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                             Modifier
                                 .padding(top = 36.dp)
                                 .onFocusChanged { if (it.hasFocus && list.firstVisibleItemIndex < moreIndex) snap(moreIndex) },
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(22.dp),
                         ) {
+                            // the name, centred over what follows, as a show's is over its episodes (Apple TV's, once the picture has blurred away)
+                            if (!hasEpisodes) TitleLogo(title, maxHeight = 46.dp, maxWidth = 320.dp, textSize = 30.sp, centred = true, modifier = Modifier.padding(bottom = 10.dp))
                             if (trailerList.isNotEmpty()) {
                                 Shelf("Trailers") {
                                     items(trailerList, key = { it.first }) { (yt, name) ->
@@ -587,6 +589,7 @@ private fun imdbId(id: String) = id.takeIf { Regex("""tt\d+""").matches(it) }
 // ---------------------------------------------------------------------------------------------
 // The top: logo, facts, Play
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 private fun Header(
     title: Title,
@@ -617,6 +620,9 @@ private fun Header(
             badges = badges,
             notice = notice,
             buttonsModifier = Modifier
+                // (back up from the rows below always lands on Play, not whichever button is nearest the card it came from)
+                .focusProperties { enter = { playFocus } }
+                .focusGroup()
                 .onFocusChanged { if (it.hasFocus) onFocused() }
                 .onPreviewKeyEvent {
                     if (onDown == null || it.key != Key.DirectionDown) return@onPreviewKeyEvent false
@@ -1030,11 +1036,15 @@ private fun TrailerCard(id: String, name: String, onClick: () -> Unit) {
     val width = 270.dp
     FocusCard(onClick = onClick, corner = 16.dp, modifier = Modifier.size(width, width * 0.64f)) {
         Box(Modifier.fillMaxSize()) {
-            Art("https://img.youtube.com/vi/$id/hqdefault.jpg", Modifier.fillMaxSize())
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.85f))))
-            Column(Modifier.align(Alignment.BottomStart).padding(12.dp)) {
-                Text("TRAILER", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Dx.Muted)
-                Text(name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            // (YouTube's 16:9 picture: the 4:3 one has black bars across it)
+            Art("https://img.youtube.com/vi/$id/mqdefault.jpg", Modifier.fillMaxSize())
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.9f))))
+            Column(Modifier.align(Alignment.BottomStart).padding(horizontal = 12.dp, vertical = 10.dp)) {
+                Text(name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(14.dp))
+                    Text("Trailer", fontSize = 12.sp, color = Color.White.copy(alpha = 0.8f))
+                }
             }
         }
     }
