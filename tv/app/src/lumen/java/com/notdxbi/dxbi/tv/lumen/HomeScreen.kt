@@ -211,8 +211,10 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
             },
     ) {
         val screen = maxHeight
+        val genius = remember { GeniusState() }
+        val geniusFeed = LocalDiscoverFeed.current
         CompositionLocalProvider(LocalBringIntoViewSpec provides homeScrolling, LocalPageScroller provides pageScroller) {
-        LazyColumn(state = list, modifier = Modifier.graphicsLayer { alpha = uiAlpha }.onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        LazyColumn(state = list, modifier = Modifier.graphicsLayer { alpha = uiAlpha }.onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item(key = "billboard") {
                 // the screen's name in the corner, over the billboard (it scrolls away with it)
                 Box {
@@ -269,6 +271,8 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
                         }
                     }
                 }
+                // Apple TV's Genius Browse: moods, a row of one coming up under it when chosen
+                geniusBrowse(genius, geniusFeed, stremio, onOpen)
                 // Because you watched …
                 picks.drop(1).forEach { row -> item(key = "because-${row.name}") { TitleShelf(row.name, row.items, onOpen) } }
                 if (picks.isEmpty()) tasteRows.drop(1).forEach { row -> item(key = "taste-${row.name}") { TitleShelf(row.name, row.items, onOpen) } }
