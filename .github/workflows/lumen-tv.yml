@@ -9,6 +9,7 @@ name: Lumen TV and phone
 # Release builds (both apps) are signed with Lumen's own key, kept in the repository's secrets:
 #   LUMEN_KEYSTORE_B64       the keystore (tv/lumen-release.jks), base64-encoded
 #   LUMEN_KEYSTORE_PASSWORD  its password (the key uses the same one; alias lumen-tv)
+#   LUMEN_TMDB_KEY           Lumen's TMDB key, built into the apps (age ratings, languages, cast pages); optional
 # Keep the keystore somewhere safe too: a TV or phone only accepts an update signed with the key it was installed with.
 on:
   release:
@@ -55,6 +56,7 @@ jobs:
           DXBI_TV_KEYSTORE_PASSWORD: ${{ secrets.LUMEN_KEYSTORE_PASSWORD }}
           DXBI_TV_KEY_ALIAS: lumen-tv
           DXBI_TV_KEY_PASSWORD: ${{ secrets.LUMEN_KEYSTORE_PASSWORD }}
+          LUMEN_TMDB_KEY: ${{ secrets.LUMEN_TMDB_KEY }}
 
       - uses: actions/upload-artifact@v4
         with:

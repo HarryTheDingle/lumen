@@ -99,6 +99,12 @@ final class Page: NSObject {
         (settings.string(forKey: "plugin-settings")).flatMap { Json.decode($0) as? JSON } ?? [:]
     }
 
+    /** Lumen's TMDB key, built in by deploy.sh (Info.plist LumenTmdbKey); empty when it wasn't */
+    static let tmdbKey: String = {
+        let k = (Bundle.main.object(forInfoDictionaryKey: "LumenTmdbKey") as? String ?? "").trimmingCharacters(in: .whitespaces)
+        return k.hasPrefix("$(") ? "" : k
+    }()
+
     private func startScript() -> String {
         let device: JSON = [
             "app": Self.version,
@@ -118,6 +124,8 @@ final class Page: NSObject {
             try { Object.defineProperty(window, name, { value: undefined, configurable: false, writable: false }); } catch (_) {}
           }
           const post = (message) => { try { window.webkit.messageHandlers.dxbi.postMessage(message); } catch (_) {} };
+          // (Lumen's own TMDB key, for the plugin when the viewer hasn't put one in Settings: tmdbKey in dxbi.plugin.js)
+          window.__lumenTmdbKey = \(Json.quote(Self.tmdbKey));
           const ios = (window.__dxbiIos = { settings: \(Json.encode(savedSettings)), plugin: \(Json.quote(resource("dxbi.plugin.js"))), active: "", pendingClose: "", utcOffset: \(Self.utcOffset), noAv1: \(!VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)) });
           window.DxbiTV = {
             pluginSource: () => ios.plugin,

@@ -43,6 +43,8 @@ targets:
       properties:
         CFBundleDisplayName: Lumen
         DxbiUpdateRepo: $(DXBI_UPDATE_REPO)
+        # Lumen's TMDB key: deploy.sh passes it from tv/keystore.properties (tmdbKey=…, not in git); empty without one
+        LumenTmdbKey: $(LUMEN_TMDB_KEY)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen:

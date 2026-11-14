@@ -18,6 +18,10 @@ val keystoreProps = Properties().apply {
 }
 fun signingValue(key: String, env: String): String? = keystoreProps.getProperty(key) ?: System.getenv(env)
 
+// Lumen's TMDB key (age ratings, languages, cast pages, reviews without typing one in): tmdbKey in tv/keystore.properties
+// (not in git), or LUMEN_TMDB_KEY in CI (a GitHub Actions secret). Empty when neither has it: the apps then need a key in Settings
+val lumenTmdbKey: String = (keystoreProps.getProperty("tmdbKey") ?: System.getenv("LUMEN_TMDB_KEY") ?: "").trim().replace("\"", "")
+
 // Where the app looks for its updates: the repository it was built from (GitHub Actions says which), so
 // a fork's TVs follow the fork's own releases rather than being offered builds signed with another key
 val updateRepo = System.getenv("DXBI_UPDATE_REPO") ?: System.getenv("GITHUB_REPOSITORY") ?: "HarryTheDingle/lumen"
@@ -35,6 +39,7 @@ android {
         buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
         // What the app calls itself in what it says (Lumen overrides it)
         buildConfigField("String", "APP_NAME", "\"dx.bi\"")
+        buildConfigField("String", "TMDB_KEY", "\"\"")
         // Released builds keep themselves current; test builds run the plugin they were built with
         buildConfigField("boolean", "SELF_UPDATE", "true")
         // The status and gesture bars hidden (dx.bi's way: the page fills the screen). Lumen for phones keeps them, as iOS does
@@ -78,6 +83,7 @@ android {
             buildConfigField("boolean", "INTRO", "false")
             buildConfigField("boolean", "OWN_INTRO", "false")
             buildConfigField("String", "APP_NAME", "\"Lumen\"")
+            buildConfigField("String", "TMDB_KEY", "\"$lumenTmdbKey\"")
             buildConfigField("boolean", "IMMERSIVE", "false")
             proguardFiles("proguard-mobile.pro")
             // The Pixel Fold folding or unfolding changes the smallest width too: handled here, so the page (and
@@ -96,6 +102,7 @@ android {
             buildConfigField("boolean", "INTRO", "true")
             buildConfigField("boolean", "OWN_INTRO", "true")
             buildConfigField("String", "APP_NAME", "\"Lumen\"")
+            buildConfigField("String", "TMDB_KEY", "\"$lumenTmdbKey\"")
             // (released Lumen builds keep themselves current from this repository's releases: lumen-tv.apk;
             // preview and debug builds don't, they run what they were built with)
         }

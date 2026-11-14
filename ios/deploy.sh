@@ -32,8 +32,10 @@ sed -i '' \
 
 step "Building"
 # (into Xcode's own build folder, so running it on the Mac afterwards has nothing left to build)
+# (Lumen's TMDB key, from the TV app's secrets file, which git leaves out: tmdbKey=… in tv/keystore.properties)
+TMDB_KEY="$(sed -n 's/^tmdbKey=//p' ../tv/keystore.properties 2>/dev/null | head -1 | tr -d '\r" ')"
 xcodebuild -project Lumen.xcodeproj -scheme Lumen -destination 'generic/platform=iOS' \
-  -allowProvisioningUpdates -quiet build
+  -allowProvisioningUpdates -quiet build LUMEN_TMDB_KEY="$TMDB_KEY"
 APP="$(xcodebuild -project Lumen.xcodeproj -scheme Lumen -destination 'generic/platform=iOS' -showBuildSettings 2>/dev/null \
   | awk -F' = ' '/ BUILT_PRODUCTS_DIR /{print $2; exit}')/Lumen.app"
 echo "  $APP"

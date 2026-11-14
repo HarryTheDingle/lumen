@@ -103,7 +103,9 @@ class MainActivity : AppCompatActivity() {
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
 
         web.addJavascriptInterface(Bridge(this), "DxbiTV")
-        val startScript = (assets.open("dxbi-tv.js").bufferedReader().use { it.readText() } + Phone.pageScript(this)).replace(Bridge.PLACEHOLDER, Bridge.TOKEN)
+        // (Lumen's own TMDB key, for the plugin when the viewer hasn't put one in Settings: see tmdbKey in dxbi.plugin.js)
+        val tmdb = if (BuildConfig.TMDB_KEY.isNotEmpty()) "window.__lumenTmdbKey=${org.json.JSONObject.quote(BuildConfig.TMDB_KEY)};\n" else ""
+        val startScript = (tmdb + assets.open("dxbi-tv.js").bufferedReader().use { it.readText() } + Phone.pageScript(this)).replace(Bridge.PLACEHOLDER, Bridge.TOKEN)
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(web, startScript, setOf(STREMIO_ORIGIN))
             injectedAtStart = true

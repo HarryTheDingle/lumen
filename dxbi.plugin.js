@@ -469,6 +469,9 @@
   }
 
   const settings = { ...DEFAULTS };
+  // The TMDB key: the viewer's own (Settings), else the one the Lumen app was built with (Lumen TV and the iPad/iPhone
+  // app put it on the page as window.__lumenTmdbKey, from a file kept out of git). Never shown in Settings or synced.
+  const tmdbKey = () => String(settings.tmdbKey || "").trim() || String((typeof window !== "undefined" && window.__lumenTmdbKey) || "").trim();
   // Slower TV boxes: 2 GB covers the Mi Box, onn and Chromecast models people report as slow
   const lite = {
     get on() {
@@ -3306,7 +3309,7 @@
 
     // TMDB (free key): audience reviews. Takes either the API key or the longer read access token.
     async tmdb(ids) {
-      const token = settings.tmdbKey.trim();
+      const token = tmdbKey();
       const auth = token.startsWith("eyJ") ? { headers: { Authorization: `Bearer ${token}` } } : { headers: {} };
       const withKey = (url) => (token.startsWith("eyJ") ? url : `${url}${url.includes("?") ? "&" : "?"}api_key=${encodeURIComponent(token)}`);
       const kind = ids.type === "movie" ? "movie" : "tv";
@@ -3377,7 +3380,7 @@
       if (this.el !== el) return;
       const [wiki, tmdb] = await Promise.all([
         data.article ? this.wikipedia(data.article).catch(() => null) : null,
-        settings.tmdbKey.trim() && (data.ids.imdb || data.ids.tmdb) ? this.tmdb(data.ids).catch((err) => ({ error: err.message })) : null,
+        tmdbKey() && (data.ids.imdb || data.ids.tmdb) ? this.tmdb(data.ids).catch((err) => ({ error: err.message })) : null,
       ]);
       if (this.el !== el) return;
       el.querySelector(".dxr-body").innerHTML = this.html(data, wiki, tmdb);
@@ -3413,7 +3416,7 @@
       if (data.mdbError) parts.push(`<p class="dxr-note">${esc(data.mdbError)}, so these scores come from Wikidata.</p>`);
       if (!parts.length) parts.push('<p class="dxr-note">No reviews found for this title yet.</p>');
       const hints = [];
-      if (!settings.tmdbKey.trim()) hints.push("a free TMDB key for audience reviews");
+      if (!tmdbKey()) hints.push("a free TMDB key for audience reviews");
       if (!settings.mdblistKey.trim()) hints.push("a free MDBList key for audience and Letterboxd scores");
       if (hints.length) parts.push(`<p class="dxr-note">Want more? Add ${hints.join(" and ")} in Settings → ${SETTINGS_SECTION} → Plugins → Lumen.</p>`);
       const credits = [data.fromMdblist ? "Scores from MDBList" : scores.length ? "Scores from Wikidata" : "", wiki && wiki.text && wiki.text.length ? "Summary from Wikipedia (CC BY-SA)" : "", tmdb && tmdb.reviews ? "This product uses the TMDB API but is not endorsed or certified by TMDB" : ""].filter(Boolean);
@@ -10374,14 +10377,14 @@
         const base = id.split(":")[0];
         if (isImdb(base)) imdb.push([key, base]);
         else if (/^kitsu:\d+/.test(id)) kitsu.push([key, id.split(":")[1]]);
-        else if (/^tmdb:\d+$/.test(id) && settings.tmdbKey.trim()) tmdbIds.push([key, id.split(":")[1], key.startsWith("movie:") ? "movie" : "tv"]);
+        else if (/^tmdb:\d+$/.test(id) && tmdbKey()) tmdbIds.push([key, id.split(":")[1], key.startsWith("movie:") ? "movie" : "tv"]);
         else this.remember(key, null);
       }
       for (let i = 0; i < imdb.length; i += 60) await this.wikidata(imdb.slice(i, i + 60)).catch(() => { /* below */ });
       for (let i = 0; i < kitsu.length; i += 20) await this.kitsu(kitsu.slice(i, i + 20)).catch(() => { /* below */ });
       // still unknown: TMDB, when there's a key
       const left = imdb.filter(([key]) => this.queue.has(key));
-      if (settings.tmdbKey.trim()) {
+      if (tmdbKey()) {
         for (const [key, tt] of left) await this.tmdb(key, tt).catch(() => { /* below */ });
         for (const [key, n, kind] of tmdbIds) await this.tmdb(key, null, { id: n, kind }).catch(() => { /* below */ });
       }
@@ -10416,7 +10419,7 @@
     },
 
     async tmdb(key, tt, direct) {
-      const token = settings.tmdbKey.trim();
+      const token = tmdbKey();
       const auth = token.startsWith("eyJ") ? { headers: { Authorization: `Bearer ${token}` } } : { headers: {} };
       const withKey = (url) => (token.startsWith("eyJ") ? url : `${url}${url.includes("?") ? "&" : "?"}api_key=${encodeURIComponent(token)}`);
       const get = async (url) => {
@@ -12030,7 +12033,7 @@
 
     // With a TMDB key: TMDB's real "people who watched this also watched" list
     async recommended(seed) {
-      const token = settings.tmdbKey.trim();
+      const token = tmdbKey();
       if (!token) return null;
       const bearer = token.startsWith("eyJ");
       const get = (path) => fetch(`https://api.themoviedb.org/3${path}${bearer ? "" : `${path.includes("?") ? "&" : "?"}api_key=${encodeURIComponent(token)}`}`, {
@@ -12465,7 +12468,7 @@
       let hash = 0;
       for (let i = 0; i < rated.length; i++) hash = ((hash << 5) - hash + rated.charCodeAt(i)) | 0;
       const ratedSig = rated.length ? `r${rated.length}:${hash.toString(36)}` : "";
-      return [viewers.current().id, settings.tmdbKey.trim() ? "t" : "c", settings.aiPicks ? "a" : "n", this.prefer() || "", genres, ratedSig, ...seeds.slice(0, 8).map((s) => s.item._id)].join("|");
+      return [viewers.current().id, tmdbKey() ? "t" : "c", settings.aiPicks ? "a" : "n", this.prefer() || "", genres, ratedSig, ...seeds.slice(0, 8).map((s) => s.item._id)].join("|");
     },
     key: () => `dxbi.picks.${viewers.current().id}`,
     saved() {
@@ -12572,7 +12575,7 @@
       const taste = seeds.slice(0, 12);
       const skip = this.skip();
       taste.forEach((s) => skip.add(s.item._id));
-      const result = settings.tmdbKey.trim() ? await this.fromTmdb(taste, skip) : await this.fromCinemeta(taste, skip);
+      const result = tmdbKey() ? await this.fromTmdb(taste, skip) : await this.fromCinemeta(taste, skip);
       try { localStorage.setItem(this.key(), JSON.stringify({ sig, t: Date.now(), ai: !!this.lastAi, rows: result })); } catch (_) { /* full */ }
       scheduleSync();
     },
@@ -16413,7 +16416,7 @@
     },
     // TMDB's Christmas keyword: the best-known first, as Cinemeta's own entries (by their IMDb ids)
     async more(skip) {
-      if (!settings.tmdbKey || !settings.tmdbKey.trim()) return [];
+      if (!tmdbKey()) return [];
       const key = "xmas1:tmdb";
       const cached = readCached(key);
       if (cached !== undefined) return cached.filter((t) => !skip.has(t.id));
@@ -16499,7 +16502,7 @@
       // TMDB has none of, or for everyone without a key. [names]: the title's cast and directors as Stremio
       // lists them ({name, role}), used when TMDB has nothing
       async cast(type, imdb, names) {
-        const fromTmdb = settings.tmdbKey.trim() && /^tt\d+$/.test(imdb || "") ? await this.castFromTmdb(type, imdb).catch(() => null) : null;
+        const fromTmdb = tmdbKey() && /^tt\d+$/.test(imdb || "") ? await this.castFromTmdb(type, imdb).catch(() => null) : null;
         const list = (fromTmdb && fromTmdb.length ? fromTmdb : (Array.isArray(names) ? names : []).map((n) => ({ name: String(n.name || n), role: n.role || "" })))
           .map((p) => ({ name: p.name, role: p.role || "", photo: p.photo || null, id: p.id || null }));
         const missing = list.filter((p) => !p.photo).slice(0, 16);
@@ -16508,7 +16511,7 @@
         return list;
       },
       async castFromTmdb(type, imdb) {
-        const token = settings.tmdbKey.trim();
+        const token = tmdbKey();
         const key = `cast2:${type}:${imdb}`;
         const cached = readCached(key);
         if (cached !== undefined) return cached;
@@ -16536,7 +16539,7 @@
       // A title's facts for its page's Information (Apple TV's): the age rating (the UK's, else the US's), the countries
       // it's from, its original language and the languages spoken in it. From TMDB (needs the key); null without one.
       async facts(type, imdb) {
-        if (!settings.tmdbKey.trim() || !/^tt\d+$/.test(imdb || "")) return null;
+        if (!tmdbKey() || !/^tt\d+$/.test(imdb || "")) return null;
         const key = `facts1:${type}:${imdb}`;
         const cached = readCached(key);
         if (cached !== undefined) return cached;
@@ -16576,7 +16579,7 @@
       // titles Stremio can open (IMDb ids). [id]: TMDB's person id (the cast list gives it), else [name] is
       // searched. null without a key or when TMDB has no such person.
       async person(id, name) {
-        const token = settings.tmdbKey.trim();
+        const token = tmdbKey();
         if (!token) return null;
         const get = (path) => this.tmdbGet(path);
         let pid = /^\d+$/.test(String(id || "")) ? String(id) : "";
@@ -16648,7 +16651,7 @@
       // (newest first), what they're best known for, and the series they made. [id]: TMDB's person id, else
       // [name] is searched (someone who directs or writes, when there's a namesake). null without a key.
       async filmmaker(id, name) {
-        if (!settings.tmdbKey.trim()) return null;
+        if (!tmdbKey()) return null;
         const get = (path) => this.tmdbGet(path);
         let pid = /^\d+$/.test(String(id || "")) ? String(id) : "";
         if (!pid && name) {
@@ -16718,7 +16721,7 @@
       // What TMDB links a film to (needs the key): the collection it belongs to, and who directed and wrote
       // it. null for what isn't a film TMDB knows, and when it couldn't be asked
       async filmLinks(imdb) {
-        if (!settings.tmdbKey.trim() || !/^tt\d+$/.test(String(imdb || ""))) return null;
+        if (!tmdbKey() || !/^tt\d+$/.test(String(imdb || ""))) return null;
         const key = `filmlinks1:${imdb}`;
         const cached = readCached(key);
         if (cached !== undefined) return cached;
@@ -16749,7 +16752,7 @@
       // [seeds] belong to (IMDb ids of films in it: Middle-earth is two), with every film in them oldest
       // first, as titles Stremio can open. null without a key or when TMDB has no such collection.
       async franchise(id, seeds) {
-        if (!settings.tmdbKey.trim()) return null;
+        if (!tmdbKey()) return null;
         const get = (path) => this.tmdbGet(path);
         const ids = /^\d+$/.test(String(id || "")) ? [String(id)] : [];
         for (const imdb of Array.isArray(seeds) ? seeds.slice(0, 4) : []) {
@@ -16787,7 +16790,7 @@
       // key: the franchises they belong to, and whoever directed or wrote two or more of them, the most
       // watched first. Each with the films of [ids] that led to it. null without a key.
       async connections(ids) {
-        if (!settings.tmdbKey.trim()) return null;
+        if (!tmdbKey()) return null;
         const list = [...new Set((Array.isArray(ids) ? ids : []).filter((x) => /^tt\d+$/.test(String(x))))].slice(0, 40);
         const franchises = new Map();
         const people = new Map();
@@ -16819,7 +16822,7 @@
       // Photos for Discover's filmmakers ([{key, id, name, wiki}]: TMDB's person id where it's known, and
       // their Wikipedia page's name): TMDB's with the key, else Wikipedia's. {key: the photo's address}
       async faces(people) {
-        const keyed = !!settings.tmdbKey.trim();
+        const keyed = !!tmdbKey();
         const out = {};
         await Promise.all((Array.isArray(people) ? people : []).slice(0, 40).map(async (p) => {
           const name = String((p && p.name) || "");
@@ -16844,7 +16847,7 @@
       },
       // A TMDB v3 request (the key or the read access token from dx.bi settings); null when it fails
       tmdbGet(path) {
-        const token = settings.tmdbKey.trim();
+        const token = tmdbKey();
         const bearer = token.startsWith("eyJ");
         return fetch(`https://api.themoviedb.org/3${path}${bearer ? "" : `${path.includes("?") ? "&" : "?"}api_key=${encodeURIComponent(token)}`}`, {
           headers: bearer ? { authorization: `Bearer ${token}` } : {},
@@ -17051,7 +17054,7 @@
         const data = reviews.data.get(t.key) || (await reviews.load(t));
         const [wiki, tmdb] = await Promise.all([
           data.article ? reviews.wikipedia(data.article).catch(() => null) : null,
-          settings.tmdbKey.trim() && (data.ids.imdb || data.ids.tmdb) ? reviews.tmdb(data.ids).catch((err) => ({ error: err.message })) : null,
+          tmdbKey() && (data.ids.imdb || data.ids.tmdb) ? reviews.tmdb(data.ids).catch((err) => ({ error: err.message })) : null,
         ]);
         return {
           scores: (data.scores || []).map((s) => ({ source: s.source, name: s.name, note: s.note || "", value: String(s.value), votes: s.votes || 0, url: s.url || null })),
@@ -17059,7 +17062,7 @@
           mdbError: data.mdbError || null,
           critics: wiki && wiki.text && wiki.text.length ? { text: wiki.text, url: wiki.url } : null,
           audience: tmdb ? { reviews: tmdb.reviews || [], total: tmdb.total || 0, url: tmdb.url || null, error: tmdb.error || null } : null,
-          missing: [!settings.tmdbKey.trim() && "tmdb", !settings.mdblistKey.trim() && "mdblist"].filter(Boolean),
+          missing: [!tmdbKey() && "tmdb", !settings.mdblistKey.trim() && "mdblist"].filter(Boolean),
         };
       },
       // The streams for the title open in details, read the way the stream list reads them, and the one
