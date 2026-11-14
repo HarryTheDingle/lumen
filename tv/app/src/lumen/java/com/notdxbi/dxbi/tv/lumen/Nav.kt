@@ -277,7 +277,13 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
             nav.menuOpen = false
         }
     }
-    PageWindow(onBack = { close() }, windowAnimation = false, fadeIn = false) {
+    // Back with the menu open leaves Lumen, as the Apple TV app does (Back on a page's top is what opened it)
+    val activity = androidx.compose.ui.platform.LocalContext.current.let { c ->
+        var x: android.content.Context? = c
+        while (x is android.content.ContextWrapper && x !is android.app.Activity) x = x.baseContext
+        x as? android.app.Activity
+    }
+    PageWindow(onBack = { activity?.finish() ?: close() }, windowAnimation = false, fadeIn = false) {
         FocusOnOpen(chosen)
         Box(
             Modifier

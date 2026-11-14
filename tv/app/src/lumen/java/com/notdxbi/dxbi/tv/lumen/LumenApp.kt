@@ -133,8 +133,9 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
         if (noHistory && taste.current == null && taste.loadedFor != null) taste.tuning = true
     }
 
-    // Back on Discover, Search or Settings: to Home (Home's own Back goes to its top, then leaves)
-    BackHandler(enabled = nav.tab != Tab.Home) { nav.tab = Tab.Home }
+    // Back on Discover, Search, the Calendar or Settings: the menu, as the Apple TV app's (Home's own Back goes to its top first)
+    // (Discover's and the Calendar's own Back takes them to their top first, as Home's does)
+    BackHandler(enabled = nav.tab != Tab.Home && !nav.menuOpen) { nav.menuOpen = true }
     // a new screen: the remote starts on its name in the corner
     var lastTab by remember { mutableStateOf(nav.tab) }
     LaunchedEffect(nav.tab) {

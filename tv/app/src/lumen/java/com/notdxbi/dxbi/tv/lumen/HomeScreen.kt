@@ -172,20 +172,15 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
         }
     }
 
-    // Back: down the page, to the top; at the top, twice to leave
-    BackHandler {
+    // Back, as the Apple TV app's: down the page, to the top; at the top, the menu (and Back there leaves Lumen)
+    BackHandler(enabled = !nav.menuOpen) {
         if (list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 0) {
             scope.launch {
                 list.animateScrollToItem(0)
                 runCatching { top.requestFocus() }
             }
         } else {
-            val now = System.currentTimeMillis()
-            if (now - lastBack < 2500) (context as? Activity)?.finish()
-            else {
-                lastBack = now
-                Toast.makeText(context, "Press Back again to leave Lumen", Toast.LENGTH_SHORT).show()
-            }
+            nav.menuOpen = true
         }
     }
 
