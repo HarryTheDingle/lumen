@@ -65,6 +65,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.graphics.graphicsLayer
@@ -398,7 +400,7 @@ private fun Billboard(
     // (and not while the menu's open over it: it waits where it was)
     LaunchedEffect(index, titles.size, trailerOn, muted) {
         if (trailerOn || muted) return@LaunchedEffect
-        delay(8000)
+        delay(BILLBOARD_TURN_MS.toLong())
         if (titles.size > 1 && !trailerOn) go(index + 1)
     }
     val artAlpha by animateFloatAsState(if (trailerShowing) 0f else 1f, tween(900), label = "billboard-art")
@@ -526,21 +528,49 @@ private fun Billboard(
                 modifier = Modifier.onFocusChanged { onInfo = it.isFocused },
             )
         }
-        // which of them, in the middle at the bottom
-        Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp)) { Dots(titles.size, index) }
+        // which of them, in the middle at the bottom: going up with the picture as the page moves (not left behind over the
+        // rows), and fading as it goes
+        Box(
+            Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp).graphicsLayer {
+                val moved = scroll().coerceAtMost(artPx.toFloat())
+                translationY = -moved * 0.4f
+                alpha = (1f - moved / (artPx * 0.25f)).coerceIn(0f, 1f)
+            },
+        ) { Dots(titles.size, index, counting = !trailerOn && !muted) }
     }
 }
 
+/**
+ * Apple TV's page dots: the one showing is a longer pill that fills with white as its time runs (it turns to the next
+ * when full); the others small. [counting]: the time's running (not while a trailer plays, or the menu's over it).
+ */
 @Composable
-private fun Dots(count: Int, index: Int) {
+private fun Dots(count: Int, index: Int, counting: Boolean) {
     if (count < 2) return
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    val fill = remember { androidx.compose.animation.core.Animatable(0f) }
+    var filling by remember { androidx.compose.runtime.mutableIntStateOf(-1) }
+    LaunchedEffect(index, counting) {
+        // (a new one starts empty, and so does one whose time starts again: the turn waits its whole time again then)
+        if (filling != index || counting) { filling = index; fill.snapTo(0f) }
+        if (counting) fill.animateTo(1f, tween(((1f - fill.value) * BILLBOARD_TURN_MS).toInt().coerceAtLeast(1), easing = androidx.compose.animation.core.LinearEasing))
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
         repeat(count) { i ->
-            val width by animateDpAsState(if (i == index) 18.dp else 6.dp, label = "dot")
-            Box(Modifier.size(width, 6.dp).background(if (i == index) Color.White else Color.White.copy(alpha = 0.4f), CircleShape))
+            val here = i == index
+            val width by animateDpAsState(if (here) 30.dp else 7.dp, androidx.compose.animation.core.spring(dampingRatio = 0.85f, stiffness = 380f), label = "dot")
+            Box(Modifier.size(width, 7.dp).clip(CircleShape).background(Color.White.copy(alpha = if (here) 0.3f else 0.45f))) {
+                if (here) Box(Modifier.fillMaxHeight().fillMaxWidth().graphicsLayer {
+                    // (drawn as a scale from the left: nothing re-measured each frame)
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+                    scaleX = fill.value
+                }.background(Color.White, CircleShape))
+            }
         }
     }
 }
+
+/** How long each billboard title stays before the next */
+private const val BILLBOARD_TURN_MS = 8000
 
 /**
  * Home's scrolling, as Apple TV's: whatever the remote moves to sits in the middle of the screen (the row's name above
