@@ -21,6 +21,12 @@ class TrackMemory(context: Context, private val exo: ExoPlayer, private val show
     private var subtitlesDone = saved?.optBoolean("subOn") != true
     private var since = System.currentTimeMillis()
 
+    /**
+     * Subtitles the player put up by itself (the bit gone back over, after a skip back): not chosen, so not remembered
+     * while they're up
+     */
+    var holding = false
+
     /** This show was last watched with subtitles off: they stay off, whatever language the page would start them in */
     val subtitlesOff: Boolean get() = saved?.let { it.has("subOn") && !it.optBoolean("subOn") } == true
 
@@ -44,7 +50,7 @@ class TrackMemory(context: Context, private val exo: ExoPlayer, private val show
             if (System.currentTimeMillis() - since > 20_000) subtitlesDone = true
             return
         }
-        remember(tracks)
+        if (!holding) remember(tracks)
     }
 
     private fun restore(tracks: Tracks) {
@@ -71,7 +77,8 @@ class TrackMemory(context: Context, private val exo: ExoPlayer, private val show
 
     private fun remember(tracks: Tracks) {
         val audio = chosen(tracks, C.TRACK_TYPE_AUDIO)
-        val text = chosen(tracks, C.TRACK_TYPE_TEXT)
+        // (forced subtitles, for the lines not in the film's own language, are there with subtitles off: they count as off)
+        val text = chosen(tracks, C.TRACK_TYPE_TEXT)?.takeIf { !isForced(it) }
         val o = JSONObject()
             .put("audioLang", audio?.language ?: "")
             .put("audioLabel", audio?.label ?: "")
@@ -94,3 +101,7 @@ class TrackMemory(context: Context, private val exo: ExoPlayer, private val show
 
     private fun iso3(code: String): String = runCatching { java.util.Locale(code.substringBefore('-').substringBefore('_')).isO3Language }.getOrDefault(code).lowercase()
 }
+
+/** A forced subtitle track: only the lines not in the film's own language (or signs). Flagged so, or named so ("Forced", "Foreign", "FRC") */
+fun isForced(f: Format): Boolean =
+    f.selectionFlags and C.SELECTION_FLAG_FORCED != 0 || Regex("""\b(forced|foreign|frc)\b""", RegexOption.IGNORE_CASE).containsMatchIn(f.label.orEmpty())

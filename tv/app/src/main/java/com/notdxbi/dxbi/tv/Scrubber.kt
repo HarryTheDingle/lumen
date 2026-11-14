@@ -35,8 +35,13 @@ class Scrubber(
     private val line: SeekLine,
     private val url: String,
     private val headers: Map<String, String>,
+    /** OK played from earlier than where it was: from where, to where (the player shows subtitles over the bit gone back over) */
+    private val wentBack: (fromMs: Long, toMs: Long) -> Unit = { _, _ -> },
     private val controls: () -> Controls,
 ) {
+    /** Where it was playing when the marker started moving */
+    private var startedAt = 0L
+
     var active = false
         private set
     private var at = 0L
@@ -84,6 +89,7 @@ class Scrubber(
         if (!active) {
             active = true
             at = exo.currentPosition
+            startedAt = at
             wasPlaying = exo.playWhenReady
             exo.pause()
             controls().show()
@@ -114,6 +120,7 @@ class Scrubber(
         if (!active) return
         exo.seekTo(at)
         exo.play()
+        if (at < startedAt) wentBack(startedAt, at)
         end()
     }
 

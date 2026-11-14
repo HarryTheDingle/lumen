@@ -407,7 +407,7 @@ class PlayerActivity : AppCompatActivity() {
             preview?.optJSONObject("headers")?.let { h -> h.keys().forEach { k -> previewHeaders[k] = h.optString(k) } }
             android.util.Log.i("dxbi-player", "seek pictures from ${if (previewUrl != null) "the lightest stream" else "the stream playing"}")
             // (a phone's seek bar shows its pictures itself, from the same lightest stream: see PhonePlayer)
-            if (remote) scrubber = Scrubber(this, exo, findViewById(R.id.seek_line), previewUrl ?: url, if (previewUrl != null) previewHeaders else headers) { controls }
+            if (remote) scrubber = Scrubber(this, exo, findViewById(R.id.seek_line), previewUrl ?: url, if (previewUrl != null) previewHeaders else headers, wentBack = { from, to -> replaySubtitles(from, to) }) { controls }
             tracks = TrackMemory(this, exo, stream.optString("videoId").substringBefore(':'))
         }
         // how fast the stream comes (not a torrent's: that's the TV's own server), for the network's memory
@@ -534,6 +534,10 @@ class PlayerActivity : AppCompatActivity() {
                     }
                 }
                 if (!subtitlesChosen && subtitleLanguage != null) subtitlesChosen = preferOwnSubtitles(tracks, subtitleLanguage, sideloaded)
+                showForced(tracks)
+                // (what subtitles the file and the addons offer, once: adb logcat -s lumen-play)
+                val textList = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }.flatMap { g -> (0 until g.length).map { i -> g.getTrackFormat(i).let { f -> "${f.language}/${f.label}${if (isForced(f)) " FORCED" else ""}${if (g.isTrackSelected(i)) " *" else ""}" } } }
+                if (textList.isNotEmpty() && textList != loggedText) { loggedText = textList; android.util.Log.i("lumen-play", "subtitles: ${textList.joinToString(", ")}") }
                 val text = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }.flatMap { g -> (0 until g.length).filter { g.isTrackSelected(it) }.map { i -> g.getTrackFormat(i).id } }
                 if (text.isNotEmpty() && text != lastText) exo.seekTo(exo.currentPosition)
                 lastText = text
@@ -895,7 +899,9 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun seek(direction: Int) {
         val exo = player ?: return
+        val from = exo.currentPosition
         if (direction > 0) exo.seekForward() else exo.seekBack()
+        if (direction < 0) replaySubtitles(from, exo.currentPosition)
         seekFlash.text = if (direction > 0) "+10 s   ${clock(exo.currentPosition)}" else "−10 s   ${clock(exo.currentPosition)}"
         seekFlash.visibility = View.VISIBLE
         handler.removeCallbacks(hideFlash)
@@ -1080,6 +1086,98 @@ class PlayerActivity : AppCompatActivity() {
             .setOverrideForType(androidx.media3.common.TrackSelectionOverride(own.first.mediaTrackGroup, own.second))
             .build()
         return true
+    }
+
+    /**
+     * Forced subtitles (just the lines not in the film's language: Tenzing's Nepali, say) whenever the full subtitles are
+     * off, as Apple TV and Netflix show them: the file's forced track in the sound's language (else an English one), or a
+     * subtitle file named "forced". Subtitles chosen in full have every line already, so nothing changes then.
+     */
+    private fun showForced(tracks: Tracks) {
+        val exo = player ?: return
+        if (replayUntil >= 0) return
+        val texts = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+        if (texts.isEmpty()) return
+        val selected = texts.flatMap { g -> (0 until g.length).filter { g.isTrackSelected(it) }.map { g.getTrackFormat(it) } }
+        if (selected.isNotEmpty()) return
+        val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }.firstNotNullOfOrNull { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it).language } }
+        val forced = texts.flatMap { g -> (0 until g.length).filter { g.isTrackSupported(it) && isForced(g.getTrackFormat(it)) }.map { g to it } }
+        val pick = forced.firstOrNull { (g, i) -> audio != null && g.getTrackFormat(i).language?.let(::iso3) == iso3(audio) }
+            ?: forced.firstOrNull { (g, i) -> isEnglish(g.getTrackFormat(i).language) }
+            ?: return
+        val f = pick.first.getTrackFormat(pick.second)
+        if (forcedPicked == f.id) return // (put up once: Off chosen afterwards in the menu leaves them off)
+        forcedPicked = f.id
+        android.util.Log.i("lumen-play", "forced subtitles: ${f.label ?: f.language} (${f.id})")
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setOverrideForType(TrackSelectionOverride(pick.first.mediaTrackGroup, pick.second))
+            .build()
+    }
+    private var forcedPicked: String? = null
+    private var loggedText: List<String> = emptyList()
+
+    // Gone back a little (Left then OK, or rewind): English subtitles over the bit gone back over, in case a line was
+    // missed, then back to how they were once it's past where it was (as Apple TV does). Not when subtitles are on
+    // already, nor for a long way back (more than a minute isn't to catch a line).
+    private var replayUntil = -1L
+    private var replayBefore: androidx.media3.common.TrackSelectionParameters? = null
+    private var replaySet: androidx.media3.common.TrackSelectionParameters? = null
+
+    private fun replaySubtitles(fromMs: Long, toMs: Long) {
+        val exo = player ?: return
+        if (fromMs - toMs > 60_000 || fromMs <= toMs) return
+        if (replayUntil >= 0) {
+            replayUntil = maxOf(replayUntil, fromMs)
+            return
+        }
+        val texts = exo.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+        val showing = texts.flatMap { g -> (0 until g.length).filter { g.isTrackSelected(it) }.map { g.getTrackFormat(it) } }
+        if (showing.any { !isForced(it) }) return
+        // the file's own English track first (made for this release, so in time), else an English subtitle file
+        val own = subtitleItems.mapNotNull { it.id }.toSet()
+        val english = texts.flatMap { g -> (0 until g.length).filter { i -> g.isTrackSupported(i) && !isForced(g.getTrackFormat(i)) && isEnglish(g.getTrackFormat(i).language) }.map { g to it } }
+        val pick = english.firstOrNull { (g, i) -> g.getTrackFormat(i).id !in own && g.getTrackFormat(i).language != null }
+            ?: english.firstOrNull { (g, i) -> g.getTrackFormat(i).id !in own }
+            ?: english.firstOrNull()
+            ?: return
+        tracks?.holding = true
+        replayBefore = exo.trackSelectionParameters
+        val set = exo.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setOverrideForType(TrackSelectionOverride(pick.first.mediaTrackGroup, pick.second))
+            .build()
+        replaySet = set
+        replayUntil = fromMs
+        android.util.Log.i("lumen-play", "subtitles over the ${(fromMs - toMs) / 1000} s gone back: ${pick.first.getTrackFormat(pick.second).label ?: "English"}")
+        exo.trackSelectionParameters = set
+        handler.removeCallbacks(replayWatch)
+        handler.postDelayed(replayWatch, 500)
+    }
+
+    private val replayWatch = object : Runnable {
+        override fun run() {
+            val exo = player ?: return
+            if (replayUntil < 0) return
+            when {
+                // (subtitles chosen in the menu meanwhile: theirs, left as they are)
+                exo.trackSelectionParameters != replaySet -> endReplay(restore = false)
+                // (gone forward past it, or caught up: back as it was, a moment after the line it went back for)
+                exo.currentPosition >= replayUntil + 1500 -> endReplay(restore = true)
+                else -> handler.postDelayed(this, 400)
+            }
+        }
+    }
+
+    private fun endReplay(restore: Boolean) {
+        val exo = player
+        val before = replayBefore
+        replayUntil = -1
+        replayBefore = null
+        replaySet = null
+        if (restore && exo != null && before != null) exo.trackSelectionParameters = before
+        // (the tracks settle a moment after; then what's chosen is remembered again)
+        handler.postDelayed({ tracks?.holding = false }, 1500)
     }
 
     /** English, or no language given (a file's own track without one is most often English) */
