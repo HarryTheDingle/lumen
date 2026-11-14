@@ -143,7 +143,12 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
         if (ref.type == "movie" && feed != null) value = runCatching { feed.releaseDates(ref.id) }.getOrNull()
     }
     val properRelease = choices?.items?.any { it.source in setOf("Remux", "BluRay", "WEB") } == true
-    val notice = if (properRelease) null else releaseDates?.notice()
+    // A digital date still to come keeps the tag ("In Cinemas · Digital 17 Nov") whatever the streams are called: a WEB
+    // stream showing up for a film in cinemas replaced it with 4K / HDR. The streams overrule only a cinema date alone
+    // (no digital date known), and then a proper release says it's out. (The streams list's warning about cinema
+    // recordings goes once there's a proper release, though: those streams aren't CAMs.)
+    val dated = releaseDates?.let { r -> r.digital != null && r.digital > System.currentTimeMillis() } == true
+    val notice = if (properRelease && !dated) null else releaseDates?.notice()?.let { n -> if (properRelease) n.first to "Not out on digital until the date: check what a stream is before playing" else n }
     var wantPlay by remember { mutableStateOf(autoPlay) }
     var season by remember { mutableStateOf<Int?>(null) }
     var related by remember { mutableStateOf<List<Title>>(emptyList()) }
