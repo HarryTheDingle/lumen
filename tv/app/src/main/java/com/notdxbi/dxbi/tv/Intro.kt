@@ -35,11 +35,13 @@ class Intro(private val activity: MainActivity, private val parent: FrameLayout)
         val settings = try {
             JSONObject(activity.getSharedPreferences("plugin-settings", Context.MODE_PRIVATE).getString("dxbi", "{}") ?: "{}")
         } catch (_: Exception) { JSONObject() }
-        if (!settings.optBoolean("splash", true)) return
+        // (Lumen's film is its own: dx.bi's Intro animation setting, off in Lumen's plugin, is about dx.bi's)
+        if (!BuildConfig.OWN_INTRO && !settings.optBoolean("splash", true)) return
 
         val box = FrameLayout(activity).apply { setBackgroundColor(0xFF000000.toInt()) }
         val video = TextureView(activity)
-        accentPaint(settings.optString("accent", "red"))?.let { video.setLayerPaint(it) }
+        // (dx.bi's film is red, turned to the chosen accent; Lumen's is in the logo's own colours)
+        if (!BuildConfig.OWN_INTRO) accentPaint(settings.optString("accent", "red"))?.let { video.setLayerPaint(it) }
         this.video = video
         box.addView(video, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER))
         // The film is 16:9: letterbox it on anything else (a phone held upright)
@@ -92,6 +94,9 @@ class Intro(private val activity: MainActivity, private val parent: FrameLayout)
         player = null
         // A stopped TextureView keeps its last frame: skipping mid-film would freeze it on screen
         video?.visibility = android.view.View.INVISIBLE
+        // Lumen's own screens are under it, with their starting screen up already: no waiting for the page, which
+        // Lumen never shows (on a 2 GB box the wait was four seconds of black between the film and Who's watching)
+        if (BuildConfig.OWN_INTRO) return reveal()
         // Hold on black until the page has something to show (never more than 4 s), as on the desktop
         val since = System.currentTimeMillis()
         val check = object : Runnable {

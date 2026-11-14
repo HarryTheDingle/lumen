@@ -1,0 +1,19 @@
+# Baseline profile (hand-written rules): compile the app's own code and the libraries its screens draw with
+# when it's installed, instead of waiting for Android's slow background compiling (without it a box runs the
+# first hours interpreted: Compose on a weak 32-bit TV is slow until then)
+HSPLandroidx/compose/**;->**(**)**
+HSPLandroidx/tv/**;->**(**)**
+HSPLandroidx/lifecycle/**;->**(**)**
+HSPLandroidx/activity/**;->**(**)**
+HSPLandroidx/navigation/**;->**(**)**
+HSPLandroidx/collection/**;->**(**)**
+HSPLcoil3/**;->**(**)**
+HSPLokhttp3/**;->**(**)**
+HSPLokio/**;->**(**)**
+HSPLkotlin/**;->**(**)**
+HSPLkotlinx/coroutines/**;->**(**)**
+HSPLcom/notdxbi/**;->**(**)**
+Landroidx/compose/**;
+Landroidx/tv/**;
+Lcoil3/**;
+Lcom/notdxbi/**;

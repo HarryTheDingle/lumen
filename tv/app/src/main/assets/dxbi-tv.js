@@ -544,7 +544,10 @@
     const count = {};
     const out = [];
     let started = false;
-    for (const sub of list.filter((x) => x && x.url).sort((a, b) => rank(a.lang || "") - rank(b.lang || ""))) {
+    // (in each language, the stream's own subtitles first: they're made for this release, so they're in
+    // sync; an addon's, found by searching the title, are often for another release and drift)
+    const fromStream = (x) => (x.source === "stream" ? 0 : 1);
+    for (const sub of list.filter((x) => x && x.url).sort((a, b) => rank(a.lang || "") - rank(b.lang || "") || fromStream(a) - fromStream(b))) {
       const lang = sub.lang || "";
       count[lang] = (count[lang] || 0) + 1;
       if (count[lang] > 3) continue;
@@ -579,12 +582,14 @@
     if (!/^#\/player\//.test(hash) || (handoff && handoff.hash === hash)) return;
     handoff = { hash, pending: true };
     let state = null;
-    // With no streaming server online, torrents play on the TV itself: nothing to wait for
-    const serverUp = await streamingServerUp();
+    // With no streaming server online, torrents play on the TV itself: nothing to wait for. (Asked alongside the rest,
+    // and waited for only by a torrent: a debrid stream never needs the server, and the check held every Play up)
+    const serverUpSoon = streamingServerUp().catch(() => false);
+    let serverUp;
     // The player screen fills in over a moment: wait until the stream is known, and give the
     // title's details (name, episode, saved position) a few seconds more to arrive
     let known = 0;
-    for (let i = 0; i < 60 && location.hash === hash; i++) {
+    for (let i = 0; i < 150 && location.hash === hash; i++) {
       state = await playerState();
       const stream = state && state.selected && state.selected.stream;
       if (stream && stream.ytId) break;
@@ -594,11 +599,15 @@
         const metaReady = state.metaItem && state.metaItem.type !== "Loading";
         // A torrent's address comes from the streaming server, which can take a while to answer:
         // wait for it (up to ~10 s) before saying there's no server
+        if (stream.infoHash && serverUp === undefined) serverUp = await serverUpSoon;
         const waitingForServer = serverUp && !stream.url && stream.infoHash && !(state.stream && /^(Ready|Err)$/.test(state.stream.type));
-        if ((metaReady && state.libraryItem !== undefined && !waitingForServer) || known >= (waitingForServer ? 40 : 12)) break;
+        if ((metaReady && state.libraryItem !== undefined && !waitingForServer) || known >= (waitingForServer ? 100 : 30)) break;
       }
-      await new Promise((r) => setTimeout(r, 250));
+      // (looked at every tenth of a second: the details usually come in well under one, and a quarter-second step
+      // added up to most of a second before the player opened)
+      await new Promise((r) => setTimeout(r, 100));
     }
+    if (serverUp === undefined) serverUp = (state && state.selected && state.selected.stream && state.selected.stream.infoHash) ? await serverUpSoon : false;
     if (location.hash !== hash || !state || !state.selected) { handoff = null; return; }
     const stream = state.selected.stream || {};
     // Trailers are YouTube videos, which Stremio plays through a streaming server (none on a TV).
@@ -678,10 +687,16 @@
     const videoId = state.selected.streamRequest && state.selected.streamRequest.path && state.selected.streamRequest.path.id;
     const video = (meta.videos || []).find((v) => v.id === videoId);
     const lib = state.libraryItem && state.libraryItem.state;
-    const resumeMs = lib && lib.video_id === videoId && lib.timeOffset > 0 ? lib.timeOffset : 0;
+    // (Start from the Beginning: a one-shot flag from the phone apps' engine, dxbi-engine.js fromStart)
+    const fromStart = window.__dxbiFromStart;
+    window.__dxbiFromStart = null;
+    const beginning = !!fromStart && Date.now() - fromStart.at < 90000 && (!fromStart.videoId || fromStart.videoId === videoId);
+    const resumeMs = !beginning && lib && lib.video_id === videoId && lib.timeOffset > 0 ? lib.timeOffset : 0;
     const headers = (stream.behaviorHints && stream.behaviorHints.proxyHeaders && stream.behaviorHints.proxyHeaders.request) || {};
     const episode = video && video.season != null ? `S${video.season} E${video.episode}${video.title || video.name ? ` · ${video.title || video.name}` : ""}` : "";
 
+    // (the player's colour, worked out alongside the rest rather than after it: it took up to 0.9 s more before the player opened)
+    const accentSoon = accentFor(meta).catch(() => "");
     const profile = await profileSettings();
     const subtitleLanguage = await startSubtitleLanguage();
     // Skip intro / recap / credits: the times dx.bi has for this episode (looked up while the player
@@ -689,9 +704,12 @@
     const metaPath = state.selected.metaRequest && state.selected.metaRequest.path;
     const dx = window.__dxbi;
     const [withSubtitles, skips] = await Promise.all([
-      subtitlesSoon(state, subtitleLanguage, hash, 4000),
+      // (2 s at most for the subtitle addons: their search held every Play for up to 4)
+      subtitlesSoon(state, subtitleLanguage, hash, 2000),
       dx && dx.skipSegments && videoId
-        ? Promise.race([dx.skipSegments(meta.type || (metaPath && metaPath.type), meta.id || (metaPath && metaPath.id), videoId).catch(() => []), new Promise((r) => setTimeout(() => r([]), 4000))])
+        // (1.5 s at most: they're fetched ahead while the title's page or card is up, so this is only a quick Play's wait;
+        // 4 s held the player back for the whole of it when the intro times were slow to come)
+        ? Promise.race([dx.skipSegments(meta.type || (metaPath && metaPath.type), meta.id || (metaPath && metaPath.id), videoId).catch(() => []), new Promise((r) => setTimeout(() => r([]), 1500))])
         : [],
     ]);
     if (location.hash !== hash) { handoff = null; return; }
@@ -702,18 +720,24 @@
     ], subtitleLanguage);
     // (where the end credits start, in seconds: stopped past there counts as finished)
     const credits = (skips || []).find((s) => s && s.type === "credits");
-    handoff = { hash, videoId, started: Date.now(), creditsAt: credits && credits.start > 0 ? credits.start : 0 };
+    const shuffled = shufflePick(state);
+    handoff = { hash, videoId, started: Date.now(), creditsAt: credits && credits.start > 0 ? credits.start : 0, shuffled };
     tv.partyVideo = new NativeVideo();
     partySeen = "";
+    // (the seek bar's pictures: the lightest web stream of this video, as the iPad's, when the phone
+    // apps' stream list has one; else they come from the stream playing)
+    let preview = null;
+    try { preview = dx && dx.phone && dx.phone.previewSource ? dx.phone.previewSource(videoId) : null; } catch (_) { /* none */ }
     native.play(JSON.stringify({
       hash,
       videoId,
+      preview,
       skips,
       torrent,
       autoSkip: (dx && dx.settings && dx.settings.autoSkip) || "off",
       clock: !(dx && dx.settings) || dx.settings.playerClock !== false,
-      accent: await accentFor(meta),
-      next: nextLink(state) ? { title: nextTitle(state.nextVideo), thumbnail: state.nextVideo.thumbnail || "" } : null,
+      accent: await accentSoon,
+      next: nextLink(state, shuffled) ? { id: nextOf(state, shuffled).id, title: nextTitle(nextOf(state, shuffled)), thumbnail: nextOf(state, shuffled).thumbnail || "" } : null,
       upNext: (dx && dx.settings && dx.settings.upNext) || "10",
       audioLanguage: profile.audioLanguage || "",
       // (empty: subtitles start off)
@@ -828,23 +852,45 @@
 
   const nextTitle = (v) => `S${v.season} · E${v.episode}${v.title || v.name ? ` · ${v.title || v.name}` : ""}`;
 
-  // The next episode's list of streams, or its own player screen
-  function nextLink(state) {
-    const links = state && state.nextVideo && state.nextVideo.deepLinks;
-    return links && (links.player || links.metaDetailsStreams);
-  }
-
-  // Straight into the next episode with the same release, as on a computer, when one is found quickly
-  async function nextLinkFor(state) {
+  // Shuffle (started from a show's Shuffle button): the next episode is another random one, not the next in
+  // order. Picked once when the player opens, so the Up next card and Next episode agree on which.
+  function shufflePick(state) {
     const dx = window.__dxbi;
     const sel = state && state.selected;
     const mp = sel && sel.metaRequest && sel.metaRequest.path;
-    if (dx && dx.findStream && mp && state.nextVideo) {
-      const media = { type: mp.type, metaId: mp.id, videoId: state.nextVideo.id, hints: dx.streamHints(sel.stream) };
+    const meta = state && state.metaItem && state.metaItem.content;
+    if (!(dx && dx.phone && dx.phone.shuffling && mp && dx.phone.shuffling() === mp.id && meta && Array.isArray(meta.videos))) return null;
+    const now = Date.now();
+    const playing = sel.streamPath && sel.streamPath.id;
+    const out = meta.videos.filter((v) => v && v.season > 0 && v.id !== playing && (!v.released || new Date(v.released).getTime() <= now));
+    const v = out[Math.floor(Math.random() * out.length)];
+    return v ? { ...v, type: mp.type, metaId: mp.id } : null;
+  }
+
+  // The episode Next goes to: the shuffled one, else Stremio's next in order
+  const nextOf = (state, picked) => picked || (state && state.nextVideo);
+
+  // The next episode's list of streams, or its own player screen
+  function nextLink(state, picked) {
+    const v = nextOf(state, picked);
+    const links = v && v.deepLinks;
+    if (links && (links.player || links.metaDetailsStreams)) return links.player || links.metaDetailsStreams;
+    // (a shuffled episode from the show's list may not carry them: its streams page)
+    return picked && picked.metaId ? `#/detail/${picked.type}/${encodeURIComponent(picked.metaId)}/${encodeURIComponent(picked.id)}` : undefined;
+  }
+
+  // Straight into the next episode with the same release, as on a computer, when one is found quickly
+  async function nextLinkFor(state, picked) {
+    const dx = window.__dxbi;
+    const sel = state && state.selected;
+    const mp = sel && sel.metaRequest && sel.metaRequest.path;
+    const upNext = nextOf(state, picked);
+    if (dx && dx.findStream && mp && upNext) {
+      const media = { type: mp.type, metaId: mp.id, videoId: upNext.id, hints: dx.streamHints(sel.stream) };
       const found = await Promise.race([dx.findStream(media, () => true), new Promise((r) => setTimeout(r, 8000))]).catch(() => null);
       if (found && found.link) return found.link.startsWith("#") ? found.link : `#${found.link}`;
     }
-    return nextLink(state);
+    return nextLink(state, picked);
   }
 
   // An episode: its watched tag (on its own: the season's others stay as they are). A film: marked
@@ -868,7 +914,8 @@
       // The phone apps: finished (played to the end, or closed past the end credits) is marked
       // watched, as Mark as watched does. Stremio only marks a video it saw 70% of playing, so one
       // with its intro skipped, or closed in the credits, moved Continue Watching on without it
-      const finished = ended || (durationMs > 0 && timeMs >= durationMs * 0.9) || (handoff.creditsAt > 0 && timeMs >= handoff.creditsAt * 1000);
+      // (or with under 5 minutes left, a tenth of a short video: the credits; dxbi-engine.js finishedAt)
+      const finished = ended || (durationMs > 0 && durationMs - timeMs < Math.min(300000, durationMs * 0.1)) || (handoff.creditsAt > 0 && timeMs >= handoff.creditsAt * 1000);
       const phone = !!window.__dxbiEngine;
       const videoId = handoff.videoId;
       if (phone && finished) {
@@ -877,8 +924,9 @@
         if (durationMs > 0 && timeMs < durationMs * 0.9) tv.onProgress(Math.ceil(durationMs * 0.95), durationMs, true);
         await markFinished(videoId);
       }
+      const shuffled = handoff.shuffled;
       handoff = null;
-      const link = next && await nextLinkFor(await playerState());
+      const link = next && await nextLinkFor(await playerState(), shuffled);
       console.info("[dx.bi TV] player closed", JSON.stringify({ videoId, timeMs, durationMs, ended, next, finished, link: link || null }));
       if (link) location.replace(link);
       else history.back();
@@ -894,7 +942,8 @@
     const dx = window.__dxbi;
     if (error && dx && dx.quickPlayNext) {
       await new Promise((r) => setTimeout(r, 500));
-      const label = dx.quickPlayNext();
+      // (the one that failed is remembered with why, so it isn't picked again)
+      const label = dx.quickPlayNext(typeof error === "string" ? error : "");
       if (label) return toast(`That stream didn't play. Trying ${label}.`, 5000);
     }
     if (error) toast(`This stream couldn't play: ${error}. Try another one.`, 7000);
@@ -908,6 +957,9 @@
     if (!raw) return;
     try {
       const c = JSON.parse(raw);
+      // what the player got from the server: how fast this network really is (Match my internet speed)
+      const dx = window.__dxbi;
+      if (c.mbps > 0 && dx && dx.phone && dx.phone.networkSample) dx.phone.networkSample(c.mbps);
       closeHandoff(c.timeMs, c.durationMs, c.ended, c.error, c.next);
     } catch (err) {
       console.warn("[dx.bi TV] couldn't read how the player closed", err);

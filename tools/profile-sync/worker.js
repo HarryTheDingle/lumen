@@ -16,13 +16,18 @@ const ALLOWED_ORIGINS = new Set(["https://web.stremio.com"]);
 const STREMIO_API = "https://api.strem.io/api/getUser";
 
 // What can be kept: the profiles and their choices, and dx.bi's settings, nothing else
-const KEY = /^(viewers|libraryOwners|kidsAllow|(homeLayout|hidden|cwDismissed):[\w-]{1,40})$/;
+const KEY = /^(viewers|libraryOwners|kidsAllow|(homeLayout|hidden|cwDismissed|taste|ratings):[\w-]{1,40})$/;
 const MAX_BODY = 1536 * 1024;
+const MAX_PICKS_BODY = 128 * 1024;
 const MAX_ENTRIES = 200;
 const MAX_VALUE = 100 * 1024;
 const MAX_ACCOUNT = 1024 * 1024;
 // a little overlap on "since": a write that started just before the last answer is still seen
 const OVERLAP = 60 * 1000;
+const PICKS_TTL = 12 * 3600 * 1000;
+const CF_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+// (the alias first: it answered at once where the named model timed out or said 503)
+const GEMINI_MODELS = ["gemini-flash-lite-latest", "gemini-3.5-flash-lite"];
 
 function cors(request) {
   const origin = request.headers.get("Origin") || "";
@@ -68,11 +73,203 @@ async function accountOf(key) {
   return id;
 }
 
+function parseJsonAnswer(raw) {
+  if (!raw) return null;
+  if (typeof raw === "object") {
+    if (Array.isArray(raw.ranked) || Array.isArray(raw.additions)) return raw;
+    if (raw.response) return parseJsonAnswer(raw.response);
+    return null;
+  }
+  const text = String(raw).trim();
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try { return JSON.parse(text.slice(start, end + 1)); } catch (_) { return null; }
+}
+
+async function askModel(env, system, user) {
+  const apiKey = typeof env.GEMINI_API_KEY === "string" ? env.GEMINI_API_KEY.trim() : "";
+  if (apiKey) {
+    for (const model of GEMINI_MODELS) {
+      try {
+        // (the key in a header, not the address: addresses end up in logs)
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: system }] },
+            contents: [{ role: "user", parts: [{ text: user }] }],
+            generationConfig: {
+              responseMimeType: "application/json",
+              temperature: 0.3,
+            },
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        if (r.ok) {
+          const j = await r.json();
+          const parsed = parseJsonAnswer(j && j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts && j.candidates[0].content.parts[0] && j.candidates[0].content.parts[0].text);
+          if (parsed) {
+            console.log("picks model ok:", model);
+            return parsed;
+          }
+        } else {
+          const errText = await r.text().catch(() => "");
+          console.warn(`Gemini ${model} returned ${r.status}: ${errText.slice(0, 200)}`);
+        }
+      } catch (err) {
+        console.warn(`Gemini ${model} request error:`, (err && err.message) || err);
+      }
+    }
+  }
+  if (env.AI && typeof env.AI.run === "function") {
+    const res = await env.AI.run(CF_MODEL, {
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      max_tokens: 700,
+      temperature: 0.4,
+    });
+    const parsed = parseJsonAnswer(res);
+    if (parsed) console.log("picks model ok: workers-ai");
+    return parsed;
+  }
+  return undefined;
+}
+
+async function handlePicks(request, env, account) {
+  if (Number(request.headers.get("Content-Length") || 0) > MAX_PICKS_BODY) return reply(request, 413, { error: "Too much at once." });
+  let body;
+  try {
+    const raw = await request.text();
+    if (raw.length > MAX_PICKS_BODY) return reply(request, 413, { error: "Too much at once." });
+    body = JSON.parse(raw || "{}");
+  } catch (_) {
+    return reply(request, 400, { error: "Invalid JSON." });
+  }
+  if (!body || typeof body.viewer !== "string" || !/^[\w-]{1,40}$/.test(body.viewer) || typeof body.sig !== "string" || !body.sig || body.sig.length > 1024 || !Array.isArray(body.candidates)) {
+    return reply(request, 400, { error: "Invalid picks request." });
+  }
+  const watched = (Array.isArray(body.watched) ? body.watched : []).slice(0, 10)
+    .filter((w) => w && typeof w.id === "string" && typeof w.name === "string" && w.name.trim())
+    .map((w) => ({
+      id: w.id.slice(0, 24),
+      type: w.type === "series" ? "series" : "movie",
+      name: w.name.trim().slice(0, 120),
+      year: Number(w.year) || 0,
+      genres: (Array.isArray(w.genres) ? w.genres : []).slice(0, 4).map((g) => String(g).slice(0, 30)),
+      weight: Math.round((Number(w.weight) || 1) * 100) / 100,
+    }));
+  const genres = (Array.isArray(body.genres) ? body.genres : []).slice(0, 8)
+    .filter((g) => typeof g === "string" && g.trim())
+    .map((g) => g.trim().slice(0, 30));
+  if (!watched.length && !genres.length) return reply(request, 400, { error: "Need watched titles or genres." });
+
+  const dropped = (Array.isArray(body.dropped) ? body.dropped : []).slice(0, 8)
+    .filter((d) => d && typeof d.name === "string" && d.name.trim())
+    .map((d) => ({ id: String(d.id || "").slice(0, 24), type: d.type === "series" ? "series" : "movie", name: d.name.trim().slice(0, 120) }));
+  const ratings = (Array.isArray(body.ratings) ? body.ratings : []).slice(0, 20)
+    .filter((r) => r && typeof r.id === "string" && Number.isInteger(r.rating) && r.rating >= 1 && r.rating <= 10)
+    .map((r) => {
+      const entry = { id: r.id.slice(0, 24), rating: r.rating };
+      if (typeof r.name === "string" && r.name.trim()) entry.name = r.name.trim().slice(0, 120);
+      if (r.type === "movie" || r.type === "series") entry.type = r.type;
+      if (Number(r.year) > 1880) entry.year = Number(r.year);
+      return entry;
+    })
+    // (a score with no name tells the model nothing)
+    .filter((r) => r.name);
+  // Films or series: what the viewer said they'd rather be suggested (null: no preference)
+  const prefer = body.prefer === "movie" || body.prefer === "series" ? body.prefer : null;
+  const candidates = body.candidates.slice(0, 25)
+    .filter((c) => c && typeof c.id === "string" && /^tt\d+$/.test(c.id) && typeof c.name === "string" && c.name.trim())
+    .map((c) => ({
+      id: c.id,
+      type: c.type === "series" ? "series" : "movie",
+      name: c.name.trim().slice(0, 120),
+      year: Number(c.year) || 0,
+      genres: (Array.isArray(c.genres) ? c.genres : []).slice(0, 4).map((g) => String(g).slice(0, 30)),
+      rating: Math.round((Number(c.rating) || 0) * 10) / 10,
+      seeds: (Array.isArray(c.seeds) ? c.seeds : []).slice(0, 3).map((s) => String(s).slice(0, 24)),
+    }));
+
+  const cacheKey = `picks:${body.viewer}`;
+  const now = Date.now();
+  const cachedRows = await env.DB.prepare("SELECT t, v FROM entries WHERE account = ? AND k = ?").bind(account, cacheKey).all();
+  const row = (cachedRows.results || [])[0];
+  if (row && now - Number(row.t) < PICKS_TTL) {
+    try {
+      const cached = JSON.parse(row.v);
+      if (cached && cached.sig === body.sig && Array.isArray(cached.ranked) && Array.isArray(cached.additions)) {
+        return reply(request, 200, { ranked: cached.ranked, additions: cached.additions, cached: true });
+      }
+    } catch (_) { /* rebuild */ }
+  }
+
+  if (!env.GEMINI_API_KEY && !(env.AI && typeof env.AI.run === "function")) {
+    return reply(request, 503, { error: "AI suggestions aren't configured on this Worker." });
+  }
+
+  const kinds = prefer === "movie"
+    ? "The viewer prefers FILMS to series. Put films first in \"ranked\" unless a series is a far better fit, and make at least 6 of the \"additions\" films (type \"movie\"), at most 2 series. "
+    : prefer === "series"
+      ? "The viewer prefers SERIES to films. Put series first in \"ranked\" unless a film is a far better fit, and make at least 6 of the \"additions\" series, at most 2 films. "
+      : "Keep a fair mix of films and series, in about the proportion of \"watched\". ";
+  const system =
+    "You choose what one viewer should watch next. Return ONLY strict JSON of the shape {\"ranked\":[\"tt...\"],\"additions\":[{\"type\":\"movie\"|\"series\",\"name\":\"Title\",\"year\":2021,\"seeds\":[\"tt...\"]}]}. " +
+    "The input JSON has: \"watched\" (the titles that say most about their taste; a higher \"weight\" says more), \"ratings\" (their own scores out of 10: 8 to 10 are what they love, 1 to 4 what they dislike), " +
+    "\"genres\" (genres they chose), \"dropped\" (titles they gave up on or hid), and \"candidates\" (titles already found for them). " +
+    kinds +
+    "1) \"ranked\": up to 20 candidate ids, best fit first. Judge fit by tone, themes, writing and the people who made it, not by genre label or popularity alone. Rank well-known crowd-pleasers below a closer match, " +
+    "and put no more than 2 titles that share a seed in the first 10. Leave out candidates that resemble the \"dropped\" titles or those rated 1 to 4. " +
+    "2) \"additions\": 8 titles that are NOT in \"watched\", \"ratings\", \"dropped\" or \"candidates\". About 5 should be close matches to what they love (same director or writer, same tone, the same kind of story); " +
+    "about 3 should be less obvious finds they are unlikely to have come across: older, foreign-language or lesser-known titles of high quality. No sequels or other entries of a franchise already in \"watched\" or \"ratings\". " +
+    "Nothing that resembles the \"dropped\" titles or those rated 1 to 4. Each needs \"type\", the exact original release \"name\" as IMDb lists it, the 4-digit release \"year\", " +
+    "and \"seeds\": 1 or 2 ids from \"watched\" or from \"ratings\" of 8 or more that it follows from.";
+  const user = JSON.stringify({ prefer: prefer || "no preference", watched, genres, dropped, ratings, candidates });
+
+  let parsed;
+  try {
+    parsed = await askModel(env, system, user);
+  } catch (err) {
+    console.error("picks model error:", err && err.message ? err.message : err);
+    return reply(request, 502, { error: "AI model request failed.", detail: String((err && err.message) || err) });
+  }
+  if (!parsed) return reply(request, 502, { error: "AI returned an invalid response." });
+
+  const candIds = new Set(candidates.map((c) => c.id));
+  const watchedIds = new Set([...watched.map((w) => w.id), ...ratings.filter((r) => r.rating >= 8).map((r) => r.id)]);
+  const defaultSeed = watched[0] ? watched[0].id : "";
+  const ranked = [...new Set((Array.isArray(parsed.ranked) ? parsed.ranked : []).filter((id) => typeof id === "string" && candIds.has(id)))].slice(0, 40);
+  const additions = (Array.isArray(parsed.additions) ? parsed.additions : [])
+    .filter((a) => a && (a.type === "movie" || a.type === "series") && typeof a.name === "string" && a.name.trim())
+    .slice(0, 15)
+    .map((a) => {
+      const yr = Number(a.year);
+      const seeds = (Array.isArray(a.seeds) ? a.seeds : []).filter((s) => typeof s === "string" && watchedIds.has(s)).slice(0, 2);
+      if (!seeds.length && defaultSeed) seeds.push(defaultSeed);
+      return {
+        type: a.type,
+        name: a.name.trim().slice(0, 120),
+        year: Number.isInteger(yr) && yr >= 1900 && yr <= 2100 ? yr : 0,
+        seeds,
+      };
+    });
+
+  await env.DB.prepare(
+    "INSERT INTO entries (account, k, t, v, s) VALUES (?, ?, ?, ?, 0) ON CONFLICT (account, k) DO UPDATE SET t = excluded.t, v = excluded.v, s = 0"
+  ).bind(account, cacheKey, now, JSON.stringify({ sig: body.sig, ranked, additions })).run();
+
+  return reply(request, 200, { ranked, additions, cached: false });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(request) });
-    if (url.pathname !== "/sync") return reply(request, 404, { error: "not found" });
+    if (url.pathname !== "/sync" && url.pathname !== "/picks") return reply(request, 404, { error: "not found" });
     if (request.method !== "POST") return reply(request, 405, { error: "POST only" });
     if (!env.DB) return reply(request, 503, { error: "Profile sync isn't set up yet." });
 
@@ -90,6 +287,8 @@ export default {
     }
     if (!account) return reply(request, 401, { error: "Stremio doesn't know this session: sign in again." });
     if (env.ACCOUNT_LIMIT && !(await env.ACCOUNT_LIMIT.limit({ key: account })).success) return reply(request, 429, { error: "Too many requests: try again in a few minutes." });
+
+    if (url.pathname === "/picks") return handlePicks(request, env, account);
 
     if (Number(request.headers.get("Content-Length") || 0) > MAX_BODY) return reply(request, 413, { error: "Too much at once." });
     let body;
@@ -117,8 +316,9 @@ export default {
 
     // What the account has: the most recent of each key wins, and it all has to fit in its share
     const stored = await env.DB.prepare("SELECT k, t, LENGTH(v) AS l FROM entries WHERE account = ?").bind(account).all();
-    const have = new Map((stored.results || []).map((r) => [r.k, r]));
-    let size = (stored.results || []).reduce((n, r) => n + r.l, 0);
+    const synced = (stored.results || []).filter((r) => !r.k.startsWith("picks:"));
+    const have = new Map(synced.map((r) => [r.k, r]));
+    let size = synced.reduce((n, r) => n + r.l, 0);
     const writes = [];
     const written = new Set();
     for (const e of entries) {
@@ -140,7 +340,7 @@ export default {
     const changed = await env.DB.prepare("SELECT k, t, v FROM entries WHERE account = ? AND s > ?").bind(account, Math.max(0, since - OVERLAP)).all();
     const out = [];
     for (const r of changed.results || []) {
-      if (written.has(r.k)) continue;
+      if (written.has(r.k) || r.k.startsWith("picks:")) continue;
       let v = null;
       try { v = JSON.parse(r.v); } catch (_) { /* skipped below */ }
       out.push({ k: r.k, t: r.t, v });

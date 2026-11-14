@@ -1,9 +1,9 @@
 /**
- * @name dx.bi
- * @description The dx.bi experience: cinematic billboard, Netflix-style carousels, hover previews with trailers, ratings on posters, critic reviews, skip intro and up next, anime filler guide, new episode badges, watch stats and viewers, stream sorting & filters, a Netflix-style player with black-bar removal, night mode and subtitle sync, watch parties with friends, a cinematic intro and interface sounds. Use with the dx.bi theme.
- * @version 2.30.0
+ * @name Lumen
+ * @description The Lumen experience: cinematic billboard, Netflix-style carousels, hover previews with trailers, ratings on posters, critic reviews, skip intro and up next, anime filler guide, new episode badges, watch stats and viewers, stream sorting & filters, a Netflix-style player with black-bar removal, night mode and subtitle sync, watch parties with friends, a cinematic intro and interface sounds. Use with the Lumen theme.
+ * @version 2.30.27
  * @author dx.bi
- * @updateUrl https://raw.githubusercontent.com/notdxbi/dxbi-stremio/main/dxbi.plugin.js
+ * @updateUrl https://raw.githubusercontent.com/HarryTheDingle/lumen/main/dxbi.plugin.js
  */
 // dx.bi — Copyright (C) 2026 dx.bi. Free software under the GNU General Public License, version 3
 // or later (see LICENSE and NOTICE.md at github.com/notdxbi/dxbi-stremio). Versions up to 2.15.9: MIT.
@@ -19,7 +19,7 @@
   // Stremio Enhanced loads each plugin as <script id="<file name>">, which tells us our settings key
   const SCRIPT_ID = (document.currentScript && document.currentScript.id) || "dxbi.plugin.js";
   const PLUGIN_KEY = SCRIPT_ID.replace(/\.plugin\.js$/, "");
-  const PLUGIN_VERSION = "2.30.0"; // kept in step with @version by tools/bundle-theme.mjs
+  const PLUGIN_VERSION = "2.30.27"; // kept in step with @version by tools/bundle-theme.mjs
   // Recent messages and errors, kept for problem reports (see `report`)
   const recent = { logs: [], errors: [] };
   const remember = (list, text) => {
@@ -27,7 +27,7 @@
     if (list.length > 60) list.shift();
   };
   const log = (...args) => {
-    console.log("[dx.bi]", ...args);
+    console.log("[Lumen]", ...args);
     remember(recent.logs, args.map((a) => (a instanceof Error ? a.message : typeof a === "object" ? (() => { try { return JSON.stringify(a); } catch (_) { return String(a); } })() : String(a))).join(" "));
   };
   window.addEventListener("error", (e) => remember(recent.errors, `${e.message || "error"} @ ${(e.filename || "").split("/").pop()}:${e.lineno || 0}`));
@@ -52,8 +52,8 @@
   // A TV stick can't keep up with smooth scrolling down the page (each new row is drawn as it
   // slides in): jumps there. Rows still glide sideways (page()): that runs on the graphics chip alone.
   const SCROLL = IN_TV ? "instant" : "smooth";
-  const SETTINGS_SECTION = IN_APP || IN_TV ? "dx.bi" : "Enhanced";
-  const APP_NAME = IN_APP ? "dx.bi" : "Stremio Enhanced";
+  const SETTINGS_SECTION = IN_APP || IN_TV ? "Lumen" : "Enhanced";
+  const APP_NAME = IN_APP ? "Lumen" : "Stremio Enhanced";
 
 
   // Stremio Web can drop window.core on some routes (Stremio Enhanced works around the same thing),
@@ -80,6 +80,7 @@
   // ---------------------------------------------------------------------------
 
   const ACCENTS = {
+    lumen: "#2ee6d6",
     red: "#e50914",
     crimson: "#d81f3c",
     blue: "#2f80ff",
@@ -90,8 +91,10 @@
     white: "#f4f4f5",
   };
 
+  const LUMEN_GRADIENT = "linear-gradient(90deg, #2ee6d6 0%, #2f8bff 55%, #ffb547 100%)";
+
   const DEFAULTS = {
-    accent: "red",
+    accent: "lumen",
     builtInTheme: true,
     billboard: true,
     billboardSource: "mixed",
@@ -124,10 +127,14 @@
     preloadNext: true,
     liteMode: "auto",
     forYou: true,
+    aiPicks: true,
     quickPlay: false,
     quickPlayMemory: "series",
     quickPlayQuality: "best",
     quickPlayFallback: "best",
+    quickPlaySpeed: false,
+    quickPlayAddon: "",
+    preferImax: false,
     streamRows: true,
     watchedTitles: "show",
     librarySort: true,
@@ -135,8 +142,10 @@
     addonTools: true,
     // a YouTube player per card is too much for a TV stick (it can be switched on)
     trailers: !IN_TV,
+    playTrailers: true,
     upNext: "10",
     fillerGuide: true,
+    blurUnwatched: false,
     skipFiller: false,
     newEpisodes: true,
     airingRow: true,
@@ -146,7 +155,7 @@
     whoIsWatching: true,
     enhance: "off",
     streamTools: true,
-    splash: true,
+    splash: false, // the intro film is dx.bi's
     introSound: true,
     uiSounds: false,
     profileSync: true,
@@ -169,6 +178,7 @@
       description: "Colour used for the logo, progress bars, seek bar and highlights.",
       defaultValue: DEFAULTS.accent,
       options: [
+        { label: "Lumen (cyan to amber)", value: "lumen" },
         { label: "Cinema Red", value: "red" },
         { label: "Crimson", value: "crimson" },
         { label: "Electric Blue", value: "blue" },
@@ -179,7 +189,7 @@
         { label: "Mono", value: "white" },
       ],
     },
-    { key: "tvTorrents", type: "toggle", label: "Play torrents on this TV", description: "Off: torrents go through debrid (Real-Debrid, TorBox…) or a streaming server on a computer, and you're asked each time otherwise. On: dx.bi TV downloads torrents itself, connecting to other people sharing them.", defaultValue: DEFAULTS.tvTorrents, tvOnly: true },
+    { key: "tvTorrents", type: "toggle", label: "Play torrents on this TV", description: "Off: torrents go through debrid (Real-Debrid, TorBox…) or a streaming server on a computer, and you're asked each time otherwise. On: Lumen TV downloads torrents itself, connecting to other people sharing them.", defaultValue: DEFAULTS.tvTorrents, tvOnly: true },
     {
       key: "focusColour",
       type: "select",
@@ -195,12 +205,16 @@
     },
     { key: "liteMode", type: "select", label: "Lite mode", description: "For slower TV boxes: loads fewer Home rows at once, skips hover cards and sharper posters, and ignores presses that arrive too late. Auto turns on with 2 GB of memory or less.", defaultValue: DEFAULTS.liteMode, tvOnly: true, options: [{ label: "Auto", value: "auto" }, { label: "On", value: "on" }, { label: "Off", value: "off" }] },
     { key: "forYou", type: "toggle", label: "Because you watched", description: "A Home row based on what you watched last, skipped for kids viewers. Popular titles in the same genres, or real recommendations if you add a TMDB key below.", defaultValue: DEFAULTS.forYou },
-    { key: "quickPlay", type: "toggle", label: "Just press Play", description: "Play and episode clicks start the best stream straight away, and dx.bi remembers what you choose. Skips streams that would start a new debrid download.", defaultValue: DEFAULTS.quickPlay },
+    { key: "aiPicks", type: "toggle", label: "AI-curated suggestions", description: "Uses Lumen's Cloudflare Worker to tailor Top Picks and Because you watched to your taste and suggest deeper cuts beyond the popular charts. Only the titles you watched or hid in this profile are sent.", defaultValue: DEFAULTS.aiPicks },
+    { key: "quickPlay", type: "toggle", label: "Just press Play", description: "Play and episode clicks start the best stream straight away, and Lumen remembers what you choose. Skips streams that would start a new debrid download.", defaultValue: DEFAULTS.quickPlay },
     { key: "quickPlayMemory", type: "select", label: "Remember my stream choice", defaultValue: DEFAULTS.quickPlayMemory, options: [{ label: "For each series", value: "series" }, { label: "Everywhere", value: "global" }] },
     { key: "quickPlayQuality", type: "select", label: "Highest quality to pick", defaultValue: DEFAULTS.quickPlayQuality, options: [{ label: "Best available", value: "best" }, { label: "4K", value: "2160" }, { label: "1080p", value: "1080" }, { label: "720p", value: "720" }] },
     { key: "quickPlayFallback", type: "select", label: "If my usual stream is missing", defaultValue: DEFAULTS.quickPlayFallback, options: [{ label: "Play the next best", value: "best" }, { label: "Show me the list", value: "ask" }] },
+    { key: "quickPlaySpeed", type: "toggle", label: "Match my internet speed", description: "Before picking, Lumen checks your connection with a short download from Cloudflare's speed test (rechecked every 10 minutes) and skips streams too big for it. If a stream still buffers, Change in the player takes you back to the list.", defaultValue: DEFAULTS.quickPlaySpeed },
+    { key: "preferImax", type: "toggle", label: "Prefer IMAX", description: "When the stream list has an IMAX version at the same quality, the automatic pick takes it.", defaultValue: DEFAULTS.preferImax },
+    { key: "quickPlayAddon", type: "input", label: "Preferred addon (optional)", description: "Its name as the stream list shows it, e.g. MediaFusion or Torrentio. Lumen picks from this addon whenever it has a stream that suits, and from the others when it doesn't.", defaultValue: DEFAULTS.quickPlayAddon },
     { key: "streamRows", type: "toggle", label: "Clean stream list", description: "Shows each stream as a simple row: quality, source, size and whether it's ready to play.", defaultValue: DEFAULTS.streamRows },
-    { key: "builtInTheme", type: "toggle", label: "dx.bi look built in", description: `Use the dx.bi theme without installing it separately. Steps aside by itself when you apply another theme in Settings → ${SETTINGS_SECTION} → Themes.`, defaultValue: DEFAULTS.builtInTheme },
+    { key: "builtInTheme", type: "toggle", label: "Lumen look built in", description: `Use the Lumen theme without installing it separately. Steps aside by itself when you apply another theme in Settings → ${SETTINGS_SECTION} → Themes.`, defaultValue: DEFAULTS.builtInTheme },
     { key: "videoRowsOnly", type: "toggle", label: "Only movie, series & anime rows on Home", description: "Hides rows from addons that list other things, like a debrid account's downloads or YouTube channels. They stay in Discover.", defaultValue: DEFAULTS.videoRowsOnly },
     { key: "billboard", type: "toggle", label: "Billboard on Home", description: "Large rotating feature banner at the top of Home.", defaultValue: DEFAULTS.billboard },
     {
@@ -229,7 +243,7 @@
     },
     { key: "previews", type: "toggle", label: "Hover previews", description: IN_TV ? "Show a details card when a title stays selected for a moment." : "Show a details card when you rest the mouse on a title.", defaultValue: DEFAULTS.previews },
     { key: "ratings", type: "toggle", label: "Ratings on posters", description: "Small IMDb badge on posters, from your addons' data (Cinemeta fills any gaps). Anime from Kitsu or MyAnimeList catalogs gets its Kitsu or AniList score.", defaultValue: DEFAULTS.ratings },
-    { key: "animeTitles", type: "toggle", label: "Titles on anime artwork", description: "Anime catalogs' cover art usually has no title on it: dx.bi writes the name at the bottom of each card in Home and Search rows.", defaultValue: DEFAULTS.animeTitles },
+    { key: "animeTitles", type: "toggle", label: "Titles on anime artwork", description: "Anime catalogs' cover art usually has no title on it: Lumen writes the name at the bottom of each card in Home and Search rows.", defaultValue: DEFAULTS.animeTitles },
     { key: "wideContinue", type: "toggle", label: "Wide Continue Watching", description: "Show Continue Watching as landscape cards with title art.", defaultValue: DEFAULTS.wideContinue },
     { key: "playerExtras", type: "toggle", label: "Netflix-style player extras", description: "Back/forward 10 seconds buttons, title in the control bar and play/pause feedback.", defaultValue: DEFAULTS.playerExtras },
     {
@@ -347,10 +361,12 @@
         { label: "Hide", value: "hide" },
       ],
     },
+    { key: "blurUnwatched", type: "toggle", label: "Blur unwatched episodes", description: "Episode pictures stay blurred until you've watched or started them, so they don't give anything away. In Lumen on the iPad, phone and TV too.", defaultValue: DEFAULTS.blurUnwatched },
     { key: "librarySort", type: "toggle", label: "Library: sort by year & rating, filter by genre", description: "Extra sort buttons and a genre filter on the Library page.", defaultValue: DEFAULTS.librarySort },
     { key: "reviews", type: "toggle", label: "Reviews on title pages", description: "Rotten Tomatoes and Metacritic scores next to the IMDb rating, and a Reviews button with what critics said (from Wikidata and Wikipedia, no account needed).", defaultValue: DEFAULTS.reviews },
     { key: "tmdbKey", type: "input", label: "Reviews: TMDB key (optional)", description: "Adds audience reviews. Free: sign up at themoviedb.org, then Settings → API, and paste the API key or the read access token. It's only sent to TMDB.", defaultValue: DEFAULTS.tmdbKey },
     { key: "mdblistKey", type: "input", label: "Reviews: MDBList key (optional)", description: "Adds fresher scores, including Rotten Tomatoes audience, Letterboxd and Trakt. Free (1,000 titles a day): sign in at mdblist.com, then Preferences → API key. It's only sent to MDBList.", defaultValue: DEFAULTS.mdblistKey },
+    { key: "playTrailers", type: "toggle", label: "Play Trailers", description: "A title's page fades its trailer in over the picture after a moment. Off: the picture stays. In Lumen on the iPad, phone and TV.", defaultValue: DEFAULTS.playTrailers },
     { key: "trailers", type: "toggle", label: "Trailers in hover cards", description: "Rest on a title and its trailer starts playing in the card, muted (tap the speaker for sound).", defaultValue: DEFAULTS.trailers },
     {
       key: "trailerDelay",
@@ -387,7 +403,7 @@
     { key: "playerKeys", type: "toggle", label: "Extra keyboard shortcuts", description: "0–9 jump to 0–90% of the video, and ? shows every shortcut.", defaultValue: DEFAULTS.playerKeys },
     { key: "watchStats", type: "toggle", label: "Watch stats", description: "Counts how long you watch (on this PC only). See them under your profile menu → Your stats.", defaultValue: DEFAULTS.watchStats },
     { key: "whoIsWatching", type: "toggle", label: "Who's watching?", description: "With more than one viewer, choose who's watching at start. Each viewer has their own library, stats, volume and party name.", defaultValue: DEFAULTS.whoIsWatching },
-    { key: "pip", type: "toggle", label: "Picture-in-picture button", description: "Keep watching in a small floating window while you use other apps. In the dx.bi app it also keeps playing while you browse dx.bi.", defaultValue: DEFAULTS.pip },
+    { key: "pip", type: "toggle", label: "Picture-in-picture button", description: "Keep watching in a small floating window while you use other apps. In the Lumen app it also keeps playing while you browse Lumen.", defaultValue: DEFAULTS.pip },
     { key: "addonTools", type: "toggle", label: "Addon order & backup", description: "Adds a button to the Addons page to reorder your addons (the order streams and catalogs appear in) and to back them up or restore them.", defaultValue: DEFAULTS.addonTools },
     { key: "externalPlayer", type: "toggle", label: "Open in mpv / VLC button", description: "Adds a button to the player that hands the stream to mpv or VLC (only shown when one is installed). Handy when a file stutters or won't play here: they handle more formats and are lighter on slower PCs.", defaultValue: DEFAULTS.externalPlayer },
     { key: "playerClock", type: "toggle", label: "Show the time in the player", description: "The time now and when this ends, at the top right, while the controls are showing.", defaultValue: DEFAULTS.playerClock },
@@ -413,7 +429,6 @@
     { key: "partySounds", type: "toggle", label: "Watch party: sounds", description: "Soft chimes when people join, leave or send a message.", defaultValue: DEFAULTS.partySounds },
     { key: "splash", type: "toggle", label: "Intro animation", description: "Plays once each time the app starts.", defaultValue: DEFAULTS.splash },
     { key: "introSound", type: "toggle", label: "Intro sound", description: "Play the intro's score (a 'ta-dum', a chord and a whoosh).", defaultValue: DEFAULTS.introSound },
-    { key: "profileSync", type: "toggle", label: "Keep viewers the same on every device", description: "With two or more viewers, your viewers and each one's library, hidden titles and Home follow your Stremio account, through dx.bi's sync server. Your login key is only used to check who you are and is never saved. The parental PIN stays on each device.", defaultValue: DEFAULTS.profileSync },
     { key: "uiSounds", type: "toggle", label: "Interface sounds", description: "Soft sounds for tabs, opening titles, previews, My List, player controls and keyboard navigation.", defaultValue: DEFAULTS.uiSounds },
     {
       key: "soundVolume",
@@ -433,10 +448,10 @@
   // option carries its group's name, and they're listed group by group.
   const SETTING_GROUPS = [
     ["Look", ["liteMode", "accent", "posterAccent", "focusColour", "builtInTheme", "crispPosters", "ratings", "animeTitles", "wideContinue"]],
-    ["Home", ["myList", "forYou", "videoRowsOnly", "billboard", "billboardSource", "billboardInterval", "newEpisodes", "airingRow", "whoIsWatching"]],
-    ["Hover cards & trailers", ["previews", "trailers", "trailerDelay"]],
-    ["Browsing & library", ["watchedTitles", "librarySort", "streamRows", "streamTools", "addonTools", "watchStats", "reviews", "tmdbKey", "mdblistKey", "profileSync"]],
-    ["Player", ["quickPlay", "quickPlayMemory", "quickPlayQuality", "quickPlayFallback", "tvTorrents", "playerExtras", "remainingTime", "playerClock", "seekPreviews", "enhance", "pictureSound", "streamStats", "rememberPlayback", "playerKeys", "pip", "externalPlayer", "convertVideo"]],
+    ["Home", ["myList", "forYou", "aiPicks", "videoRowsOnly", "billboard", "billboardSource", "billboardInterval", "newEpisodes", "airingRow", "whoIsWatching"]],
+    ["Hover cards & trailers", ["previews", "trailers", "playTrailers", "trailerDelay"]],
+    ["Browsing & library", ["watchedTitles", "blurUnwatched", "librarySort", "streamRows", "streamTools", "addonTools", "watchStats", "reviews", "tmdbKey", "mdblistKey"]],
+    ["Player", ["quickPlay", "quickPlayMemory", "quickPlayQuality", "quickPlayFallback", "quickPlaySpeed", "quickPlayAddon", "preferImax", "tvTorrents", "playerExtras", "remainingTime", "playerClock", "seekPreviews", "enhance", "pictureSound", "streamStats", "rememberPlayback", "playerKeys", "pip", "externalPlayer", "convertVideo"]],
     ["Subtitles", ["subtitleStyle", "subtitleFont", "subtitleCustomFont", "subtitlesStart", "hdrSubtitles"]],
     ["Episodes & skipping", ["skipButtons", "autoSkip", "upNext", "preloadNext", "fillerGuide", "skipFiller"]],
     ["Watch party", ["watchParty", "partyFollow", "partyActivity", "partySounds"]],
@@ -454,6 +469,9 @@
   }
 
   const settings = { ...DEFAULTS };
+  // The TMDB key: the viewer's own (Settings), else the one the Lumen app was built with (Lumen TV and the iPad/iPhone
+  // app put it on the page as window.__lumenTmdbKey, from a file kept out of git). Never shown in Settings or synced.
+  const tmdbKey = () => String(settings.tmdbKey || "").trim() || String((typeof window !== "undefined" && window.__lumenTmdbKey) || "").trim();
   // Slower TV boxes: 2 GB covers the Mi Box, onn and Chromecast models people report as slow
   const lite = {
     get on() {
@@ -524,8 +542,13 @@
   }
 
   function applyAccent() {
-    const colour = ACCENTS[settings.accent] || ACCENTS.red;
-    document.documentElement.style.setProperty("--dx-accent", colour);
+    const colour = ACCENTS[settings.accent] || ACCENTS.lumen;
+    const root = document.documentElement.style;
+    root.setProperty("--dx-accent", colour);
+    // Lumen's own colours run from cyan through blue to amber, as its icon does; the others stay one colour
+    root.setProperty("--dx-accent-gradient", settings.accent === "lumen" || !ACCENTS[settings.accent] ? LUMEN_GRADIENT : colour);
+    // Light accents need dark text on them
+    root.setProperty("--dx-on-accent", ["lumen", "amber", "white"].includes(settings.accent) || !ACCENTS[settings.accent] ? "#06141a" : "#fff");
     document.documentElement.style.setProperty("--dx-focus", { accent: colour, yellow: "#ffd60a" }[settings.focusColour] || "#fff");
   }
 
@@ -711,6 +734,24 @@
       background: meta.background,
       trailer: (meta.trailerStreams && meta.trailerStreams[0] && meta.trailerStreams[0].ytId) || (meta.trailers && meta.trailers[0] && meta.trailers[0].source) || null,
     };
+  }
+
+  // An anime's meta from the Kitsu addon (it keeps each season as its own show, with its own story, logo and
+  // art: nothing of IMDb's applies), cached like the rest. For the phone apps' describe, and nothing else.
+  async function kitsuMeta(id) {
+    if (!/^kitsu:\d+$/.test(String(id))) return null;
+    const key = `kitsu:${id}`;
+    const cached = readCached(key);
+    if (cached !== undefined) return cached;
+    try {
+      const r = await fetch(`https://anime-kitsu.strem.fun/meta/series/${id}.json`, { signal: AbortSignal.timeout(10000) });
+      if (!r.ok) return null;
+      const meta = slimMeta(((await r.json()) || {}).meta);
+      if (meta) writeCached(key, meta);
+      return meta;
+    } catch (_) {
+      return null; // offline: tried again next time
+    }
   }
 
   function getMeta(type, id) {
@@ -3237,7 +3278,7 @@
       const cached = readCached(key);
       if (cached !== undefined) return cached;
       const api = "https://en.wikipedia.org/w/api.php?format=json&formatversion=2&redirects=1&action=parse";
-      const headers = { "Api-User-Agent": "dx.bi (https://github.com/notdxbi/dxbi-stremio)" };
+      const headers = { "Api-User-Agent": "Lumen (https://github.com/HarryTheDingle/lumen)" };
       const r = await fetch(`${api}&prop=sections&page=${encodeURIComponent(title)}`, { headers, signal: AbortSignal.timeout(12000) });
       if (!r.ok) throw new Error(`Wikipedia ${r.status}`);
       const sections = (((await r.json()).parse || {}).sections) || [];
@@ -3268,7 +3309,7 @@
 
     // TMDB (free key): audience reviews. Takes either the API key or the longer read access token.
     async tmdb(ids) {
-      const token = settings.tmdbKey.trim();
+      const token = tmdbKey();
       const auth = token.startsWith("eyJ") ? { headers: { Authorization: `Bearer ${token}` } } : { headers: {} };
       const withKey = (url) => (token.startsWith("eyJ") ? url : `${url}${url.includes("?") ? "&" : "?"}api_key=${encodeURIComponent(token)}`);
       const kind = ids.type === "movie" ? "movie" : "tv";
@@ -3339,7 +3380,7 @@
       if (this.el !== el) return;
       const [wiki, tmdb] = await Promise.all([
         data.article ? this.wikipedia(data.article).catch(() => null) : null,
-        settings.tmdbKey.trim() && (data.ids.imdb || data.ids.tmdb) ? this.tmdb(data.ids).catch((err) => ({ error: err.message })) : null,
+        tmdbKey() && (data.ids.imdb || data.ids.tmdb) ? this.tmdb(data.ids).catch((err) => ({ error: err.message })) : null,
       ]);
       if (this.el !== el) return;
       el.querySelector(".dxr-body").innerHTML = this.html(data, wiki, tmdb);
@@ -3368,16 +3409,16 @@
           </div>`).join("")}
           ${tmdb.total > tmdb.reviews.length ? `<a class="dxr-link" href="${esc(tmdb.url)}" target="_blank" rel="noopener">All ${esc(tmdb.total)} reviews on TMDB</a>` : ""}</div>`);
       } else if (tmdb && tmdb.error) {
-        parts.push(`<div class="dxe-section"><div class="dxe-label">Audience reviews</div><p class="dxr-note">${esc(tmdb.error)}. Check the key in Settings → ${SETTINGS_SECTION} → Plugins → dx.bi.</p></div>`);
+        parts.push(`<div class="dxe-section"><div class="dxe-label">Audience reviews</div><p class="dxr-note">${esc(tmdb.error)}. Check the key in Settings → ${SETTINGS_SECTION} → Plugins → Lumen.</p></div>`);
       } else if (tmdb) {
         parts.push(`<div class="dxe-section"><div class="dxe-label">Audience reviews</div><p class="dxr-note">No one has reviewed this on TMDB yet.</p></div>`);
       }
       if (data.mdbError) parts.push(`<p class="dxr-note">${esc(data.mdbError)}, so these scores come from Wikidata.</p>`);
       if (!parts.length) parts.push('<p class="dxr-note">No reviews found for this title yet.</p>');
       const hints = [];
-      if (!settings.tmdbKey.trim()) hints.push("a free TMDB key for audience reviews");
+      if (!tmdbKey()) hints.push("a free TMDB key for audience reviews");
       if (!settings.mdblistKey.trim()) hints.push("a free MDBList key for audience and Letterboxd scores");
-      if (hints.length) parts.push(`<p class="dxr-note">Want more? Add ${hints.join(" and ")} in Settings → ${SETTINGS_SECTION} → Plugins → dx.bi.</p>`);
+      if (hints.length) parts.push(`<p class="dxr-note">Want more? Add ${hints.join(" and ")} in Settings → ${SETTINGS_SECTION} → Plugins → Lumen.</p>`);
       const credits = [data.fromMdblist ? "Scores from MDBList" : scores.length ? "Scores from Wikidata" : "", wiki && wiki.text && wiki.text.length ? "Summary from Wikipedia (CC BY-SA)" : "", tmdb && tmdb.reviews ? "This product uses the TMDB API but is not endorsed or certified by TMDB" : ""].filter(Boolean);
       if (credits.length) parts.push(`<p class="dxr-credit">${credits.map(esc).join(" · ")}</p>`);
       return parts.join("");
@@ -3793,9 +3834,9 @@
     // The player keeps Stremio's own title: other plugins read it to label the stream
     if (currentRoute() === "player") return;
     const current = document.title || "";
-    if (current === "dx.bi" || current.endsWith(" · dx.bi")) return;
+    if (current === "Lumen" || current.endsWith(" · Lumen")) return;
     const page = current.replace(/\s*[-–|]?\s*Stremio.*$/i, "").replace(/^web\.stremio\.com$/i, "").trim();
-    document.title = page ? `${page} · dx.bi` : "dx.bi";
+    document.title = page ? `${page} · Lumen` : "Lumen";
   }
 
   // ---------------------------------------------------------------------------
@@ -3842,15 +3883,26 @@
     // A debrid service tag without its "cached" mark: playing it starts a download on the account
     const pending = !instant && /\[(?:RD|AD|PM|TB|DL|ED|OC)\b[^\]]*\]/i.test(firstLine);
 
-    let res = 0;
-    if (/\b(?:2160p|4k|uhd)\b/i.test(all)) res = 2160;
-    else if (/\b1440p\b/i.test(all)) res = 1440;
-    else if (/\b(?:1080p|fhd)\b/i.test(all)) res = 1080;
-    else if (/\b720p\b/i.test(all)) res = 720;
-    else if (/\b(?:576p|480p|360p|sd|dvdrip|xvid)\b/i.test(all)) res = 480;
+    // The quality: what the file's name and description say, the addon's own label ("Torrentio 4k") only when
+    // they say nothing; and when they name two ("4K IMAX … 1080p"), the lower (a label that claimed more than
+    // the file had picked a 1080p IMAX copy as 4K)
+    const qualities = (text) => [
+      /\b(?:2160p|4k|uhd)\b/i.test(text) && 2160,
+      /\b1440p\b/i.test(text) && 1440,
+      /\b(?:1080p|fhd)\b/i.test(text) && 1080,
+      /\b720p\b/i.test(text) && 720,
+      /\b(?:576p|480p|360p|sd|dvdrip|xvid)\b/i.test(text) && 480,
+    ].filter(Boolean);
+    const rest = all.startsWith(name) ? all.slice(name.length) : all;
+    const said = qualities(rest).length ? qualities(rest) : qualities(name);
+    const res = said.length ? Math.min(...said) : 0;
 
     const dv = /\b(?:dv|dovi|dolby[ .-]?vision)\b/i.test(all);
-    const hdr = dv || /\bhdr(?:10\+?)?\b/i.test(all);
+    const hdrNamed = /\bhdr(?:10\+?)?\b/i.test(all) || /\bhdr10(?:\+|[ ._-]?plus)/i.test(all);
+    const hdr = dv || hdrNamed;
+    // Dolby Vision with no HDR10 picture under it (a streaming service's profile 5): on a TV without Dolby Vision its
+    // colours come out green and purple. A remux's Dolby Vision (profile 7) and most encodes' (8) carry HDR10 too.
+    const dvOnly = dv && !hdrNamed && !/\b(?:remux|bdremux|blu-?ray|bdrip)\b/i.test(all);
 
     let size = 0;
     // (Meteor and others write GiB, not GB)
@@ -3876,12 +3928,22 @@
     if (!langs.size) langs.add(NOT_LISTED);
 
     // Stretched or smoothed copies claim a quality they don't have; 3D needs glasses
+    // Formats worth a badge (the file name says so): IMAX / IMAX Enhanced, Dolby Atmos, HDR10+, Open Matte (the
+    // taller, uncropped picture), 3D
+    const imax = /\bimax\b/i.test(all);
+    const atmos = /\batmos\b/i.test(all);
+    const hdr10plus = /\bhdr10(?:\+|[ ._-]?plus)/i.test(all);
+    const openMatte = /\bopen[ ._-]?matte\b/i.test(all);
+    const threeD = /\b(?:3d|h?sbs)\b/i.test(all);
     const lesser = /\b(?:ai[ ._-]?upscal\w*|upscal\w*|\d{2,3}fps|hfr|3d|h?sbs)\b/i.test(all);
 
     const site = (/(?:⚙\uFE0F?|🔎)\s*([^\s\n]+)/u.exec(all) || [])[1] || "";
     const codec = /\b(?:x265|h\.?265|hevc)\b/i.test(all) ? "HEVC" : /\bav1\b/i.test(all) ? "AV1" : /\b(?:x264|h\.?264|avc)\b/i.test(all) ? "H.264" : "";
 
-    return { provider, site, codec, instant, pending, lesser, res, hdr, dv, size, seeds, source, langs: [...langs] };
+    // A sample: a minute or two of the release, not the film
+    const sample = /\bsample\b/i.test(all);
+
+    return { provider, site, codec, instant, pending, lesser, sample, res, hdr, dv, dvOnly, imax, atmos, hdr10plus, openMatte, threeD, size, seeds, source, langs: [...langs] };
   }
 
   function parseStream(el) {
@@ -3892,31 +3954,206 @@
 
   // Picks a stream without asking. Pure, so tools/quick-play-test.mjs can check every rule.
   const NOT_LISTED = "Not listed (usually English)";
+  // Streams that wouldn't play on this device (a file the player can't read, a format it can't decode,
+  // a server that refused it): never picked again by themselves for a month. Not a dropped connection:
+  // that's the network, not the stream. Known by torrent and file, else by file name, else by address.
+  const streamFailures = {
+    KEY: "dxbi.failedStreams",
+    KEEP: 30 * 86400000,
+    list: null,
+    load() {
+      if (this.list) return this.list;
+      try { this.list = JSON.parse(localStorage.getItem(this.KEY) || "{}") || {}; } catch (_) { this.list = {}; }
+      const now = Date.now();
+      for (const [k, v] of Object.entries(this.list)) if (!v || now - v.at > this.KEEP) delete this.list[k];
+      return this.list;
+    },
+    key(x) {
+      const st = (x && x.st) || {};
+      const hint = (x && x.hint) || {};
+      if (st.infoHash) return `t:${st.infoHash}:${st.fileIdx == null ? "" : st.fileIdx}`;
+      if (hint.filename) return `f:${hint.filename}`;
+      if (st.url) return `u:${String(st.url).split("?")[0]}`;
+      return null;
+    },
+    add(x, why) {
+      const k = this.key(x);
+      if (!k || /connection/i.test(String(why || ""))) return;
+      const list = this.load();
+      // (a server's error answer or error clip is a service having trouble, not the stream: it's tried again in an hour, not a month)
+      list[k] = { at: Date.now(), why: String(why || ""), ...(this.serverSide(why) ? { ttl: 3600000 } : {}) };
+      const keys = Object.keys(list);
+      if (keys.length > 400) keys.sort((a, b) => list[a].at - list[b].at).slice(0, keys.length - 400).forEach((old) => delete list[old]);
+      try { localStorage.setItem(this.KEY, JSON.stringify(list)); } catch (_) { /* full */ }
+      if (this.serverSide(why)) providerTrouble.add(x);
+    },
+    serverSide: (why) => /error clip|error video|server answered|isn't a video/i.test(String(why || "")),
+    has(x) {
+      const k = this.key(x);
+      const v = k && this.load()[k];
+      return !!v && !(v.ttl && Date.now() - v.at > v.ttl);
+    },
+  };
+
+  // A provider (TorBox, Easynews) whose streams keep coming back as errors, even for different files, is down for
+  // now: for a quarter of an hour its streams are left for another provider's, when there is one. In memory only
+  // (an outage doesn't outlive the app), and two errors from it in ten minutes is enough.
+  const providerTrouble = {
+    seen: new Map(),
+    name: (x) => String((x && ((x.d && x.d.provider) || x.addon)) || "").toLowerCase(),
+    add(x) {
+      const n = this.name(x);
+      if (!n) return;
+      const now = Date.now();
+      const recent = (this.seen.get(n) || []).filter((t) => now - t < 600000);
+      recent.push(now);
+      this.seen.set(n, recent);
+    },
+    down(x) {
+      const recent = (this.seen.get(this.name(x)) || []).filter((t) => Date.now() - t < 900000);
+      return recent.length >= 2;
+    },
+    // [list] without the streams of a provider that's down, unless that leaves none
+    live(list) {
+      const up = list.filter((x) => !this.down(x));
+      return up.length ? up : list;
+    },
+  };
+
+  // Streams whose picture turned out smaller than their name said (a "4K" that played at 1920 wide): read at
+  // the quality they really are for a month, in the list and the automatic pick. Known the way failures are.
+  const streamTruth = {
+    KEY: "dxbi.realQuality",
+    KEEP: 30 * 86400000,
+    list: null,
+    load() {
+      if (this.list) return this.list;
+      try { this.list = JSON.parse(localStorage.getItem(this.KEY) || "{}") || {}; } catch (_) { this.list = {}; }
+      const now = Date.now();
+      for (const [k, v] of Object.entries(this.list)) if (!v || now - v.at > this.KEEP) delete this.list[k];
+      return this.list;
+    },
+    // The quality a picture this wide is (wide films are short, so not the height)
+    res(width) {
+      return width >= 3200 ? 2160 : width >= 2200 ? 1440 : width >= 1700 ? 1080 : width >= 1100 ? 720 : 480;
+    },
+    // The player's picture, once it plays: remembered only when it's less than the name said
+    add(x, width) {
+      const k = streamFailures.key(x);
+      if (!k || !(width > 0) || !x.d.res) return false;
+      const real = this.res(width);
+      if (real >= x.d.res) return false;
+      const list = this.load();
+      list[k] = { at: Date.now(), res: real };
+      const keys = Object.keys(list);
+      if (keys.length > 400) keys.sort((a, b) => list[a].at - list[b].at).slice(0, keys.length - 400).forEach((old) => delete list[old]);
+      try { localStorage.setItem(this.KEY, JSON.stringify(list)); } catch (_) { /* full */ }
+      x.d.claimed = x.d.res;
+      x.d.res = real;
+      return true;
+    },
+    // A stream as it really is, when it's been played before
+    apply(x) {
+      const k = streamFailures.key(x);
+      const known = k && this.load()[k];
+      if (known && known.res < x.d.res) x.d = { ...x.d, claimed: x.d.res, res: known.res };
+      return x;
+    },
+  };
+
   const streamChoice = {
     SOURCE: { BluRay: 3, WEB: 3, Remux: 2, HDTV: 1, Other: 0 },
     limit: (value) => (Number(value) > 0 ? Number(value) : Infinity),
 
-    // Ready-to-play first. HDR beats Dolby Vision, which stalls on some decoders, and an encode
-    // beats a huge remux: the pick has to start and keep playing.
-    rank(d) {
-      return (d.instant ? 1e5 : 0) + d.res * 10 + (d.dv ? 1 : d.hdr ? 2 : 0) + (this.SOURCE[d.source] || 0) - (d.lesser ? 15000 : 0);
+    // Typical bitrates (Mbit/s) for when a stream's size or the title's length isn't known
+    MBPS_GUESS: { 2160: 20, 1440: 12, 1080: 8, 720: 4, 480: 2, 0: 8 },
+    // A stream fits when it needs at most this share of the measured speed: speeds dip
+    HEADROOM: 0.75,
+
+    // "2h 28min", "148 min", "45": the length in minutes, or 0
+    minutes(runtime) {
+      const s = String(runtime || "");
+      const h = /(\d+)\s*h/i.exec(s);
+      const m = /(\d+)\s*m/i.exec(s);
+      if (h || m) return (h ? parseInt(h[1], 10) * 60 : 0) + (m ? parseInt(m[1], 10) : 0);
+      return parseInt(s, 10) || 0;
     },
 
-    best(list) {
-      return [...list].sort((a, b) => this.rank(b.d) - this.rank(a.d) || b.d.seeds - a.d.seeds)[0];
+    // The bitrate a stream needs: its size over the title's length, else a guess from its quality
+    mbps(d, minutes) {
+      if (d.size > 0 && minutes > 0) return (d.size * 8) / (minutes * 60) / 1e6;
+      return this.MBPS_GUESS[d.res] || this.MBPS_GUESS[0];
+    },
+
+    // Sample clips and other files far too small to be the whole thing: never picked (being small, they
+    // looked ideal for a slow connection). A sample by name; at least 5 times smaller than the usual size
+    // at its quality; or, with the title's length known, under 0.35 Mbit/s for 720p or better.
+    samples(list, minutes = 0) {
+      const out = new Set(list.filter((x) => x.d.sample));
+      for (const res of new Set(list.map((x) => x.d.res))) {
+        const sizes = list.filter((x) => x.d.res === res && x.d.size > 0 && !x.d.sample).map((x) => x.d.size).sort((a, b) => a - b);
+        if (sizes.length < 3) continue;
+        const usual = sizes[Math.floor(sizes.length / 2)];
+        for (const x of list) if (x.d.res === res && x.d.size > 0 && x.d.size < usual / 5) out.add(x);
+      }
+      if (minutes > 0) for (const x of list) if (x.d.res >= 720 && x.d.size > 0 && this.mbps(x.d, minutes) < 0.35) out.add(x);
+      return out;
+    },
+
+    // speed: measured Mbit/s (0 = don't match). addon: preferred addon name (part of it will do).
+    // Streams too big for the speed go, or all but the lightest when none fit; then the preferred
+    // addon's streams, when it has any left.
+    suited(list, { speed = 0, minutes = 0, addon = "" } = {}) {
+      let pool = list;
+      if (speed > 0 && pool.length) {
+        const fits = pool.filter((x) => this.mbps(x.d, minutes) <= speed * this.HEADROOM);
+        const lightest = Math.min(...pool.map((x) => this.mbps(x.d, minutes)));
+        pool = fits.length ? fits : pool.filter((x) => this.mbps(x.d, minutes) === lightest);
+      }
+      const want = String(addon || "").trim().toLowerCase();
+      if (want) {
+        const mine = pool.filter((x) => String(x.addon || "").toLowerCase().includes(want));
+        if (mine.length) pool = mine;
+      }
+      return pool;
+    },
+
+    // The picture's quality, best first: ready to play, then resolution, then within a resolution the
+    // fuller picture: HDR (HDR10 or Dolby Vision with HDR10 under it, alike: most TVs here show HDR10 either
+    // way; Dolby Vision alone last, its colours are wrong on a TV without it), a remux over a Blu-ray encode
+    // over a web copy, and more bitrate over less.
+    // Speed is the speed check's job (suited): what's left after it is meant to play, so the heaviest wins.
+    // (Up to 2.30.24 an encode beat a remux and HDR beat Dolby Vision, and bitrate didn't count: a 10 Mbps
+    // encode was picked over 60 Mbps remuxes that were just as ready.)
+    QUALITY_SOURCE: { Remux: 6, BluRay: 4, WEB: 2, HDTV: 1, Other: 0 },
+    rank(d, minutes = 0) {
+      // (Prefer IMAX: worth more than anything else at the same quality, less than a step up in quality)
+      const imax = d.imax && typeof settings !== "undefined" && settings.preferImax ? 20 : 0;
+      const range = d.dvOnly ? -2 : d.hdr ? 2 : 0;
+      // (a point for every 10 Mbit/s, up to 100: known only with the size and the title's length)
+      const rate = d.size > 0 && minutes > 0 ? Math.min(10, this.mbps(d, minutes) / 10) : 0;
+      return (d.instant ? 1e5 : 0) + d.res * 10 + range + (this.QUALITY_SOURCE[d.source] || 0) + rate + imax - (d.lesser ? 15000 : 0);
+    },
+
+    best(list, minutes = 0) {
+      return [...list].sort((a, b) => this.rank(b.d, minutes) - this.rank(a.d, minutes) || b.d.seeds - a.d.seeds)[0];
     },
 
     // items: [{ hint, d, torrent }]. memory: what this viewer chose last. Returns { item, how } or null.
-    choose(items, memory, { limit = Infinity, fallback = "best", torrents = true } = {}) {
-      const usable = items.filter((x) => x.d.source !== "CAM" && !x.d.pending && (torrents || !x.torrent));
-      if (!usable.length) return null;
+    choose(items, memory, { limit = Infinity, fallback = "best", torrents = true, ...fit } = {}) {
+      const short = this.samples(items, fit.minutes);
+      const playable = providerTrouble.live(items.filter((x) => !short.has(x) && x.d.source !== "CAM" && !x.d.pending && (torrents || !x.torrent) && !streamFailures.has(x)));
       const m = memory || null;
+      // What the viewer chose for this title themselves: theirs, even when the speed check says it's heavy (a 4K
+      // stream picked by hand went back to 1080p the next time)
       if (m) {
-        const same = usable.find((x) => m.infoHash && x.hint.infoHash === m.infoHash) ||
-          usable.find((x) => m.filename && x.hint.filename === m.filename) ||
-          usable.find((x) => m.bingeGroup && x.hint.bingeGroup === m.bingeGroup);
+        const same = playable.find((x) => m.infoHash && x.hint.infoHash === m.infoHash) ||
+          playable.find((x) => m.filename && x.hint.filename === m.filename) ||
+          playable.find((x) => m.bingeGroup && x.hint.bingeGroup === m.bingeGroup);
         if (same) return { item: same, how: "same" };
       }
+      const usable = this.suited(playable, fit);
+      if (!usable.length) return null;
       const allowed = usable.filter((x) => x.d.res <= limit);
       const lowest = Math.min(...usable.map((x) => x.d.res));
       let pool = allowed.length ? allowed : usable.filter((x) => x.d.res === lowest);
@@ -3924,21 +4161,44 @@
         const spoken = (m.langs || []).filter((l) => l !== NOT_LISTED);
         const heard = pool.filter((x) => x.d.langs.some((l) => spoken.includes(l)));
         if (heard.length) pool = heard;
-        const quality = pool.filter((x) => x.d.res === m.res);
+        if (!m.res) return { item: this.best(pool, fit.minutes), how: "best" };
+        // (the quality chosen by hand, at the speed or not)
+        const chosen = playable.filter((x) => x.d.res === m.res && x.d.res <= limit && (!heard.length || x.d.langs.some((l) => spoken.includes(l))));
+        const quality = chosen.length ? chosen : pool.filter((x) => x.d.res === m.res);
         const provider = quality.filter((x) => x.d.provider === m.provider);
-        if (provider.length) return { item: this.best(provider), how: "similar" };
-        if (quality.length) return { item: this.best(quality), how: "similar" };
+        if (provider.length) return { item: this.best(provider, fit.minutes), how: "similar" };
+        if (quality.length) return { item: this.best(quality, fit.minutes), how: "similar" };
         if (fallback === "ask") return null;
       }
-      return { item: this.best(pool), how: "best" };
+      return { item: this.best(pool, fit.minutes), how: "best" };
     },
 
     // What to try if the pick won't play: at most two, each a different release
-    spares(items, picked, { limit = Infinity, torrents = true } = {}) {
-      const rest = items.filter((x) => x !== picked && x.d.source !== "CAM" && !x.d.pending && (torrents || !x.torrent) && x.d.res <= limit);
+    // Streams this device can decode in hardware (only AV1 is ever missing: the iOS app says so), else all of them
+    decodable(items) {
+      let out = items;
+      if (window.__dxbiIos && window.__dxbiIos.noAv1) {
+        const kept = out.filter((x) => x.d.codec !== "AV1");
+        if (kept.length) out = kept;
+      }
+      // (Dolby Vision with no HDR10 under it, a profile 5 file: the iPhone's and iPad's player can't decode it, so the
+      // picture comes out green and purple. Left for when nothing else is there)
+      if (window.__dxbiIos) {
+        const kept = out.filter((x) => !x.d.dvOnly);
+        if (kept.length) out = kept;
+      }
+      return out;
+    },
+
+    spares(items, picked, { limit = Infinity, torrents = true, speed = 0, minutes = 0 } = {}) {
+      const short = this.samples(items, minutes);
+      const rest = items.filter((x) => x !== picked && !short.has(x) && x.d.source !== "CAM" && !x.d.pending && (torrents || !x.torrent) && x.d.res <= limit && !streamFailures.has(x) &&
+        !(speed > 0 && this.mbps(x.d, minutes) > speed * this.HEADROOM));
       const out = [];
+      const preferred = providerTrouble.live(rest);
+      rest.splice(0, rest.length, ...preferred);
       while (rest.length && out.length < 2) {
-        const next = this.best(rest);
+        const next = this.best(rest, minutes);
         rest.splice(rest.indexOf(next), 1);
         if (!next.hint.infoHash || next.hint.infoHash !== picked.hint.infoHash) out.push(next);
       }
@@ -6853,8 +7113,8 @@
     .dxp-float span { display: block; margin-top: .1rem; font: 700 .7rem Inter, system-ui, sans-serif !important; color: rgba(255,255,255,.85); text-align: center; text-shadow: 0 1px 4px rgba(0,0,0,.8); }
     @keyframes dxp-float { 0% { opacity: 0; transform: translateY(0) scale(.6); } 12% { opacity: 1; transform: translateY(-20px) scale(1.1); } 75% { opacity: 1; } 100% { opacity: 0; transform: translateY(-260px) scale(1); } }
 
-    .dxp-joining { position: fixed; inset: 0; z-index: 99999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.1rem; background: rgba(8,8,10,.82); backdrop-filter: blur(10px); color: #fff; font-family: Inter, system-ui, sans-serif; opacity: 0; pointer-events: none; transition: opacity .25s ease; }
-    .dxp-joining.is-on { opacity: 1; pointer-events: auto; }
+    .dxp-joining { position: fixed; inset: 0; z-index: 99999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.1rem; background: rgba(8,8,10,.82); backdrop-filter: blur(10px); color: #fff; font-family: Inter, system-ui, sans-serif; opacity: 0; pointer-events: none; visibility: hidden; transition: opacity .25s ease, visibility 0s linear .25s; }
+    .dxp-joining.is-on { opacity: 1; pointer-events: auto; visibility: visible; transition: opacity .25s ease; }
     .dxp-spinner { width: 2.8rem; height: 2.8rem; border-radius: 50%; border: 3px solid rgba(255,255,255,.15); border-top-color: var(--dx-accent, #e50914); animation: dxp-spin .8s linear infinite; }
     .dxp-joining:not(.is-on) .dxp-spinner { animation: none; }
     @keyframes dxp-spin { to { transform: rotate(360deg); } }
@@ -7912,7 +8172,7 @@
   const HEVC_FAILED_KEY = "dxbi.hevcFailed2";
   const convert = {
     hevc: null, // can this PC decode 10-bit HEVC?
-    hevcBrowser: null, // what Chromium says, before what dx.bi learnt from failures
+    hevcBrowser: null, // what Chromium says, before what Lumen learnt from failures
     retried: new Set(),
     guessed: new Map(), // player route → release text, for routes converted up front because it looked like 10-bit HEVC
     unconverted: new Set(), // player routes the viewer chose to play without converting
@@ -8403,8 +8663,8 @@
       const chrome = (/Chrome\/([\d.]+)/.exec(ua) || [])[1];
       const hevc = convert.hevc === null ? "not checked" : convert.hevc ? "yes" : convert.hevcBrowser ? "no (played converted before)" : "no";
       return [
-        "dx.bi playback report",
-        `dx.bi ${PLUGIN_VERSION} · ${os}${r.platform ? ` (${r.platform})` : ""} · Chromium ${chrome || "?"}`,
+        "Lumen playback report",
+        `Lumen ${PLUGIN_VERSION} · ${os}${r.platform ? ` (${r.platform})` : ""} · Chromium ${chrome || "?"}`,
         `Streaming server ${r.server || "?"} · transcode profile: ${r.profile || "Disabled"} · hw accel: ${r.hwAccel}`,
         `Converted: ${convert.active()}${convert.wasGuess() ? " (up front, original not tried)" : ""} · 10-bit HEVC decoding: ${hevc}`,
         `File: ${r.format || "?"} · ${(r.streams || []).join(", ") || r.probe || "?"}`,
@@ -8445,7 +8705,7 @@
           } else if (why.kind === "dll") {
             text = IN_APP
               ? `<b>Windows can't start the streaming server's video tool (ffprobe): a file it needs is missing.</b> Restart ${APP_NAME}: when it starts, it checks the streaming server's ffmpeg and ffprobe and replaces copies that can't run, including the ones Stremio Service's Windows download comes with. If you've installed ffmpeg yourself (it's used first when it's on your PATH), remove or update it. Meanwhile, open this one in mpv or VLC.`
-              : `<b>Windows can't start the streaming server's video tool (ffprobe): a file it needs is missing.</b> If you use <i>Stremio Service</i>, its Windows download comes without the files its ffprobe needs: the dx.bi app repairs that by itself, or choose server.js when ${APP_NAME} starts instead. With server.js, close ${APP_NAME} and delete <i>ffmpeg.exe</i> and <i>ffprobe.exe</i> in <i>%APPDATA%\\stremio-enhanced\\streamingserver</i> so fresh copies are downloaded. If you've installed ffmpeg yourself (it's used first when it's on your PATH), remove or update it. Meanwhile, open this one in mpv or VLC.`;
+              : `<b>Windows can't start the streaming server's video tool (ffprobe): a file it needs is missing.</b> If you use <i>Stremio Service</i>, its Windows download comes without the files its ffprobe needs: the Lumen app repairs that by itself, or choose server.js when ${APP_NAME} starts instead. With server.js, close ${APP_NAME} and delete <i>ffmpeg.exe</i> and <i>ffprobe.exe</i> in <i>%APPDATA%\\stremio-enhanced\\streamingserver</i> so fresh copies are downloaded. If you've installed ffmpeg yourself (it's used first when it's on your PATH), remove or update it. Meanwhile, open this one in mpv or VLC.`;
           } else if (why.kind === "source") {
             text = `<b>The streaming server couldn't open this link.</b> Converting means the streaming server reads the file itself, and this source didn't let it: some only answer browsers, and links can expire. ${convert.wasGuess() ? "Try it as it is, pick" : "Pick"} another release, or open this one in mpv or VLC.`;
           } else if (why.kind === "converter") {
@@ -8453,7 +8713,7 @@
           } else if (convert.wasGuess()) {
             // Converted before it was tried: the original may well play (Macs decode HEVC themselves)
             tryOriginal = true;
-            text = "<b>Converting this release didn't work.</b> dx.bi converted it before trying it, because it looked like 10-bit HEVC and this computer seemed unable to play that. Try it as it is, pick another release (x264/H.264 or WEB-DL are the safest), or open it in mpv or VLC.";
+            text = "<b>Converting this release didn't work.</b> Lumen converted it before trying it, because it looked like 10-bit HEVC and this computer seemed unable to play that. Try it as it is, pick another release (x264/H.264 or WEB-DL are the safest), or open it in mpv or VLC.";
           } else {
             text = "<b>This release can't play here, even converted.</b> The file may be damaged or in an unusual format. Pick another release (x264/H.264 or WEB-DL are the safest), or open this one in mpv or VLC.";
           }
@@ -8693,7 +8953,7 @@
   // ---- Picture-in-picture (button lives in the player's control bar, see player.ensure)
 
   async function togglePip() {
-    if (window.__dxbiMpv) { window.__dxbiMpv.pip(); return; } // the dx.bi app's mpv player
+    if (window.__dxbiMpv) { window.__dxbiMpv.pip(); return; } // the Lumen app's mpv player
     const video = document.querySelector('[class*="player-container"] video');
     if (miniPlayer.usable() && video && (await miniPlayer.start(video))) return;
     try {
@@ -8780,7 +9040,7 @@
       if (!this.info || root.querySelector(":scope > .dx-mini-ui")) return;
       const ui = document.createElement("div");
       ui.className = "dx-mini-ui";
-      ui.innerHTML = `<div class="dx-mini-top"><button class="dx-mini-btn is-expand" title="Back to dx.bi">${ICONS.expand}</button><button class="dx-mini-btn is-close" title="Close">${ICONS.close}</button></div>` +
+      ui.innerHTML = `<div class="dx-mini-top"><button class="dx-mini-btn is-expand" title="Back to Lumen">${ICONS.expand}</button><button class="dx-mini-btn is-close" title="Close">${ICONS.close}</button></div>` +
         `<button class="dx-mini-btn is-play" title="Play / pause">${ICONS.pause}</button><div class="dx-mini-line"><i></i></div><div class="dx-mini-grip" title="Drag to resize"></div>`;
       const video = () => root.querySelector("video");
       const play = ui.querySelector(".is-play");
@@ -8895,7 +9155,7 @@
             <button class="dxe-btn" data-act="export">Back up</button>
             <button class="dxe-btn" data-act="import">Restore…</button>
             ${this.lastBackup() ? '<button class="dxe-btn" data-act="undo">Undo last change</button>' : ""}
-            ${this.missingPack(profile.addons).length ? '<button class="dxe-btn" data-act="pack">Add dx.bi Home rows</button>' : ""}
+            ${this.missingPack(profile.addons).length ? '<button class="dxe-btn" data-act="pack">Add Lumen Home rows</button>' : ""}
             <span class="dxe-spacer"></span>
             <button class="dxe-btn" data-act="close">Close</button>
             <button class="dxe-btn is-primary" data-act="save" disabled>Save order</button>
@@ -9051,10 +9311,10 @@
       }
       try { localStorage.setItem("dxbi.packOffered", "1"); } catch (_) { /* ignore */ }
       const list = missing.map((p) => `• ${p.name}: ${p.what}`).join("\n");
-      const choice = await launcher.showAlert("question", "Set up Home like dx.bi?", `Home's rows come from catalog addons on your Stremio account. Add these free ones (no accounts or keys needed)?\n\n${list}\n\nYou can remove them any time in Addons, or undo from Addons → Order & backup.`, ["Add them", "Not now"]);
+      const choice = await launcher.showAlert("question", "Set up Home like Lumen?", `Home's rows come from catalog addons on your Stremio account. Add these free ones (no accounts or keys needed)?\n\n${list}\n\nYou can remove them any time in Addons, or undo from Addons → Order & backup.`, ["Add them", "Not now"]);
       if (choice !== 0) return;
       const added = await this.installPack();
-      if (!added) launcher.showAlert("info", "dx.bi", "Couldn't reach the catalog addons right now. You can add them later from Addons → Order & backup.", ["OK"]);
+      if (!added) launcher.showAlert("info", "Lumen", "Couldn't reach the catalog addons right now. You can add them later from Addons → Order & backup.", ["OK"]);
     },
 
     // Replace the account's addon collection, keeping the previous one so it can be undone
@@ -9087,7 +9347,7 @@
     },
 
     exportFile() {
-      const data = { app: "dx.bi", type: "stremio-addons", exported: new Date().toISOString(), addons: this.original };
+      const data = { app: "Lumen", type: "stremio-addons", exported: new Date().toISOString(), addons: this.original };
       const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
       const a = Object.assign(document.createElement("a"), { href: url, download: `stremio-addons-${new Date().toISOString().slice(0, 10)}.json` });
       document.body.append(a);
@@ -9202,8 +9462,10 @@
   // only, which checks it with Stremio and never keeps it. The parental PIN stays on each device.
   // ---------------------------------------------------------------------------
 
-  const SYNC_ENDPOINT = "https://dxbi-sync.dxbialt.workers.dev/sync";
-  const SYNCED = /^(viewers|libraryOwners|kidsAllow|(homeLayout|hidden|cwDismissed):[\w-]{1,40})$/;
+  // Lumen's own sync server (tools/profile-sync, a Cloudflare Worker in Lumen's account): the Stremio sign-in
+  // key goes there and nowhere else, never to dx.bi's
+  const SYNC_ENDPOINT = "https://lumen-sync.hedigital.workers.dev/sync";
+  const SYNCED = /^(viewers|libraryOwners|kidsAllow|(homeLayout|hidden|cwDismissed|taste|ratings):[\w-]{1,40})$/;
   const SYNC_MAX_VALUE = 100 * 1024;
 
   // Two copies of the same thing, from two devices. Nothing here touches the page or the store.
@@ -9280,7 +9542,17 @@
     // one because a viewer was removed: the other devices have to hear of that.)
     on() {
       const v = viewers.list();
-      return settings.profileSync !== false && (v.list.length > 1 || !!(v.removed && v.removed.length));
+      return !!SYNC_ENDPOINT && settings.profileSync !== false && (v.list.length > 1 || !!(v.removed && v.removed.length));
+    },
+
+    // A device with a single viewer still looks (so the account's profiles appear on a new device after signing in),
+    // it just sends nothing: only on() lets anything leave
+    pull() {
+      return !!SYNC_ENDPOINT && settings.profileSync !== false;
+    },
+
+    push() {
+      return this.run();
     },
 
     auth() {
@@ -9324,7 +9596,7 @@
 
     async run({ keepalive = false } = {}) {
       clearTimeout(this.timer);
-      if (!this.on() || this.busy) return;
+      if (!this.pull() || this.busy) return;
       const auth = this.auth();
       if (!auth || this.rejectedKey === auth.key) return;
       if (Date.now() < this.retryAt && !keepalive) return;
@@ -9373,7 +9645,7 @@
         this.merge(received);
         if (Number(answer.now)) this.local(sinceKey, String(answer.now));
         // this device's first sync with this account: what it already has goes up too
-        if (first) {
+        if (first && this.on()) {
           const came = new Set(received.map((e) => e && e.k));
           for (const k of Object.keys(store.data)) if (SYNCED.test(k) && store.data[k].v !== undefined && !came.has(k)) this.dirty.add(k);
         }
@@ -9462,7 +9734,7 @@
     seenKey: "",
     nextLook: 0,
     watch() {
-      if (this.busy || Date.now() < this.nextLook || !this.on()) return;
+      if (this.busy || Date.now() < this.nextLook || !this.pull()) return;
       this.nextLook = Date.now() + 5000;
       const auth = this.auth();
       const key = auth ? auth.key : "";
@@ -9479,7 +9751,7 @@
       this.seenKey = auth ? auth.key : "";
       // back in front: what other devices did (every 15 s at most); going to the back: send now
       this.onVisible = () => {
-        if (!this.on()) return;
+        if (!this.pull()) return;
         if (document.hidden) {
           if (this.dirty.size) this.run({ keepalive: true });
         } else if (Date.now() - this.lastTry > 15000) this.run();
@@ -9488,11 +9760,11 @@
       // Stremio fetches the library when the window gets focus, and a window left open is never
       // hidden: without this a title watched on the TV arrives before the note of whose it is
       this.onFocus = () => {
-        if (this.on() && Date.now() - this.lastTry > 15000) this.run();
+        if (this.pull() && Date.now() - this.lastTry > 15000) this.run();
       };
       window.addEventListener("focus", this.onFocus);
       this.poll = setInterval(() => {
-        if (this.on() && !document.hidden) this.run();
+        if (this.pull() && !document.hidden) this.run();
       }, 180000);
       setTimeout(() => this.run(), 3000);
     },
@@ -9512,6 +9784,9 @@
 
   const VIEWER_COLOURS = ["#e50914", "#2f80ff", "#1db954", "#f5a524", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
 
+  // What belongs to one Stremio account on this device (not the parental PIN, which is the device's)
+  const ACCOUNT_DATA = /^(viewers|libraryOwners|kidsAllow|(homeLayout|hidden|cwDismissed|taste|ratings|stats|playback|quickPlay|tune|librarySort):[\w-]{1,40})$/;
+
   const viewers = {
     list() {
       const saved = store.get("viewers", null);
@@ -9530,10 +9805,11 @@
     save(v) {
       store.set("viewers", v);
     },
-    add(name) {
+    add(name, wanted) {
       const v = this.list();
       const used = new Set(v.list.map((x) => x.colour));
-      const colour = VIEWER_COLOURS.find((c) => !used.has(c)) || VIEWER_COLOURS[v.list.length % VIEWER_COLOURS.length];
+      // (the colour they chose, else the next one not used yet)
+      const colour = VIEWER_COLOURS.includes(wanted) ? wanted : VIEWER_COLOURS.find((c) => !used.has(c)) || VIEWER_COLOURS[v.list.length % VIEWER_COLOURS.length];
       const viewer = { id: "v" + Date.now().toString(36), name: name.trim().slice(0, 20), colour };
       v.list.push(viewer);
       this.save(v);
@@ -9552,6 +9828,13 @@
       const v = this.list();
       const viewer = v.list.find((x) => x.id === id);
       if (viewer && name.trim()) viewer.name = name.trim().slice(0, 20);
+      this.save(v);
+    },
+    recolour(id, colour) {
+      const v = this.list();
+      const viewer = v.list.find((x) => x.id === id);
+      if (!viewer || !VIEWER_COLOURS.includes(colour)) return;
+      viewer.colour = colour;
       this.save(v);
     },
     select(id) {
@@ -10094,14 +10377,14 @@
         const base = id.split(":")[0];
         if (isImdb(base)) imdb.push([key, base]);
         else if (/^kitsu:\d+/.test(id)) kitsu.push([key, id.split(":")[1]]);
-        else if (/^tmdb:\d+$/.test(id) && settings.tmdbKey.trim()) tmdbIds.push([key, id.split(":")[1], key.startsWith("movie:") ? "movie" : "tv"]);
+        else if (/^tmdb:\d+$/.test(id) && tmdbKey()) tmdbIds.push([key, id.split(":")[1], key.startsWith("movie:") ? "movie" : "tv"]);
         else this.remember(key, null);
       }
       for (let i = 0; i < imdb.length; i += 60) await this.wikidata(imdb.slice(i, i + 60)).catch(() => { /* below */ });
       for (let i = 0; i < kitsu.length; i += 20) await this.kitsu(kitsu.slice(i, i + 20)).catch(() => { /* below */ });
       // still unknown: TMDB, when there's a key
       const left = imdb.filter(([key]) => this.queue.has(key));
-      if (settings.tmdbKey.trim()) {
+      if (tmdbKey()) {
         for (const [key, tt] of left) await this.tmdb(key, tt).catch(() => { /* below */ });
         for (const [key, n, kind] of tmdbIds) await this.tmdb(key, null, { id: n, kind }).catch(() => { /* below */ });
       }
@@ -10136,7 +10419,7 @@
     },
 
     async tmdb(key, tt, direct) {
-      const token = settings.tmdbKey.trim();
+      const token = tmdbKey();
       const auth = token.startsWith("eyJ") ? { headers: { Authorization: `Bearer ${token}` } } : { headers: {} };
       const withKey = (url) => (token.startsWith("eyJ") ? url : `${url}${url.includes("?") ? "&" : "?"}api_key=${encodeURIComponent(token)}`);
       const get = async (url) => {
@@ -10434,7 +10717,8 @@
 
   // Reports go to dx.bi's relay (tools/report-relay, a Cloudflare Worker), which checks them and posts
   // them to a private Discord channel. The channel's webhook is the relay's secret, not in this code.
-  const REPORT_ENDPOINT = "https://dxbi-reports.dxbialt.workers.dev/report";
+  // Lumen has no report relay (dx.bi's posts to dx.bi's Discord): the menu leaves "Report a problem" out
+  const REPORT_ENDPOINT = "";
 
   function redact(text) {
     return String(text == null ? "" : text)
@@ -10451,8 +10735,8 @@
 
     where() {
       // (the report relay knows these three: a phone's report says it's a phone in its device details)
-      if (IN_TV) return "dx.bi TV";
-      if (IN_APP) return "dx.bi app";
+      if (IN_TV) return "Lumen TV";
+      if (IN_APP) return "Lumen app";
       return "Stremio Enhanced plugin";
     },
 
@@ -10591,7 +10875,7 @@
       for (const type of ["keydown", "keyup", "keypress"]) el.addEventListener(type, (e) => e.stopPropagation());
       el.innerHTML = `<div class="dxe-report-card" role="dialog" aria-label="Report a problem">
         <h2>Report a problem</h2>
-        <p>Say what went wrong and what you were doing. dx.bi adds the details that help fix it: its version, your device, your settings, addon names, how many titles are in your library, and recent errors. No e-mail, passwords, keys or stream links are sent.</p>
+        <p>Say what went wrong and what you were doing. Lumen adds the details that help fix it: its version, your device, your settings, addon names, how many titles are in your library, and recent errors. No e-mail, passwords, keys or stream links are sent.</p>
         <textarea rows="5" maxlength="1500" placeholder="e.g. The calendar is empty, even though my library has shows that are airing"></textarea>
         <div class="dxe-report-btns"><span class="dxe-report-status"></span><button class="dxe-btn" data-cancel>Cancel</button><button class="dxe-btn is-primary" data-send>Send report</button></div>
       </div>`;
@@ -10604,7 +10888,7 @@
         status.textContent = "Sending…";
         try {
           const code = await this.send(el.querySelector("textarea").value);
-          el.querySelector(".dxe-report-card").innerHTML = `<h2>Report sent</h2><p>Thanks! Your report code is <b class="dxe-report-code">${esc(code)}</b>. Post it in dx.bi's Discord (#bug-reports) so it can be matched to you.</p><div class="dxe-report-btns"><button class="dxe-btn is-primary" data-close>Done</button></div>`;
+          el.querySelector(".dxe-report-card").innerHTML = `<h2>Report sent</h2><p>Thanks! Your report code is <b class="dxe-report-code">${esc(code)}</b>. Post it in Lumen's Discord (#bug-reports) so it can be matched to you.</p><div class="dxe-report-btns"><button class="dxe-btn is-primary" data-close>Done</button></div>`;
         } catch (err) {
           status.textContent = err.message;
           send.disabled = false;
@@ -10886,7 +11170,7 @@
         while (g.measureText(s).width > 930 && s.length > 4) s = `${s.slice(0, -2).trimEnd()}…`;
         g.fillText(s, x, y);
       };
-      text("dx.bi", 80, 120, "800 44px");
+      text("Lumen", 80, 120, "800 44px");
       text(`My ${year}`, 80, 240, "800 96px");
       text(hoursText(f.total), 80, 420, "800 124px", accent);
       text("watched", 80, 480, "500 40px", "rgba(255,255,255,.7)");
@@ -10916,7 +11200,7 @@
 
       return `
         <div class="dxe-head">
-          <b>Your stats<small>${esc(viewer.name)} · counted by dx.bi since ${esc(since)} · ${hoursText(total)} in total</small></b>
+          <b>Your stats<small>${esc(viewer.name)} · counted by Lumen since ${esc(since)} · ${hoursText(total)} in total</small></b>
           ${viewers.list().list.length > 1 ? '<button class="dxe-btn" data-act="who">Switch viewer</button>' : ""}
           ${IN_TV || tiles[3][1] < 60 ? "" : '<button class="dxe-btn" data-act="year">Save my year</button>'}
           <button class="dxe-btn" data-act="close">Close</button>
@@ -10941,7 +11225,7 @@
               </div>
             </div>
           </div>
-          <p class="dxe-note">Stats stay on this PC (saved with dx.bi's data, per viewer). Only time spent actually playing counts.</p>
+          <p class="dxe-note">Stats stay on this PC (saved with Lumen's data, per viewer). Only time spent actually playing counts.</p>
         </div>`;
     },
   };
@@ -10987,7 +11271,7 @@
       if (settings.watchStats) items.push(make("Your stats", ICONS.chart, () => statsPanel.open()));
       if (settings.whoIsWatching) items.push(make("Who's watching?", ICONS.people, () => whoIsWatching.open()));
       items.push(make("Customise Home", ICONS.sliders, () => homeLayout.open()));
-      items.push(make("Report a problem", ICONS.bug, () => report.open()));
+      if (REPORT_ENDPOINT) items.push(make("Report a problem", ICONS.bug, () => report.open()));
       template.before(...items);
     },
   };
@@ -11189,7 +11473,7 @@
           <div class="dxe-head"><b>Keyboard shortcuts<small>Press ? any time to open this list</small></b><button class="dxe-btn" data-act="close">Close</button></div>
           <div class="dxe-keys">${SHORTCUTS.map(([group, rows]) => `
             <div class="dxe-section"><div class="dxe-label">${esc(group)}</div>
-              ${rows.map(([k, label, dx]) => `<div class="dxe-key"><span>${esc(label)}${dx ? '<em>dx.bi</em>' : ""}</span><kbd>${esc(k)}</kbd></div>`).join("")}
+              ${rows.map(([k, label, dx]) => `<div class="dxe-key"><span>${esc(label)}${dx ? '<em>Lumen</em>' : ""}</span><kbd>${esc(k)}</kbd></div>`).join("")}
             </div>`).join("")}
           </div>
         </div>`;
@@ -11749,7 +12033,7 @@
 
     // With a TMDB key: TMDB's real "people who watched this also watched" list
     async recommended(seed) {
-      const token = settings.tmdbKey.trim();
+      const token = tmdbKey();
       if (!token) return null;
       const bearer = token.startsWith("eyJ");
       const get = (path) => fetch(`https://api.themoviedb.org/3${path}${bearer ? "" : `${path.includes("?") ? "&" : "?"}api_key=${encodeURIComponent(token)}`}`, {
@@ -11825,6 +12109,628 @@
       if (this.el) this.el.remove();
       this.el = null;
       this.built = null;
+    },
+  };
+
+  // ---------------------------------------------------------------------------
+  // Picks for you: what this viewer actually watched (recent, finished, watched again; never what
+  // they gave up on or only added), turned into recommendations on the device. For each of their
+  // favourite titles TMDB's "recommendations" and "similar" (with a TMDB key; without one, popular
+  // titles in the genres they watch most, from Cinemeta) are gathered, and every candidate is scored by
+  // how many of their titles point to it, how well its genres fit theirs, its rating and its age. Films
+  // and series only, nothing they have watched or saved, nothing hidden. Gives a "Top Picks for You"
+  // row and "Because you watched X" rows. Kept 12 hours; nothing but title ids leaves the device.
+  // ---------------------------------------------------------------------------
+
+  // <reco-pure>
+  // The maths, with no page and no network in it (tools/recommender-test.mjs runs it on its own)
+  const recoMath = {
+    // How much a library item says about the viewer's taste (0: nothing, or they gave up on it)
+    weight(item, now, rating) {
+      const s = (item && item.state) || {};
+      const last = s.lastWatched ? Date.parse(s.lastWatched) || 0 : 0;
+      if (!last || !item || (item.type !== "movie" && item.type !== "series")) return 0;
+      const times = s.timesWatched || 0;
+      const done = times > 0 || (s.flaggedWatched || 0) > 0;
+      const part = s.duration > 0 ? Math.min(1, (s.timeOffset || 0) / s.duration) : 0;
+      const minutes = (s.overallTimeWatched || 0) / 60000;
+      let completion;
+      if (item.type === "movie") {
+        if (!done && part < 0.3) return 0; // switched off in the first third
+        completion = done ? 1 : part;
+      } else {
+        if (!done && minutes < 20) return 0; // one episode's start isn't a taste
+        completion = Math.min(1, minutes / 120);
+      }
+      const again = 1 + 0.5 * Math.min(3, Math.max(0, times - 1));
+      const days = Math.max(0, (now - last) / 86400e3);
+      const recent = 0.15 + Math.exp(-days / 120);
+      const hours = item.type === "series" ? 1 + Math.log10(1 + minutes / 60) : 1;
+      const base = (0.4 + completion) * again * recent * hours;
+      const r = Number(rating);
+      if (Number.isFinite(r) && r >= 1) {
+        if (r >= 9) return base * 2.5;
+        if (r >= 7) return base * 1.8;
+        if (r >= 5) return base * 1.0;
+        if (r <= 4) return 0;
+      }
+      return base;
+    },
+    // Already seen it, or started it properly (so it's not a recommendation)
+    seen(item, now) {
+      const s = (item && item.state) || {};
+      if ((s.timesWatched || 0) > 0 || (s.flaggedWatched || 0) > 0) return true;
+      const part = s.duration > 0 ? (s.timeOffset || 0) / s.duration : 0;
+      return item.type === "movie" ? part >= 0.5 : (s.overallTimeWatched || 0) >= 20 * 60000;
+    },
+    // Started and given up on (>3 days ago, >5 min played, <30% of a film or <20 min of a series), or disliked rating (1-4)
+    dropped(item, now, rating) {
+      if (rating != null && Number(rating) >= 1 && Number(rating) <= 4) return true;
+      const s = (item && item.state) || {};
+      const last = s.lastWatched ? Date.parse(s.lastWatched) || 0 : 0;
+      if (!last || now - last < 3 * 86400e3 || !item || (item.type !== "movie" && item.type !== "series") || this.seen(item, now)) return false;
+      if (item.type === "movie") {
+        const part = s.duration > 0 ? (s.timeOffset || 0) / s.duration : 0;
+        return (s.timeOffset || 0) >= 5 * 60000 && part > 0 && part < 0.3;
+      }
+      const minutes = (s.overallTimeWatched || 0) / 60000;
+      return minutes >= 5 && minutes < 20;
+    },
+    // Folds Tune Suggestions seeds into watched history: strong when just tuned or with little watched, fading as history grows
+    blendSeeds(watched, taste, tasteTime, now) {
+      const list = Array.isArray(watched) ? watched.map((x) => ({ ...x })) : [];
+      if (!taste || !Array.isArray(taste.titles) || !taste.titles.length) return list;
+      const fresh = tasteTime > 0 && now - tasteTime < 7 * 86400e3;
+      const w = fresh ? 1.4 : 1.1 / (1 + list.length * 0.2);
+      const byId = new Map(list.map((x) => [x.item && x.item._id, x]));
+      for (const t of taste.titles) {
+        if (!t || !/^tt\d+$/.test(t.id || "")) continue;
+        const hit = byId.get(t.id);
+        if (hit) {
+          hit.weight += 0.3 * w;
+          if ((!hit.item.genres || !hit.item.genres.length) && Array.isArray(t.genres) && t.genres.length) hit.item = { ...hit.item, genres: t.genres };
+        } else {
+          const entry = {
+            item: { _id: t.id, type: t.type === "series" ? "series" : "movie", name: t.name || "", poster: t.poster || null, genres: Array.isArray(t.genres) ? t.genres : [] },
+            weight: w,
+            fromTaste: true,
+          };
+          list.push(entry);
+          byId.set(t.id, entry);
+        }
+      }
+      return list.sort((a, b) => b.weight - a.weight);
+    },
+    // Interleaves the model's ranked candidates and resolved additions under strict id/poster/skip/dedupe guardrails
+    mergeRanked(scored, ai, resolvedAdditions, skip) {
+      const list = Array.isArray(scored) ? scored : [];
+      const blocked = skip && typeof skip.has === "function" ? skip : new Set(skip || []);
+      const seenIds = new Set();
+      const seenNames = new Set();
+      const out = [];
+      const push = (c) => {
+        if (!c || !/^tt\d+$/.test(c.id || "") || !c.poster || blocked.has(c.id) || seenIds.has(c.id)) return;
+        const year = Number(String(c.year || "").slice(0, 4)) || 0;
+        const dupe = `${String(c.name || "").toLowerCase()}|${year}`;
+        if (c.name && seenNames.has(dupe)) return;
+        seenIds.add(c.id);
+        if (c.name) seenNames.add(dupe);
+        out.push({ ...c, type: c.type === "series" ? "series" : "movie", year, seeds: Array.isArray(c.seeds) ? c.seeds : [] });
+      };
+      const byId = new Map(list.map((c) => [c && c.id, c]));
+      const ranked = (ai && Array.isArray(ai.ranked) ? ai.ranked : []).map((id) => byId.get(id)).filter(Boolean);
+      const adds = (Array.isArray(resolvedAdditions) ? resolvedAdditions : []).filter(Boolean);
+      let ri = 0;
+      let aiIdx = 0;
+      while (ri < ranked.length || aiIdx < adds.length) {
+        if (ri < ranked.length) push(ranked[ri++]);
+        if (ri < ranked.length) push(ranked[ri++]);
+        if (aiIdx < adds.length) push(adds[aiIdx++]);
+      }
+      for (const c of list) push(c);
+      return out;
+    },
+    // How far suggestions lean to films or to series: what the viewer said in Tune Suggestions ("movie" or
+    // "series"), else even. A candidate's score is multiplied by its kind's share
+    lean(prefer) {
+      if (prefer === "movie") return { movie: 1, series: 0.45 };
+      if (prefer === "series") return { movie: 0.45, series: 1 };
+      return { movie: 1, series: 1 };
+    },
+    // The titles suggestions start from, [n] of them: the strongest, but never all of one kind. A series is
+    // watched for many more hours than a film, so by weight alone a viewer's top titles are nearly all series,
+    // and (each title only points to its own kind) so were the suggestions. Three in four are the kind they
+    // prefer, half and half when they haven't said; a kind they have too few of is made up from the other.
+    // The preferred kind comes first, so the "Because you watched" rows are of it
+    pickSeeds(list, prefer, n = 12) {
+      const kind = (x) => (x.item && x.item.type === "series" ? "series" : "movie");
+      const most = Math.round(n * 0.75);
+      const want = prefer === "movie" ? { movie: most, series: n - most } : prefer === "series" ? { movie: n - most, series: most } : { movie: n / 2, series: n / 2 };
+      const sorted = (Array.isArray(list) ? list : []).slice().sort((a, b) => b.weight - a.weight);
+      const taken = { movie: 0, series: 0 };
+      const out = [];
+      const rest = [];
+      for (const x of sorted) {
+        const k = kind(x);
+        if (taken[k] < want[k]) { out.push(x); taken[k]++; } else rest.push(x);
+      }
+      for (const x of rest) {
+        if (out.length >= n) break;
+        out.push(x);
+      }
+      const first = (x) => (prefer === "movie" || prefer === "series") && kind(x) !== prefer ? 1 : 0;
+      return out.slice(0, n).sort((a, b) => first(a) - first(b) || b.weight - a.weight);
+    },
+    // A row in the mix the viewer likes: three of the kind they prefer, then one of the other, in each kind's
+    // own order (as it is when they haven't said). The other kind fills the row when theirs runs out
+    mix(list, prefer) {
+      const all = Array.isArray(list) ? list : [];
+      if (prefer !== "movie" && prefer !== "series") return all;
+      const main = all.filter((c) => c.type === prefer);
+      const other = all.filter((c) => c.type !== prefer);
+      const out = [];
+      let m = 0;
+      let o = 0;
+      while (m < main.length) {
+        for (let i = 0; i < 3 && m < main.length; i++) out.push(main[m++]);
+        if (o < other.length) out.push(other[o++]);
+      }
+      while (o < other.length) out.push(other[o++]);
+      return out;
+    },
+    // A title they rated 7 or more but never played in Stremio (rated from memory): as much a taste as one watched
+    ratedWeight(rating) {
+      const r = Number(rating);
+      return r >= 9 ? 2.2 : r >= 7 ? 1.3 : 0;
+    },
+    // Genres weighted by the titles they came from, 0 to 1 (genres are TMDB ids or Cinemeta names)
+    profile(seeds) {
+      const sum = {};
+      for (const { weight, genres } of seeds) for (const g of genres || []) sum[g] = (sum[g] || 0) + weight;
+      const top = Math.max(0, ...Object.values(sum));
+      const out = {};
+      if (top > 0) for (const [g, v] of Object.entries(sum)) out[g] = v / top;
+      return out;
+    },
+    // A candidate's score: pointers [{w (the seed's weight), rank, kind: "rec" | "similar"}]
+    score(c, profile, year) {
+      let pointing = 0;
+      for (const p of c.pointers || []) pointing += (p.w * (p.kind === "rec" ? 1 : 0.6)) / (1 + p.rank / 8);
+      const genres = c.genres || [];
+      const fit = genres.length ? genres.reduce((a, g) => a + (profile[g] || 0), 0) / genres.length : 0;
+      const rating = c.votes >= 50 ? Math.max(-1, Math.min(1, (c.rating - 6) / 3)) : 0;
+      const age = c.year ? year - c.year : 9;
+      const fresh = age <= 2 ? 0.3 : age <= 6 ? 0.15 : 0;
+      return 2 * pointing + 1.2 * fit + 0.8 * rating + fresh;
+    },
+  };
+  // </reco-pure>
+
+  const ratings = {
+    // (timer for the bridge's refresh of the picks, half a minute after the last rating)
+    later: 0,
+    key: () => viewers.key("ratings"),
+    // Only scores that mean something: a stray key or a value outside 1-10 (old or hand-edited data) is dropped here, once
+    all() {
+      const data = store.get(this.key(), null);
+      const out = {};
+      if (!data || typeof data !== "object") return out;
+      for (const [id, val] of Object.entries(data)) {
+        const n = typeof val === "string" && !val.trim() ? NaN : Number(val);
+        if (id && Number.isInteger(n) && n >= 1 && n <= 10) out[id] = n;
+      }
+      return out;
+    },
+    get(id) {
+      if (!id) return null;
+      return this.all()[id] ?? null;
+    },
+    // True only when something changed, so an unchanged tap costs no write and no cloud push
+    set(id, score) {
+      if (!id || typeof id !== "string") return false;
+      const all = this.all();
+      const n = Number(score);
+      if (Number.isInteger(n) && n >= 1 && n <= 10) {
+        if (all[id] === n) return false;
+        all[id] = n;
+      } else {
+        if (!Object.hasOwn(all, id)) return false;
+        delete all[id];
+        this.forget(id);
+      }
+      store.set(this.key(), all);
+      if (typeof cloudSync.push === "function") cloudSync.push();
+      return true;
+    },
+    // What each rated title is ({type, name, year, genres}), kept on this device: a title rated from memory isn't
+    // in the library, and the suggestions need its name and kind
+    META: "dxbi.rated.meta",
+    metas() {
+      try { return JSON.parse(localStorage.getItem(this.META) || "{}") || {}; } catch (_) { return {}; }
+    },
+    meta(id) {
+      const m = this.metas()[id];
+      if (m && m.name) return m;
+      const item = viewerLibrary.raw().get(id);
+      return item && item.name ? { type: item.type === "series" ? "series" : "movie", name: item.name, year: 0, genres: [] } : null;
+    },
+    remember(id, meta) {
+      if (!/^tt\d+$/.test(id || "") || !meta || !meta.name) return;
+      const all = this.metas();
+      all[id] = { type: meta.type === "series" ? "series" : "movie", name: String(meta.name).slice(0, 120), year: Number(meta.year) || 0, genres: (meta.genres || []).slice(0, 4) };
+      try { localStorage.setItem(this.META, JSON.stringify(all)); } catch (_) { /* full */ }
+    },
+    // A removed rating's title details go too, so they don't pile up
+    forget(id) {
+      const all = this.metas();
+      if (!Object.hasOwn(all, id)) return;
+      delete all[id];
+      try { localStorage.setItem(this.META, JSON.stringify(all)); } catch (_) { /* full */ }
+    },
+    // Looks up the rated titles this device doesn't know yet (rated on another device, or before names were kept)
+    async fill() {
+      const known = this.metas();
+      const todo = Object.keys(this.all()).filter((id) => /^tt\d+$/.test(id) && !(known[id] && known[id].name)).slice(0, 40);
+      const json = (path) => fetch(`${forYou.BASE}${path}`, { signal: AbortSignal.timeout(8000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      for (let i = 0; i < todo.length; i += 8) {
+        await Promise.all(todo.slice(i, i + 8).map(async (id) => {
+          const item = viewerLibrary.raw().get(id);
+          const kinds = item ? [item.type === "series" ? "series" : "movie"] : ["movie", "series"];
+          for (const type of kinds) {
+            const m = await json(`/meta/${type}/${id}.json`);
+            if (m && m.meta && m.meta.name) {
+              this.remember(id, { type, name: m.meta.name, year: parseInt(m.meta.releaseInfo || m.meta.year, 10) || 0, genres: m.meta.genres || m.meta.genre || [] });
+              return;
+            }
+          }
+        }));
+      }
+    },
+  };
+
+  const recommender = {
+    KEEP: 12 * 3600e3,
+    loading: null,
+    ids: new Set(),
+    TMDB_GENRES_SKIPPED: new Set([10767, 10763, 10764]), // talk shows, news, reality: not recommendations
+
+    // The titles that say the most about this viewer, strongest first (watched + decayed Tune Suggestions seeds)
+    history() {
+      const now = Date.now();
+      const watched = [...viewerLibrary.raw().values()]
+        .filter((i) => /^tt\d+$/.test(i._id) && viewerLibrary.mine(i._id))
+        .map((i) => ({ item: i, weight: recoMath.weight(i, now, ratings.get(i._id)) }))
+        .filter((x) => x.weight > 0)
+        .sort((a, b) => b.weight - a.weight);
+      // (rated 7 or more but never played here: rated from memory, in Rate Films & Series)
+      const have = new Set(watched.map((x) => x.item._id));
+      for (const [id, r] of Object.entries(ratings.all())) {
+        const w = recoMath.ratedWeight(r);
+        const m = w > 0 && !have.has(id) && /^tt\d+$/.test(id) ? ratings.meta(id) : null;
+        if (m) watched.push({ item: { _id: id, type: m.type, name: m.name, year: m.year, genres: m.genres || [] }, weight: w, fromRating: true });
+      }
+      const tasteKey = viewers.key("taste");
+      const taste = store.get(tasteKey, null);
+      const tasteTime = (store.data[tasteKey] && store.data[tasteKey].t) || 0;
+      return recoMath.pickSeeds(recoMath.blendSeeds(watched, taste, tasteTime, now), this.prefer(), 12);
+    },
+    // Films or series: what this viewer said they'd rather be suggested (Tune Suggestions), else null
+    prefer() {
+      const taste = store.get(viewers.key("taste"), null);
+      return taste && (taste.prefer === "movie" || taste.prefer === "series") ? taste.prefer : null;
+    },
+    // Negative signals: hidden titles, dismissed from Continue Watching, or switched off early
+    dropped() {
+      const now = Date.now();
+      const raw = viewerLibrary.raw();
+      const out = [];
+      const seen = new Set();
+      const add = (id, type, name) => {
+        if (!id || !name || seen.has(id) || out.length >= 8) return;
+        seen.add(id);
+        out.push({ id, type: type === "series" ? "series" : "movie", name });
+      };
+      for (const h of store.get(viewers.key("hidden"), null) || []) {
+        if (h) add(h.id || String(h.key || "").split(":").slice(1).join(":"), h.type, h.name || (raw.get(h.id) && raw.get(h.id).name));
+      }
+      for (const id of Object.keys(store.get(viewers.key("cwDismissed"), null) || {})) {
+        const item = raw.get(id);
+        if (item) add(id, item.type, item.name);
+      }
+      for (const [id, r] of Object.entries(ratings.all())) {
+        if (Number(r) >= 1 && Number(r) <= 4) {
+          const m = ratings.meta(id);
+          if (m) add(id, m.type, m.name);
+        }
+      }
+      const abandoned = [...raw.values()]
+        .filter((i) => /^tt\d+$/.test(i._id) && viewerLibrary.mine(i._id) && recoMath.dropped(i, now, ratings.get(i._id)))
+        .sort((a, b) => Date.parse((b.state && b.state.lastWatched) || 0) - Date.parse((a.state && a.state.lastWatched) || 0));
+      for (const i of abandoned) add(i._id, i.type, i.name);
+      return out;
+    },
+    // Not to be recommended: seen, saved to the library, hidden or dismissed
+    skip() {
+      const now = Date.now();
+      const out = new Set((store.get(viewers.key("hidden"), null) || []).map((x) => String(x.key).split(":").slice(1).join(":")));
+      for (const i of viewerLibrary.raw().values()) {
+        if (!viewerLibrary.mine(i._id)) continue;
+        if ((!i.removed && !i.temp) || recoMath.seen(i, now)) out.add(i._id);
+      }
+      // (rated: seen, wherever it was watched)
+      for (const id of Object.keys(ratings.all())) out.add(id);
+      return out;
+    },
+    sig(seeds) {
+      const taste = store.get(viewers.key("taste"), null);
+      const genres = taste && Array.isArray(taste.genres) ? taste.genres.join(",") : "";
+      const rated = Object.entries(ratings.all()).sort(([a], [b]) => a.localeCompare(b)).map(([id, r]) => `${id}:${r}`).join(",");
+      let hash = 0;
+      for (let i = 0; i < rated.length; i++) hash = ((hash << 5) - hash + rated.charCodeAt(i)) | 0;
+      const ratedSig = rated.length ? `r${rated.length}:${hash.toString(36)}` : "";
+      return [viewers.current().id, tmdbKey() ? "t" : "c", settings.aiPicks ? "a" : "n", this.prefer() || "", genres, ratedSig, ...seeds.slice(0, 8).map((s) => s.item._id)].join("|");
+    },
+    key: () => `dxbi.picks.${viewers.current().id}`,
+    saved() {
+      try { return JSON.parse(localStorage.getItem(this.key()) || "null"); } catch (_) { return null; }
+    },
+
+    // null while it's being worked out (ask again shortly); stale: true is the last answer, being redone
+    get() {
+      const seeds = this.history();
+      if (!seeds.length) return { rows: [] };
+      const sig = this.sig(seeds);
+      const saved = this.saved();
+      const ttl = !settings.aiPicks || (saved && saved.ai) ? this.KEEP : 10 * 60e3;
+      const fresh = saved && saved.sig === sig && Date.now() - saved.t < ttl;
+      if (fresh) return { rows: saved.rows };
+      if (this.loading !== sig) {
+        this.loading = sig;
+        this.build(seeds, sig).catch((err) => log("picks failed", err && err.message)).finally(() => { if (this.loading === sig) this.loading = null; });
+      }
+      return saved ? { rows: saved.rows, stale: true } : null;
+    },
+
+    // AI curation via Lumen's Worker (/picks): reorders candidates and resolves new additions through Cinemeta,
+    // then enforces id, poster, skip and duplicate guardrails on the device. Falls back to scored on any error.
+    async rank(taste, scored, skip) {
+      this.lastAi = false;
+      if (!settings.aiPicks || !scored.length || !SYNC_ENDPOINT) return scored;
+      const auth = cloudSync.auth();
+      if (!auth || cloudSync.rejectedKey === auth.key) return scored;
+      const tuned = store.get(viewers.key("taste"), null);
+      const payload = {
+        viewer: viewers.current().id,
+        sig: this.sig(taste),
+        watched: taste.slice(0, 12).map((s) => ({
+          id: s.item._id,
+          type: s.item.type === "series" ? "series" : "movie",
+          name: s.item.name || "",
+          year: Number(String(s.item.year || s.item.releaseInfo || "").slice(0, 4)) || 0,
+          genres: (s.genres || s.item.genres || []).slice(0, 4),
+          weight: Math.round(s.weight * 100) / 100,
+        })),
+        genres: ((tuned && Array.isArray(tuned.genres) ? tuned.genres : [])).slice(0, 12),
+        prefer: this.prefer(),
+        dropped: this.dropped(),
+        // (the scores that say most first, loved and hated; one whose name isn't known tells the model nothing)
+        ratings: Object.entries(ratings.all())
+          .map(([id, r]) => ({ id, rating: r, meta: ratings.meta(id) }))
+          .filter((e) => e.meta)
+          .sort((a, b) => Math.abs(b.rating - 5.5) - Math.abs(a.rating - 5.5))
+          .slice(0, 20)
+          .map((e) => ({ id: e.id, rating: e.rating, name: e.meta.name, type: e.meta.type, year: e.meta.year || 0 })),
+        candidates: scored.slice(0, 40).map((c) => ({
+          id: c.id,
+          type: c.type === "series" ? "series" : "movie",
+          name: c.name,
+          year: c.year || 0,
+          genres: (c.genres || []).slice(0, 4),
+          rating: Math.round((c.rating || 0) * 10) / 10,
+          seeds: (c.seeds || []).slice(0, 3),
+        })),
+      };
+      const r = await fetch(SYNC_ENDPOINT.replace(/\/sync$/, "/picks"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Stremio ${auth.key}` },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(25000),
+      }).catch(() => null);
+      if (!r || !r.ok) {
+        if (r && r.status === 401) cloudSync.rejectedKey = auth.key;
+        return scored;
+      }
+      const answer = await r.json().catch(() => null);
+      if (!answer) return scored;
+      this.lastAi = true;
+      const additions = (Array.isArray(answer.additions) ? answer.additions : []).slice(0, 15);
+      const resolved = [];
+      const topSeed = taste[0] && taste[0].item && taste[0].item._id;
+      const validSeeds = new Set(taste.map((s) => s.item._id));
+      for (let i = 0; i < additions.length; i += 5) {
+        const batch = await Promise.all(additions.slice(i, i + 5).map(async (a) => {
+          if (!a || (a.type !== "movie" && a.type !== "series") || !a.name) return null;
+          const found = await christmasLists.find(a.type, a.name, a.year);
+          if (!found || !found.id || !found.poster) return null;
+          const seeds = (Array.isArray(a.seeds) ? a.seeds : []).filter((id) => validSeeds.has(id));
+          return {
+            ...found,
+            type: a.type,
+            year: Number(String(found.year || a.year || "").slice(0, 4)) || 0,
+            seeds: seeds.length ? seeds : topSeed ? [topSeed] : [],
+          };
+        }));
+        resolved.push(...batch.filter(Boolean));
+      }
+      return recoMath.mergeRanked(scored, answer, resolved, skip);
+    },
+
+    async build(seeds, sig) {
+      const before = Object.keys(ratings.metas()).length;
+      await ratings.fill().catch(() => {});
+      if (Object.keys(ratings.metas()).length !== before) {
+        seeds = this.history();
+        sig = this.sig(seeds);
+      }
+      const taste = seeds.slice(0, 12);
+      const skip = this.skip();
+      taste.forEach((s) => skip.add(s.item._id));
+      const result = tmdbKey() ? await this.fromTmdb(taste, skip) : await this.fromCinemeta(taste, skip);
+      try { localStorage.setItem(this.key(), JSON.stringify({ sig, t: Date.now(), ai: !!this.lastAi, rows: result })); } catch (_) { /* full */ }
+      scheduleSync();
+    },
+
+    // The rows from candidates [{id, type, name, poster, score, seeds: [seed ids]}]
+    rows(taste, scored, because) {
+      const row = (id, name, list) => ({ id, name, items: list.map((c) => ({ _id: c.id, type: c.type, name: c.name, poster: c.poster || null })) });
+      const out = [];
+      if (scored.length >= 6) out.push(row("top", "Top Picks for You", scored.slice(0, 20)));
+      const used = new Set(scored.slice(0, 6).map((c) => c.id));
+      let n = 0;
+      for (const s of taste) {
+        if (n >= 3) break;
+        const list = scored.filter((c) => c.seeds.includes(s.item._id));
+        const fresh = list.filter((c) => !used.has(c.id));
+        const pick = (fresh.length >= 6 ? fresh : list).slice(0, 14);
+        if (pick.length < 6) continue;
+        pick.forEach((c) => used.add(c.id));
+        out.push(row(`because-${s.item._id}`, `Because you ${s.fromRating || s.fromTaste ? "liked" : "watched"} ${s.item.name}`, pick));
+        n++;
+      }
+      return out;
+    },
+
+    // With a TMDB key: its recommendations and similar titles for each favourite, scored together
+    async fromTmdb(taste, skip) {
+      const get = (path) => api.phone.tmdbGet(path);
+      const year = new Date().getFullYear();
+      const kinds = (i) => (i.type === "movie" ? "movie" : "tv");
+      const perSeed = await Promise.all(taste.map(async (s) => {
+        const id = s.item._id;
+        const kind = kinds(s.item);
+        let tm = readCached(`reco:id:${id}`);
+        if (tm === undefined) {
+          const found = await get(`/find/${encodeURIComponent(id)}?external_source=imdb_id`);
+          const first = found && found[`${kind}_results`] && found[`${kind}_results`][0];
+          tm = first ? { id: first.id, genres: first.genre_ids || [] } : null;
+          if (found) writeCached(`reco:id:${id}`, tm);
+        }
+        if (!tm) return null;
+        const [rec, sim] = await Promise.all([get(`/${kind}/${tm.id}/recommendations?language=en-US&page=1`), get(`/${kind}/${tm.id}/similar?language=en-US&page=1`)]);
+        return { s, kind, tm, rec: (rec && rec.results) || [], sim: (sim && sim.results) || [] };
+      }));
+      const used = perSeed.filter(Boolean);
+      if (!used.length) return [];
+      used.forEach((u) => { if (!u.s.genres) u.s.genres = u.tm.genres; });
+      const profile = recoMath.profile(used.map((u) => ({ weight: u.s.weight, genres: u.tm.genres })));
+      const cands = new Map();
+      const lean = recoMath.lean(this.prefer());
+      const seedTmdb = new Set(used.map((u) => `${u.kind}:${u.tm.id}`));
+      for (const u of used) {
+        for (const [kind2, list] of [["rec", u.rec], ["similar", u.sim]]) {
+          list.slice(0, 20).forEach((r, rank) => {
+            const key = `${u.kind}:${r.id}`;
+            if (seedTmdb.has(key) || r.adult || !r.poster_path || (r.genre_ids || []).some((g) => this.TMDB_GENRES_SKIPPED.has(g))) return;
+            const c = cands.get(key) || {
+              key, kind: u.kind, tmdb: r.id, name: r.title || r.name || "", poster: `https://image.tmdb.org/t/p/w342${r.poster_path}`,
+              genres: r.genre_ids || [], rating: r.vote_average || 0, votes: r.vote_count || 0,
+              year: Number(String(r.release_date || r.first_air_date || "").slice(0, 4)) || 0, pointers: [], seeds: [],
+            };
+            c.pointers.push({ w: u.s.weight, rank, kind: kind2 });
+            if (!c.seeds.includes(u.s.item._id)) c.seeds.push(u.s.item._id);
+            cands.set(key, c);
+          });
+        }
+      }
+      const ranked = [...cands.values()]
+        .filter((c) => c.votes >= 40)
+        .map((c) => ({ ...c, score: recoMath.score(c, profile, year) * lean[c.kind === "movie" ? "movie" : "series"] }))
+        .sort((a, b) => b.score - a.score);
+      // IMDb ids are what Stremio opens (looked up for the best ones only, cached)
+      const wanted = new Set(ranked.slice(0, 30).map((c) => c.key));
+      for (const u of used.slice(0, 4)) ranked.filter((c) => c.seeds.includes(u.s.item._id)).slice(0, 14).forEach((c) => wanted.add(c.key));
+      const todo = ranked.filter((c) => wanted.has(c.key));
+      for (let i = 0; i < todo.length; i += 12) {
+        await Promise.all(todo.slice(i, i + 12).map(async (c) => {
+          let imdb = readCached(`reco:ext:${c.key}`);
+          if (imdb === undefined) {
+            const ext = await get(`/${c.kind}/${c.tmdb}/external_ids`);
+            imdb = ext && /^tt\d+$/.test(ext.imdb_id || "") ? ext.imdb_id : null;
+            if (ext) writeCached(`reco:ext:${c.key}`, imdb);
+          }
+          c.id = imdb;
+        }));
+      }
+      const seen = new Set(skip);
+      const names = new Set();
+      const scored = [];
+      for (const c of todo) {
+        const dupe = `${c.name.toLowerCase()}|${c.year}`;
+        if (!c.id || seen.has(c.id) || names.has(dupe)) continue;
+        seen.add(c.id);
+        names.add(dupe);
+        scored.push({ ...c, type: c.kind === "movie" ? "movie" : "series" });
+      }
+      const ordered = recoMath.mix(await this.rank(taste, scored, skip), this.prefer());
+      return this.rows(used.map((u) => u.s), ordered.filter((c) => c && /^tt\d+$/.test(c.id) && !skip.has(c.id)));
+    },
+
+    // Without a key: Cinemeta's popular titles in the genres they watch most, best fits first
+    async fromCinemeta(taste, skip) {
+      const json = (path) => fetch(`${forYou.BASE}${path}`, { signal: AbortSignal.timeout(10000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      const year = new Date().getFullYear();
+      const metas = await Promise.all(taste.slice(0, 8).map(async (s) => {
+        if (Array.isArray(s.item.genres) && s.item.genres.length) return { s, genres: s.item.genres };
+        const m = await json(`/meta/${s.item.type}/${encodeURIComponent(s.item._id)}.json`);
+        const g = (m && m.meta && (m.meta.genres || m.meta.genre)) || [];
+        return { s, genres: g };
+      }));
+      const used = metas.filter((m) => m.genres.length);
+      if (!used.length) return [];
+      used.forEach((m) => { m.s.genres = m.genres; });
+      const profile = recoMath.profile(used.map((m) => ({ weight: m.s.weight, genres: m.genres })));
+      // the genres (with the kind) that matter most, each a popular list
+      const wants = new Map();
+      for (const m of used) for (const g of m.genres.slice(0, 3)) {
+        const k = `${m.s.item.type}|${g}`;
+        wants.set(k, (wants.get(k) || 0) + m.s.weight * (profile[g] || 0.3) * recoMath.lean(this.prefer())[m.s.item.type === "series" ? "series" : "movie"]);
+      }
+      const tuned = store.get(viewers.key("taste"), null);
+      for (const g of (tuned && Array.isArray(tuned.genres) ? tuned.genres : []).slice(0, 4)) {
+        for (const type of ["movie", "series"]) {
+          const k = `${type}|${g}`;
+          wants.set(k, (wants.get(k) || 0) + 0.6);
+        }
+      }
+      const lists = await Promise.all([...wants.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(async ([k]) => {
+        const [type, genre] = k.split("|");
+        const l = await json(`/catalog/${type}/top/genre=${encodeURIComponent(genre)}.json`);
+        return { type, metas: (l && l.metas) || [] };
+      }));
+      const cands = new Map();
+      for (const { type, metas: list } of lists) {
+        list.slice(0, 40).forEach((m) => {
+          if (!m || !/^tt\d+$/.test(m.id || "") || !m.poster) return;
+          const c = cands.get(m.id) || {
+            id: m.id, type, name: m.name, poster: m.poster, genres: m.genres || m.genre || [], rating: Number(m.imdbRating) || 0,
+            votes: 100, year: parseInt(m.releaseInfo, 10) || 0, pointers: [], seeds: [],
+          };
+          for (const u of used) {
+            const shared = u.genres.filter((g) => c.genres.includes(g)).length;
+            if (shared && u.s.item.type === type) {
+              c.pointers.push({ w: u.s.weight * (shared / Math.max(2, u.genres.length)), rank: list.indexOf(m), kind: "similar" });
+              if (!c.seeds.includes(u.s.item._id)) c.seeds.push(u.s.item._id);
+            }
+          }
+          cands.set(m.id, c);
+        });
+      }
+      const scored = [...cands.values()]
+        .filter((c) => !skip.has(c.id) && c.pointers.length)
+        .map((c) => ({ ...c, score: recoMath.score(c, profile, year) * recoMath.lean(this.prefer())[c.type === "series" ? "series" : "movie"] }))
+        .sort((a, b) => b.score - a.score);
+      const ordered = recoMath.mix(await this.rank(taste, scored, skip), this.prefer());
+      return this.rows(used.map((u) => u.s), ordered.filter((c) => c && /^tt\d+$/.test(c.id) && !skip.has(c.id)));
     },
   };
 
@@ -14297,6 +15203,189 @@
   };
 
   // ---------------------------------------------------------------------------
+  // Internet speed for "Match my internet speed": a few seconds of Cloudflare's speed test download
+  // (it allows any page to read it), kept for 10 minutes. 0 when it can't be measured.
+  // ---------------------------------------------------------------------------
+  const netSpeed = {
+    URL: "https://speed.cloudflare.com/__down?bytes=50000000",
+    mbps: 0,
+    at: 0,
+    pending: null,
+
+    get() {
+      if (this.at && Date.now() - this.at < 600000) return Promise.resolve(this.mbps);
+      // A reading of this line from before (the last test, or what this network is known to do) goes straight away,
+      // and the test runs behind it for next time: Play waited the 4 seconds of the test every 10 minutes
+      const before = this.mbps || this.known;
+      if (before > 0) {
+        this.refresh().catch(() => {});
+        return Promise.resolve(before);
+      }
+      return this.refresh();
+    },
+
+    // what this network's memory said as the app started (warm())
+    known: 0,
+
+    // The test itself, one at a time
+    refresh() {
+      if (!this.pending) this.pending = (async () => {
+        // Measured every time (once in 10 minutes), while the addons answer: what it learnt on this network
+        // alone kept it to what the player had read, and the best stream for the line was never tried
+        const m = await this.measure();
+        if (m > 0) await netMemory.add(m, "test");
+        const known = await netMemory.estimate();
+        return known > 0 ? known : m;
+      })().then((m) => {
+        this.pending = null;
+        if (m > 0) { this.mbps = m; this.at = Date.now(); }
+        return m || this.mbps;
+      });
+      return this.pending;
+    },
+
+    // As the app starts (Match my internet speed on): this network's remembered speed read in, and a fresh test a little
+    // later, once the start's own work is done, so the first Play has a speed to go on without waiting for one
+    warm() {
+      if (!settings.quickPlaySpeed) return;
+      netMemory.estimate().then((m) => { if (m > 0) this.known = m; }).catch(() => {});
+      setTimeout(() => this.refresh().catch(() => {}), 20000);
+    },
+
+    // Reads for up to 4 seconds; the first half second is left out, while the connection gets going
+    async measure() {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 5000);
+      try {
+        const res = await fetch(`${this.URL}&t=${Date.now()}`, { cache: "no-store", signal: ctrl.signal });
+        if (!res.ok || !res.body) return 0;
+        const reader = res.body.getReader();
+        const start = performance.now();
+        let from = 0;
+        let bytes = 0;
+        let total = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const now = performance.now();
+          total += value.length;
+          if (!from && now - start >= 500) from = now;
+          else if (from) bytes += value.length;
+          if (now - start >= 4000) { reader.cancel().catch(() => {}); break; }
+        }
+        const end = performance.now();
+        // A very fast line finishes the whole download before the half second is up
+        if (from && end - from >= 500) return (bytes * 8) / ((end - from) / 1000) / 1e6;
+        return end > start ? (total * 8) / ((end - start) / 1000) / 1e6 : 0;
+      } catch (_) {
+        return 0;
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  };
+
+  // ---------------------------------------------------------------------------
+  // Speed per network: what streams really got on each connection (the player measures it while it
+  // fills its buffer), so a known network needs no speed test. Told apart by the internet address's
+  // range (an app can't read the Wi-Fi's name without special permission). The check: a slow reading,
+  // which would hold quality back, isn't trusted until it's been seen three times (until then it tests
+  // again), and a reading twice the remembered speed starts the memory afresh. Each network can also
+  // have a quality cap of its own.
+  // ---------------------------------------------------------------------------
+  const netMemory = {
+    KEY: "dxbi.networks",
+    SLOW: 10,
+    id: "",
+    idAt: 0,
+
+    // "v6:2a04:201:7dc3" (a /48) or "v4:82.13.45" (a /24): the same at home from day to day
+    async currentId() {
+      if (this.id && Date.now() - this.idAt < 120000) return this.id;
+      try {
+        const res = await fetch("https://speed.cloudflare.com/cdn-cgi/trace", { cache: "no-store", signal: AbortSignal.timeout(4000) });
+        const ip = (/^ip=(.+)$/m.exec(await res.text()) || [])[1] || "";
+        this.id = ip.includes(":") ? `v6:${ip.split(":").slice(0, 3).join(":")}` : ip ? `v4:${ip.split(".").slice(0, 3).join(".")}` : "";
+        this.idAt = Date.now();
+      } catch (_) { /* offline, or blocked: no memory this time */ }
+      return this.id;
+    },
+
+    all() {
+      try { return JSON.parse(localStorage.getItem(this.KEY) || "{}") || {}; } catch (_) { return {}; }
+    },
+    save(list) {
+      try { localStorage.setItem(this.KEY, JSON.stringify(list)); } catch (_) { /* full: it'll test instead */ }
+    },
+
+    // What the line can do: the speed test's reading, or the player's when it filled its buffer faster; less only
+    // when the player buffered recently ("stall": what it really got). A player reads about as fast as its stream
+    // needs, so its smooth readings say "at least this": taken as the speed, they kept a fast line on 1080p (the
+    // 1080p stream it then played read slowly again, and 4K never fitted)
+    STALL_KEEP: 3 * 86400000,
+    speed(rec) {
+      const samples = rec.samples || [];
+      // (the lower middle: better a little light than buffering)
+      const middle = (list) => {
+        if (!list.length) return 0;
+        const sorted = [...list].sort((a, b) => a - b);
+        return sorted[Math.floor((sorted.length - 1) / 2)];
+      };
+      const of = (test) => samples.filter(test).map((x) => x.mbps);
+      // ("play" is what both were called before 2.30.19: read as filling)
+      const line = Math.max(middle(of((x) => x.from === "test")), middle(of((x) => x.from === "fill" || x.from === "play")));
+      const stalls = of((x) => x.from === "stall" && Date.now() - (x.t || 0) < this.STALL_KEEP);
+      return stalls.length ? Math.min(line || Infinity, middle(stalls)) : line;
+    },
+    trusted(rec) {
+      const n = (rec.samples || []).length;
+      const mbps = this.speed(rec);
+      return mbps > 0 && Date.now() - (rec.at || 0) < 30 * 86400000 && (mbps >= this.SLOW ? n >= 1 : n >= 3);
+    },
+
+    async estimate() {
+      const id = await this.currentId();
+      const rec = id && this.all()[id];
+      return rec && this.trusted(rec) ? this.speed(rec) : 0;
+    },
+
+    async add(mbps, from) {
+      if (!(mbps > 0)) return;
+      const id = await this.currentId();
+      if (!id) return;
+      const list = this.all();
+      const rec = list[id] || { name: "", cap: 0, samples: [] };
+      // much faster than remembered: the connection's better now (or the first reading was off)
+      if (rec.samples.length && mbps > this.speed(rec) * 2) rec.samples = [];
+      rec.samples = [...rec.samples, { mbps: Math.round(mbps * 10) / 10, from, t: Date.now() }].slice(-8);
+      rec.at = Date.now();
+      list[id] = rec;
+      // (the 20 networks used last)
+      const kept = Object.entries(list).sort((a, b) => (b[1].at || 0) - (a[1].at || 0)).slice(0, 20);
+      this.save(Object.fromEntries(kept));
+      netSpeed.at = 0; // (the next pick uses what it's learnt)
+      // (and a stall lowers it at once: the reading kept from before mustn't be handed out while the test reruns)
+      if (from === "stall") { netSpeed.mbps = Math.min(netSpeed.mbps || Infinity, this.speed(rec)); netSpeed.known = 0; }
+    },
+
+    // This network's own quality cap (0: none), on top of the Highest quality setting
+    async cap() {
+      const id = await this.currentId();
+      const rec = id && this.all()[id];
+      return (rec && rec.cap) || 0;
+    },
+  };
+
+  // The length of what's about to play, in minutes (the episode's own, else the title's), or 0
+  function streamMinutes(state, videoId) {
+    const content = state && state.metaItem && state.metaItem.content;
+    const meta = content && content.type === "Ready" && content.content;
+    if (!meta) return 0;
+    const ep = Array.isArray(meta.videos) ? meta.videos.find((v) => v && v.id === videoId) : null;
+    return streamChoice.minutes(ep && ep.runtime) || streamChoice.minutes(meta.runtime);
+  }
+
+  // ---------------------------------------------------------------------------
   // Just press Play: Play or an episode click starts the best stream, with this viewer's own
   // choices remembered. Stream addresses are never stored: debrid links carry the API key.
   // ---------------------------------------------------------------------------
@@ -14322,6 +15411,15 @@
       const saved = store.get(viewers.key("quickPlay"), {});
       if (settings.quickPlayMemory === "global") return saved.global || null;
       return (saved.series && saved.series[id]) || saved.global || null;
+    },
+
+    // The phone apps and Lumen TV: what was chosen for this title; from other titles only the language (the
+    // last stream chosen anywhere set the quality for every title, so one 1080p choice made them all 1080p)
+    titleMemory(id) {
+      const saved = store.get(viewers.key("quickPlay"), {});
+      const own = saved.series && saved.series[id];
+      if (own) return own;
+      return saved.global && saved.global.langs ? { langs: saved.global.langs } : null;
     },
 
     remember(id, entry) {
@@ -14433,11 +15531,17 @@
       const server = await core().getState("streaming_server").catch(() => null);
       const serverUp = !!(server && server.settings && server.settings.type === "Ready");
       const options = {
-        limit: streamChoice.limit(settings.quickPlayQuality),
+        limit: Math.min(streamChoice.limit(settings.quickPlayQuality), streamChoice.limit(await netMemory.cap())),
         fallback: settings.quickPlayFallback,
         torrents: serverUp || (IN_TV && settings.tvTorrents),
+        addon: settings.quickPlayAddon,
+        speed: 0,
+        minutes: 0,
       };
       this.status("Finding the best stream…");
+      // Measured while the addons answer
+      let speedKnown = !settings.quickPlaySpeed;
+      if (!speedKnown) netSpeed.get().then((m) => { options.speed = m; speedKnown = true; });
       const started = Date.now();
       let picked = null;
       let lastItems = [];
@@ -14447,17 +15551,21 @@
         const state = await core().getState("meta_details").catch(() => null);
         const path = state && state.selected && state.selected.streamPath;
         if (!path || path.id !== video.videoId) continue;
+        options.minutes = streamMinutes(state, video.videoId);
         const groups = Array.isArray(state.streams) ? state.streams : [];
-        const ready = groups.flatMap((g) => (g && g.content && g.content.type === "Ready" && Array.isArray(g.content.content) ? g.content.content : []))
-          .filter((st) => st && st.deepLinks && st.deepLinks.player && !st.externalUrl && !st.ytId);
-        const items = ready.map((st) => ({
+        const ready = groups.flatMap((g) => (g && g.content && g.content.type === "Ready" && Array.isArray(g.content.content)
+          ? g.content.content.map((st) => ({ st, addon: (g.addon && g.addon.manifest && g.addon.manifest.name) || "" })) : []))
+          .filter((x) => x.st && x.st.deepLinks && x.st.deepLinks.player && !x.st.externalUrl && !x.st.ytId);
+        const items = ready.map(({ st, addon }) => ({
           st,
+          addon,
           torrent: !!st.infoHash && !st.url,
           hint: watchParty.streamHints(st),
           d: describeStream(String(st.name || ""), `${st.name || ""}\n${st.description || st.title || ""}`),
         }));
         const settled = groups.length > 0 && !groups.some((g) => g && g.content && g.content.type === "Loading");
         lastItems = items;
+        if (!speedKnown) continue;
         const choice = streamChoice.choose(items, memory, options);
         // The stream chosen last time needs no waiting; anything else waits for slow addons a while
         if (choice && (choice.how === "same" || settled || Date.now() - started > 6000)) { picked = choice; break; }
@@ -14473,18 +15581,24 @@
       this.from = hash;
       this.spares = streamChoice.spares(lastItems, picked.item, options);
       this.play(picked.item);
+      if (options.speed > 0) this.announce += ` · for your ${Math.round(options.speed)} Mbps`;
       navigate(picked.item.st.deepLinks.player);
     },
 
-    label: (d) => [QUALITY_LABEL[d.res], d.dv ? "Dolby Vision" : d.hdr ? "HDR" : "", streamRows.SOURCES[d.source]].filter(Boolean).join(" · "),
+    label: (d) => [QUALITY_LABEL[d.res], d.imax ? "IMAX" : "", d.dv ? "Dolby Vision" : d.hdr ? "HDR" : "", streamRows.SOURCES[d.source]].filter(Boolean).join(" · "),
 
     play(item) {
+      this.current = item;
       this.announce = this.label(item.d);
       this.watch();
     },
 
-    // The next stream after one that wouldn't play. Returns its label, or "" when there's none left.
-    next() {
+    // The next stream after one that wouldn't play ([why]: what went wrong, the player's words). The one
+    // that failed is remembered, so it isn't picked again. Returns the next one's label, or "" when
+    // there's none left.
+    next(why) {
+      if (this.current) streamFailures.add(this.current, why);
+      this.current = null;
       const item = this.spares.shift();
       if (!item) return "";
       this.play(item);
@@ -14507,7 +15621,11 @@
       this.watching = setInterval(() => {
         const video = document.querySelector('[class*="player-container"] video');
         const stop = currentRoute() !== "player" || Date.now() - started > 120000 || (video && video.currentTime >= 2);
-        if (stop) { clearInterval(this.watching); return; }
+        if (stop) {
+          clearInterval(this.watching);
+          if (video && video.currentTime >= 2 && currentRoute() === "player") this.stalls(video);
+          return;
+        }
         const error = document.querySelector('[class*="player-container"] [class*="error-layer"]');
         // dx.bi's own conversion gets its turn first
         const converting = [...document.querySelectorAll(".dxe-playhelp")].some((n) => /^Converting it/.test(n.textContent.trim()));
@@ -14521,6 +15639,38 @@
       }, 1000);
     },
 
+    // A picked stream that keeps buffering (a wait over 4 seconds, or a third wait in two minutes):
+    // offer the stream list once, so the viewer can choose a lighter one
+    stalls(video) {
+      const waits = [];
+      let since = 0;
+      let timer = null;
+      const done = () => {
+        clearTimeout(timer);
+        video.removeEventListener("waiting", onWait);
+        video.removeEventListener("playing", onPlay);
+      };
+      const offer = () => {
+        done();
+        if (currentRoute() === "player" && video.isConnected) this.pill("Buffering? Choose a lighter stream", true);
+      };
+      const onWait = () => {
+        if (!video.isConnected || currentRoute() !== "player") { done(); return; }
+        if (video.seeking) return; // a jump, not the connection
+        since = Date.now();
+        waits.push(since);
+        while (waits.length && since - waits[0] > 120000) waits.shift();
+        if (waits.length >= 3) { offer(); return; }
+        clearTimeout(timer);
+        timer = setTimeout(() => { if (since) offer(); }, 4000);
+      };
+      const onPlay = () => { since = 0; clearTimeout(timer); };
+      video.addEventListener("waiting", onWait);
+      video.addEventListener("playing", onPlay);
+      // Only the first half hour: by then it's the viewer's call
+      setTimeout(done, 1800000);
+    },
+
     // In the player: remember what the viewer chose, and show what dx.bi picked for them
     async note() {
       if (currentRoute() !== "player") return;
@@ -14532,7 +15682,11 @@
       if (!stream || !id || location.hash !== hash) return;
       this.noted = hash;
       const auto = !!this.announce;
-      if (this.announce && IN_TV && window.__dxbiTv && window.__dxbiTv.partyToast) {
+      // (not under Lumen's own screens, the phone app's and Lumen TV's (they run the engine): their loading
+      // screen has already said what's playing, and there's no list to go back to)
+      if (window.__dxbiEngine) {
+        // nothing to show
+      } else if (this.announce && IN_TV && window.__dxbiTv && window.__dxbiTv.partyToast) {
         const text = `Playing ${this.announce}. Press Back to change.`;
         setTimeout(() => window.__dxbiTv.partyToast(text), 2500); // the native player opens first
       } else if (this.announce) this.pill(this.announce);
@@ -14543,13 +15697,13 @@
       this.remember(id, { infoHash: hint.infoHash, filename: hint.filename, bingeGroup: hint.bingeGroup, res: d.res, provider: d.provider, langs: d.langs });
     },
 
-    pill(text) {
+    pill(text, whole = false) {
       const root = document.querySelector('[class*="player-container"]');
       if (!root || IN_TV) return;
       root.querySelector(":scope > .dxq-pill")?.remove();
       const el = document.createElement("div");
       el.className = "dxq-pill";
-      el.innerHTML = `<span>${esc(`Playing ${text}`)}</span><button>Change</button>`;
+      el.innerHTML = `<span>${esc(whole ? text : `Playing ${text}`)}</span><button>Change</button>`;
       // Back can land on an earlier player address, so go to the stream list by name. Replacing
       // this entry means Back from the list doesn't reopen the video.
       el.querySelector("button").addEventListener("click", () => {
@@ -14811,6 +15965,8 @@
     const mode = settings.watchedTitles;
     document.body.classList.toggle("dx-watched-dim", mode === "dim");
     document.body.classList.toggle("dx-watched-hide", mode === "hide");
+    // and, if chosen, episode pictures blurred until they're watched or started (theme: dx-blur-unwatched)
+    document.body.classList.toggle("dx-blur-unwatched", !!settings.blurUnwatched);
   }
 
   // ---------------------------------------------------------------------------
@@ -15141,6 +16297,8 @@
     const loading = loadSettings();
     splash();
     loading.finally(scheduleSync);
+    // (Match my internet speed: a speed ready before the first Play, not measured while it waits)
+    loading.finally(() => netSpeed.warm());
     mo.observe(document.getElementById("app") || document.body, { childList: true, subtree: true });
     const titleEl = document.querySelector("title");
     if (titleEl) onTitle.observe(titleEl, { childList: true, characterData: true, subtree: true });
@@ -15208,6 +16366,99 @@
 
   // The last streams the phone app was shown (api.phone.streams), for api.phone.play
   let phoneStreams = null;
+  // A stream as the phone and iPad screens list it
+  const phoneItem = (x) => ({
+    play: x.st.deepLinks.player,
+    addon: x.addon,
+    // the file's own name: what tells two 1080p streams apart
+    filename: (x.st.behaviorHints && x.st.behaviorHints.filename) || String(x.st.description || x.st.title || "").split("\n").map((l) => l.trim()).find((l) => l && !/^[👤💾⚙🔎]/u.test(l)) || "",
+    label: quickPlay.label(x.d),
+    torrent: x.torrent,
+    ...x.d,
+  });
+  // Christmas at Home: films and shows picked by hand (by name and year, found in Cinemeta so the ids are
+  // always right), in rows; and with a TMDB key, "More Christmas" from its own Christmas keyword
+  const christmasLists = {
+    LISTS: [
+      { name: "Christmas Classics", type: "movie", titles: [["Elf", 2003], ["Home Alone", 1990], ["Home Alone 2: Lost in New York", 1992], ["Love Actually", 2003], ["Die Hard", 1988], ["National Lampoon's Christmas Vacation", 1989], ["Miracle on 34th Street", 1994], ["It's a Wonderful Life", 1946], ["White Christmas", 1954], ["A Christmas Story", 1983], ["Scrooged", 1988], ["The Santa Clause", 1994]] },
+      { name: "Family & Animated", type: "movie", titles: [["The Polar Express", 2004], ["Klaus", 2019], ["How the Grinch Stole Christmas", 2000], ["The Grinch", 2018], ["Arthur Christmas", 2011], ["The Muppet Christmas Carol", 1992], ["The Nightmare Before Christmas", 1993], ["Fred Claus", 2007], ["Rise of the Guardians", 2012], ["Nativity!", 2009], ["A Charlie Brown Christmas", 1965]] },
+      { name: "Romance & Comedy", type: "movie", titles: [["The Holiday", 2006], ["Last Christmas", 2019], ["Four Christmases", 2008], ["Bad Santa", 2003], ["Deck the Halls", 2006], ["The Family Stone", 2005], ["Christmas with the Kranks", 2004], ["Jingle All the Way", 1996], ["Love Hard", 2021], ["Single All the Way", 2021], ["Spirited", 2022], ["Violent Night", 2022], ["Red One", 2024]] },
+      { name: "Series for Christmas", type: "series", titles: [["Friends"], ["The Office", 2005], ["Modern Family"], ["Doctor Who"], ["Brooklyn Nine-Nine"], ["Parks and Recreation"], ["Gilmore Girls"], ["The Simpsons"], ["Community"], ["How I Met Your Mother"]] },
+    ],
+    norm: (t) => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, ""),
+    shape: (m, type) => ({
+      id: m.imdb_id || m.id,
+      type,
+      name: m.name,
+      poster: m.poster || null,
+      background: m.background || null,
+      description: m.description || "",
+      year: m.releaseInfo ? String(m.releaseInfo) : "",
+      genres: (m.genres || m.genre || []).slice(0, 3),
+      imdb: m.imdbRating || null,
+    }),
+    async find(type, name, year) {
+      const key = `xmas1:${type}:${name}:${year || ""}`;
+      const cached = readCached(key);
+      if (cached !== undefined) return cached;
+      try {
+        const r = await fetch(`${forYou.BASE}/catalog/${type}/top/search=${encodeURIComponent(name)}.json`, { signal: AbortSignal.timeout(10000) });
+        if (!r.ok) return null;
+        const metas = ((await r.json()) || {}).metas || [];
+        const same = metas.filter((m) => this.norm(m.name) === this.norm(name));
+        const hit = (year && same.find((m) => String(m.releaseInfo || "").startsWith(String(year)))) || same[0] || null;
+        const out = hit ? this.shape(hit, type) : null;
+        writeCached(key, out);
+        return out;
+      } catch (_) {
+        return null; // offline: tried again next time
+      }
+    },
+    // TMDB's Christmas keyword: the best-known first, as Cinemeta's own entries (by their IMDb ids)
+    async more(skip) {
+      if (!tmdbKey()) return [];
+      const key = "xmas1:tmdb";
+      const cached = readCached(key);
+      if (cached !== undefined) return cached.filter((t) => !skip.has(t.id));
+      const get = (path) => api.phone.tmdbGet(path);
+      const kw = await get("/search/keyword?query=christmas&page=1");
+      const id = kw && (kw.results || []).find((k) => String(k.name).toLowerCase() === "christmas");
+      if (!id) return [];
+      const found = await get(`/discover/movie?with_keywords=${id.id}&sort_by=popularity.desc&vote_count.gte=150&include_adult=false&language=en-US&page=1`);
+      const picks = ((found && found.results) || []).slice(0, 24);
+      const out = [];
+      await Promise.all(picks.map(async (m, i) => {
+        const ext = await get(`/movie/${m.id}/external_ids`);
+        const imdb = ext && ext.imdb_id;
+        if (!imdb) return;
+        const meta = await getMeta("movie", imdb).catch(() => null);
+        if (meta) out[i] = this.shape({ ...meta, id: imdb }, "movie");
+      }));
+      const list = out.filter(Boolean);
+      if (list.length) writeCached(key, list);
+      return list.filter((t) => !skip.has(t.id));
+    },
+    async rows() {
+      const rows = await Promise.all(this.LISTS.map(async (l) => ({
+        name: l.name,
+        items: (await Promise.all(l.titles.map(([name, year]) => this.find(l.type, name, year)))).filter(Boolean),
+      })));
+      const have = new Set(rows.flatMap((r) => r.items.map((t) => t.id)));
+      const more = await this.more(have).catch(() => []);
+      if (more.length) rows.splice(3, 0, { name: "More Christmas", items: more });
+      return rows.filter((r) => r.items.length);
+    },
+  };
+
+  // The stream the phone or iPad is playing (from phoneStreams), for lighter ones if it buffers
+  let phonePlaying = null;
+  // A stream the viewer chose themselves (the phone apps' and Lumen TV's lists): played again for this title
+  const rememberChoice = (x) => {
+    if (!phoneStreams || !phoneStreams.metaId || !x || !x.hint) return;
+    quickPlay.remember(phoneStreams.metaId, { infoHash: x.hint.infoHash, filename: x.hint.filename, bingeGroup: x.hint.bingeGroup, res: x.d.res, provider: x.d.provider, langs: x.d.langs });
+  };
+  // The show being shuffled (its id): Next episode, and what plays after one ends, is another random episode
+  let phoneShuffle = null;
   const api = {
     settings,
     sync,
@@ -15215,6 +16466,7 @@
     convert,
     streamInfo,
     viewers,
+    ratings,
     restrict,
     whoIsWatching,
     homeLayout,
@@ -15250,17 +16502,17 @@
       // TMDB has none of, or for everyone without a key. [names]: the title's cast and directors as Stremio
       // lists them ({name, role}), used when TMDB has nothing
       async cast(type, imdb, names) {
-        const fromTmdb = settings.tmdbKey.trim() && /^tt\d+$/.test(imdb || "") ? await this.castFromTmdb(type, imdb).catch(() => null) : null;
+        const fromTmdb = tmdbKey() && /^tt\d+$/.test(imdb || "") ? await this.castFromTmdb(type, imdb).catch(() => null) : null;
         const list = (fromTmdb && fromTmdb.length ? fromTmdb : (Array.isArray(names) ? names : []).map((n) => ({ name: String(n.name || n), role: n.role || "" })))
-          .map((p) => ({ name: p.name, role: p.role || "", photo: p.photo || null }));
+          .map((p) => ({ name: p.name, role: p.role || "", photo: p.photo || null, id: p.id || null }));
         const missing = list.filter((p) => !p.photo).slice(0, 16);
         const photos = await Promise.all(missing.map((p) => this.wikipediaPhoto(p.name)));
         missing.forEach((p, i) => { p.photo = photos[i]; });
         return list;
       },
       async castFromTmdb(type, imdb) {
-        const token = settings.tmdbKey.trim();
-        const key = `cast:${type}:${imdb}`;
+        const token = tmdbKey();
+        const key = `cast2:${type}:${imdb}`;
         const cached = readCached(key);
         if (cached !== undefined) return cached;
         const bearer = token.startsWith("eyJ");
@@ -15278,11 +16530,329 @@
         const photo = (p) => (p ? `https://image.tmdb.org/t/p/w185${p}` : null);
         const crew = (credits.crew || []).filter((c) => c.job === "Director" || (c.jobs || []).some((j) => j.job === "Director"));
         const result = [
-          ...crew.slice(0, 2).map((c) => ({ name: c.name, role: "Director", photo: photo(c.profile_path) })),
-          ...(credits.cast || []).slice(0, 20).map((c) => ({ name: c.name, role: c.character || (c.roles && c.roles[0] && c.roles[0].character) || "", photo: photo(c.profile_path) })),
+          ...crew.slice(0, 2).map((c) => ({ id: c.id, name: c.name, role: "Director", photo: photo(c.profile_path) })),
+          ...(credits.cast || []).slice(0, 20).map((c) => ({ id: c.id, name: c.name, role: c.character || (c.roles && c.roles[0] && c.roles[0].character) || "", photo: photo(c.profile_path) })),
         ];
         writeCached(key, result);
         return result;
+      },
+      // A title's facts for its page's Information (Apple TV's): the age rating (the UK's, else the US's), the countries
+      // it's from, its original language and the languages spoken in it. From TMDB (needs the key); null without one.
+      async facts(type, imdb) {
+        if (!tmdbKey() || !/^tt\d+$/.test(imdb || "")) return null;
+        const key = `facts1:${type}:${imdb}`;
+        const cached = readCached(key);
+        if (cached !== undefined) return cached;
+        const get = (path) => this.tmdbGet(path);
+        const kind = type === "movie" ? "movie" : "tv";
+        const found = await get(`/find/${encodeURIComponent(imdb)}?external_source=imdb_id`);
+        const first = found && found[`${kind}_results`] && found[`${kind}_results`][0];
+        if (!first) return null;
+        const d = await get(`/${kind}/${first.id}?language=en-GB&append_to_response=${kind === "movie" ? "release_dates" : "content_ratings"}`);
+        if (!d) return null;
+        const rating = (country) => {
+          if (kind === "movie") {
+            const r = ((d.release_dates && d.release_dates.results) || []).find((x) => x.iso_3166_1 === country);
+            const c = r && (r.release_dates || []).map((x) => x.certification).find((x) => x && x.trim());
+            return c ? c.trim() : null;
+          }
+          const r = ((d.content_ratings && d.content_ratings.results) || []).find((x) => x.iso_3166_1 === country);
+          return r && r.rating ? r.rating.trim() : null;
+        };
+        const names = new Intl.DisplayNames(["en-GB"], { type: "language" });
+        const lang = (code) => { try { return code ? names.of(code) : null; } catch (_) { return null; } };
+        const result = {
+          rating: rating("GB") || rating("US"),
+          ratingCountry: rating("GB") ? "GB" : rating("US") ? "US" : null,
+          countries: (d.production_countries || d.origin_country || []).map((c) => (typeof c === "string" ? c : c.name)).filter(Boolean).slice(0, 4),
+          language: lang(d.original_language),
+          spoken: (d.spoken_languages || []).map((l) => l.english_name || l.name).filter(Boolean).slice(0, 8),
+          released: d.release_date || d.first_air_date || null,
+          runtime: d.runtime || null,
+          seasons: d.number_of_seasons || null,
+          studio: ((d.production_companies || [])[0] || {}).name || ((d.networks || [])[0] || {}).name || null,
+        };
+        writeCached(key, result);
+        return result;
+      },
+      // A person's page, from TMDB (needs the TMDB key): who they are and everything they're known for, as
+      // titles Stremio can open (IMDb ids). [id]: TMDB's person id (the cast list gives it), else [name] is
+      // searched. null without a key or when TMDB has no such person.
+      async person(id, name) {
+        const token = tmdbKey();
+        if (!token) return null;
+        const get = (path) => this.tmdbGet(path);
+        let pid = /^\d+$/.test(String(id || "")) ? String(id) : "";
+        if (!pid && name) {
+          const found = await get(`/search/person?query=${encodeURIComponent(String(name))}&include_adult=false&language=en-US`);
+          const hit = found && (found.results || [])[0];
+          pid = hit ? String(hit.id) : "";
+        }
+        if (!pid) return null;
+        const key = `person3:${pid}`;
+        const cached = readCached(key);
+        if (cached !== undefined) return cached;
+        const [info, credits] = await Promise.all([get(`/person/${pid}?language=en-US`), get(`/person/${pid}/combined_credits?language=en-US`)]);
+        if (!info) return null;
+        const date = (x) => x.release_date || x.first_air_date || "";
+        const seen = new Set();
+        const credit = (c, role) => {
+          const kind = c.media_type;
+          if (kind !== "movie" && kind !== "tv") return null;
+          const k = `${kind}:${c.id}`;
+          if (seen.has(k) || !c.poster_path) return null;
+          const genres = c.genre_ids || [];
+          // (talk shows, news and archive clips are guest spots, not their work)
+          if (genres.includes(10767) || genres.includes(10763) || /archive|\bself\b/i.test(c.character || "")) return null;
+          seen.add(k);
+          return { kind, tmdb: c.id, name: c.title || c.name || "", date: date(c), role: role || "", pop: c.popularity || 0, poster: `https://image.tmdb.org/t/p/w342${c.poster_path}` };
+        };
+        const cast = ((credits && credits.cast) || []).map((c) => credit(c, c.character)).filter(Boolean);
+        const crewJobs = /^(Director|Creator|Writer|Screenplay|Executive Producer|Producer)$/;
+        const crew = ((credits && credits.crew) || []).filter((c) => crewJobs.test(c.job || "")).map((c) => credit(c, c.job)).filter(Boolean);
+        // (an actor's acting first, a director's directing first)
+        const works = info.known_for_department === "Acting" ? cast.concat(crew) : crew.concat(cast);
+        const known = [...works].sort((a, b) => b.pop - a.pop).slice(0, 12);
+        const newest = (kind) => works.filter((w) => w.kind === kind).sort((a, b) => (b.date || "9999").localeCompare(a.date || "9999")).slice(0, 30);
+        const films = newest("movie");
+        const shows = newest("tv");
+        // IMDb ids, which are what Stremio opens (cached a day, in small batches)
+        const todo = [...new Set([...known, ...films, ...shows])];
+        for (let i = 0; i < todo.length; i += 12) {
+          await Promise.all(todo.slice(i, i + 12).map(async (w) => {
+            const ext = await get(`/${w.kind}/${w.tmdb}/external_ids`);
+            w.id = ext && /^tt\d+$/.test(ext.imdb_id || "") ? ext.imdb_id : null;
+          }));
+        }
+        const out = (list) => list.filter((w) => w.id).map((w) => ({ id: w.id, type: w.kind === "movie" ? "movie" : "series", name: w.name, year: w.date.slice(0, 4), poster: w.poster, role: w.role }));
+        const born = info.birthday || "";
+        const died = info.deathday || "";
+        let age = null;
+        if (/^\d{4}-\d\d-\d\d$/.test(born)) {
+          const end = /^\d{4}-\d\d-\d\d$/.test(died) ? new Date(died) : new Date();
+          const b = new Date(born);
+          age = end.getFullYear() - b.getFullYear() - (end.getMonth() < b.getMonth() || (end.getMonth() === b.getMonth() && end.getDate() < b.getDate()) ? 1 : 0);
+        }
+        const result = {
+          id: pid,
+          name: info.name || name || "",
+          photo: info.profile_path ? `https://image.tmdb.org/t/p/h632${info.profile_path}` : null,
+          department: info.known_for_department || "",
+          born, died, age,
+          place: info.place_of_birth || "",
+          bio: String(info.biography || "").trim(),
+          known: out(known), films: out(films), shows: out(shows),
+        };
+        writeCached(key, result);
+        return result;
+      },
+      // A director's or writer's page, from TMDB (needs the TMDB key): who they are, as person() tells it, and
+      // their work behind the camera as rows of its own: the films they directed and the films they wrote
+      // (newest first), what they're best known for, and the series they made. [id]: TMDB's person id, else
+      // [name] is searched (someone who directs or writes, when there's a namesake). null without a key.
+      async filmmaker(id, name) {
+        if (!tmdbKey()) return null;
+        const get = (path) => this.tmdbGet(path);
+        let pid = /^\d+$/.test(String(id || "")) ? String(id) : "";
+        if (!pid && name) {
+          const found = await get(`/search/person?query=${encodeURIComponent(String(name))}&include_adult=false&language=en-US`);
+          const hits = (found && found.results) || [];
+          const hit = hits.find((p) => /^(Directing|Writing)$/.test(p.known_for_department || "")) || hits[0];
+          pid = hit ? String(hit.id) : "";
+        }
+        if (!pid) return null;
+        const key = `filmmaker1:${pid}`;
+        const cached = readCached(key);
+        if (cached !== undefined) return cached;
+        const [info, credits] = await Promise.all([get(`/person/${pid}?language=en-US`), get(`/person/${pid}/combined_credits?language=en-US`)]);
+        if (!info || !credits) return null;
+        const works = new Map();
+        const pick = (kind, jobs) => {
+          const out = [];
+          for (const c of credits.crew || []) {
+            // (shorts, music videos and the like have few votes: their films and series are what's wanted)
+            if (c.media_type !== kind || !jobs.test(c.job || "") || !c.poster_path || c.video || (c.vote_count || 0) < 20) continue;
+            const k = `${kind}:${c.id}`;
+            if (!works.has(k)) works.set(k, { kind, tmdb: c.id, name: c.title || c.name || "", date: c.release_date || c.first_air_date || "", votes: c.vote_count || 0, poster: `https://image.tmdb.org/t/p/w342${c.poster_path}` });
+            if (!out.includes(works.get(k))) out.push(works.get(k));
+          }
+          return out.sort((a, b) => (b.date || "9999").localeCompare(a.date || "9999"));
+        };
+        const directed = pick("movie", /^Director$/).slice(0, 40);
+        const wrote = pick("movie", /^(Screenplay|Writer|Story)$/);
+        // (a writer's page has everything they wrote; a director's, what they wrote for someone else)
+        const writer = info.known_for_department === "Writing";
+        const written = (writer ? wrote : wrote.filter((w) => !directed.includes(w))).slice(0, 30);
+        const shows = pick("tv", /^(Creator|Director|Writer|Executive Producer)$/).sort((a, b) => b.votes - a.votes).slice(0, 12);
+        const known = [...new Set([...directed, ...wrote])].sort((a, b) => b.votes - a.votes).slice(0, 12);
+        // IMDb ids, which are what Stremio opens (in small batches)
+        const todo = [...new Set([...known, ...directed, ...written, ...shows])];
+        let failed = false;
+        for (let i = 0; i < todo.length; i += 12) {
+          await Promise.all(todo.slice(i, i + 12).map(async (w) => {
+            const ext = await get(`/${w.kind}/${w.tmdb}/external_ids`);
+            if (!ext) failed = true;
+            w.id = ext && /^tt\d+$/.test(ext.imdb_id || "") ? ext.imdb_id : null;
+          }));
+        }
+        const out = (list) => list.filter((w) => w.id).map((w) => ({ id: w.id, type: w.kind === "movie" ? "movie" : "series", name: w.name, year: w.date.slice(0, 4), poster: w.poster }));
+        const born = info.birthday || "";
+        const died = info.deathday || "";
+        let age = null;
+        if (/^\d{4}-\d\d-\d\d$/.test(born)) {
+          const end = /^\d{4}-\d\d-\d\d$/.test(died) ? new Date(died) : new Date();
+          const b = new Date(born);
+          age = end.getFullYear() - b.getFullYear() - (end.getMonth() < b.getMonth() || (end.getMonth() === b.getMonth() && end.getDate() < b.getDate()) ? 1 : 0);
+        }
+        const result = {
+          id: pid,
+          name: info.name || name || "",
+          photo: info.profile_path ? `https://image.tmdb.org/t/p/h632${info.profile_path}` : null,
+          department: info.known_for_department || "",
+          born, died, age,
+          place: info.place_of_birth || "",
+          bio: String(info.biography || "").trim(),
+          known: out(known), directed: out(directed), written: out(written), shows: out(shows),
+        };
+        // (kept only when every lookup answered: a row with holes in it isn't)
+        if (!failed) writeCached(key, result);
+        return result;
+      },
+      // What TMDB links a film to (needs the key): the collection it belongs to, and who directed and wrote
+      // it. null for what isn't a film TMDB knows, and when it couldn't be asked
+      async filmLinks(imdb) {
+        if (!tmdbKey() || !/^tt\d+$/.test(String(imdb || ""))) return null;
+        const key = `filmlinks1:${imdb}`;
+        const cached = readCached(key);
+        if (cached !== undefined) return cached;
+        const found = await this.tmdbGet(`/find/${imdb}?external_source=imdb_id`);
+        if (!found) return null;
+        const first = (found.movie_results || [])[0];
+        let result = null;
+        if (first) {
+          const film = await this.tmdbGet(`/movie/${first.id}?append_to_response=credits&language=en-US`);
+          if (!film) return null;
+          const c = film.belongs_to_collection;
+          const people = [];
+          for (const p of (film.credits && film.credits.crew) || []) {
+            const job = p.job === "Director" ? "Director" : /^(Screenplay|Writer)$/.test(p.job || "") ? "Writer" : null;
+            if (!job) continue;
+            const have = people.find((x) => x.id === p.id);
+            if (have) { if (!have.jobs.includes(job)) have.jobs.push(job); } else people.push({ id: p.id, name: p.name, photo: p.profile_path ? `https://image.tmdb.org/t/p/h632${p.profile_path}` : null, jobs: [job] });
+          }
+          result = {
+            collection: c ? { id: c.id, name: String(c.name || "").replace(/\s+collection$/i, ""), backdrop: c.backdrop_path ? `https://image.tmdb.org/t/p/w780${c.backdrop_path}` : null } : null,
+            people: people.slice(0, 5),
+          };
+        }
+        writeCached(key, result);
+        return result;
+      },
+      // A film franchise, from TMDB (needs the key): the collection with TMDB's [id], or the collections the
+      // [seeds] belong to (IMDb ids of films in it: Middle-earth is two), with every film in them oldest
+      // first, as titles Stremio can open. null without a key or when TMDB has no such collection.
+      async franchise(id, seeds) {
+        if (!tmdbKey()) return null;
+        const get = (path) => this.tmdbGet(path);
+        const ids = /^\d+$/.test(String(id || "")) ? [String(id)] : [];
+        for (const imdb of Array.isArray(seeds) ? seeds.slice(0, 4) : []) {
+          const links = await this.filmLinks(imdb);
+          if (links && links.collection && !ids.includes(String(links.collection.id))) ids.push(String(links.collection.id));
+        }
+        if (!ids.length) return null;
+        const key = `franchise1:${ids.join(",")}`;
+        const cached = readCached(key);
+        if (cached !== undefined) return cached;
+        const found = (await Promise.all(ids.map((c) => get(`/collection/${c}?language=en-US`)))).filter(Boolean);
+        if (!found.length) return null;
+        const parts = found.flatMap((c) => c.parts || []).filter((p) => p.release_date && p.poster_path)
+          .sort((a, b) => a.release_date.localeCompare(b.release_date)).slice(0, 60);
+        let failed = found.length < ids.length;
+        for (let i = 0; i < parts.length; i += 12) {
+          await Promise.all(parts.slice(i, i + 12).map(async (p) => {
+            const ext = await get(`/movie/${p.id}/external_ids`);
+            if (!ext) failed = true;
+            p.imdb = ext && /^tt\d+$/.test(ext.imdb_id || "") ? ext.imdb_id : null;
+          }));
+        }
+        const first = found[0];
+        const result = {
+          id: ids.join(","),
+          name: String(first.name || "").replace(/\s+collection$/i, ""),
+          overview: found.length === 1 ? String(first.overview || "").trim() : "",
+          backdrop: first.backdrop_path ? `https://image.tmdb.org/t/p/w1280${first.backdrop_path}` : null,
+          films: parts.filter((p) => p.imdb).map((p) => ({ id: p.imdb, type: "movie", name: p.title || "", year: p.release_date.slice(0, 4), released: p.release_date, poster: `https://image.tmdb.org/t/p/w342${p.poster_path}` })),
+        };
+        if (!failed) writeCached(key, result);
+        return result;
+      },
+      // Where the films in [ids] lead (IMDb ids: the Library's and what's been watched), from TMDB with the
+      // key: the franchises they belong to, and whoever directed or wrote two or more of them, the most
+      // watched first. Each with the films of [ids] that led to it. null without a key.
+      async connections(ids) {
+        if (!tmdbKey()) return null;
+        const list = [...new Set((Array.isArray(ids) ? ids : []).filter((x) => /^tt\d+$/.test(String(x))))].slice(0, 40);
+        const franchises = new Map();
+        const people = new Map();
+        for (let i = 0; i < list.length; i += 8) {
+          const batch = await Promise.all(list.slice(i, i + 8).map((imdb) => this.filmLinks(imdb).catch(() => null)));
+          batch.forEach((links, j) => {
+            if (!links) return;
+            const imdb = list[i + j];
+            if (links.collection) {
+              const k = String(links.collection.id);
+              if (!franchises.has(k)) franchises.set(k, { id: k, name: links.collection.name, backdrop: links.collection.backdrop, films: [] });
+              franchises.get(k).films.push(imdb);
+            }
+            for (const p of links.people) {
+              const k = String(p.id);
+              if (!people.has(k)) people.set(k, { id: k, name: p.name, photo: p.photo, jobs: [], films: [] });
+              const have = people.get(k);
+              for (const job of p.jobs) if (!have.jobs.includes(job)) have.jobs.push(job);
+              have.films.push(imdb);
+            }
+          });
+        }
+        const most = (a, b) => b.films.length - a.films.length;
+        return {
+          franchises: [...franchises.values()].sort(most).slice(0, 20),
+          filmmakers: [...people.values()].filter((p) => p.films.length >= 2).sort(most).slice(0, 12),
+        };
+      },
+      // Photos for Discover's filmmakers ([{key, id, name, wiki}]: TMDB's person id where it's known, and
+      // their Wikipedia page's name): TMDB's with the key, else Wikipedia's. {key: the photo's address}
+      async faces(people) {
+        const keyed = !!tmdbKey();
+        const out = {};
+        await Promise.all((Array.isArray(people) ? people : []).slice(0, 40).map(async (p) => {
+          const name = String((p && p.name) || "");
+          if (!name) return;
+          const key = `face1:${name}`;
+          let photo = readCached(key);
+          if (photo === undefined || (keyed && photo && !photo.includes("tmdb.org"))) {
+            let fromTmdb = null;
+            if (keyed) {
+              // (by name: the one who directs or writes, when there's a namesake)
+              const hits = /^\d+$/.test(String(p.id || "")) ? [] : ((await this.tmdbGet(`/search/person?query=${encodeURIComponent(name)}&include_adult=false&language=en-US`)) || {}).results || [];
+              const info = /^\d+$/.test(String(p.id || "")) ? await this.tmdbGet(`/person/${p.id}?language=en-US`)
+                : hits.find((h) => /^(Directing|Writing)$/.test(h.known_for_department || "")) || hits[0];
+              if (info && info.profile_path) fromTmdb = `https://image.tmdb.org/t/p/h632${info.profile_path}`;
+            }
+            photo = fromTmdb || photo || await this.wikipediaPhoto(p.wiki || name);
+            if (photo) writeCached(key, photo);
+          }
+          out[p.key || name] = photo || null;
+        }));
+        return out;
+      },
+      // A TMDB v3 request (the key or the read access token from dx.bi settings); null when it fails
+      tmdbGet(path) {
+        const token = tmdbKey();
+        const bearer = token.startsWith("eyJ");
+        return fetch(`https://api.themoviedb.org/3${path}${bearer ? "" : `${path.includes("?") ? "&" : "?"}api_key=${encodeURIComponent(token)}`}`, {
+          headers: bearer ? { authorization: `Bearer ${token}` } : {},
+          signal: AbortSignal.timeout(10000),
+        }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
       },
       // A person's picture from Wikipedia: only from a page about someone in film or TV (a name can
       // belong to anyone)
@@ -15294,6 +16864,9 @@
         let photo = null;
         try {
           const r = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name.replace(/ /g, "_"))}?redirect=true`, { signal: AbortSignal.timeout(8000) });
+          // (Wikipedia busy or refusing, not "no such page": try again another time. Kept as "no photo", one refusal left the
+          // whole cast as initials on the TV for good)
+          if (!r.ok && r.status !== 404) return null;
           const j = r.ok ? await r.json() : null;
           if (j && j.type === "standard" && screen.test(j.description || "") && j.thumbnail && /^https:/.test(j.thumbnail.source)) photo = j.thumbnail.source;
         } catch (_) {
@@ -15318,12 +16891,42 @@
           imdb: m.imdbRating || null,
         }));
       },
+      // What Stremio's library doesn't keep for the billboard's Continue Watching titles: their story, genres,
+      // year and length, by id (Cinemeta's, cached), for [[type, id], …]
+      async describe(list) {
+        const out = {};
+        await Promise.all((Array.isArray(list) ? list : []).slice(0, 24).map(async ([type, id]) => {
+          const m = /^kitsu:/.test(String(id)) ? await kitsuMeta(id) : await getMeta(type, id).catch(() => null);
+          if (m) out[id] = { description: m.description || null, genres: (m.genres || []).slice(0, 3), year: m.releaseInfo ? String(m.releaseInfo) : null, runtime: formatRuntime(m.runtime) || null, logo: m.logo || null, background: m.background || null };
+        }));
+        return out;
+      },
       myList() {
         if (settings.myList === "off") return [];
         return myList.groups().map(([name, list]) => ({
           name,
           items: list.map((i) => ({ id: i._id, type: i.type, name: i.name, poster: i.poster || (isImdb(i._id) ? `https://images.metahub.space/poster/small/${i._id}/img` : null) })),
         }));
+      },
+      // What's in the Library and what's watched (a title's long-press menu says Add or Remove, Watched or not)
+      marks() {
+        const items = stremioLibrary();
+        return {
+          library: items.filter((i) => !i.removed && !i.temp).map((i) => i._id),
+          // (a show only once it's marked watched as a whole: one episode seen counts it in timesWatched, and a show part
+          // way through isn't watched)
+          watched: items.filter((i) => (i.state.flaggedWatched || 0) > 0 || (i.type === "movie" && (i.state.timesWatched || 0) > 0)).map((i) => i._id),
+        };
+      },
+      // What a person said they like (genres and titles), kept with the account's other synced data: null if not told
+      taste(id) {
+        const v = store.get(`taste:${String(id).slice(0, 40)}`, null);
+        return v && typeof v === "object" ? v : null;
+      },
+      setTaste(id, value) {
+        if (!/^[\w-]{1,40}$/.test(String(id)) || !value || typeof value !== "object") return false;
+        store.set(`taste:${id}`, value);
+        return true;
       },
       // null while it's still being worked out (ask again shortly)
       forYou() {
@@ -15340,6 +16943,44 @@
           return null;
         }
         return { name: `Because you watched ${data.name}`, items: data.list.map((i) => ({ id: i._id, type: i.type, name: i.name, poster: i.poster || null })) };
+      },
+      // Picks for this viewer (the recommender above): Top Picks for You and Because you watched rows, as
+      // {rows: [{id, name, items}]}; null while the first answer is being worked out (ask again shortly);
+      // stale: true is the last answer while a fresh one is made
+      picks() {
+        if (!settings.forYou || viewers.current().kids) return { rows: [] };
+        const answer = recommender.get();
+        if (!answer) return null;
+        return { stale: !!answer.stale, rows: answer.rows.map((r) => ({ id: r.id, name: r.name, items: r.items.map((i) => ({ id: i._id, type: i.type, name: i.name, poster: i.poster })) })) };
+      },
+      // Everything that is one account's own on this device (its viewers, who has which title, hidden and
+      // dismissed titles, stats…), as {key: value}: the app keeps it with a saved account's sign-in
+      accountData() {
+        stats.flush();
+        const out = {};
+        for (const [key, entry] of Object.entries(store.data)) if (ACCOUNT_DATA.test(key) && entry && entry.v !== undefined) out[key] = entry.v;
+        return out;
+      },
+      // Another account is about to be signed in: its data replaces this one's (what the old account
+      // had is left empty where the new has none). The app reloads the page after.
+      async useAccountData(data) {
+        stats.flush();
+        const now = Date.now();
+        for (const key of Object.keys(store.data)) if (ACCOUNT_DATA.test(key)) store.put(key, { t: now });
+        for (const [key, value] of Object.entries(data && typeof data === "object" ? data : {})) {
+          if (ACCOUNT_DATA.test(key)) store.put(key, { t: now + 1, v: value });
+        }
+        await store.flush();
+        return true;
+      },
+      // A title's page: titles like it (TMDB's recommendations with a key, else popular ones in its genres)
+      async related(type, id, genres) {
+        if (!/^tt/.test(String(id)) || (type !== "movie" && type !== "series")) return [];
+        const json = (path) => fetch(`${forYou.BASE}${path}`, { signal: AbortSignal.timeout(10000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+        const real = await forYou.recommended({ type, _id: id }).catch(() => null);
+        const lists = real && real.length ? [real]
+          : (await Promise.all((genres || []).slice(0, 2).map((g) => json(`/catalog/${type}/top/genre=${encodeURIComponent(g)}.json`)))).map((l) => (l && l.metas) || []);
+        return forYou.pick(lists, new Set([id])).map((m) => ({ id: m.id, type, name: m.name, poster: m.poster || null }));
       },
       // Airing this week: each show's next episode (or the one just out), soonest first
       airing() {
@@ -15368,6 +17009,38 @@
           out: ep.t <= Date.now(),
         }));
       },
+      // The Calendar: every dated episode of the Library's shows from last month to three months ahead,
+      // soonest first (fetched now if the episode index isn't up yet, whatever the airing settings)
+      async calendar() {
+        episodes.refresh(true);
+        if (episodes.loading) await episodes.loading.catch(() => {});
+        const now = Date.now();
+        // (last month's start to three months ahead: the Calendar's months)
+        const start = new Date(now);
+        const from = new Date(start.getFullYear(), start.getMonth() - 1, 1).getTime();
+        const to = new Date(start.getFullYear(), start.getMonth() + 3, 1).getTime();
+        const seen = new Set();
+        const out = [];
+        for (const [id, e] of episodes.index) {
+          for (const v of e.all || []) {
+            if (!(v.t >= from && v.t <= to)) continue;
+            // (one show under two ids, as Cinemeta and TMDB both list it: each episode once)
+            const key = String(e.name || id).toLowerCase().replace(/[^a-z0-9]+/g, "") + ":" + v.s + ":" + v.e;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({
+              id,
+              name: e.name || "",
+              poster: e.poster || null,
+              background: e.background || (isImdb(id) ? art.backgroundMedium(id) : null),
+              season: v.s,
+              episode: v.e,
+              time: v.t,
+            });
+          }
+        }
+        return out.sort((a, b) => a.time - b.time).slice(0, 800);
+      },
       // Customise Home, for this viewer: rows by `${addon id}/${type}/${catalog id}`
       layout() {
         const { order, hidden, names } = homeLayout.data();
@@ -15381,7 +17054,7 @@
         const data = reviews.data.get(t.key) || (await reviews.load(t));
         const [wiki, tmdb] = await Promise.all([
           data.article ? reviews.wikipedia(data.article).catch(() => null) : null,
-          settings.tmdbKey.trim() && (data.ids.imdb || data.ids.tmdb) ? reviews.tmdb(data.ids).catch((err) => ({ error: err.message })) : null,
+          tmdbKey() && (data.ids.imdb || data.ids.tmdb) ? reviews.tmdb(data.ids).catch((err) => ({ error: err.message })) : null,
         ]);
         return {
           scores: (data.scores || []).map((s) => ({ source: s.source, name: s.name, note: s.note || "", value: String(s.value), votes: s.votes || 0, url: s.url || null })),
@@ -15389,7 +17062,7 @@
           mdbError: data.mdbError || null,
           critics: wiki && wiki.text && wiki.text.length ? { text: wiki.text, url: wiki.url } : null,
           audience: tmdb ? { reviews: tmdb.reviews || [], total: tmdb.total || 0, url: tmdb.url || null, error: tmdb.error || null } : null,
-          missing: [!settings.tmdbKey.trim() && "tmdb", !settings.mdblistKey.trim() && "mdblist"].filter(Boolean),
+          missing: [!tmdbKey() && "tmdb", !settings.mdblistKey.trim() && "mdblist"].filter(Boolean),
         };
       },
       // The streams for the title open in details, read the way the stream list reads them, and the one
@@ -15398,43 +17071,253 @@
         const state = await core().getState("meta_details").catch(() => null);
         const groups = state && Array.isArray(state.streams) ? state.streams : [];
         const metaId = state && state.selected && state.selected.metaPath && state.selected.metaPath.id;
-        const items = groups.flatMap((g) => (g && g.content && g.content.type === "Ready" && Array.isArray(g.content.content)
+        let items = groups.flatMap((g) => (g && g.content && g.content.type === "Ready" && Array.isArray(g.content.content)
           ? g.content.content.map((st) => ({ st, addon: (g.addon && g.addon.manifest && g.addon.manifest.name) || "" })) : []))
           .filter((x) => x.st && x.st.deepLinks && x.st.deepLinks.player && !x.st.ytId)
-          .map((x) => ({ ...x, torrent: !!x.st.infoHash && !x.st.url, hint: watchParty.streamHints(x.st), d: describeStream(String(x.st.name || ""), `${x.st.name || ""}\n${x.st.description || x.st.title || ""}`) }));
+          .map((x) => streamTruth.apply({ ...x, torrent: !!x.st.infoHash && !x.st.url, hint: watchParty.streamHints(x.st), d: describeStream(String(x.st.name || ""), `${x.st.name || ""}\n${x.st.description || x.st.title || ""}`) }));
         const server = await core().getState("streaming_server").catch(() => null);
         const options = {
-          limit: streamChoice.limit(settings.quickPlayQuality),
+          limit: Math.min(streamChoice.limit(settings.quickPlayQuality), streamChoice.limit(await netMemory.cap())),
           fallback: settings.quickPlayFallback,
           torrents: !!(server && server.settings && server.settings.type === "Ready") || (IN_TV && settings.tvTorrents),
+          addon: settings.quickPlayAddon,
+          // Waits for the speed (a few seconds, once every 10 minutes): the phone plays the pick as soon
+          // as the addons have answered, which is often before it's measured
+          speed: settings.quickPlaySpeed ? await netSpeed.get() : 0,
+          minutes: streamMinutes(state, state && state.selected && state.selected.streamPath && state.selected.streamPath.id),
         };
-        const choice = items.length ? streamChoice.choose(items, metaId ? quickPlay.memory(metaId) : null, options) : null;
-        phoneStreams = { items, options };
+        // (samples aren't listed at all on the phone and iPad)
+        const short = streamChoice.samples(items, options.minutes);
+        if (short.size) items = items.filter((x) => !short.has(x));
+        // (a device without an AV1 decoder plays it in software: slow at 4K, and HDR came out washed out on an
+        // older iPad. Picked, and kept as a spare, only when nothing else is there)
+        const playable = streamChoice.decodable(items);
+        const choice = playable.length ? streamChoice.choose(playable, metaId ? quickPlay.titleMemory(metaId) : null, options) : null;
+        phoneStreams = { items, options, metaId, pick: choice ? choice.item : null, videoId: (state && state.selected && state.selected.streamPath && state.selected.streamPath.id) || null };
         return {
           justPlay: settings.quickPlay,
           settled: groups.length > 0 && !groups.some((g) => g && g.content && g.content.type === "Loading"),
           videoId: (state && state.selected && state.selected.streamPath && state.selected.streamPath.id) || null,
           pick: choice ? items.indexOf(choice.item) : -1,
           how: choice ? choice.how : null,
-          items: items.map((x) => ({
-            play: x.st.deepLinks.player,
-            addon: x.addon,
-            // the file's own name: what tells two 1080p streams apart
-            filename: (x.st.behaviorHints && x.st.behaviorHints.filename) || String(x.st.description || x.st.title || "").split("\n").map((l) => l.trim()).find((l) => l && !/^[👤💾⚙🔎]/u.test(l)) || "",
-            label: quickPlay.label(x.d),
-            torrent: x.torrent,
-            ...x.d,
-          })),
+          // (why a lighter stream than the best was picked: the quality cap, or the connection's speed)
+          lowered: (() => {
+            if (!choice || choice.how === "same") return null;
+            const top = streamChoice.best(playable, options.minutes);
+            if (!top || choice.item.d.res >= top.d.res) return null;
+            return { from: top.d.res, to: choice.item.d.res, why: options.limit < top.d.res ? "cap" : "speed" };
+          })(),
+          // the connection's speed in Mbps, when Match my internet speed measured it (else 0)
+          speed: options.speed || 0,
+          // (mbps: the bitrate, its size over the title's length; 0 when either isn't known, never a guess)
+          items: items.map((x) => ({ ...phoneItem(x), mbps: x.d.size > 0 && options.minutes > 0 ? Math.round(streamChoice.mbps(x.d, options.minutes) * 10) / 10 : 0 })),
         };
       },
       // Playing one of those: like Just press Play, the next best are kept in case it won't play
-      play(index) {
+      play(index, metered) {
         const item = phoneStreams && phoneStreams.items[index];
         if (!item) return null;
+        // (one chosen from the list, not Lumen's own pick: remembered for this title, unless it was chosen on
+        // mobile data: that was chosen to save data, not the one wanted, and is never played again by itself)
+        if (item !== phoneStreams.pick && !metered) rememberChoice(item);
+        phonePlaying = item;
         quickPlay.from = location.hash;
-        quickPlay.spares = streamChoice.spares(phoneStreams.items, item, phoneStreams.options);
+        quickPlay.spares = streamChoice.spares(streamChoice.decodable(phoneStreams.items), item, phoneStreams.options);
         quickPlay.play(item);
         return item.st.deepLinks.player;
+      },
+      // It's buffering: streams lighter than the one playing that fit the speed the player is really
+      // getting (mbps, measured by the player; nowMbps, the playing file's bitrate, 0 if unknown). The
+      // best first, three at most. The measured speed also stands in for the speed test's for a while,
+      // so the next pick fits it too.
+      lighter(mbps, nowMbps) {
+        if (mbps > 0) netMemory.add(mbps, "stall");
+        if (!phoneStreams || !phonePlaying) return [];
+        const { items, options } = phoneStreams;
+        const was = phonePlaying.st;
+        const same = (st) => (was.url ? st.url === was.url : st.infoHash === was.infoHash && st.fileIdx === was.fileIdx);
+        const current = nowMbps > 0 ? nowMbps : streamChoice.mbps(phonePlaying.d, options.minutes);
+        const cap = Math.min(current * 0.8, mbps > 0 ? mbps * streamChoice.HEADROOM : Infinity);
+        const short = streamChoice.samples(items, options.minutes);
+        return items
+          .filter((x) => !same(x.st) && !short.has(x) && x.d.source !== "CAM" && !x.d.pending && (options.torrents || !x.torrent) && streamChoice.mbps(x.d, options.minutes) <= cap)
+          .sort((a, b) => streamChoice.rank(b.d, options.minutes) - streamChoice.rank(a.d, options.minutes) || b.d.seeds - a.d.seeds)
+          .slice(0, 3)
+          .map((x) => ({ index: items.indexOf(x), mbps: Math.round(streamChoice.mbps(x.d, options.minutes) * 10) / 10, ...phoneItem(x) }));
+      },
+      // Switching streams inside the player: the address and headers of one of [streams] (a web stream:
+      // a torrent needs the streaming server, so it goes through Stremio's player as usual, null here)
+      source(index) {
+        const item = phoneStreams && phoneStreams.items[index];
+        if (!item || !item.st.url || !/^https?:/i.test(item.st.url)) return null;
+        phonePlaying = item;
+        quickPlay.current = item;
+        // (switched to in the player: chosen, so remembered)
+        rememberChoice(item);
+        quickPlay.spares = streamChoice.spares(streamChoice.decodable(phoneStreams.items), item, phoneStreams.options);
+        const hints = item.st.behaviorHints || {};
+        return { url: item.st.url, headers: (hints.proxyHeaders && hints.proxyHeaders.request) || {}, label: quickPlay.label(item.d) };
+      },
+      // A web stream's address and headers, to look at it before it's played (null for a torrent); the size
+      // is what its listing said (0 when it didn't). See reject.
+      probe(index) {
+        const item = phoneStreams && phoneStreams.items[index];
+        if (!item || !item.st.url || !/^https?:/i.test(item.st.url)) return null;
+        const hints = item.st.behaviorHints || {};
+        return { url: item.st.url, headers: (hints.proxyHeaders && hints.proxyHeaders.request) || {}, size: item.d.size || 0 };
+      },
+      // A stream that turned out not to be a video (an addon's error): never picked again by itself, for a month
+      reject(index, why) {
+        const item = phoneStreams && phoneStreams.items[index];
+        if (item) streamFailures.add(item, why);
+        return !!item;
+      },
+      // Christmas at Home (Discover): the curated rows, then "More Christmas" from TMDB when there's a key.
+      // [daysToChristmas], and whether it's [inSeason] (mid-November to early January: the festive card and page)
+      async christmas() {
+        const now = new Date();
+        const y = now.getMonth() === 0 && now.getDate() <= 6 ? now.getFullYear() - 1 : now.getFullYear();
+        let day = new Date(y, 11, 25);
+        if (day.getTime() + 86400000 <= now.getTime()) day = new Date(y + 1, 11, 25);
+        const daysToChristmas = Math.max(0, Math.ceil((day.getTime() - now.getTime()) / 86400000));
+        const inSeason = (now.getMonth() === 10 && now.getDate() >= 15) || now.getMonth() === 11 || (now.getMonth() === 0 && now.getDate() <= 6);
+        const rows = await christmasLists.rows();
+        return { daysToChristmas, inSeason, rows };
+      },
+      // The other seasons of an anime (the Kitsu addon keeps each season as a show of its own): the franchise's
+      // TV entries in order, from Kitsu's own sequel and prequel links. [] when there's only the one (or it can't
+      // be told). Each: id, name, label ("Season 2", "The Final Season"), poster, background, year, episodes, current.
+      async animeSeasons(id) {
+        const m = /^kitsu:(\d+)$/.exec(String(id || ""));
+        if (!m) return [];
+        const key = `kseasons:${m[1]}`;
+        const cached = readCached(key);
+        if (cached !== undefined) return cached.map((x) => ({ ...x, current: x.id === `kitsu:${m[1]}` }));
+        const H = { Accept: "application/vnd.api+json" };
+        const get = (path) => fetch(`https://kitsu.io/api/edge${path}`, { headers: H, signal: AbortSignal.timeout(10000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+        const found = new Map();
+        const queue = [m[1]];
+        let failed = false;
+        while (queue.length && found.size < 16) {
+          const at = queue.shift();
+          if (found.has(at)) continue;
+          const [entry, rel] = await Promise.all([get(`/anime/${at}`), get(`/anime/${at}/media-relationships?filter[role]=sequel,prequel&include=destination&page[limit]=20`)]);
+          if (!entry || !entry.data) { failed = true; continue; }
+          found.set(at, entry.data);
+          const dest = new Map(((rel && rel.included) || []).filter((x) => x.type === "anime").map((x) => [x.id, x]));
+          for (const d of (rel && rel.data) || []) {
+            const to = dest.get(d.relationships.destination.data.id);
+            if (to && to.attributes.subtype === "TV" && !found.has(to.id)) queue.push(to.id);
+          }
+        }
+        const list = [...found.values()].sort((a, b) => String(a.attributes.startDate).localeCompare(String(b.attributes.startDate)));
+        if (list.length < 2) {
+          if (!failed) writeCached(key, []);
+          return [];
+        }
+        const base = String(list[0].attributes.canonicalTitle || "");
+        const out = list.map((x, i) => {
+          const name = String(x.attributes.canonicalTitle || "");
+          const rest = name.startsWith(base) ? name.slice(base.length).replace(/^[\s:\-–]+/, "").trim() : name;
+          return {
+            id: `kitsu:${x.id}`,
+            type: "series",
+            name,
+            label: i === 0 || !rest ? "Season 1" : /^\d+$/.test(rest) ? `Season ${rest}` : rest,
+            poster: (x.attributes.posterImage && (x.attributes.posterImage.medium || x.attributes.posterImage.small)) || null,
+            background: (x.attributes.coverImage && (x.attributes.coverImage.large || x.attributes.coverImage.original)) || null,
+            year: String(x.attributes.startDate || "").slice(0, 4),
+            episodes: x.attributes.episodeCount || 0,
+          };
+        });
+        for (const x of out) writeCached(`kseasons:${x.id.slice(6)}`, out);
+        return out.map((x) => ({ ...x, current: x.id === `kitsu:${m[1]}` }));
+      },
+      // A show started from Shuffle carries on shuffling (on), until anything else is played (off)
+      shuffle(metaId, on) {
+        phoneShuffle = on && metaId ? String(metaId) : null;
+        return true;
+      },
+      shuffling: () => phoneShuffle,
+      // The picture the player is really showing (its width in pixels), once it plays: a stream whose name
+      // claimed more is read at its real quality from then on. True when it was less than claimed.
+      realPicture(width) {
+        // (the quiet skip moves quickPlay's on to a spare; the phone's stays on what was chosen)
+        const x = quickPlay.current || phonePlaying;
+        return !!x && !!x.d && streamTruth.add(x, Number(width) || 0);
+      },
+      // What the player got from the server on this network (it measures while filling its buffer)
+      networkSample(mbps) {
+        netMemory.add(Number(mbps) || 0, "fill");
+        return true;
+      },
+      // Settings → Networks: what it's learnt about each, and their quality caps
+      async networks() {
+        const current = await netMemory.currentId();
+        return Object.entries(netMemory.all()).sort((a, b) => (b[1].at || 0) - (a[1].at || 0)).map(([id, rec]) => ({
+          id, name: rec.name || "", cap: rec.cap || 0, current: id === current, trusted: netMemory.trusted(rec),
+          mbps: Math.round(netMemory.speed(rec) * 10) / 10, readings: (rec.samples || []).length, at: rec.at || 0,
+        }));
+      },
+      setNetwork(id, changes) {
+        const list = netMemory.all();
+        if (!list[id]) return false;
+        if (changes && typeof changes.name === "string") list[id].name = changes.name.trim().slice(0, 40);
+        if (changes && changes.cap !== undefined) list[id].cap = [0, 2160, 1080, 720].includes(Number(changes.cap)) ? Number(changes.cap) : 0;
+        if (changes && changes.relearn) list[id].samples = [];
+        netMemory.save(list);
+        netSpeed.at = 0;
+        return true;
+      },
+      forgetNetwork(id) {
+        const list = netMemory.all();
+        delete list[id];
+        netMemory.save(list);
+        netSpeed.at = 0;
+        return true;
+      },
+      // The seek bar's previews: the lightest web stream of the video playing (720p, else 1080p, else what
+      // there is, never a sample), so each jump is quick and the device's decoder barely notices. Only the
+      // list for that very video (after Up Next, the list open is the episode before's); null otherwise.
+      previewSource(videoId) {
+        if (!phoneStreams || !videoId || phoneStreams.videoId !== videoId) return null;
+        const { items, options } = phoneStreams;
+        const short = streamChoice.samples(items, options.minutes);
+        const web = items.filter((x) => x.st.url && /^https?:/i.test(x.st.url) && !short.has(x) && !x.d.pending && x.d.source !== "CAM" && x.d.res >= 480);
+        const pick = [720, 1080, 480, 1440, 2160].map((res) => web.filter((x) => x.d.res === res))
+          .find((list) => list.length);
+        if (!pick) return null;
+        const light = [...pick].sort((a, b) => (a.d.size || Infinity) - (b.d.size || Infinity))[0];
+        const hints = light.st.behaviorHints || {};
+        return { url: light.st.url, headers: (hints.proxyHeaders && hints.proxyHeaders.request) || {}, label: quickPlay.label(light.d) };
+      },
+      // The player's Streams button: other streams of what's playing, by what they change. nowMbps: the
+      // playing file's bitrate (0 if unknown). Never a sample, a cinema recording or a new debrid download.
+      alternatives(nowMbps) {
+        if (!phoneStreams || !phonePlaying) return { groups: [] };
+        const { items, options } = phoneStreams;
+        const was = phonePlaying.st;
+        const same = (st) => (was.url ? st.url === was.url : st.infoHash === was.infoHash && st.fileIdx === was.fileIdx);
+        const short = streamChoice.samples(items, options.minutes);
+        const now = phonePlaying.d;
+        const rate = (x) => streamChoice.mbps(x.d, options.minutes);
+        const current = nowMbps > 0 ? nowMbps : rate(phonePlaying);
+        const pool = items.filter((x) => !same(x.st) && !short.has(x) && x.d.source !== "CAM" && !x.d.pending && (options.torrents || !x.torrent));
+        const best = (list, n) => [...list].sort((a, b) => streamChoice.rank(b.d, options.minutes) - streamChoice.rank(a.d, options.minutes) || b.d.seeds - a.d.seeds).slice(0, n);
+        const shown = (x) => ({ index: items.indexOf(x), mbps: Math.round(rate(x) * 10) / 10, ...phoneItem(x) });
+        const groups = [];
+        // the best at each lower quality
+        const lower = [...new Set(pool.filter((x) => x.d.res > 0 && x.d.res < now.res).map((x) => x.d.res))].sort((a, b) => b - a)
+          .flatMap((res) => best(pool.filter((x) => x.d.res === res), 1));
+        if (lower.length) groups.push({ title: "Lower resolution", options: lower.slice(0, 3).map(shown) });
+        const lighter = best(pool.filter((x) => x.d.res === now.res && rate(x) <= current * 0.8), 3);
+        if (lighter.length) groups.push({ title: `Lighter at ${QUALITY_LABEL[now.res] || "this quality"}`, options: lighter.map(shown) });
+        const range = now.hdr
+          ? best(pool.filter((x) => !x.d.hdr && x.d.res >= Math.min(now.res, 1080)), 2)
+          : best(pool.filter((x) => x.d.hdr && x.d.res >= now.res), 2);
+        if (range.length) groups.push({ title: now.hdr ? "Not HDR" : "HDR", options: range.map(shown) });
+        groups.push({ title: "All streams", options: best(pool, 25).map(shown) });
+        return { groups };
       },
       // Watch party (see watchParty.phone)
       party: watchParty.phone,
@@ -15442,6 +17325,22 @@
       viewers() {
         const v = viewers.list();
         return { current: viewers.current().id, list: v.list.map((x) => ({ id: x.id, name: x.name || "", colour: x.colour || null, kids: !!x.kids })) };
+      },
+      rating(id) {
+        return ratings.get(id);
+      },
+      ratings() {
+        return ratings.all();
+      },
+      // [meta]: {type, name, year, genres} of the title, as the screen that rated it knows it
+      async setRating(id, score, meta) {
+        const changed = ratings.set(id, score);
+        if (ratings.get(id) !== null && meta && typeof meta === "object") ratings.remember(id, meta);
+        if (!changed) return true;
+        // (ten rated in a row are one new set of picks, not ten: worked out half a minute after the last)
+        clearTimeout(ratings.later);
+        ratings.later = setTimeout(() => recommender.get(), 30000);
+        return true;
       },
     },
     // dx.bi TV's player: intro, recap and credits times for an episode ([] when nobody has added them)
@@ -15461,7 +17360,7 @@
     partyLeave: () => watchParty.party.leave(),
     closeParty: () => watchParty.closePanel(),
     findStream: (media, stillWanted) => watchParty.findStream(media, stillWanted),
-    quickPlayNext: () => quickPlay.next(),
+    quickPlayNext: (why) => quickPlay.next(why),
     saveYear: () => { stats.flush(); if (!stats.data) stats.load(); statsPanel.saveYear(); },
     lite,
     streamHints: (stream) => watchParty.streamHints(stream),
@@ -15593,7 +17492,7 @@
   // ---------------------------------------------------------------------------
   // Contrast-adaptive sharpening (after AMD FidelityFX CAS, MIT) as an mpv user shader: the same
   // strength as the browser player's Sharpen
-  const MPV_SHARPEN = `//!DESC dx.bi sharpen (CAS)
+  const MPV_SHARPEN = `//!DESC Lumen sharpen (CAS)
 //!HOOK MAIN
 //!BIND HOOKED
 #define SHARPNESS 0.45
@@ -15621,7 +17520,7 @@ vec4 hook() {
   // ---------------------------------------------------------------------------
   // Generated from dxbi.theme.css by tools/bundle-theme.mjs: edit the theme, then run it
   function bundledThemeCss() {
-    return /*@bundled-theme*/"/* dx.bi — Copyright (C) 2026 dx.bi. Free software under the GNU General Public License, version 3\n   or later (see LICENSE and NOTICE.md at github.com/notdxbi/dxbi-stremio). Versions up to 2.15.9: MIT. */\n\n@import url(\"https://fonts.googleapis.com/css2?family=Inter:wght@300..800&family=Bebas+Neue&display=swap\");\n\n/* Country flags drawn the same on every OS: Windows has no flag emoji and shows letters (\"GB\")\n   instead. A flag-only font (Twemoji Country Flags, 78 KB), downloaded only when a flag is on screen. */\n@font-face {\n    font-family: \"Twemoji Country Flags\";\n    unicode-range: U+1F1E6-1F1FF, U+1F3F4, U+E0062-E0063, U+E0065, U+E0067, U+E006C, U+E006E, U+E0073-E0074, U+E0077, U+E007F;\n    src: url(\"https://cdn.jsdelivr.net/npm/country-flag-emoji-polyfill@0.1.8/dist/TwemojiCountryFlags.woff2\") format(\"woff2\");\n    font-display: swap;\n}\n\n/* =====================================================================\n   1. TOKENS\n   ===================================================================== */\n\n:root {\n    /* Accent is overridable by the plugin (Settings → dx.bi) */\n    --dx-accent: #e50914;\n    --dx-accent-hover: color-mix(in srgb, var(--dx-accent) 85%, white);\n    --dx-accent-soft: color-mix(in srgb, var(--dx-accent) 18%, transparent);\n\n    --dx-bg: #0b0b0d;\n    --dx-bg-raised: #131317;\n    --dx-surface: #18181d;\n    --dx-surface-2: #212128;\n    --dx-surface-3: #2b2b33;\n    --dx-line: rgba(255, 255, 255, 0.08);\n    --dx-line-strong: rgba(255, 255, 255, 0.16);\n\n    --dx-text: #f4f4f5;\n    --dx-text-2: #c4c4cc;\n    --dx-text-3: #8a8a96;\n\n    --dx-radius-s: 4px;\n    --dx-radius: 8px;\n    --dx-radius-l: 14px;\n\n    --dx-gutter: clamp(1.25rem, 4vw, 4.5rem);\n    --dx-nav-h: 4.25rem;\n    --dx-cols: 7;\n\n    --dx-ease: cubic-bezier(0.22, 0.61, 0.36, 1);\n    --dx-ease-out: cubic-bezier(0.16, 1, 0.3, 1);\n    --dx-shadow-1: 0 2px 10px rgba(0, 0, 0, 0.35);\n    --dx-shadow-2: 0 18px 50px rgba(0, 0, 0, 0.6);\n\n    /* Stremio's own variables — recolours every stock component at once */\n    --primary-background-color: var(--dx-bg);\n    --secondary-background-color: var(--dx-bg);\n    --primary-foreground-color: var(--dx-text);\n    --secondary-foreground-color: var(--dx-bg);\n    --primary-accent-color: var(--dx-accent);\n    --secondary-accent-color: var(--dx-accent);\n    --tertiary-accent-color: #f5c518;\n    --overlay-color: rgba(255, 255, 255, 0.07);\n    --modal-background-color: var(--dx-surface);\n    --outer-glow: 0 0 0 transparent;\n    --border-radius: var(--dx-radius);\n    --horizontal-nav-bar-size: var(--dx-nav-h);\n    --color-placeholder: rgba(255, 255, 255, 0.05);\n    --color-placeholder-background: rgba(255, 255, 255, 0.04);\n}\n\n@media (max-width: 2200px) { :root { --dx-cols: 7; --dx-wide-cols: 4.6; } }\n@media (max-width: 1800px) { :root { --dx-cols: 6; --dx-wide-cols: 4.2; } }\n@media (max-width: 1400px) { :root { --dx-cols: 5; --dx-wide-cols: 3.6; } }\n@media (max-width: 1050px) { :root { --dx-cols: 4; --dx-wide-cols: 2.6; } }\n@media (min-width: 2201px) { :root { --dx-cols: 8; --dx-wide-cols: 5.4; } }\n\n/* =====================================================================\n   2. BASE\n   ===================================================================== */\n\nhtml,\nhtml body {\n    background: var(--dx-bg) !important;\n    font-family: \"Twemoji Country Flags\", \"Inter\", \"PlusJakartaSans\", system-ui, sans-serif !important;\n    -webkit-font-smoothing: antialiased;\n    text-rendering: optimizeLegibility;\n}\n\n#app,\n#app * {\n    font-family: \"Twemoji Country Flags\", \"Inter\", \"PlusJakartaSans\", system-ui, sans-serif;\n}\n\n::selection {\n    background: var(--dx-accent);\n    color: #fff;\n}\n\n* {\n    scrollbar-width: thin;\n    scrollbar-color: rgba(255, 255, 255, 0.14) transparent;\n}\n\n::-webkit-scrollbar {\n    width: 8px;\n    height: 8px;\n}\n\n::-webkit-scrollbar-thumb {\n    background: rgba(255, 255, 255, 0.14);\n    border-radius: 8px;\n}\n\n::-webkit-scrollbar-track {\n    background: transparent;\n}\n\n/* Smooth page entry */\n#app .animation-fade-in {\n    animation: dx-rise 0.5s var(--dx-ease-out) both !important;\n}\n\n@keyframes dx-rise {\n    from { opacity: 0; transform: translateY(10px); }\n    to { opacity: 1; transform: none; }\n}\n\n@keyframes dx-fade {\n    from { opacity: 0; }\n    to { opacity: 1; }\n}\n\n/* =====================================================================\n   3. TOP NAVIGATION (main pages)\n   ===================================================================== */\n\n#app [class*=\"main-nav-bars-container\"] > nav[class*=\"horizontal-nav-bar\"] {\n    z-index: 5;\n    height: var(--dx-nav-h);\n    padding: 0 var(--dx-gutter);\n    gap: 1.25rem;\n    justify-content: flex-start;\n    background: var(--dx-bg);\n    transition: background-color 0.35s var(--dx-ease), box-shadow 0.35s var(--dx-ease);\n}\n\n/* Board: header floats over the billboard and turns solid on scroll */\nbody[data-dx-route=\"board\"] #app [class*=\"main-nav-bars-container\"] > nav[class*=\"horizontal-nav-bar\"] {\n    background: linear-gradient(180deg, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.25) 70%, transparent 100%);\n}\n\nbody.dx-scrolled #app [class*=\"main-nav-bars-container\"] > nav[class*=\"horizontal-nav-bar\"],\nbody #app [class*=\"main-nav-bars-container\"] > nav[class*=\"horizontal-nav-bar\"][data-dx-scrolled] {\n    background-color: rgba(11, 11, 13, 0.97);\n    box-shadow: 0 1px 0 var(--dx-line), 0 10px 30px rgba(0, 0, 0, 0.35);\n}\n\n/* Wordmark */\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"logo-container\"] {\n    flex: none;\n    margin-right: auto;\n    width: 6.5rem;\n    height: var(--dx-nav-h);\n    justify-content: flex-start;\n    order: 0;\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"logo-container\"] img {\n    display: none !important;\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"logo-container\"]::before {\n    content: \"DX.BI\";\n    font-family: \"Bebas Neue\", \"Inter\", sans-serif;\n    font-size: 2.35rem;\n    line-height: 1;\n    letter-spacing: 0.05em;\n    color: var(--dx-accent);\n    text-shadow: 0 2px 14px rgba(0, 0, 0, 0.45);\n    transform: translateY(2px);\n}\n\n/* Tabs: the stock vertical bar becomes a row of text links beside the logo */\n#app [class*=\"main-nav-bars-container\"] > nav[class*=\"vertical-nav-bar\"] {\n    top: 0;\n    bottom: auto;\n    left: calc(var(--dx-gutter) + 6.5rem + 1.5rem);\n    z-index: 6;\n    width: auto;\n    height: var(--dx-nav-h);\n    padding: 0;\n    flex-direction: row;\n    align-items: center;\n    gap: 1.75rem;\n    background: transparent;\n    overflow: visible;\n}\n\n#app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"] {\n    position: relative;\n    width: auto;\n    height: auto;\n    min-height: 0;\n    padding: 0.4rem 0;\n    flex-direction: row;\n    border-radius: 0;\n    background: transparent !important;\n    overflow: visible;\n}\n\n#app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"] svg {\n    display: none;\n}\n\n#app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"] [class*=\"label\"] {\n    display: block;\n    max-height: none;\n    padding: 0;\n    margin: 0;\n    font-size: 0.92rem;\n    font-weight: 500;\n    letter-spacing: 0.01em;\n    text-transform: capitalize;\n    color: var(--dx-nav-label, var(--dx-text-2));\n    opacity: 1;\n    overflow: visible;\n    white-space: nowrap;\n    transition: color 0.25s var(--dx-ease);\n}\n\n/* Hover effects below set a variable on the hovered element itself, never \"hovered [class*=x]\":\n   that shape makes the browser restyle the whole page on every hover change. */\n#app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"]:hover,\n#app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"]:focus-visible {\n    --dx-nav-label: var(--dx-text);\n}\n\n#app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"].selected [class*=\"label\"] {\n    color: #fff;\n    font-weight: 700;\n}\n\n#app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"]::after {\n    content: \"\";\n    position: absolute;\n    left: 0;\n    right: 0;\n    bottom: -0.15rem;\n    height: 2px;\n    border-radius: 2px;\n    background: var(--dx-accent);\n    transform: scaleX(0);\n    transform-origin: left;\n    transition: transform 0.35s var(--dx-ease-out);\n}\n\n#app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"].selected::after {\n    transform: scaleX(1);\n}\n\n/* \"Board\" reads as \"Home\" */\n#app nav[class*=\"vertical-nav-bar\"] a[href=\"#/\"] [class*=\"label\"] {\n    font-size: 0 !important;\n}\n\n#app nav[class*=\"vertical-nav-bar\"] a[href=\"#/\"] [class*=\"label\"]::after {\n    content: \"Home\";\n    font-size: 0.92rem;\n}\n\n/* Search: compact field on the right */\n#app [class*=\"main-nav-bars-container\"] nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"] {\n    flex: none;\n    order: 1;\n    width: 15rem;\n    height: 2.4rem;\n    padding: 0 0.35rem 0 0.9rem;\n    border-radius: var(--dx-radius);\n    background: rgba(255, 255, 255, 0.06);\n    border: 1px solid var(--dx-line);\n    transition: width 0.4s var(--dx-ease-out), background-color 0.25s, border-color 0.25s;\n}\n\n#app [class*=\"main-nav-bars-container\"] nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"]:hover,\n#app [class*=\"main-nav-bars-container\"] nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.09);\n}\n\n#app [class*=\"main-nav-bars-container\"] nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"]:focus-within,\n#app [class*=\"main-nav-bars-container\"] nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"].active {\n    width: 22rem;\n    background: rgba(0, 0, 0, 0.85);\n    border-color: rgba(255, 255, 255, 0.55);\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"] [class*=\"search-input\"],\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"] input {\n    font-size: 0.9rem;\n    color: var(--dx-text);\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"] [class*=\"placeholder-label\"] {\n    font-size: 0.9rem;\n    color: var(--dx-text-3);\n    opacity: 1;\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"] [class*=\"submit-button-container\"] {\n    width: 2rem;\n    height: 2rem;\n    padding: 0;\n    border-radius: var(--dx-radius-s);\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"] svg {\n    width: 1.1rem;\n    height: 1.1rem;\n    color: var(--dx-text-2);\n    opacity: 1;\n}\n\n/* Right-hand buttons */\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"buttons-container\"] {\n    flex: none;\n    order: 2;\n    gap: 0.35rem;\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"buttons-container\"] > [class*=\"button-container\"] {\n    height: 2.5rem;\n    min-width: 2.5rem;\n    border-radius: var(--dx-radius);\n    background: transparent;\n    transition: background-color 0.2s;\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"buttons-container\"] > [class*=\"button-container\"]:hover,\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"buttons-container\"] > [class*=\"button-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.08);\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"buttons-container\"] svg {\n    width: 1.3rem;\n    height: 1.3rem;\n    color: var(--dx-text);\n    opacity: 0.9;\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"avatar\"] {\n    width: 2rem;\n    height: 2rem;\n    border: 0 !important;\n    border-radius: var(--dx-radius-s) !important;\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"avatar\"] img {\n    border-radius: var(--dx-radius-s) !important;\n}\n\n/* Content starts under the header; full width (no sidebar) */\n#app [class*=\"main-nav-bars-container\"] > [class*=\"nav-content-container\"] {\n    top: var(--dx-nav-h);\n    left: 0;\n}\n\nbody[data-dx-route=\"board\"] #app [class*=\"board-container\"] [class*=\"nav-content-container\"] {\n    top: 0;\n}\n\n/* Narrower windows */\n@media (max-width: 1450px) {\n    #app [class*=\"main-nav-bars-container\"] > nav[class*=\"vertical-nav-bar\"] {\n        gap: 1.25rem;\n    }\n\n    #app [class*=\"main-nav-bars-container\"] nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"] {\n        width: 2.6rem;\n        padding: 0 0.25rem;\n        background: transparent;\n        border-color: transparent;\n    }\n\n    #app [class*=\"main-nav-bars-container\"] nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"] [class*=\"search-input\"] {\n        opacity: var(--dx-search-open, 0);\n    }\n\n    #app [class*=\"main-nav-bars-container\"] nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"]:focus-within,\n    #app [class*=\"main-nav-bars-container\"] nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"].active {\n        position: relative;\n        z-index: 7;\n        width: 18rem;\n        padding: 0 0.35rem 0 0.9rem;\n        --dx-search-open: 1;\n    }\n}\n\n@media (max-width: 1000px) {\n    #app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"] [class*=\"label\"] {\n        display: none;\n    }\n\n    #app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"] svg {\n        display: block;\n        width: 1.35rem;\n        height: 1.35rem;\n        color: var(--dx-text-2);\n    }\n\n    #app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"].selected svg {\n        color: #fff;\n    }\n}\n\n/* =====================================================================\n   4. BOARD — rows become carousels\n   ===================================================================== */\n\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) {\n    padding: 0 0 4rem 0 !important;\n    overflow-x: hidden;\n    scroll-behavior: smooth;\n}\n\n/* No billboard (plugin off): keep rows clear of the floating header */\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]):not(:has(> .dx-hero)) {\n    padding-top: calc(var(--dx-nav-h) + 1rem) !important;\n}\n\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"board-row\"],\n#app [class*=\"search-content\"] [class*=\"search-row\"] {\n    position: relative;\n    margin: 0 0 1.4rem 0 !important;\n}\n\n/* Rows that only show an addon error are noise — hide them */\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"board-row\"]:has(> [class*=\"message-container\"]),\n#app [class*=\"search-content\"] [class*=\"search-row\"]:has(> [class*=\"message-container\"]) {\n    display: none !important;\n}\n\n#app [class*=\"meta-row\"] > [class*=\"header-container\"] {\n    padding: 0 var(--dx-gutter) !important;\n    margin: 0 0 0.1rem 0;\n    height: 2.5rem;\n}\n\n#app [class*=\"meta-row\"] > [class*=\"header-container\"] [class*=\"title-container\"] {\n    font-size: clamp(1.05rem, 1.25vw, 1.45rem) !important;\n    font-weight: 700 !important;\n    letter-spacing: -0.005em;\n    color: var(--dx-text);\n    max-height: none;\n}\n\n#app [class*=\"meta-row\"] > [class*=\"header-container\"] [class*=\"title-container\"] [class*=\"title\"] {\n    font-size: inherit !important;\n    font-weight: inherit !important;\n}\n\n#app [class*=\"meta-row\"] [class*=\"see-all-container\"] {\n    height: 2rem;\n    padding: 0 0.4rem 0 0.75rem;\n    border-radius: var(--dx-radius-s);\n    opacity: var(--dx-row-hot, 0);\n    transform: translateX(calc(6px * (var(--dx-row-hot, 0) - 1)));\n    transition: opacity 0.3s, transform 0.3s var(--dx-ease-out), background-color 0.2s;\n}\n\n#app [class*=\"meta-row\"]:hover,\n#app [class*=\"meta-row\"]:focus-visible {\n    --dx-row-hot: 1;\n}\n\n/* (set on See All alone: on the whole row it would restyle every title in it at each key press) */\n#app [class*=\"meta-row\"]:focus-within [class*=\"see-all-container\"] {\n    --dx-row-hot: 1;\n}\n\n#app [class*=\"meta-row\"] [class*=\"see-all-container\"]:hover,\n#app [class*=\"meta-row\"] [class*=\"see-all-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.07);\n}\n\n#app [class*=\"meta-row\"] [class*=\"see-all-container\"] [class*=\"label\"] {\n    font-size: 0.82rem;\n    font-weight: 600;\n    color: var(--dx-text-2);\n}\n\n#app [class*=\"meta-row\"] [class*=\"see-all-container\"] svg {\n    height: 1rem;\n    color: var(--dx-text-2);\n}\n\n/* Rows fade softly into the screen edges: titles that slide aside for a hover card (or peek in\n   from a scrolled row) glide out of view instead of being sliced off at the edge */\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"meta-row\"] > [class*=\"meta-items-container\"],\n#app [class*=\"search-content\"] [class*=\"meta-row\"] > [class*=\"meta-items-container\"] {\n    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 calc(var(--dx-gutter) - 0.6rem), #000 calc(100% - var(--dx-gutter) + 0.6rem), transparent 100%);\n    mask-image: linear-gradient(90deg, transparent 0, #000 calc(var(--dx-gutter) - 0.6rem), #000 calc(100% - var(--dx-gutter) + 0.6rem), transparent 100%);\n}\n\n/* The track */\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"meta-row\"] > [class*=\"meta-items-container\"],\n#app [class*=\"search-content\"] [class*=\"meta-row\"] > [class*=\"meta-items-container\"] {\n    display: flex !important;\n    flex-wrap: nowrap;\n    overflow-x: auto !important;\n    overflow-y: hidden !important;\n    scroll-behavior: smooth;\n    scroll-snap-type: x proximity;\n    scroll-padding-inline: var(--dx-gutter);\n    scrollbar-width: none;\n    padding: 0.9rem calc(var(--dx-gutter) - 0.35rem) 1.1rem;\n    margin: -0.65rem 0 -0.35rem;\n    overscroll-behavior-x: contain;\n}\n\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"meta-row\"] > [class*=\"meta-items-container\"]::-webkit-scrollbar,\n#app [class*=\"search-content\"] [class*=\"meta-row\"] > [class*=\"meta-items-container\"]::-webkit-scrollbar {\n    display: none;\n}\n\n/* Show every item (stock hides some by screen width) */\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"meta-row\"] > [class*=\"meta-items-container\"] > *,\n#app [class*=\"search-content\"] [class*=\"meta-row\"] > [class*=\"meta-items-container\"] > * {\n    display: block !important;\n    flex: 0 0 calc(100% / var(--dx-cols)) !important;\n    max-width: none !important;\n    padding: 0 0.35rem !important;\n    scroll-snap-align: start;\n}\n\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"meta-row\"] > [class*=\"meta-items-container\"] > *:empty,\n#app [class*=\"search-content\"] [class*=\"meta-row\"] > [class*=\"meta-items-container\"] > *:empty {\n    display: none !important;\n}\n\n/* Landscape rows (and Continue Watching, made landscape by the plugin) */\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"board-row-landscape\"] > [class*=\"meta-items-container\"] > *,\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"continue-watching-row\"][data-dx-wide-row] > [class*=\"meta-items-container\"] > * {\n    flex-basis: calc(100% / var(--dx-wide-cols, 4)) !important;\n}\n\n/* =====================================================================\n   5. POSTER CARDS (everywhere)\n   ===================================================================== */\n\n#app [class*=\"meta-item-container\"] {\n    padding: 0.5rem 0.35rem;\n    transition: transform 0.35s var(--dx-ease-out);\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"poster-container\"] {\n    border-radius: var(--dx-radius) !important;\n    background: var(--dx-surface);\n    box-shadow: none !important;\n    overflow: hidden;\n    transform: translate3d(0, calc(-4px * var(--dx-card-focus, 0)), 0) scale(calc(1 + 0.035 * var(--dx-card-focus, 0)));\n    transition: transform 0.35s var(--dx-ease-out), box-shadow 0.35s var(--dx-ease-out) !important;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"poster-container\"]::after {\n    content: \"\";\n    position: absolute;\n    inset: 0;\n    border-radius: inherit;\n    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);\n    pointer-events: none;\n    z-index: 5;\n    transition: box-shadow 0.3s;\n}\n\n#app [class*=\"meta-item-container\"]:is(.hovered, .active, .selected) [class*=\"poster-container\"] {\n    box-shadow: var(--dx-shadow-2) !important;\n    transform: translateY(-4px) scale(1.035);\n}\n\n/* Titles on anime artwork (plugin): the name over a soft shade at the bottom of the card */\n.dx-anime-title {\n    position: absolute;\n    z-index: 4;\n    left: 0;\n    right: 0;\n    bottom: 0;\n    padding: 2.2rem 0.6rem 0.55rem;\n    background: linear-gradient(to top, rgba(0, 0, 0, 0.88), rgba(0, 0, 0, 0.55) 55%, transparent);\n    color: #fff;\n    font-size: 0.92rem;\n    font-weight: 700;\n    line-height: 1.2;\n    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);\n    display: -webkit-box;\n    -webkit-line-clamp: 2;\n    -webkit-box-orient: vertical;\n    overflow: hidden;\n    pointer-events: none;\n}\n\n/* Discover selects its first title by itself (to fill its side panel): no lift or ring for that one\n   until a title is picked (the plugin sets the flag) */\nbody:not(.dx-discover-picked) #app [class*=\"discover-content\"] [class*=\"meta-item-container\"].selected:not(.hovered):not(.active) [class*=\"poster-container\"] {\n    box-shadow: none !important;\n    transform: none;\n}\n\nbody:not(.dx-discover-picked) #app [class*=\"discover-content\"] [class*=\"meta-item-container\"].selected:not(.hovered):not(.active) [class*=\"poster-container\"]::after {\n    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);\n}\n\n/* keyboard highlight: the poster lifts like it does under the mouse, and the hover card shows\n   what's selected: no outline or ring around the card */\n#app [class*=\"meta-item-link\"]:focus-visible {\n    --dx-card-focus: 1;\n    outline: none !important;\n}\n\n#app [class*=\"meta-item-container\"]:active:not(.active) {\n    --dx-card-press: 1;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"poster-container\"] {\n    scale: calc(1 - 0.03 * var(--dx-card-press, 0));\n}\n\n#app [class*=\"meta-item-container\"]:is(.hovered, .active, .selected) [class*=\"poster-container\"]::after {\n    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.85);\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"poster-image-layer\"] {\n    transition: transform 0.6s var(--dx-ease-out) !important;\n}\n\n#app [class*=\"meta-item-container\"].hovered [class*=\"poster-image-layer\"] {\n    transform: scale(1.04) !important;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"poster-image\"] {\n    object-fit: cover;\n}\n\n\n/* Library: no ring, lift or zoom under the mouse (a grid of posters reads calmer); the poster\n   just brightens a little */\n#app [class*=\"library-content\"] [class*=\"meta-item-container\"]:is(.hovered, .active, .selected) [class*=\"poster-container\"] {\n    box-shadow: none !important;\n    transform: none;\n}\n\n#app [class*=\"library-content\"] [class*=\"meta-item-container\"]:is(.hovered, .active, .selected) [class*=\"poster-container\"]::after {\n    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);\n}\n\n#app [class*=\"library-content\"] [class*=\"meta-item-container\"] [class*=\"poster-image-layer\"] {\n    transition: filter 0.25s var(--dx-ease) !important;\n}\n\n#app [class*=\"library-content\"] [class*=\"meta-item-container\"].hovered [class*=\"poster-image-layer\"] {\n    transform: none !important;\n    filter: brightness(1.12);\n}\n\n/* Titles under cards: quiet, single line */\n#app [class*=\"meta-item-container\"] [class*=\"title-bar-container\"] {\n    height: auto;\n    min-height: 0;\n    padding: 0.55rem 0.15rem 0 0.15rem;\n    justify-content: flex-start;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"title-bar-container\"] [class*=\"title-label\"] {\n    padding: 0;\n    font-size: 0.85rem;\n    font-weight: 500;\n    color: var(--dx-text-2);\n    text-align: left;\n    white-space: nowrap;\n    text-overflow: ellipsis;\n    max-height: 1.3em;\n    transition: color 0.2s;\n}\n\n#app [class*=\"meta-item-container\"].hovered [class*=\"title-bar-container\"] [class*=\"title-label\"] {\n    color: var(--dx-text);\n}\n\n/* Rows on Home/Search: artwork only, like the real thing (titles live in the preview card) */\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"meta-row\"] [class*=\"meta-item-container\"] [class*=\"title-bar-container\"],\n#app [class*=\"search-content\"] [class*=\"meta-row\"] [class*=\"meta-item-container\"] [class*=\"title-bar-container\"] {\n    display: none;\n}\n\n/* Progress */\n#app [class*=\"meta-item-container\"] [class*=\"progress-bar-layer\"] {\n    left: 0.6rem;\n    right: 0.6rem;\n    bottom: 0.6rem;\n    height: 3px;\n    border-radius: 3px;\n    overflow: hidden;\n}\n\n#app [class*=\"progress-bar-layer\"] [class*=\"progress-bar-background\"] {\n    background: rgba(255, 255, 255, 0.28) !important;\n    opacity: 1 !important;\n}\n\n#app [class*=\"progress-bar-layer\"] [class*=\"progress-bar\"]:not([class*=\"background\"]),\n#app [class*=\"progress-bar-container\"] [class*=\"progress-bar\"]:not([class*=\"background\"]) {\n    background: var(--dx-accent) !important;\n}\n\n/* Play overlay on Continue Watching */\n#app [class*=\"meta-item-container\"] [class*=\"play-icon-layer\"] {\n    opacity: 0;\n    transition: opacity 0.25s;\n}\n\n#app [class*=\"meta-item-container\"].hovered [class*=\"play-icon-layer\"] {\n    opacity: 1;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"play-icon-background\"] {\n    background: rgba(0, 0, 0, 0.55) !important;\n    border: 2px solid rgba(255, 255, 255, 0.9);\n    opacity: 1 !important;\n    backdrop-filter: blur(6px);\n}\n\n#app [class*=\"meta-item-container\"].hovered [class*=\"play-icon-background\"] {\n    background: var(--dx-accent) !important;\n    border-color: var(--dx-accent);\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"play-icon-outer\"] {\n    display: none;\n}\n\n/* Watched tick */\n#app [class*=\"meta-item-container\"] [class*=\"watched-icon-layer\"] {\n    background: rgba(0, 0, 0, 0.7);\n    border-radius: 50%;\n    backdrop-filter: blur(4px);\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"watched-icon\"] {\n    color: #fff;\n}\n\n/* \"New episodes\" stack */\n#app [class*=\"meta-item-container\"] [class*=\"new-videos\"] [class*=\"layer\"]:last-child {\n    background: var(--dx-accent) !important;\n    border-radius: var(--dx-radius-s);\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"new-videos\"] [class*=\"layer\"]:not(:last-child) {\n    background: color-mix(in srgb, var(--dx-accent) 55%, black) !important;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"new-videos\"] [class*=\"label\"],\n#app [class*=\"meta-item-container\"] [class*=\"new-videos\"] svg {\n    color: #fff !important;\n}\n\n/* Dismiss on Continue Watching: a slim glass tab that opens out into \"Remove\" when pointed at.\n   It takes the corner from the \"+N new episodes\" badge while the card is hovered. */\n#app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-layer\"] {\n    z-index: 7 !important;\n    top: 0.6rem;\n    left: auto;\n    right: 0.6rem;\n    width: auto !important;\n    height: 1.55rem !important;\n    min-width: 1.55rem;\n    padding: 0 0.42rem;\n    display: flex;\n    align-items: center;\n    justify-content: center;\n    border-radius: 0.4rem;\n    background: rgba(12, 12, 14, 0.62);\n    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), 0 4px 14px rgba(0, 0, 0, 0.35);\n    backdrop-filter: blur(8px);\n    opacity: 0;\n    transform: translateY(-2px);\n    transition: opacity 0.18s ease, transform 0.18s ease, background-color 0.15s ease, box-shadow 0.15s ease;\n}\n\n#app [class*=\"meta-item-container\"].hovered [class*=\"dismiss-icon-layer\"],\n#app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-layer\"]:focus-visible {\n    opacity: 1;\n    transform: none;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-backdrop\"] {\n    display: none !important;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-layer\"] svg {\n    position: static !important;\n    flex: none;\n    width: 0.62rem !important;\n    height: 0.62rem !important;\n    color: #fff !important;\n    fill: currentColor !important;\n    opacity: 1;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-layer\"]::before {\n    content: \"Remove\";\n    max-width: 0;\n    overflow: hidden;\n    white-space: nowrap;\n    color: #fff;\n    font: 600 0.72rem/1 Inter, system-ui, sans-serif;\n    letter-spacing: 0.02em;\n    transition: max-width 0.22s ease, margin 0.22s ease;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-layer\"]:hover,\n#app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-layer\"]:focus-visible {\n    background: var(--dx-accent);\n    box-shadow: 0 4px 16px color-mix(in srgb, var(--dx-accent) 45%, transparent);\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-layer\"]:hover::before,\n#app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-layer\"]:focus-visible::before {\n    max-width: 4.5rem;\n    margin-right: 0.4rem;\n}\n\n/* the \"+N\" badge steps aside while the remove tab is showing */\n#app [class*=\"meta-item-container\"] [class*=\"new-videos\"] {\n    transition: opacity 0.18s ease;\n}\n\n#app [class*=\"continue-watching-row\"] [class*=\"meta-item-container\"].hovered [class*=\"new-videos\"] {\n    opacity: 0;\n}\n\n/* Card menu dots */\n#app [class*=\"meta-item-container\"] [class*=\"menu-label-container\"] {\n    border-radius: var(--dx-radius-s);\n}\n\n/* Placeholders while loading */\n#app [class*=\"meta-row-placeholder-container\"] [class*=\"poster-container\"],\n#app [class*=\"meta-item-placeholder\"] [class*=\"poster-container\"],\n#app [class*=\"placeholder\"] [class*=\"poster-container\"] {\n    border-radius: var(--dx-radius) !important;\n    /* static on purpose: rows from broken addons stay placeholders forever, and an endless\n       animation on dozens of them would cost CPU the whole time Home is open */\n    background: var(--dx-surface) !important;\n    animation: none !important;\n}\n\n#app [class*=\"meta-row-placeholder-container\"] [class*=\"title-bar-container\"],\n#app [class*=\"meta-row-placeholder-container\"] [class*=\"title-label\"] {\n    display: none;\n}\n\n#app [class*=\"meta-row-placeholder-container\"] [class*=\"header-container\"] [class*=\"title-container\"] {\n    width: 14rem;\n    height: 1.1rem;\n    border-radius: var(--dx-radius-s);\n    background: var(--dx-surface);\n    color: transparent !important;\n}\n\n\n/* =====================================================================\n   6. BILLBOARD (built by the plugin)\n   ===================================================================== */\n\n.dx-hero {\n    position: relative;\n    width: 100%;\n    height: min(82vh, 56.25vw);\n    min-height: 26rem;\n    margin-bottom: -6vw;\n    overflow: hidden;\n    background: var(--dx-bg);\n    isolation: isolate;\n    animation: dx-fade 0.8s var(--dx-ease) both;\n}\n\n.dx-hero-slide {\n    position: absolute;\n    inset: 0;\n    pointer-events: none;\n}\n\n.dx-hero-slide.is-active {\n    pointer-events: auto;\n}\n\n/* Only the pictures cross-fade; the text is handled separately so it never looks washed out */\n.dx-hero-backdrop {\n    position: absolute;\n    inset: 0;\n    opacity: 0;\n    background-size: cover;\n    background-position: center 20%;\n    transform: scale(1.06);\n    transform-origin: 70% 40%;\n    transition: opacity 1.2s cubic-bezier(0.4, 0, 0.2, 1);\n    will-change: transform, opacity;\n}\n\n.dx-hero-slide.is-active .dx-hero-backdrop {\n    opacity: 1;\n}\n\n/* The slow zoom keeps running on the outgoing picture until it has faded (class managed by the plugin) */\n.dx-hero-backdrop.kb {\n    animation: dx-kenburns 16s linear both;\n}\n\n@keyframes dx-kenburns {\n    from { transform: scale(1.06) translate3d(0, 0, 0); }\n    to { transform: scale(1.14) translate3d(-1.2%, -1%, 0); }\n}\n\n.dx-hero-shade {\n    position: absolute;\n    inset: 0;\n    z-index: 1;\n    pointer-events: none;\n    background:\n        linear-gradient(90deg, rgba(11, 11, 13, 0.92) 0%, rgba(11, 11, 13, 0.6) 28%, rgba(11, 11, 13, 0.08) 58%, transparent 75%),\n        linear-gradient(0deg, var(--dx-bg) 0%, rgba(11, 11, 13, 0.75) 14%, rgba(11, 11, 13, 0) 42%),\n        linear-gradient(180deg, rgba(0, 0, 0, 0.45) 0%, transparent 18%);\n}\n\n.dx-hero-content {\n    position: absolute;\n    z-index: 2;\n    left: var(--dx-gutter);\n    bottom: calc(6vw + 4.5rem);\n    /* never higher than just under the top bar: on short screens (phones on their side, small\n       windows) the logo gives way first, so nothing slides up under the bar or off the screen */\n    top: calc(var(--dx-nav-h) + 0.75rem);\n    width: min(36rem, 42vw);\n    display: flex;\n    flex-direction: column;\n    justify-content: flex-end;\n    align-items: flex-start;\n    gap: min(1rem, 1.8vh);\n}\n\n.dx-hero-content > * {\n    flex-shrink: 0;\n}\n\n.dx-hero-content > .dx-hero-logo {\n    flex: 0 1 auto;\n    min-height: 2.75rem;\n}\n\n/* Shorter screens: a two-line description, then none, so the logo keeps a sensible size */\n@media (max-height: 680px) {\n    .dx-hero-desc {\n        -webkit-line-clamp: 2;\n    }\n}\n\n@media (max-height: 540px) {\n    .dx-hero-desc {\n        display: none !important;\n    }\n}\n\n/* Old text fades out first, then the new text fades in — never both at once, never moving,\n   so it stays crisp the whole time */\n.dx-hero-slide .dx-hero-content {\n    opacity: 0;\n    visibility: hidden;\n    transition: opacity 0.3s ease, visibility 0s linear 0.3s;\n}\n\n.dx-hero-slide.is-active .dx-hero-content {\n    opacity: 1;\n    visibility: visible;\n    transition: opacity 0.6s ease 0.45s, visibility 0s linear 0.45s;\n}\n\n/* First appearance on load: no waiting */\n.dx-hero.is-first .dx-hero-slide.is-active .dx-hero-content {\n    transition-delay: 0s;\n}\n\n.dx-hero-kicker {\n    display: inline-flex;\n    align-items: center;\n    gap: 0.5rem;\n    font-size: 0.78rem;\n    font-weight: 700;\n    letter-spacing: 0.22em;\n    text-transform: uppercase;\n    color: var(--dx-text-2);\n}\n\n.dx-hero-kicker b {\n    font-family: \"Bebas Neue\", sans-serif;\n    font-size: 1.25rem;\n    font-weight: 400;\n    letter-spacing: 0.06em;\n    color: var(--dx-accent);\n}\n\n.dx-hero-logo {\n    display: block;\n    max-width: min(30rem, 100%);\n    max-height: 11rem;\n    object-fit: contain;\n    object-position: left bottom;\n    filter: drop-shadow(0 6px 24px rgba(0, 0, 0, 0.55));\n}\n\n.dx-hero-title {\n    font-size: clamp(2.2rem, 4vw, 4rem);\n    font-weight: 800;\n    line-height: 1.02;\n    letter-spacing: -0.02em;\n    color: #fff;\n    text-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);\n}\n\n.dx-hero-meta {\n    display: flex;\n    flex-wrap: wrap;\n    align-items: center;\n    gap: 0.35rem 0.85rem;\n    font-size: 0.95rem;\n    font-weight: 500;\n    color: var(--dx-text-2);\n}\n\n.dx-hero-desc {\n    font-size: clamp(0.95rem, 1.05vw, 1.15rem);\n    line-height: 1.5;\n    color: rgba(255, 255, 255, 0.88);\n    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);\n    display: -webkit-box;\n    -webkit-line-clamp: 3;\n    -webkit-box-orient: vertical;\n    overflow: hidden;\n}\n\n.dx-hero-actions {\n    display: flex;\n    gap: 0.75rem;\n    margin-top: 0.35rem;\n}\n\n.dx-btn {\n    display: inline-flex;\n    align-items: center;\n    justify-content: center;\n    gap: 0.6rem;\n    height: 2.9rem;\n    padding: 0 1.6rem 0 1.3rem;\n    border-radius: var(--dx-radius);\n    font-size: 1.02rem;\n    font-weight: 700;\n    cursor: pointer;\n    white-space: nowrap;\n    transition: background-color 0.2s, transform 0.2s var(--dx-ease-out), box-shadow 0.2s;\n}\n\n.dx-btn:active {\n    transform: scale(0.97);\n}\n\n.dx-btn svg {\n    width: 1.35rem;\n    height: 1.35rem;\n    flex: none;\n}\n\n.dx-btn-primary {\n    background: #fff;\n    color: #000;\n}\n\n.dx-btn-primary svg {\n    fill: #000;\n}\n\n.dx-btn-primary:hover {\n    background: rgba(255, 255, 255, 0.82);\n}\n\n.dx-btn-secondary {\n    background: rgba(109, 109, 118, 0.55);\n    color: #fff;\n    backdrop-filter: blur(8px);\n}\n\n.dx-btn-secondary svg {\n    fill: none;\n    stroke: #fff;\n}\n\n.dx-btn-secondary:hover {\n    background: rgba(109, 109, 118, 0.38);\n}\n\n/* Keyboard: the selected button comes forward in white, like a TV menu (dimming it the way the\n   mouse hover does read as \"off\" when nothing points at it) */\n.dx-btn:focus-visible {\n    background: #fff;\n    color: #000;\n    transform: scale(1.06);\n    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);\n}\n\n.dx-btn:focus-visible svg {\n    fill: #000;\n}\n\n.dx-btn-secondary:focus-visible svg {\n    fill: none;\n    stroke: #000;\n}\n\n.dx-hero-dots {\n    position: absolute;\n    z-index: 3;\n    right: var(--dx-gutter);\n    bottom: calc(6vw + 4.75rem);\n    display: flex;\n    gap: 0.4rem;\n}\n\n.dx-hero-dot {\n    position: relative;\n    width: 1.6rem;\n    height: 3px;\n    border-radius: 3px;\n    background: rgba(255, 255, 255, 0.25);\n    cursor: pointer;\n    overflow: hidden;\n    transition: width 0.4s var(--dx-ease-out), background-color 0.2s;\n}\n\n.dx-hero-dot:hover,\n.dx-hero-dot:focus-visible {\n    background: rgba(255, 255, 255, 0.45);\n}\n\n.dx-hero-dot.is-active {\n    width: 3.2rem;\n}\n\n.dx-hero-dot.is-active::after {\n    content: \"\";\n    position: absolute;\n    inset: 0;\n    background: #fff;\n    transform-origin: left;\n    animation: dx-progress var(--dx-hero-interval, 9s) linear both;\n}\n\n.dx-hero.is-static .dx-hero-dot.is-active::after {\n    animation: none;\n}\n\n@keyframes dx-progress {\n    from { transform: scaleX(0); }\n    to { transform: scaleX(1); }\n}\n\n/* Rows that follow the billboard sit above its fade */\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) > .dx-hero ~ * {\n    position: relative;\n    z-index: 2;\n}\n\n/* Shared rating / meta pills */\n.dx-imdb {\n    display: inline-flex;\n    align-items: center;\n    gap: 0.35rem;\n    font-weight: 700;\n    color: #fff;\n}\n\n.dx-imdb i {\n    font-style: normal;\n    font-size: 0.68em;\n    font-weight: 900;\n    letter-spacing: -0.01em;\n    line-height: 1;\n    padding: 0.18em 0.32em;\n    border-radius: 3px;\n    background: #f5c518;\n    color: #000;\n}\n\n.dx-match {\n    font-weight: 700;\n    color: #46d369;\n}\n\n.dx-pill {\n    display: inline-flex;\n    align-items: center;\n    height: 1.35rem;\n    padding: 0 0.45rem;\n    border: 1px solid rgba(255, 255, 255, 0.4);\n    border-radius: 3px;\n    font-size: 0.75rem;\n    font-weight: 600;\n    color: var(--dx-text-2);\n}\n\n.dx-sep {\n    width: 4px;\n    height: 4px;\n    border-radius: 50%;\n    background: var(--dx-text-3);\n}\n\n/* =====================================================================\n   7. CAROUSEL ARROWS + PREVIEW CARD + RATING BADGES (plugin parts)\n   ===================================================================== */\n\n.dx-arrow {\n    position: absolute;\n    z-index: 4;\n    bottom: 0.75rem;\n    width: calc(var(--dx-gutter) - 0.35rem);\n    min-width: 2.75rem;\n    display: flex;\n    align-items: center;\n    justify-content: center;\n    color: #fff;\n    cursor: pointer;\n    opacity: 0;\n    transition: opacity 0.25s, background-color 0.25s;\n}\n\n.dx-arrow svg {\n    width: 2rem;\n    height: 2rem;\n    transform: scale(var(--dx-arrow-scale, 1));\n    transition: transform 0.25s var(--dx-ease-out);\n}\n\n.dx-arrow-prev {\n    left: 0;\n    background: linear-gradient(90deg, rgba(11, 11, 13, 0.92), rgba(11, 11, 13, 0.4));\n}\n\n.dx-arrow-next {\n    right: 0;\n    background: linear-gradient(270deg, rgba(11, 11, 13, 0.92), rgba(11, 11, 13, 0.4));\n}\n\n[class*=\"meta-row\"]:hover > .dx-arrow:not(.is-hidden) {\n    opacity: 1;\n}\n\n.dx-arrow:hover,\n.dx-arrow:focus-visible {\n    --dx-arrow-scale: 1.25;\n}\n\n.dx-arrow.is-hidden {\n    pointer-events: none;\n}\n\n/* Row page indicator */\n.dx-row-pages {\n    position: absolute;\n    top: 0.95rem;\n    right: var(--dx-gutter);\n    display: flex;\n    gap: 3px;\n    opacity: 0;\n    transition: opacity 0.3s;\n}\n\n[class*=\"meta-row\"]:hover > .dx-row-pages,\n[class*=\"meta-row\"]:focus-visible > .dx-row-pages {\n    opacity: 1;\n}\n\n.dx-row-pages span {\n    width: 0.8rem;\n    height: 2px;\n    background: rgba(255, 255, 255, 0.25);\n}\n\n.dx-row-pages span.is-active {\n    background: rgba(255, 255, 255, 0.85);\n}\n\n/* Header pushes \"See all\" left of the page dots */\n#app [class*=\"meta-row\"]:has(> .dx-row-pages) > [class*=\"header-container\"] {\n    padding-right: calc(var(--dx-gutter) + 6rem) !important;\n}\n\n/* IMDb badge on posters */\n.dx-badge {\n    position: absolute;\n    z-index: 4;\n    top: 0.45rem;\n    left: 0.45rem;\n    display: inline-flex;\n    align-items: center;\n    gap: 0.3rem;\n    height: 1.35rem;\n    padding: 0 0.4rem 0 0.25rem;\n    border-radius: 4px;\n    background: rgba(0, 0, 0, 0.72);\n    backdrop-filter: blur(6px);\n    font-size: 0.72rem;\n    font-weight: 700;\n    color: #fff;\n    pointer-events: none;\n    animation: dx-fade 0.4s both;\n}\n\n.dx-badge i {\n    font-style: normal;\n    font-size: 0.6rem;\n    font-weight: 900;\n    padding: 0.12rem 0.22rem;\n    border-radius: 2px;\n    background: #f5c518;\n    color: #000;\n    line-height: 1;\n}\n\n/* Anime scores (Kitsu / AniList) get their own colour so they never read as IMDb */\n.dx-badge.is-anime i {\n    background: #3db4f2;\n    color: #fff;\n}\n\n/* Continue Watching as wide cards */\n.dx-wide-art {\n    position: absolute;\n    inset: 0;\n    z-index: 1;\n    background-size: cover;\n    background-position: center;\n    pointer-events: none;\n}\n\n.dx-wide-art::after {\n    content: \"\";\n    position: absolute;\n    inset: 0;\n    background: linear-gradient(0deg, rgba(0, 0, 0, 0.75) 0%, rgba(0, 0, 0, 0.1) 45%, transparent 70%);\n}\n\n.dx-wide-logo {\n    position: absolute;\n    z-index: 2;\n    left: 0.85rem;\n    bottom: 1.15rem;\n    max-width: 55%;\n    max-height: 32%;\n    object-fit: contain;\n    object-position: left bottom;\n    filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.7));\n}\n\n.dx-wide-name {\n    position: absolute;\n    z-index: 2;\n    left: 0.85rem;\n    right: 0.85rem;\n    bottom: 1.1rem;\n    font-size: 1rem;\n    font-weight: 700;\n    color: #fff;\n    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);\n    white-space: nowrap;\n    overflow: hidden;\n    text-overflow: ellipsis;\n}\n\n#app [class*=\"continue-watching-row\"][data-dx-wide-row] [class*=\"poster-container\"] {\n    padding-top: 56.25% !important;\n}\n\n#app [class*=\"continue-watching-row\"][data-dx-wide-row] [class*=\"poster-image-layer\"] {\n    opacity: 0;\n}\n\n#app [class*=\"continue-watching-row\"][data-dx-wide-row] [class*=\"progress-bar-layer\"],\n#app [class*=\"continue-watching-row\"][data-dx-wide-row] [class*=\"play-icon-layer\"],\n#app [class*=\"continue-watching-row\"][data-dx-wide-row] [class*=\"new-videos\"],\n#app [class*=\"continue-watching-row\"][data-dx-wide-row] [class*=\"watched-icon-layer\"] {\n    z-index: 3;\n}\n\n/* Hover preview — unfolds out of the card like Netflix's mini-modal. The outer box carries the\n   shadow (it follows the clipped shape), the inner layer is revealed from the card's outline. */\n/* The title under an open hover card: hidden once the card has grown over it, back at once as it closes */\n#app [data-dx-covered] [class*=\"poster-container\"] {\n    opacity: 0;\n    transition: opacity 0.15s 0.2s;\n}\n\n.dx-preview {\n    position: fixed;\n    z-index: 900;\n    opacity: 0;\n    visibility: hidden;\n    pointer-events: none;\n    will-change: transform, opacity;\n    transition:\n        transform 0.2s ease,\n        opacity 0.2s ease,\n        visibility 0s linear 0.2s;\n}\n\n.dx-preview.is-open {\n    opacity: 1;\n    visibility: visible;\n    pointer-events: auto;\n    transition: opacity 0.1s ease, visibility 0s;\n}\n\n.dx-preview.is-closing {\n    visibility: visible;\n    opacity: 0;\n    transform: scale(0.97) !important;\n    transition: transform 0.2s ease, opacity 0.2s ease;\n}\n\n.dx-preview-inner {\n    position: relative;\n    min-height: inherit;\n    display: flex;\n    flex-direction: column;\n    border-radius: 8px;\n    background: #181818;\n    overflow: hidden;\n    transition: clip-path 0.48s cubic-bezier(0.2, 0.85, 0.25, 1);\n    will-change: clip-path;\n}\n\n/* fine hairline so the panel's edge reads crisp against the page */\n.dx-preview-inner::after {\n    content: \"\";\n    position: absolute;\n    inset: 0;\n    z-index: 6;\n    border-radius: inherit;\n    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);\n    pointer-events: none;\n}\n\n/* Aura: the title's own colours glowing softly around the panel once it has opened,\n   with a deep shadow underneath for lift */\n.dx-preview-aura {\n    position: absolute;\n    z-index: -1;\n    inset: -14px -18px -22px;\n    border-radius: 22px;\n    background: #181818 center / cover no-repeat;\n    filter: blur(30px) saturate(1.5) brightness(0.9);\n    opacity: 0;\n    transform: scale(0.92);\n    transition: opacity 0.55s ease 0.16s, transform 0.6s cubic-bezier(0.2, 0.85, 0.25, 1) 0.1s;\n    pointer-events: none;\n    will-change: opacity, transform;\n}\n\n.dx-preview::before {\n    content: \"\";\n    position: absolute;\n    z-index: -2;\n    inset: 10% 6% -4%;\n    border-radius: 18px;\n    background: rgba(0, 0, 0, 0.85);\n    filter: blur(28px);\n    opacity: 0;\n    transition: opacity 0.4s ease 0.12s;\n    pointer-events: none;\n}\n\n.dx-preview.is-open .dx-preview-aura {\n    opacity: 0.55;\n    transform: none;\n}\n\n.dx-preview.is-open::before {\n    opacity: 1;\n}\n\n.dx-preview.is-closing .dx-preview-aura,\n.dx-preview.is-closing::before {\n    transition-delay: 0s;\n}\n\n/* the card's own artwork, fading into the panel as it unfolds */\n.dx-preview-ghost {\n    position: absolute;\n    z-index: 5;\n    /* the same corners as the poster it grows out of */\n    border-radius: var(--dx-radius);\n    background: #222 center / cover no-repeat;\n    pointer-events: none;\n    opacity: 1;\n    /* fades only once the panel's artwork is showing around it: no see-through moment */\n    transition: opacity 0.3s ease 0.16s;\n    will-change: opacity;\n}\n\n.dx-preview.is-open .dx-preview-ghost {\n    opacity: 0;\n}\n\n/* details settle in just after the panel has opened */\n.dx-preview .dx-preview-body {\n    opacity: 0;\n    transform: translateY(8px);\n    transition: opacity 0.3s ease 0.16s, transform 0.4s cubic-bezier(0.2, 0.85, 0.25, 1) 0.14s;\n}\n\n.dx-preview.is-open .dx-preview-body {\n    opacity: 1;\n    transform: none;\n}\n\n.dx-preview-media {\n    position: relative;\n    aspect-ratio: 16 / 9;\n    background: #2a2a2a center / cover no-repeat;\n    cursor: pointer;\n}\n\n/* its own rounded top as well: the zooming artwork and the trailer are layers of their own, and\n   the panel's rounded clip alone can let their corners show square while the card unfolds */\n.dx-preview-media {\n    overflow: hidden;\n    border-radius: var(--dx-radius) var(--dx-radius) 0 0;\n}\n\n.dx-preview-media::before {\n    content: \"\";\n    position: absolute;\n    inset: 0;\n    background: inherit;\n    transform-origin: 60% 40%;\n}\n\n.dx-preview.is-open .dx-preview-media::before {\n    animation: dx-preview-zoom 6s ease-out both;\n}\n\n@keyframes dx-preview-zoom {\n    from { transform: scale(1); }\n    to { transform: scale(1.08); }\n}\n\n.dx-preview-media::after {\n    content: \"\";\n    position: absolute;\n    inset: 0;\n    background: linear-gradient(0deg, #181818 0%, rgba(24, 24, 24, 0.35) 22%, transparent 45%);\n}\n\n.dx-preview-media img {\n    position: absolute;\n    z-index: 1;\n    left: 0.9rem;\n    bottom: 0.7rem;\n    max-width: 58%;\n    max-height: 40%;\n    object-fit: contain;\n    object-position: left bottom;\n    filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.8));\n}\n\n.dx-preview-name {\n    position: absolute;\n    z-index: 1;\n    left: 0.9rem;\n    right: 0.9rem;\n    bottom: 0.7rem;\n    font-size: 1.2rem;\n    font-weight: 800;\n    line-height: 1.15;\n    color: #fff;\n    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85);\n}\n\n.dx-preview-media.has-logo .dx-preview-name {\n    display: none;\n}\n\n\n.dx-preview-body {\n    flex: 1;\n    padding: 0.85rem 1rem 1.1rem;\n    display: flex;\n    flex-direction: column;\n    gap: 0.75rem;\n}\n\n.dx-preview-actions {\n    display: flex;\n    align-items: center;\n    gap: 0.5rem;\n}\n\n.dx-round {\n    position: relative;\n    width: 2.5rem;\n    height: 2.5rem;\n    flex: none;\n    display: inline-flex;\n    align-items: center;\n    justify-content: center;\n    border-radius: 50%;\n    border: 2px solid rgba(255, 255, 255, 0.5);\n    background: rgba(42, 42, 42, 0.6);\n    color: #fff;\n    cursor: pointer;\n    transition: border-color 0.15s, background-color 0.15s;\n}\n\n.dx-round:hover,\n.dx-round:focus-visible {\n    border-color: #fff;\n    background: rgba(255, 255, 255, 0.1);\n}\n\n.dx-round svg {\n    width: 1.2rem;\n    height: 1.2rem;\n}\n\n.dx-round.is-primary {\n    background: #fff;\n    border-color: #fff;\n    color: #000;\n}\n\n.dx-round.is-primary:hover,\n.dx-round.is-primary:focus-visible {\n    background: rgba(255, 255, 255, 0.8);\n}\n\n.dx-round.is-primary svg {\n    margin-left: 2px;\n}\n\n.dx-round.is-end {\n    margin-left: auto;\n}\n\n/* Remove from Continue Watching: quieter than the others until pointed at */\n.dx-round.dx-remove {\n    border-color: rgba(255, 255, 255, 0.28);\n    color: rgba(255, 255, 255, 0.8);\n}\n\n.dx-round.dx-remove:hover,\n.dx-round.dx-remove:focus-visible {\n    border-color: var(--dx-accent);\n    background: color-mix(in srgb, var(--dx-accent) 22%, transparent);\n    color: #fff;\n}\n\n.dx-round.dx-remove + .dx-round {\n    margin-left: 0.5rem;\n}\n\n/* the last button's tooltip opens leftwards so the card's edge never cuts it off */\n.dx-preview-actions .dx-round:last-child[data-tip]::after {\n    left: auto;\n    right: 0;\n    transform: translate(0, 4px);\n}\n\n.dx-preview-actions .dx-round:last-child[data-tip]:hover::after,\n.dx-preview-actions .dx-round:last-child[data-tip]:focus-visible::after {\n    transform: none;\n}\n\n.dx-round.is-pop {\n    animation: dx-pop-btn 0.35s var(--dx-ease-out);\n}\n\n@keyframes dx-pop-btn {\n    40% { transform: scale(1.2); }\n}\n\n/* Small tooltip above the round buttons */\n.dx-round[data-tip]::after {\n    content: attr(data-tip);\n    position: absolute;\n    bottom: calc(100% + 0.6rem);\n    left: 50%;\n    transform: translate(-50%, 4px);\n    padding: 0.35rem 0.6rem;\n    border-radius: 4px;\n    background: #e6e6e6;\n    color: #111;\n    font-size: 0.78rem;\n    font-weight: 700;\n    white-space: nowrap;\n    opacity: 0;\n    pointer-events: none;\n    transition: opacity 0.15s, transform 0.15s;\n}\n\n.dx-round[data-tip]:hover::after,\n.dx-round[data-tip]:focus-visible::after {\n    opacity: 1;\n    transform: translate(-50%, 0);\n}\n\n.dx-round.is-end[data-tip]::after {\n    left: auto;\n    right: 0;\n    transform: translate(0, 4px);\n}\n\n.dx-round.is-end[data-tip]:hover::after,\n.dx-round.is-end[data-tip]:focus-visible::after {\n    transform: none;\n}\n\n.dx-preview-facts {\n    display: flex;\n    flex-wrap: wrap;\n    align-items: center;\n    gap: 0.3rem 0.55rem;\n    font-size: 0.88rem;\n    font-weight: 500;\n    color: #bcbcbc;\n}\n\n.dx-preview-facts .dx-match {\n    color: #46d369;\n    font-weight: 700;\n}\n\n.dx-hd {\n    padding: 0 0.3rem;\n    border: 1px solid rgba(255, 255, 255, 0.4);\n    border-radius: 3px;\n    font-size: 0.68rem;\n    font-weight: 700;\n    line-height: 1.3;\n    color: rgba(255, 255, 255, 0.85);\n}\n\n.dx-preview-genres {\n    display: flex;\n    flex-wrap: wrap;\n    align-items: center;\n    gap: 0.25rem 0.45rem;\n    font-size: 0.88rem;\n    color: #fff;\n}\n\n.dx-preview-genres span + span::before {\n    content: \"•\";\n    margin-right: 0.45rem;\n    color: #646464;\n}\n\n/* ---------- Intro (pre-rendered film, see plugin) ---------- */\n.dx-splash {\n    position: fixed;\n    inset: 0;\n    z-index: 100000;\n    background: #000;\n    cursor: pointer;\n    transition: opacity 0.6s ease, visibility 0.6s;\n}\n\n.dx-splash.is-done {\n    opacity: 0;\n    visibility: hidden;\n}\n\n.dx-splash-video {\n    position: absolute;\n    inset: 0;\n    width: 100%;\n    height: 100%;\n    object-fit: cover;\n    background: #000;\n}\n\n/* Fallback when video can't play: opacity/transform only, so it stays on the compositor */\n.dx-splash-mark {\n    position: absolute;\n    left: 50%;\n    top: 50%;\n    font-family: \"Bebas Neue\", \"Inter\", sans-serif;\n    font-size: clamp(5rem, 16vw, 18rem);\n    line-height: 1;\n    color: var(--dx-accent);\n    transform: translate(-50%, -50%);\n    animation: dx-intro-fallback 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;\n    will-change: transform, opacity;\n}\n\n@keyframes dx-intro-fallback {\n    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.92); }\n    30% { opacity: 1; transform: translate(-50%, -50%) scale(1); }\n    75% { opacity: 1; transform: translate(-50%, -50%) scale(1.04); }\n    100% { opacity: 0; transform: translate(-50%, -50%) scale(1.2); }\n}\n\n/* =====================================================================\n   8. DETAIL PAGE\n   ===================================================================== */\n\n#app [class*=\"metadetails-container\"] > [class*=\"background-image-layer\"] {\n    opacity: 1;\n}\n\n#app [class*=\"metadetails-container\"] > [class*=\"background-image-layer\"] img {\n    opacity: 1 !important;\n    filter: none !important;\n    object-fit: cover;\n    object-position: center 20%;\n    animation: dx-fade 0.9s var(--dx-ease) both;\n}\n\n#app [class*=\"metadetails-container\"] > [class*=\"background-image-layer\"]::after {\n    content: \"\";\n    position: absolute;\n    inset: 0;\n    background:\n        linear-gradient(90deg, rgba(11, 11, 13, 0.94) 0%, rgba(11, 11, 13, 0.7) 32%, rgba(11, 11, 13, 0.12) 60%, rgba(11, 11, 13, 0.35) 100%),\n        linear-gradient(0deg, rgba(11, 11, 13, 0.9) 0%, transparent 38%),\n        linear-gradient(180deg, rgba(0, 0, 0, 0.5) 0%, transparent 18%);\n}\n\n#app [class*=\"metadetails-container\"] > nav[class*=\"horizontal-nav-bar\"] {\n    height: var(--dx-nav-h);\n    padding: 0 var(--dx-gutter) 0 calc(var(--dx-gutter) - 0.6rem);\n    background: transparent;\n}\n\n#app [class*=\"metadetails-container\"] > nav [class*=\"back-button-container\"],\n#app [class*=\"player-container\"] nav [class*=\"back-button-container\"] {\n    height: 2.5rem;\n    width: 2.5rem;\n    margin: 0;\n    border-radius: 50%;\n    background: rgba(0, 0, 0, 0.45);\n    backdrop-filter: blur(8px);\n    transition: background-color 0.2s, transform 0.2s;\n}\n\n#app [class*=\"metadetails-container\"] > nav [class*=\"back-button-container\"]:hover,\n#app [class*=\"player-container\"] nav [class*=\"back-button-container\"]:hover,\n#app [class*=\"metadetails-container\"] > nav [class*=\"back-button-container\"]:focus-visible,\n#app [class*=\"player-container\"] nav [class*=\"back-button-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.16);\n    transform: translateX(-2px);\n}\n\n#app [class*=\"metadetails-content\"] {\n    padding-left: var(--dx-gutter);\n}\n\n#app [class*=\"metadetails-content\"] > [class*=\"meta-preview-container\"] {\n    padding-top: 1rem;\n    padding-bottom: 8vh;\n    justify-content: flex-end;\n}\n\n#app [class*=\"metadetails-content\"] > [class*=\"meta-preview-container\"] > [class*=\"meta-info-container\"] {\n    flex: 0 1 auto;\n}\n\n#app [class*=\"metadetails-content\"] > [class*=\"meta-preview-container\"] > [class*=\"action-buttons-container\"] {\n    margin-top: 1.75rem;\n}\n\n/* Meta preview (detail + discover side panel) */\n#app [class*=\"meta-preview-container\"] [class*=\"meta-info-container\"] {\n    padding-right: 1rem;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"logo\"] {\n    filter: drop-shadow(0 6px 24px rgba(0, 0, 0, 0.6));\n    animation: dx-rise 0.6s var(--dx-ease-out) both;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"logo-placeholder\"] {\n    font-size: clamp(2rem, 3.4vw, 3.4rem);\n    font-weight: 800;\n    letter-spacing: -0.02em;\n    line-height: 1.05;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"runtime-release-info-container\"] {\n    gap: 1.1rem;\n    flex-wrap: wrap;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"runtime-label\"],\n#app [class*=\"meta-preview-container\"] [class*=\"release-info-label\"] {\n    font-size: 1rem;\n    font-weight: 600;\n    color: var(--dx-text-2);\n    margin: 0;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"imdb-button-container\"] {\n    height: 1.9rem;\n    padding: 0 0.6rem;\n    gap: 0.45rem;\n    border-radius: var(--dx-radius-s);\n    background: rgba(245, 197, 24, 0.12);\n    border: 1px solid rgba(245, 197, 24, 0.35);\n    transition: background-color 0.2s;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"imdb-button-container\"]:hover,\n#app [class*=\"meta-preview-container\"] [class*=\"imdb-button-container\"]:focus-visible {\n    background: rgba(245, 197, 24, 0.22);\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"imdb-button-container\"] [class*=\"label\"] {\n    font-weight: 800;\n    color: #fff;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"imdb-button-container\"] svg {\n    color: #f5c518;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"meta-links-container\"] [class*=\"label-container\"] {\n    font-size: 0.72rem;\n    font-weight: 700;\n    letter-spacing: 0.14em;\n    text-transform: uppercase;\n    color: var(--dx-text-3);\n    opacity: 1;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"link-container\"] {\n    display: inline-flex !important;\n    align-items: center;\n    justify-content: center;\n    height: 2rem;\n    /* optical centring: the font reserves descender space below, so nudge capitals down */\n    padding: 0.15em 0.85rem 0 !important;\n    line-height: 1 !important;\n    vertical-align: middle;\n    border-radius: 999px;\n    background: rgba(255, 255, 255, 0.07);\n    border: 1px solid var(--dx-line);\n    font-size: 0.85rem;\n    font-weight: 500;\n    color: var(--dx-text);\n    transition: background-color 0.2s, border-color 0.2s;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"link-container\"]:hover,\n#app [class*=\"meta-preview-container\"] [class*=\"link-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.14);\n    border-color: var(--dx-line-strong);\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"description-container\"] {\n    font-size: 1.02rem;\n    line-height: 1.6;\n    color: rgba(255, 255, 255, 0.86);\n    max-width: 48rem;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"description-container\"] [class*=\"label-container\"] {\n    display: none;\n}\n\n/* Action buttons: first (Play/Trailer) is a solid button, the rest are round */\n#app [class*=\"meta-preview-container\"] [class*=\"action-buttons-container\"] {\n    gap: 0.6rem;\n    align-items: center;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"action-button-container\"],\n#app [class*=\"meta-preview-container\"] [class*=\"group-container\"] {\n    height: 3rem;\n    min-width: 3rem;\n    border-radius: 999px;\n    background: rgba(42, 42, 48, 0.65);\n    border: 1.5px solid rgba(255, 255, 255, 0.28);\n    backdrop-filter: blur(10px);\n    transition: background-color 0.2s, border-color 0.2s, transform 0.2s var(--dx-ease-out);\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"action-button-container\"]:hover,\n#app [class*=\"meta-preview-container\"] [class*=\"action-button-container\"]:focus-visible {\n    border-color: #fff;\n    background: rgba(255, 255, 255, 0.12);\n    transform: translateY(-1px);\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"group-container\"] [class*=\"icon-container\"] {\n    border-radius: 999px;\n    transition: background-color 0.2s;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"group-container\"] [class*=\"icon-container\"]:hover,\n#app [class*=\"meta-preview-container\"] [class*=\"group-container\"] [class*=\"icon-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.12);\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"action-button-container\"][class*=\"wide\"] {\n    padding: 0 1.5rem 0 1.15rem;\n    border-radius: var(--dx-radius);\n    background: #fff;\n    border-color: #fff;\n    color: #000;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"action-button-container\"][class*=\"wide\"] * {\n    color: #000 !important;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"action-button-container\"][class*=\"wide\"] [class*=\"label\"] {\n    font-weight: 700;\n    font-size: 1rem;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"action-button-container\"][class*=\"wide\"]:hover,\n#app [class*=\"meta-preview-container\"] [class*=\"action-button-container\"][class*=\"wide\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.84);\n}\n\n/* Episodes / streams panel */\n#app [class*=\"metadetails-content\"] [class*=\"videos-list-container\"],\n#app [class*=\"metadetails-content\"] [class*=\"streams-list-container\"] {\n    flex: 0 0 clamp(28rem, 31vw, 42rem) !important;\n    width: clamp(28rem, 31vw, 42rem);\n    margin: 0.75rem var(--dx-gutter) 1.5rem 0;\n    border-radius: var(--dx-radius-l);\n    background: rgba(19, 19, 23, 0.82);\n    border: 1px solid var(--dx-line);\n    backdrop-filter: blur(24px) saturate(140%);\n    box-shadow: var(--dx-shadow-2);\n    animation: dx-slide-in 0.5s var(--dx-ease-out) both;\n}\n\n@keyframes dx-slide-in {\n    from { opacity: 0; transform: translateX(24px); }\n    to { opacity: 1; transform: none; }\n}\n\n#app [class*=\"seasons-bar-container\"] {\n    padding: 0.5rem 0.75rem;\n    border-bottom: 1px solid var(--dx-line);\n}\n\n#app [class*=\"seasons-bar-container\"] [class*=\"button-container\"] {\n    border-radius: var(--dx-radius);\n}\n\n#app [class*=\"seasons-bar-container\"] [class*=\"button-container\"]:hover,\n#app [class*=\"seasons-bar-container\"] [class*=\"button-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.07);\n}\n\n#app [class*=\"seasons-popup-label-container\"] [class*=\"button-container\"] {\n    background: rgba(255, 255, 255, 0.07);\n    border: 1px solid var(--dx-line);\n    font-weight: 700;\n}\n\n#app [class*=\"videos-list-container\"] [class*=\"search-bar-container\"] {\n    margin: 0.75rem;\n    border-radius: var(--dx-radius);\n    background: rgba(255, 255, 255, 0.05);\n    border: 1px solid var(--dx-line);\n}\n\n#app [class*=\"video-container\"] {\n    margin: 0 0.5rem;\n    border-radius: var(--dx-radius);\n    transition: background-color 0.2s;\n}\n\n#app [class*=\"video-container\"]:hover,\n#app [class*=\"video-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.06);\n}\n\n#app [class*=\"video-container\"][class*=\"selected\"] {\n    background: rgba(255, 255, 255, 0.09);\n    box-shadow: inset 3px 0 0 var(--dx-accent);\n}\n\n#app [class*=\"video-container\"] [class*=\"thumbnail-container\"] {\n    border-radius: var(--dx-radius-s);\n    overflow: hidden;\n}\n\n#app [class*=\"video-container\"] [class*=\"title-container\"] {\n    font-weight: 600;\n    color: var(--dx-text);\n}\n\n#app [class*=\"video-container\"] [class*=\"released-container\"] {\n    color: var(--dx-text-3);\n}\n\n#app [class*=\"video-container\"] [class*=\"upcoming-watched-container\"] > * {\n    border-radius: var(--dx-radius-s);\n}\n\n#app [class*=\"video-container\"] [class*=\"watched-container\"] {\n    background: rgba(70, 211, 105, 0.15);\n    color: #46d369;\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"select-choices-wrapper\"] {\n    padding: 0.5rem 0.75rem;\n    border-bottom: 1px solid var(--dx-line);\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"stream-container\"] {\n    margin: 0.2rem 0.5rem;\n    border-radius: var(--dx-radius);\n    transition: background-color 0.2s, transform 0.2s var(--dx-ease-out);\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"stream-container\"]:hover,\n#app [class*=\"streams-list-container\"] [class*=\"stream-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.07);\n    transform: translateX(3px);\n}\n\n/* A stream's right-click menu lives inside its card: lift that card above the ones after it,\n   otherwise they paint over the menu */\n#app [class*=\"streams-list-container\"] [class*=\"stream-container\"]:has([class*=\"menu-container\"]) {\n    position: relative;\n    z-index: 40;\n    transform: none;\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"stream-container\"] [class*=\"menu-container\"] {\n    z-index: 41;\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"streams-container\"] > [class*=\"stream-container\"] {\n    align-self: stretch;\n    width: auto !important;\n    padding: 0.8rem 1rem;\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"stream-container\"] [class*=\"info-container\"] {\n    width: 8.5rem;\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"stream-container\"] [class*=\"description-container\"] {\n    max-width: none !important;\n    flex: 1 1 0 !important;\n    white-space: pre-wrap !important;\n    overflow-wrap: anywhere;\n    max-height: none !important;\n    font-size: 0.85rem;\n    line-height: 1.45;\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"addon-name\"] {\n    font-weight: 700;\n    color: var(--dx-text);\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"description-container\"] {\n    color: var(--dx-text-2);\n}\n\n/* =====================================================================\n   9. DISCOVER / LIBRARY / SEARCH / CALENDAR\n   ===================================================================== */\n\n#app [class*=\"discover-content\"],\n#app [class*=\"library-content\"],\n#app [class*=\"search-content\"] {\n    padding-top: 0.75rem;\n}\n\n#app [class*=\"search-content\"] {\n    padding-left: 0 !important;\n    padding-right: 0 !important;\n}\n\n#app [class*=\"discover-content\"] [class*=\"catalog-container\"] {\n    padding-left: calc(var(--dx-gutter) - 0.35rem);\n}\n\n#app [class*=\"library-content\"] {\n    padding-left: calc(var(--dx-gutter) - 0.35rem);\n    padding-right: calc(var(--dx-gutter) - 0.35rem);\n}\n\n#app [class*=\"selectable-inputs-container\"] {\n    gap: 0.6rem;\n    padding: 0 0.35rem 0.75rem;\n}\n\n/* Dropdowns / filters / chips */\n#app [class*=\"multiselect-menu\"] > [class*=\"button-container\"],\n#app [class*=\"select-input\"] > [class*=\"button-container\"],\n#app [class*=\"filter-button\"],\n#app [class*=\"selectable-inputs\"] [class*=\"button-container\"] {\n    height: 2.5rem;\n    border-radius: var(--dx-radius);\n    background: var(--dx-surface);\n    border: 1px solid var(--dx-line);\n    transition: background-color 0.2s, border-color 0.2s;\n}\n\n#app [class*=\"multiselect-menu\"] > [class*=\"button-container\"]:hover,\n#app [class*=\"filter-button\"]:hover,\n#app [class*=\"multiselect-menu\"] > [class*=\"button-container\"]:focus-visible,\n#app [class*=\"filter-button\"]:focus-visible {\n    background: var(--dx-surface-2);\n    border-color: var(--dx-line-strong);\n}\n\n#app [class*=\"multiselect-menu\"] [class*=\"text\"] {\n    font-size: 0.9rem;\n    font-weight: 600;\n}\n\n#app [class*=\"chips\"] [class*=\"chip\"] {\n    height: 2.2rem;\n    padding: 0 1rem;\n    border-radius: 999px;\n    background: var(--dx-surface);\n    border: 1px solid var(--dx-line);\n    font-size: 0.85rem;\n    font-weight: 600;\n    color: var(--dx-text-2);\n    transition: background-color 0.2s, color 0.2s, border-color 0.2s;\n}\n\n#app [class*=\"chips\"] [class*=\"chip\"]:hover,\n#app [class*=\"chips\"] [class*=\"chip\"]:focus-visible {\n    color: var(--dx-text);\n    border-color: var(--dx-line-strong);\n}\n\n#app [class*=\"chips\"] [class*=\"chip\"][class*=\"active\"] {\n    background: #fff;\n    border-color: #fff;\n    color: #000;\n}\n\n/* Grids */\n#app [class*=\"discover-content\"] [class*=\"meta-items-container\"],\n#app [class*=\"library-content\"] [class*=\"meta-items-container\"] {\n    grid-template-columns: repeat(auto-fill, minmax(clamp(9.5rem, 11vw, 13rem), 1fr)) !important;\n    gap: 0.35rem 0;\n    padding-bottom: 3rem;\n}\n\n/* Discover side preview */\n#app [class*=\"discover-content\"] > [class*=\"meta-preview-container\"] {\n    margin: 0 var(--dx-gutter) 1.25rem 0.75rem;\n    border-radius: var(--dx-radius-l);\n    background: var(--dx-bg-raised);\n    border: 1px solid var(--dx-line);\n    overflow: hidden;\n    box-shadow: var(--dx-shadow-2);\n}\n\n#app [class*=\"discover-content\"] > [class*=\"meta-preview-container\"] [class*=\"background-image-layer\"] img {\n    opacity: 0.55;\n    filter: none;\n}\n\n#app [class*=\"discover-content\"] > [class*=\"meta-preview-container\"] [class*=\"background-image-layer\"]::after {\n    content: \"\";\n    position: absolute;\n    inset: 0;\n    background: linear-gradient(0deg, var(--dx-bg-raised) 20%, rgba(19, 19, 23, 0.55) 60%, rgba(19, 19, 23, 0.3) 100%);\n}\n\n/* Empty / message states */\n#app [class*=\"message-container\"],\n#app [class*=\"placeholder-label\"] {\n    color: var(--dx-text-3);\n}\n\n/* Calendar */\n#app [class*=\"calendar\"] [class*=\"selector\"] {\n    gap: 1rem;\n}\n\n#app [class*=\"calendar\"] [class*=\"selector\"] [class*=\"button-container\"] {\n    border-radius: var(--dx-radius);\n    background: var(--dx-surface);\n    border: 1px solid var(--dx-line);\n}\n\n#app [class*=\"calendar\"] [class*=\"cell\"] {\n    border-radius: var(--dx-radius);\n    background: var(--dx-bg-raised);\n    border: 1px solid var(--dx-line);\n    transition: background-color 0.2s, border-color 0.2s;\n}\n\n#app [class*=\"calendar\"] [class*=\"cell\"]:hover,\n#app [class*=\"calendar\"] [class*=\"cell\"]:focus-visible {\n    background: var(--dx-surface);\n    border-color: var(--dx-line-strong);\n}\n\n#app [class*=\"calendar\"] [class*=\"cell\"][class*=\"today\"] {\n    border-color: var(--dx-accent);\n    box-shadow: inset 0 0 0 1px var(--dx-accent);\n}\n\n#app [class*=\"calendar\"] [class*=\"cell\"][class*=\"today\"] [class*=\"day\"] {\n    color: #fff;\n    font-weight: 800;\n}\n\n#app [class*=\"calendar\"] [class*=\"list-\"] [class*=\"item-\"] {\n    border-radius: var(--dx-radius);\n}\n\n#app [class*=\"calendar\"] [class*=\"episode-\"] {\n    border-radius: var(--dx-radius);\n    transition: background-color 0.2s;\n}\n\n#app [class*=\"calendar\"] [class*=\"episode-\"]:hover,\n#app [class*=\"calendar\"] [class*=\"episode-\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.06);\n}\n\n#app [class*=\"calendar\"] [class*=\"artwork-container\"] {\n    border-radius: var(--dx-radius-s);\n    overflow: hidden;\n}\n\n/* =====================================================================\n   10. ADDONS + SETTINGS\n   ===================================================================== */\n\n#app [class*=\"addons-content\"] {\n    padding: 0.75rem calc(var(--dx-gutter) - 0.35rem) 0;\n}\n\n#app [class*=\"addons-content\"] [class*=\"add-button-container\"] {\n    height: 2.5rem;\n    padding: 0 1.1rem;\n    border-radius: var(--dx-radius);\n    background: var(--dx-accent);\n    transition: background-color 0.2s;\n}\n\n#app [class*=\"addons-content\"] [class*=\"add-button-container\"]:hover,\n#app [class*=\"addons-content\"] [class*=\"add-button-container\"]:focus-visible {\n    background: var(--dx-accent-hover);\n}\n\n#app [class*=\"addons-content\"] [class*=\"add-button-container\"] * {\n    color: #fff !important;\n    font-weight: 700;\n}\n\n#app [class*=\"addons-content\"] label[class*=\"search-bar-container\"] {\n    height: 2.5rem;\n    border-radius: var(--dx-radius);\n    background: var(--dx-surface);\n    border: 1px solid var(--dx-line);\n}\n\n#app [class*=\"addons-list-container\"] {\n    gap: 0.75rem;\n    padding-bottom: 2rem;\n}\n\n#app [class*=\"addons-list-container\"] [class*=\"addon-container\"] {\n    margin: 0 0 0.75rem 0;\n    padding: 1.1rem 1.25rem;\n    border-radius: var(--dx-radius-l);\n    background: var(--dx-bg-raised);\n    border: 1px solid var(--dx-line);\n    transition: background-color 0.25s, border-color 0.25s, transform 0.25s var(--dx-ease-out);\n}\n\n#app [class*=\"addons-list-container\"] [class*=\"addon-container\"]:hover,\n#app [class*=\"addons-list-container\"] [class*=\"addon-container\"]:focus-visible {\n    background: var(--dx-surface);\n    border-color: var(--dx-line-strong);\n}\n\n#app [class*=\"addon-container\"] [class*=\"logo-container\"] {\n    border-radius: var(--dx-radius);\n    background: var(--dx-surface-2);\n    overflow: hidden;\n}\n\n#app [class*=\"addon-container\"] [class*=\"name-container\"] {\n    font-weight: 700;\n}\n\n#app [class*=\"addon-container\"] [class*=\"version-container\"],\n#app [class*=\"addon-container\"] [class*=\"types-container\"] {\n    color: var(--dx-text-3);\n}\n\n#app [class*=\"addon-container\"] [class*=\"description-container\"] {\n    color: var(--dx-text-2);\n}\n\n/* Install / uninstall / configure / share */\n#app [class*=\"install-button-container\"],\n#app [class*=\"configure-button-container\"] {\n    border-radius: var(--dx-radius) !important;\n    background: var(--dx-accent) !important;\n    border: 0 !important;\n    transition: background-color 0.2s, opacity 0.2s;\n}\n\n#app [class*=\"install-button-container\"]:hover,\n#app [class*=\"configure-button-container\"]:hover,\n#app [class*=\"install-button-container\"]:focus-visible,\n#app [class*=\"configure-button-container\"]:focus-visible {\n    background: var(--dx-accent-hover) !important;\n}\n\n#app [class*=\"install-button-container\"] *,\n#app [class*=\"configure-button-container\"] * {\n    color: #fff !important;\n}\n\n#app [class*=\"uninstall-button-container\"],\n#app [class*=\"share-button-container\"] {\n    border-radius: var(--dx-radius) !important;\n    background: var(--dx-surface-2) !important;\n    border: 1px solid var(--dx-line) !important;\n    outline: none !important;\n}\n\n#app [class*=\"uninstall-button-container\"]:hover,\n#app [class*=\"share-button-container\"]:hover,\n#app [class*=\"uninstall-button-container\"]:focus-visible,\n#app [class*=\"share-button-container\"]:focus-visible {\n    background: var(--dx-surface-3) !important;\n}\n\n#app [class*=\"uninstall-button-container\"] *,\n#app [class*=\"share-button-container\"] * {\n    color: var(--dx-text) !important;\n}\n\n/* Settings */\n#app [class*=\"settings-content\"] {\n    padding: 0.75rem var(--dx-gutter) 0;\n    gap: 2rem;\n}\n\n#app [class*=\"settings-content\"] > [class*=\"menu-\"] {\n    padding: 0.5rem;\n    border-radius: var(--dx-radius-l);\n    background: var(--dx-bg-raised);\n    border: 1px solid var(--dx-line);\n    height: fit-content;\n    max-height: 100%;\n}\n\n#app [class*=\"settings-content\"] > [class*=\"menu-\"] > [class*=\"button\"],\n#app [class*=\"settings-content\"] > [class*=\"menu-\"] > div > [class*=\"button\"] {\n    height: 2.75rem;\n    margin: 0.1rem 0;\n    padding: 0 1rem;\n    border-radius: var(--dx-radius);\n    font-weight: 600;\n    color: var(--dx-text-2);\n    opacity: 1;\n    transition: background-color 0.2s, color 0.2s;\n}\n\n#app [class*=\"settings-content\"] > [class*=\"menu-\"] [class*=\"button\"]:hover,\n#app [class*=\"settings-content\"] > [class*=\"menu-\"] [class*=\"button\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.06);\n    color: var(--dx-text);\n}\n\n#app [class*=\"settings-content\"] > [class*=\"menu-\"] [class*=\"button\"][class*=\"selected\"] {\n    background: rgba(255, 255, 255, 0.1);\n    color: #fff;\n    box-shadow: inset 3px 0 0 var(--dx-accent);\n}\n\n#app [class*=\"settings-content\"] [class*=\"section-\"] {\n    border-bottom: 1px solid var(--dx-line);\n}\n\n#app [class*=\"settings-content\"] [class*=\"heading-\"] {\n    font-weight: 700;\n}\n\n#app [class*=\"settings-content\"] [class*=\"option-\"] [class*=\"content-\"] [class*=\"button-container\"],\n#app [class*=\"settings-content\"] [class*=\"multiselect-menu\"] > [class*=\"button-container\"] {\n    border-radius: var(--dx-radius);\n}\n\n#app [class*=\"settings-content\"] [class*=\"user-info-content\"] [class*=\"avatar\"],\n#app [class*=\"settings-content\"] [class*=\"user-info-content\"] img {\n    border-radius: var(--dx-radius) !important;\n}\n\n/* Toggles and checkboxes */\n#app [class*=\"toggle-container\"] [class*=\"toggle\"] {\n    background: var(--dx-surface-3);\n}\n\n#app [class*=\"toggle-container\"].checked [class*=\"toggle\"],\n#app .checked > [class*=\"toggle\"] {\n    background: var(--dx-accent) !important;\n}\n\n#app [class*=\"checkbox-container\"].checked [class*=\"checkbox\"],\n#app [class*=\"checkbox\"].checked {\n    background: var(--dx-accent) !important;\n    border-color: var(--dx-accent) !important;\n}\n\n/* Keyboard: a selected switch or choice glows softly and grows a touch (they have no hover look\n   to borrow) */\n#app [class*=\"toggle-container\"]:focus-visible,\n#app [class*=\"radio-container\"]:focus-visible,\n#app [class*=\"checkbox-container\"]:focus-visible {\n    filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.5));\n    transform: scale(1.08);\n    transition: transform 0.2s var(--dx-ease-out), filter 0.2s;\n}\n\n/* Text inputs */\n#app input[class*=\"text-input\"],\n#app [class*=\"text-input\"] input {\n    border-radius: var(--dx-radius);\n}\n\n/* =====================================================================\n   11. POPUPS, MENUS, MODALS, TOASTS, TOOLTIPS\n   ===================================================================== */\n\n#app [class*=\"menu-container\"][class*=\"menu-direction\"]:not([class*=\"context-menu\"]),\n#app [class*=\"nav-menu-container\"] {\n    border-radius: var(--dx-radius-l) !important;\n    background: rgba(22, 22, 27, 0.97) !important;\n    border: 1px solid var(--dx-line-strong) !important;\n    box-shadow: var(--dx-shadow-2) !important;\n    backdrop-filter: blur(20px);\n    overflow: hidden;\n}\n\n/* Animate the menu's content, never the container: other plugins hide containers with inline opacity */\n#app [class*=\"menu-container\"][class*=\"menu-direction\"] > * {\n    animation: dx-pop 0.18s var(--dx-ease-out) both;\n}\n\n@keyframes dx-pop {\n    from { opacity: 0; transform: translateY(-4px) scale(0.98); }\n    to { opacity: 1; transform: none; }\n}\n\n#app [class*=\"nav-menu-container\"] [class*=\"nav-menu-option-container\"],\n#app [class*=\"menu-container\"] [class*=\"option-container\"] {\n    border-radius: var(--dx-radius);\n    transition: background-color 0.15s;\n}\n\n#app [class*=\"nav-menu-container\"] [class*=\"nav-menu-option-container\"]:hover,\n#app [class*=\"menu-container\"] [class*=\"option-container\"]:hover,\n#app [class*=\"nav-menu-container\"] [class*=\"nav-menu-option-container\"]:focus-visible,\n#app [class*=\"menu-container\"] [class*=\"option-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.08) !important;\n}\n\n#app [class*=\"menu-container\"] [class*=\"option-container\"][class*=\"selected\"] {\n    background: rgba(255, 255, 255, 0.1) !important;\n}\n\n#app [class*=\"nav-menu-container\"] [class*=\"nav-menu-section\"] {\n    border-color: var(--dx-line) !important;\n}\n\n#app [class*=\"modal-container\"] {\n    background: rgba(0, 0, 0, 0.7);\n    backdrop-filter: blur(6px);\n    animation: dx-fade 0.2s both;\n}\n\n#app [class*=\"modal-dialog-container\"] {\n    border-radius: var(--dx-radius-l) !important;\n    background: var(--dx-surface) !important;\n    border: 1px solid var(--dx-line) !important;\n    box-shadow: var(--dx-shadow-2) !important;\n}\n\n/* The content sits inside the dialog: one card only, not a second inset one */\n#app [class*=\"modal-dialog-container\"] [class*=\"modal-dialog-content\"] {\n    border-radius: 0 !important;\n    background: transparent !important;\n    border: 0 !important;\n    box-shadow: none !important;\n}\n\n#app [class*=\"modal-dialog-container\"] {\n    animation: dx-pop 0.25s var(--dx-ease-out) both;\n}\n\n#app [class*=\"modal-dialog-container\"] [class*=\"action-button\"],\n#app [class*=\"modal-dialog-container\"] [class*=\"button-container\"][class*=\"action\"] {\n    border-radius: var(--dx-radius) !important;\n}\n\n#app [class*=\"toasts-container\"] [class*=\"toast-item-container\"] {\n    border-radius: var(--dx-radius) !important;\n    background: var(--dx-surface-2) !important;\n    border: 1px solid var(--dx-line) !important;\n    border-left: 3px solid var(--dx-accent) !important;\n    box-shadow: var(--dx-shadow-2) !important;\n    animation: dx-slide-in 0.35s var(--dx-ease-out) both;\n}\n\n#app [class*=\"toasts-container\"] [class*=\"toast-item-container\"][class*=\"success\"] {\n    border-left-color: #46d369 !important;\n}\n\n#app [class*=\"toasts-container\"] [class*=\"toast-item-container\"][class*=\"error\"] {\n    border-left-color: #ff5a5f !important;\n}\n\n#app [class*=\"tooltip-container\"] {\n    border-radius: var(--dx-radius-s) !important;\n    background: #fff !important;\n    color: #000 !important;\n    font-weight: 600;\n    font-size: 0.8rem;\n}\n\n/* =====================================================================\n   12. PLAYER — Netflix-style controls and panels\n   ===================================================================== */\n\n/* Top bar: just a large back arrow (title moves to the bottom when the plugin is on) */\n#app [class*=\"player-container\"] [class*=\"nav-bar-layer\"] {\n    background: linear-gradient(180deg, rgba(0, 0, 0, 0.7) 0%, transparent 100%) !important;\n    height: 7rem;\n}\n\n#app [class*=\"player-container\"] [class*=\"player-nav\"] {\n    padding: 1.5rem var(--dx-gutter) 0 calc(var(--dx-gutter) - 0.75rem) !important;\n    align-items: center;\n}\n\n#app [class*=\"player-container\"] [class*=\"player-nav\"] [class*=\"player-button\"] {\n    width: 3.25rem;\n    height: 3.25rem;\n    border-radius: 50%;\n    background: transparent !important;\n    transition: transform 0.2s var(--dx-ease-out);\n}\n\n#app [class*=\"player-container\"] [class*=\"player-nav\"] [class*=\"player-button\"]:hover,\n#app [class*=\"player-container\"] [class*=\"player-nav\"] [class*=\"player-button\"]:focus-visible {\n    transform: scale(1.15);\n}\n\n/* Some Windows installs drew the back arrow unsized: a black chevron across the whole video that\n   sent every click back to the streams list. Keep top-bar icons small and click-through always. */\n#app [class*=\"player-container\"] [class*=\"nav-bar-layer\"] svg {\n    max-width: 3rem !important;\n    max-height: 3rem !important;\n    pointer-events: none !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"player-nav\"] [class*=\"player-button\"] svg {\n    width: 2.1rem;\n    height: 2.1rem;\n    color: #fff;\n}\n\n#app [class*=\"player-container\"] [class*=\"player-title\"] {\n    font-size: 1.15rem;\n    font-weight: 600;\n    color: var(--dx-text-2);\n}\n\nbody[data-dx-ptitle] #app [class*=\"player-container\"] [class*=\"player-title-container\"] {\n    visibility: hidden;\n}\n\n/* Bottom bar */\n#app [class*=\"player-container\"] [class*=\"control-bar-layer\"] {\n    padding: 5rem var(--dx-gutter) 1.4rem !important;\n    background: linear-gradient(0deg, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.5) 45%, transparent 100%) !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-layer\"] [class*=\"seek-bar-container\"] {\n    height: 2.25rem;\n    gap: 1rem;\n}\n\n#app [class*=\"player-container\"] [class*=\"seek-bar-container\"] [class*=\"label\"] {\n    font-size: 0.95rem;\n    font-weight: 600;\n    font-variant-numeric: tabular-nums;\n    color: var(--dx-text);\n    opacity: 1;\n}\n\n#app [class*=\"player-container\"] [class*=\"seek-bar-container\"] > [class*=\"button-container\"] {\n    background: transparent !important;\n    padding: 0 0.25rem;\n}\n\n#app [class*=\"slider-container\"] [class*=\"track\"] {\n    border-radius: 999px;\n    background: rgba(255, 255, 255, 0.25) !important;\n}\n\n#app [class*=\"slider-container\"] [class*=\"track-before\"] {\n    background: rgba(255, 255, 255, 0.45) !important;\n}\n\n#app [class*=\"slider-container\"] [class*=\"track-after\"] {\n    background: var(--dx-accent) !important;\n}\n\n#app [class*=\"slider-container\"] [class*=\"thumb\"] {\n    background: var(--dx-accent) !important;\n    box-shadow: none !important;\n    transition: transform 0.15s var(--dx-ease-out);\n    transform-origin: center;\n}\n\n#app [class*=\"player-container\"] [class*=\"seek-bar-container\"] [class*=\"slider-container\"] {\n    --track-size: calc(4px + 3px * var(--dx-seek-hot, 0));\n    --thumb-size: 16px;\n}\n\n#app [class*=\"player-container\"] [class*=\"seek-bar-container\"]:hover,\n#app [class*=\"player-container\"] [class*=\"seek-bar-container\"]:focus-visible {\n    --dx-seek-hot: 1;\n}\n\n/* Stremio centres the knob with translateX(-50%) — keep that, only add the scale */\n#app [class*=\"player-container\"] [class*=\"seek-bar-container\"] [class*=\"thumb\"] {\n    transform: translateX(-50%) scale(calc(1.15 * var(--dx-seek-hot, 0)));\n}\n\nhtml[class*=\"active-slider-within\"] #app [class*=\"player-container\"] [class*=\"seek-bar-container\"] [class*=\"thumb\"] {\n    transform: translateX(-50%) scale(1.15);\n}\n\n/* Button row */\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] {\n    position: relative;\n    gap: 0.35rem;\n    margin-top: 0.35rem;\n    border-radius: 0 !important;\n    background: transparent !important;\n    transform: none !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > * {\n    order: 3;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > [class*=\"control-bar-button-\"]:first-child {\n    order: 0;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > .dx-seek-back {\n    order: 1;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > .dx-seek-fwd {\n    order: 2;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-menu-container\"] {\n    gap: 0.35rem;\n    border-radius: 0 !important;\n    background: transparent !important;\n}\n\n/* Narrow windows: Stremio folds these buttons into a pop-up behind \"⋯\", which needs its panel */\n@media only screen and (max-width: 640px) {\n    #app [class*=\"player-container\"] [class*=\"control-bar-buttons-menu-container\"] {\n        background: rgb(22, 22, 27) !important;\n        border-radius: 12px !important;\n    }\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-button-\"],\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-menu-button\"],\n#app [class*=\"player-container\"] .dxp-player-btn,\n.dx-seek {\n    width: 3.5rem !important;\n    height: 3.5rem !important;\n    border-radius: 50% !important;\n    background: transparent !important;\n    transform: none !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-button-\"] svg,\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-menu-button\"] svg,\n#app [class*=\"player-container\"] .dxp-player-btn svg,\n.dx-seek svg {\n    width: 2.15rem !important;\n    height: 2.15rem !important;\n    color: #fff;\n    opacity: 1 !important;\n    transform: scale(var(--dx-btn-scale, 1));\n    transition: transform 0.18s var(--dx-ease-out);\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-button-\"]:hover:not(.disabled),\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-menu-button\"]:hover,\n.dx-seek:hover,\n#app [class*=\"player-container\"] [class*=\"control-bar-button-\"]:focus-visible,\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-menu-button\"]:focus-visible,\n#app [class*=\"player-container\"] .dxp-player-btn:hover,\n#app [class*=\"player-container\"] .dxp-player-btn:focus-visible,\n.dx-seek:focus-visible {\n    --dx-btn-scale: 1.22;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-button-\"].disabled svg {\n    opacity: 0.3 !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-button-\"].active svg,\n#app [class*=\"player-container\"] [class*=\"control-bar-button-\"][class*=\"active\"] svg {\n    color: #fff;\n    filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.5));\n}\n\n.dx-seek {\n    position: relative;\n    display: inline-flex;\n    align-items: center;\n    justify-content: center;\n    color: #fff;\n    cursor: pointer;\n}\n\n/* Volume: slider slides out when you point at the speaker */\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > [class*=\"volume-slider\"] {\n    flex: 0 0 0 !important;\n    width: 0;\n    margin: 0 !important;\n    opacity: 0;\n    --track-size: 4px;\n    --thumb-size: 14px;\n    transition: flex-basis 0.3s var(--dx-ease-out), opacity 0.2s, margin 0.3s;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-button-\"]:hover + [class*=\"volume-slider\"],\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > [class*=\"volume-slider\"]:hover,\nhtml[class*=\"active-slider-within\"] #app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > [class*=\"volume-slider\"],\n#app [class*=\"player-container\"] [class*=\"control-bar-button-\"]:focus-visible + [class*=\"volume-slider\"],\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > [class*=\"volume-slider\"]:focus-visible {\n    flex-basis: 8rem !important;\n    margin: 0 0.75rem 0 0.25rem !important;\n    opacity: 1;\n}\n\n/* Title in the bar (plugin): in the free space between the left and right buttons. It shortens\n   with \"…\" as the space shrinks (episode name first) and steps aside when there's no room left. */\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > [class*=\"spacing\"] {\n    min-width: 0;\n    display: flex;\n    align-items: center;\n    justify-content: center;\n    overflow: hidden;\n    container-type: inline-size;\n}\n\n.dx-player-title {\n    display: flex;\n    align-items: baseline;\n    justify-content: center;\n    gap: 0.6rem;\n    min-width: 0;\n    max-width: 100%;\n    padding: 0 1rem;\n    box-sizing: border-box;\n    white-space: nowrap;\n    pointer-events: none;\n}\n\n.dx-player-title b {\n    flex: 0 1 auto;\n    min-width: 0;\n    font-size: 1.2rem;\n    font-weight: 700;\n    color: #fff;\n    overflow: hidden;\n    text-overflow: ellipsis;\n}\n\n.dx-player-title span {\n    flex: 0 1000 auto;\n    min-width: 0;\n    font-size: 1.05rem;\n    font-weight: 500;\n    color: var(--dx-text-2);\n    overflow: hidden;\n    text-overflow: ellipsis;\n}\n\n@container (max-width: 180px) {\n    .dx-player-title {\n        display: none;\n    }\n}\n\n/* Play / pause / seek feedback in the centre */\n.dx-player-flash {\n    position: absolute;\n    z-index: 5;\n    left: 50%;\n    top: 50%;\n    width: 6rem;\n    height: 6rem;\n    margin: -3rem 0 0 -3rem;\n    display: flex;\n    align-items: center;\n    justify-content: center;\n    border-radius: 50%;\n    background: rgba(0, 0, 0, 0.45);\n    color: #fff;\n    pointer-events: none;\n    opacity: 0;\n}\n\n.dx-player-flash svg {\n    width: 2.8rem;\n    height: 2.8rem;\n}\n\n.dx-player-flash b {\n    position: absolute;\n    bottom: -2rem;\n    font-size: 1rem;\n    font-weight: 700;\n    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);\n}\n\n.dx-player-flash.is-on {\n    animation: dx-flash 0.65s var(--dx-ease-out) both;\n}\n\n@keyframes dx-flash {\n    0% { opacity: 0; transform: scale(0.6); }\n    25% { opacity: 1; transform: scale(1); }\n    100% { opacity: 0; transform: scale(1.35); }\n}\n\n/* ---------- Panels (subtitles, audio, speed, info, more) ---------- */\n\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] {\n    bottom: 7.5rem !important;\n    right: var(--dx-gutter) !important;\n    border-radius: 6px !important;\n    background: rgba(38, 38, 38, 0.97) !important;\n    border: 0 !important;\n    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6) !important;\n    backdrop-filter: none !important;\n    overflow: hidden;\n    /* Must stay a transition: Stremio unmounts menus on transitionend */\n    transition: opacity 0.18s ease, transform 0.24s var(--dx-ease-out) !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"menu-layer\"].fade-enter {\n    transform: translateY(10px);\n}\n\n#app [class*=\"player-container\"] [class*=\"menu-layer\"].fade-enter.fade-active {\n    transform: none;\n}\n\n#app [class*=\"player-container\"] [class*=\"menu-layer\"].fade-exit.fade-active {\n    transform: translateY(6px);\n}\n\n@keyframes dx-panel {\n    from { opacity: 0; transform: translateY(8px); }\n    to { opacity: 1; transform: none; }\n}\n\n/* Headings */\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"languages-header\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"variants-header\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"settings-header\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] > [class^=\"title-\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"speed-title\"] {\n    padding: 1.35rem 1.5rem 0.75rem !important;\n    font-size: 1.3rem !important;\n    font-weight: 700 !important;\n    color: #fff !important;\n    opacity: 1 !important;\n    text-align: left !important;\n}\n\n/* Subtitles: three columns separated by hairlines */\n#app [class*=\"subtitles-menu-container\"] {\n    min-width: 0;\n}\n\n#app [class*=\"subtitles-menu-container\"] [class*=\"languages-container\"] {\n    width: 15rem;\n}\n\n#app [class*=\"subtitles-menu-container\"] [class*=\"variants-container\"] {\n    width: 17rem;\n}\n\n#app [class*=\"subtitles-menu-container\"] [class*=\"subtitles-settings-container\"] {\n    width: 15rem;\n    padding: 0 !important;\n}\n\n/* Short, Netflix-style column titles */\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"subtitles-menu-container\"] [class*=\"languages-header\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"subtitles-menu-container\"] [class*=\"variants-header\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"subtitles-menu-container\"] [class*=\"settings-header\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"audio-menu-container\"] [class*=\"languages-header\"] {\n    font-size: 0 !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"subtitles-menu-container\"] [class*=\"languages-header\"]::after,\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"subtitles-menu-container\"] [class*=\"variants-header\"]::after,\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"subtitles-menu-container\"] [class*=\"settings-header\"]::after,\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"audio-menu-container\"] [class*=\"languages-header\"]::after {\n    font-size: 1.3rem;\n    font-weight: 700;\n}\n\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"subtitles-menu-container\"] [class*=\"languages-header\"]::after { content: \"Subtitles\"; }\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"subtitles-menu-container\"] [class*=\"variants-header\"]::after { content: \"Source\"; }\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"subtitles-menu-container\"] [class*=\"settings-header\"]::after { content: \"Adjust\"; }\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"audio-menu-container\"] [class*=\"languages-header\"]::after { content: \"Audio\"; }\n\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"languages-header\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"variants-header\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"settings-header\"] {\n    white-space: nowrap;\n    overflow: hidden;\n    text-overflow: ellipsis;\n}\n\n#app [class*=\"subtitles-settings-container\"] [class*=\"stepper\"] {\n    width: 100%;\n    padding: 0 !important;\n}\n\n#app [class*=\"subtitles-settings-container\"] [class*=\"stepper\"] [class*=\"content\"] {\n    width: 100%;\n    justify-content: space-between;\n}\n\n#app [class*=\"subtitles-settings-container\"] [class*=\"stepper\"] [class*=\"value\"] {\n    white-space: nowrap;\n}\n\n#app [class*=\"subtitles-menu-container\"] > * {\n    border-right: 1px solid rgba(255, 255, 255, 0.08);\n}\n\n#app [class*=\"subtitles-menu-container\"] > *:last-child {\n    border-right: 0;\n}\n\n/* Option rows with a tick on the selected one */\n#app [class*=\"player-container\"] [class*=\"language-option\"],\n#app [class*=\"player-container\"] [class*=\"variant-option\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"option-container\"] {\n    position: relative;\n    min-height: 3rem;\n    margin: 0 !important;\n    padding: 0.55rem 1.5rem 0.55rem 3rem !important;\n    border-radius: 0 !important;\n    background: transparent !important;\n    box-shadow: none !important;\n    transition: background-color 0.15s;\n}\n\n#app [class*=\"player-container\"] [class*=\"language-option\"]:hover,\n#app [class*=\"player-container\"] [class*=\"variant-option\"]:hover,\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"option-container\"]:hover,\n#app [class*=\"player-container\"] [class*=\"language-option\"]:focus-visible,\n#app [class*=\"player-container\"] [class*=\"variant-option\"]:focus-visible,\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"option-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.06) !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"language-label\"],\n#app [class*=\"player-container\"] [class*=\"variant-label\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"option-container\"] [class*=\"label\"] {\n    font-size: 1.08rem !important;\n    font-weight: 500 !important;\n    color: var(--dx-text-2) !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"variant-origin\"] {\n    font-size: 0.82rem;\n    color: var(--dx-text-3) !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"language-option\"].selected [class*=\"language-label\"],\n#app [class*=\"player-container\"] [class*=\"variant-option\"].selected [class*=\"variant-label\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"option-container\"].selected [class*=\"label\"] {\n    color: #fff !important;\n    font-weight: 700 !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"language-option\"].selected::before,\n#app [class*=\"player-container\"] [class*=\"variant-option\"].selected::before {\n    content: \"\";\n    position: absolute;\n    left: 1.2rem;\n    top: 50%;\n    width: 1.1rem;\n    height: 1.1rem;\n    margin-top: -0.55rem;\n    background: #fff;\n    -webkit-mask: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 12.5l5 5L20 6.5' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\") center / contain no-repeat;\n    mask: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 12.5l5 5L20 6.5' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\") center / contain no-repeat;\n}\n\n/* Stock \"selected\" dot is replaced by the tick */\n#app [class*=\"player-container\"] [class*=\"language-option\"] > [class*=\"icon\"],\n#app [class*=\"player-container\"] [class*=\"variant-option\"] > [class*=\"icon\"] {\n    display: none !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"languages-list\"],\n#app [class*=\"player-container\"] [class*=\"variants-list\"] {\n    padding-bottom: 0.75rem;\n}\n\n/* Delay / size / position steppers */\n#app [class*=\"subtitles-settings-container\"] [class*=\"settings-list\"] {\n    padding: 0 1.5rem 1.25rem;\n    gap: 0.9rem;\n}\n\n#app [class*=\"player-container\"] [class*=\"stepper\"] [class*=\"header\"] {\n    font-size: 0.85rem;\n    font-weight: 600;\n    color: var(--dx-text-3);\n    text-transform: uppercase;\n    letter-spacing: 0.08em;\n}\n\n#app [class*=\"player-container\"] [class*=\"stepper\"] [class*=\"content\"] {\n    height: 2.75rem;\n    border-radius: var(--dx-radius);\n    background: rgba(255, 255, 255, 0.07);\n}\n\n#app [class*=\"player-container\"] [class*=\"stepper\"] [class*=\"button\"] {\n    width: 2.75rem;\n    height: 2.75rem;\n    border-radius: var(--dx-radius);\n    background: transparent !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"stepper\"] [class*=\"button\"]:hover,\n#app [class*=\"player-container\"] [class*=\"stepper\"] [class*=\"button\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.1) !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"stepper\"] [class*=\"value\"] {\n    font-size: 1rem;\n    font-weight: 700;\n    font-variant-numeric: tabular-nums;\n}\n\n/* Playback speed: one line, dots, current speed highlighted */\n#app [class*=\"speed-menu-container\"] {\n    width: 36rem;\n}\n\n#app [class*=\"speed-menu-container\"] [class*=\"top-container\"] {\n    display: none !important;\n}\n\n#app [class*=\"speed-menu-container\"] [class*=\"options-container\"] {\n    position: relative;\n    display: flex !important;\n    justify-content: space-between;\n    padding: 1.25rem 1.5rem 1.6rem !important;\n    gap: 0 !important;\n}\n\n#app [class*=\"speed-menu-container\"] [class*=\"options-container\"]::before {\n    content: \"\";\n    position: absolute;\n    left: 2.75rem;\n    right: 2.75rem;\n    top: 2.05rem;\n    height: 2px;\n    background: rgba(255, 255, 255, 0.3);\n}\n\n#app [class*=\"speed-menu-container\"] [class*=\"speed-button\"] {\n    position: relative;\n    flex: 1 1 0;\n    display: flex;\n    flex-direction: column;\n    align-items: center;\n    gap: 0.9rem;\n    height: auto !important;\n    padding: 0 !important;\n    background: transparent !important;\n    border-radius: 0 !important;\n    font-size: 1rem;\n    font-weight: 500;\n    color: var(--dx-text-2);\n}\n\n#app [class*=\"speed-menu-container\"] [class*=\"speed-button\"]::before {\n    content: \"\";\n    order: -1;\n    width: 0.9rem;\n    height: 0.9rem;\n    margin: 0.35rem 0;\n    border-radius: 50%;\n    background: rgba(255, 255, 255, 0.55);\n    transition: transform 0.2s var(--dx-ease-out), background-color 0.2s;\n}\n\n#app [class*=\"speed-menu-container\"] [class*=\"speed-button\"]:hover::before,\n#app [class*=\"speed-menu-container\"] [class*=\"speed-button\"]:focus-visible::before {\n    transform: scale(1.3);\n    background: #fff;\n}\n\n#app [class*=\"speed-menu-container\"] [class*=\"speed-button\"][class*=\"active\"] {\n    color: #fff;\n    font-weight: 700;\n}\n\n#app [class*=\"speed-menu-container\"] [class*=\"speed-button\"][class*=\"active\"]::before {\n    transform: scale(1.75);\n    background: #fff;\n    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);\n}\n\n/* Stream info */\n#app [class*=\"statistics-menu-container\"] {\n    min-width: 24rem;\n    padding-bottom: 1rem;\n}\n\n#app [class*=\"statistics-menu-container\"] [class*=\"stats\"] {\n    padding: 0 1.5rem;\n    gap: 1.5rem;\n}\n\n#app [class*=\"statistics-menu-container\"] [class*=\"stat-\"] [class*=\"label\"],\n#app [class*=\"statistics-menu-container\"] [class*=\"detail\"] [class*=\"label\"] {\n    font-size: 0.78rem;\n    font-weight: 700;\n    letter-spacing: 0.08em;\n    text-transform: uppercase;\n    color: var(--dx-text-3);\n}\n\n#app [class*=\"statistics-menu-container\"] [class*=\"value\"] {\n    font-size: 1.15rem;\n    font-weight: 700;\n    color: #fff;\n}\n\n#app [class*=\"statistics-menu-container\"] [class*=\"detail\"] {\n    padding: 1rem 1.5rem 0;\n}\n\n#app [class*=\"statistics-menu-container\"] [class*=\"copyable-value\"] {\n    border-radius: var(--dx-radius);\n    background: rgba(255, 255, 255, 0.07) !important;\n}\n\n/* \"More\" options */\n#app [class*=\"options-menu-container\"] {\n    min-width: 17rem;\n    padding: 0.5rem 0;\n}\n\n#app [class*=\"options-menu-container\"] [class*=\"option-container\"] {\n    padding-left: 1.25rem !important;\n    gap: 0.9rem;\n}\n\n#app [class*=\"options-menu-container\"] [class*=\"option-container\"] svg {\n    width: 1.3rem;\n    height: 1.3rem;\n    color: var(--dx-text-2);\n}\n\n/* Episodes side drawer + its handle */\n#app [class*=\"player-container\"] [class*=\"side-drawer-button-layer\"] {\n    width: 2.5rem !important;\n    height: 6rem !important;\n    padding: 0 !important;\n    border-radius: 6px 0 0 6px !important;\n    background: rgba(38, 38, 38, 0.85) !important;\n    border: 0 !important;\n    box-shadow: none !important;\n    backdrop-filter: none !important;\n    transition: background-color 0.2s, width 0.2s;\n}\n\n#app [class*=\"player-container\"] [class*=\"side-drawer-button-layer\"]:hover,\n#app [class*=\"player-container\"] [class*=\"side-drawer-button-layer\"]:focus-visible {\n    width: 3rem !important;\n    background: rgba(60, 60, 60, 0.95) !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"side-drawer-layer\"] {\n    background: rgba(24, 24, 24, 0.97) !important;\n    border-left: 1px solid rgba(255, 255, 255, 0.06) !important;\n    border-radius: 0 !important;\n    box-shadow: -20px 0 60px rgba(0, 0, 0, 0.5) !important;\n    backdrop-filter: none !important;\n}\n\n/* Buffering: a spinner instead of Stremio's title logo (the layer only exists while buffering) */\n#app [class*=\"player-container\"] [class*=\"buffering-layer\"] img,\n#app [class*=\"player-container\"] [class*=\"buffering-layer\"] [class*=\"image\"] {\n    display: none !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"buffering-layer\"] {\n    display: flex !important;\n    align-items: center;\n    justify-content: center;\n    pointer-events: none;\n}\n\n#app [class*=\"player-container\"] [class*=\"buffering-layer\"]::before {\n    content: \"\";\n    width: 4.2rem;\n    height: 4.2rem;\n    border-radius: 50%;\n    border: 3px solid rgba(255, 255, 255, 0.14);\n    border-top-color: var(--dx-accent);\n    filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.6));\n    animation: dx-spin 0.85s linear infinite;\n}\n\n@keyframes dx-spin {\n    to { transform: rotate(360deg); }\n}\n\n/* Up next */\n#app [class*=\"next-video-popup-container\"] {\n    right: var(--dx-gutter) !important;\n    bottom: 8rem !important;\n    border-radius: 6px !important;\n    background: rgba(38, 38, 38, 0.97) !important;\n    border: 0;\n    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);\n    overflow: hidden;\n    animation: dx-panel 0.3s var(--dx-ease-out) both;\n}\n\n#app [class*=\"next-video-popup-container\"] [class*=\"play-button\"] {\n    background: #fff !important;\n    border-radius: var(--dx-radius) !important;\n}\n\n#app [class*=\"next-video-popup-container\"] [class*=\"play-button\"] * {\n    color: #000 !important;\n}\n\n/* =====================================================================\n   13. STREMIO ENHANCED'S OWN UI (themes/plugins list, alerts)\n   ===================================================================== */\n\n#enhanced [class*=\"option-\"] {\n    border-radius: var(--dx-radius);\n}\n\n#enhanced .install-button-container-yfcq5,\n#enhanced .uninstall-button-container-oV4Yo,\n#enhanced [id$=\".theme.css\"],\n#enhanced [id=\"Default\"] {\n    border-radius: var(--dx-radius) !important;\n}\n\n.toast-container,\n#enhanced-alert-container,\n[class*=\"enhanced-alert\"] {\n    border-radius: var(--dx-radius-l) !important;\n}\n\n/* =====================================================================\n   14. ACCESSIBILITY\n   ===================================================================== */\n\n/* Keyboard focus looks the same as pointing with the mouse (every hover style above also answers\n   to :focus-visible), never a square outline drawn around things */\n:focus-visible {\n    outline: none !important;\n}\n\n@media (prefers-reduced-motion: reduce) {\n    *,\n    *::before,\n    *::after {\n        animation-duration: 0.01ms !important;\n        animation-iteration-count: 1 !important;\n        transition-duration: 0.01ms !important;\n    }\n}\n\n/* =====================================================================\n   15. REFINEMENTS\n   ===================================================================== */\n\n/* Stock hover tooltips sit in the middle of posters — the preview card replaces them.\n   The plugin flags the tooltip box itself while a poster is pointed at: a body:has(...:hover) rule\n   (or any class on <html>/<body>) made the browser restyle the whole page on every hover. */\n.tooltips-items-container[data-dx-hide] {\n    display: none !important;\n}\n\n\n/* Wide card when no backdrop exists: blurred poster + sharp poster */\n.dx-wide-art.is-fallback {\n    background: var(--dx-surface-2) !important;\n}\n\n.dx-wide-blur {\n    position: absolute;\n    inset: -20px;\n    background-size: cover;\n    background-position: center;\n    filter: blur(22px) brightness(0.55) saturate(1.2);\n}\n\n.dx-wide-thumb {\n    position: absolute;\n    top: 0;\n    right: 0;\n    height: 100%;\n    aspect-ratio: 2 / 3;\n    object-fit: cover;\n    -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 35%);\n    mask-image: linear-gradient(90deg, transparent 0%, #000 35%);\n}\n\n.dx-wide-art.is-fallback .dx-wide-name {\n    right: 40%;\n    white-space: normal;\n    display: -webkit-box;\n    -webkit-line-clamp: 2;\n    -webkit-box-orient: vertical;\n}\n\n/* Addons: actions readable; disabled stays dim */\n#app [class*=\"addon-container\"] [class*=\"uninstall-button-container\"] {\n    opacity: 1 !important;\n}\n\n#app [class*=\"addon-container\"] [class*=\"uninstall-button-container\"].disabled {\n    opacity: 0.35 !important;\n}\n\n#app [class*=\"addon-container\"] [class*=\"configure-button-container\"] {\n    background: var(--dx-surface-2) !important;\n    border: 1px solid var(--dx-line) !important;\n}\n\n#app [class*=\"addon-container\"] [class*=\"configure-button-container\"]:hover,\n#app [class*=\"addon-container\"] [class*=\"configure-button-container\"]:focus-visible {\n    background: var(--dx-surface-3) !important;\n}\n\n#app [class*=\"addon-container\"] [class*=\"configure-button-container\"] * {\n    color: var(--dx-text) !important;\n}\n\n/* Settings: links in white, not accent */\n#app [class*=\"settings-content\"] [class*=\"link-\"],\n#app [class*=\"settings-content\"] a {\n    color: var(--dx-text-2) !important;\n    transition: color 0.2s;\n}\n\n#app [class*=\"settings-content\"] [class*=\"link-\"]:hover,\n#app [class*=\"settings-content\"] a:hover,\n#app [class*=\"settings-content\"] [class*=\"link-\"]:focus-visible,\n#app [class*=\"settings-content\"] a:focus-visible {\n    color: #fff !important;\n    text-decoration: underline;\n    text-underline-offset: 3px;\n}\n\n#app [class*=\"settings-content\"] [class*=\"user-info-content\"] [class*=\"avatar\"] {\n    border: 0 !important;\n    box-shadow: 0 0 0 1px var(--dx-line-strong);\n}\n\n/* =====================================================================\n   16. COMMUNITY PLUGINS (Addon Manager, TheIntroDB, Enhanced Player)\n   ===================================================================== */\n\nhtml:root {\n    --am-accent: var(--dx-accent);\n    --am-bg: var(--dx-bg-raised);\n    --am-border-radius: var(--dx-radius-l);\n}\n\nbody .am-header-btn {\n    height: 2.5rem;\n    border-radius: var(--dx-radius);\n    border: 1px solid var(--dx-line-strong);\n    background: var(--dx-surface);\n    color: var(--dx-text);\n    font-size: 0.9rem;\n}\n\nbody .am-header-btn:hover,\nbody .am-header-btn:focus-visible {\n    background: var(--dx-surface-2);\n    transform: none;\n}\n\nbody .am-header-btn.active {\n    background: var(--dx-accent);\n    border-color: var(--dx-accent);\n    color: #fff;\n}\n\nbody .am-modal {\n    background: var(--dx-surface);\n    border: 1px solid var(--dx-line);\n    border-radius: var(--dx-radius-l);\n}\n\n/* Skip intro / recap button from TheIntroDB */\nbody #tidb-active-btn,\nbody #skiprange-active-btn,\nbody #skiprange-upgrade-btn {\n    padding: 0.85rem 1.5rem 0.85rem 1.25rem !important;\n    border-radius: var(--dx-radius) !important;\n    border: 1.5px solid rgba(255, 255, 255, 0.75) !important;\n    background: rgba(18, 18, 22, 0.72) !important;\n    backdrop-filter: blur(10px) !important;\n    font-family: \"Inter\", sans-serif !important;\n    font-size: 1rem !important;\n    font-weight: 700 !important;\n    letter-spacing: 0.01em;\n    box-shadow: var(--dx-shadow-2);\n}\n\nbody #tidb-active-btn:hover,\nbody #skiprange-active-btn:hover,\nbody #skiprange-upgrade-btn:hover,\nbody #tidb-active-btn:focus-visible,\nbody #skiprange-active-btn:focus-visible,\nbody #skiprange-upgrade-btn:focus-visible {\n    background: #fff !important;\n    color: #000 !important;\n    border-color: #fff !important;\n}\n\n\n/* Enhanced Player title above the seek bar */\n#app .custom-series-name {\n    font-size: 0.8rem;\n    font-weight: 700;\n    letter-spacing: 0.08em;\n    text-transform: uppercase;\n    color: var(--dx-text-2);\n}\n\n#app .custom-episode-title {\n    font-size: 1.05rem;\n    font-weight: 700;\n    color: #fff;\n}\n\n/* Plugin settings dialogs: label above its description, not squeezed beside it */\n[class*=\"modal-dialog-container\"] [class*=\"option-\"] > [class*=\"heading-\"] {\n    display: flex !important;\n    flex-direction: column !important;\n    align-items: flex-start !important;\n    justify-content: center;\n    gap: 0.2rem;\n}\n\n[class*=\"modal-dialog-container\"] [class*=\"option-\"] > [class*=\"heading-\"] > [class*=\"label-\"] {\n    font-weight: 600;\n    color: var(--dx-text);\n}\n\n[class*=\"modal-dialog-container\"] [class*=\"option-\"] > [class*=\"heading-\"] > div:not([class]) {\n    color: var(--dx-text-3) !important;\n    margin-top: 0 !important;\n}\n\n[class*=\"modal-dialog-container\"] select {\n    border-radius: var(--dx-radius) !important;\n    background-color: var(--dx-surface-2) !important;\n    border: 1px solid var(--dx-line) !important;\n}\n\n[class*=\"modal-dialog-container\"] [class*=\"buttons-container\"] [class*=\"action-button\"] {\n    border-radius: var(--dx-radius) !important;\n}\n\n[class*=\"modal-dialog-container\"] [class*=\"option-\"] > [class*=\"heading-\"] {\n    flex: 1 1 auto !important;\n    max-width: none !important;\n    width: auto !important;\n}\n\n[class*=\"modal-dialog-container\"] [class*=\"option-\"] > [class*=\"content-\"]:has([class*=\"toggle-container\"]) {\n    flex: 0 0 auto !important;\n    width: auto !important;\n    max-width: none !important;\n}\n\n#app [class*=\"subtitles-settings-container\"] [class*=\"stepper\"] + [class*=\"stepper\"] {\n    margin-top: 1rem !important;\n}\n\n#app [class*=\"subtitles-settings-container\"] [class*=\"stepper\"] [class*=\"header\"] {\n    margin-bottom: 0.45rem !important;\n}\n\n::-webkit-scrollbar-button {\n    display: none;\n    width: 0;\n    height: 0;\n}\n\n/* =====================================================================\n   17. CONTEXT MENU FIX compatibility\n   That plugin clones the account button (and other menus) into\n   .context-menu-portal outside #app, so give the clones the same look.\n   ===================================================================== */\n\n.context-menu-portal [class*=\"menu-button-container\"] {\n    display: flex !important;\n    align-items: center;\n    gap: 0.4rem;\n    height: 2.5rem !important;\n    padding: 0 0.4rem !important;\n    border-radius: var(--dx-radius) !important;\n    background: rgba(255, 255, 255, 0.08) !important;\n    overflow: visible !important;\n}\n\n.context-menu-portal [class*=\"menu-button-container\"] > [class*=\"avatar\"] {\n    flex: none;\n    width: 2rem !important;\n    height: 2rem !important;\n    border: 0 !important;\n    border-radius: var(--dx-radius-s) !important;\n    overflow: hidden;\n}\n\n.context-menu-portal [class*=\"menu-button-container\"] > [class*=\"avatar\"] img {\n    width: 100% !important;\n    height: 100% !important;\n    object-fit: cover;\n}\n\n.context-menu-portal [class*=\"menu-button-container\"] > svg {\n    flex: none;\n    width: 1.1rem !important;\n    height: 1.1rem !important;\n    color: var(--dx-text);\n}\n\n.context-menu-portal [class*=\"menu-container\"][class*=\"menu-direction\"],\n.context-menu-portal [class*=\"nav-menu-container\"] {\n    border-radius: var(--dx-radius-l) !important;\n    background: rgba(22, 22, 27, 0.97) !important;\n    border: 1px solid var(--dx-line-strong) !important;\n    box-shadow: var(--dx-shadow-2) !important;\n    overflow: hidden;\n}\n\n.context-menu-portal [class*=\"menu-container\"][class*=\"menu-direction\"] [class*=\"nav-menu-container\"] {\n    border: 0 !important;\n    box-shadow: none !important;\n}\n\n/* Account menu (both in-app and cloned) */\n[class*=\"nav-menu-container\"] [class*=\"user-info-container\"] [class*=\"avatar\"],\n[class*=\"nav-menu-container\"] [class*=\"avatar\"] {\n    border: 0 !important;\n    border-radius: var(--dx-radius) !important;\n    box-shadow: 0 0 0 1px var(--dx-line-strong);\n}\n\n[class*=\"nav-menu-container\"] [class*=\"nav-menu-option-container\"] {\n    border-radius: var(--dx-radius);\n    transition: background-color 0.15s;\n}\n\n[class*=\"nav-menu-container\"] [class*=\"nav-menu-option-container\"]:hover,\n[class*=\"nav-menu-container\"] [class*=\"nav-menu-option-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.08) !important;\n}\n\n[class*=\"nav-menu-container\"] [class*=\"nav-menu-option-container\"] svg {\n    color: var(--dx-text-2);\n}\n\n\n/* =====================================================================\n   18. ENHANCED VIDEO PLAYER compatibility (subtitle style panel + title)\n   ===================================================================== */\n\n/* dx.bi shows the title in the control bar; hide the duplicate */\nbody[data-dx-ptitle] #app .custom-series-name,\nbody[data-dx-ptitle] #app .custom-episode-title {\n    display: none !important;\n}\n\n#app [class*=\"subtitles-menu-container\"] .enhanced-subtitle-customize-section {\n    width: 22rem;\n    max-height: 100%;\n    padding: 0 1.5rem 1.25rem;\n    overflow-y: auto;\n    border-left: 1px solid rgba(255, 255, 255, 0.08);\n    font-size: 0.9rem;\n    color: var(--dx-text-2);\n}\n\n#app .enhanced-subtitle-customize-header {\n    display: flex;\n    align-items: center;\n    padding: 1.35rem 0 0.75rem;\n    font-size: 0 !important;\n}\n\n#app .enhanced-subtitle-customize-header > * {\n    display: none !important;\n}\n\n#app .enhanced-subtitle-customize-header::after {\n    content: \"Style\";\n    font-size: 1.3rem;\n    font-weight: 700;\n    color: #fff;\n}\n\n#app .enhanced-subtitle-presets-bar {\n    display: flex;\n    flex-wrap: wrap;\n    gap: 0.4rem;\n    margin-bottom: 1rem;\n}\n\n#app .enhanced-subtitle-preset-btn {\n    height: 2rem;\n    padding: 0 0.85rem;\n    border-radius: 999px;\n    background: rgba(255, 255, 255, 0.07);\n    border: 1px solid transparent;\n    font-size: 0.82rem;\n    font-weight: 600;\n    color: var(--dx-text-2);\n    cursor: pointer;\n    transition: background-color 0.15s, color 0.15s;\n}\n\n#app .enhanced-subtitle-preset-btn:hover,\n#app .enhanced-subtitle-preset-btn:focus-visible {\n    background: rgba(255, 255, 255, 0.12);\n    color: #fff;\n}\n\n#app .enhanced-subtitle-preset-btn.selected {\n    background: #fff;\n    color: #000;\n}\n\n#app .enhanced-subtitle-preview-section {\n    margin-bottom: 1rem;\n}\n\n#app .enhanced-subtitle-preview-label,\n#app .enhanced-stepper-header,\n#app .enhanced-select-header,\n#app .enhanced-color-header,\n#app .enhanced-text-header {\n    margin-bottom: 0.4rem;\n    font-size: 0.72rem;\n    font-weight: 700;\n    letter-spacing: 0.08em;\n    text-transform: uppercase;\n    color: var(--dx-text-3);\n}\n\n#app .enhanced-subtitle-preview-box {\n    display: flex;\n    align-items: flex-end;\n    justify-content: center;\n    height: 5.5rem;\n    padding: 0.75rem;\n    border-radius: var(--dx-radius);\n    background:\n        linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.35)),\n        url(\"https://images.metahub.space/background/medium/tt1375666/img\") center / cover,\n        #333;\n    overflow: hidden;\n}\n\n#app .enhanced-subtitle-preview-text {\n    max-width: 100%;\n    text-align: center;\n    white-space: normal;\n}\n\n#app .enhanced-settings-grid {\n    display: grid;\n    grid-template-columns: 1fr 1fr;\n    gap: 0.85rem 0.75rem;\n}\n\n#app .enhanced-stepper-content {\n    display: flex;\n    align-items: center;\n    justify-content: space-between;\n    height: 2.5rem;\n    border-radius: var(--dx-radius);\n    background: rgba(255, 255, 255, 0.07);\n}\n\n#app .enhanced-stepper-button {\n    width: 2.5rem;\n    height: 2.5rem;\n    display: inline-flex;\n    align-items: center;\n    justify-content: center;\n    border-radius: var(--dx-radius);\n    background: transparent;\n    color: #fff;\n    cursor: pointer;\n}\n\n#app .enhanced-stepper-button:hover,\n#app .enhanced-stepper-button:focus-visible {\n    background: rgba(255, 255, 255, 0.1);\n}\n\n#app .enhanced-stepper-button svg {\n    width: 0.9rem;\n    height: 0.9rem;\n}\n\n#app .enhanced-stepper-value {\n    font-weight: 700;\n    font-variant-numeric: tabular-nums;\n    color: #fff;\n}\n\n#app .enhanced-select,\n#app .enhanced-text-input {\n    width: 100%;\n    height: 2.5rem;\n    padding: 0 0.75rem;\n    border-radius: var(--dx-radius);\n    background: rgba(255, 255, 255, 0.07);\n    border: 1px solid transparent;\n    color: #fff;\n    font-size: 0.85rem;\n    appearance: auto;\n}\n\n#app .enhanced-select:focus,\n#app .enhanced-text-input:focus {\n    border-color: rgba(255, 255, 255, 0.5);\n}\n\n#app .enhanced-select option {\n    background: #262626;\n    color: #fff;\n}\n\n#app .enhanced-color-content {\n    display: flex;\n    align-items: center;\n    gap: 0.6rem;\n    height: 2.5rem;\n    padding: 0 0.5rem;\n    border-radius: var(--dx-radius);\n    background: rgba(255, 255, 255, 0.07);\n}\n\n#app .enhanced-color-input {\n    width: 1.6rem;\n    height: 1.6rem;\n    padding: 0;\n    border: 0;\n    border-radius: 50%;\n    overflow: hidden;\n    cursor: pointer;\n    appearance: none;\n}\n\n#app .enhanced-color-input::-webkit-color-swatch-wrapper {\n    padding: 0;\n}\n\n#app .enhanced-color-input::-webkit-color-swatch {\n    border: 2px solid rgba(255, 255, 255, 0.5);\n    border-radius: 50%;\n}\n\n#app .enhanced-color-value {\n    font-size: 0.8rem;\n    font-variant-numeric: tabular-nums;\n    color: var(--dx-text-2);\n}\n\n/* =====================================================================\n   19. STREAM PLUGINS compatibility (Stream Keyword Filter, Stream Finder,\n   FilterStreams, Stream Quality Picker…). Anything a plugin inserts next to\n   the streams/episodes panel is stacked on top of it as one column.\n   ===================================================================== */\n\n#app [class*=\"metadetails-content\"]:has(> :not([class*=\"meta-preview\"]):not([class*=\"spacing\"]):not([class*=\"streams-list\"]):not([class*=\"videos-list\"])) {\n    display: grid !important;\n    grid-template-columns: minmax(0, 1fr) clamp(28rem, 31vw, 42rem);\n    grid-template-rows: auto auto auto minmax(0, 1fr);\n    column-gap: 1.5rem;\n    padding-right: var(--dx-gutter) !important;\n}\n\n#app [class*=\"metadetails-content\"]:has(> :not([class*=\"meta-preview\"]):not([class*=\"spacing\"]):not([class*=\"streams-list\"]):not([class*=\"videos-list\"])) > [class*=\"meta-preview\"] {\n    grid-column: 1;\n    grid-row: 1 / -1;\n    min-height: 0;\n}\n\n#app [class*=\"metadetails-content\"]:has(> :not([class*=\"meta-preview\"]):not([class*=\"spacing\"]):not([class*=\"streams-list\"]):not([class*=\"videos-list\"])) > [class*=\"spacing\"] {\n    display: none !important;\n}\n\n#app [class*=\"metadetails-content\"] > :not([class*=\"meta-preview\"]):not([class*=\"spacing\"]):not([class*=\"streams-list\"]):not([class*=\"videos-list\"]) {\n    grid-column: 2;\n    width: auto !important;\n    max-width: none !important;\n    margin: 0 !important;\n    padding: 0.85rem 1rem !important;\n    background: rgba(19, 19, 23, 0.86) !important;\n    border: 1px solid var(--dx-line);\n    border-bottom: 0;\n    backdrop-filter: blur(24px) saturate(140%);\n    z-index: 2;\n}\n\n#app [class*=\"metadetails-content\"] > :not([class*=\"meta-preview\"]):not([class*=\"spacing\"]):not([class*=\"streams-list\"]):not([class*=\"videos-list\"]):first-of-type,\n#app [class*=\"metadetails-content\"] > [class*=\"spacing\"] + :not([class*=\"streams-list\"]):not([class*=\"videos-list\"]) {\n    margin-top: 0.75rem !important;\n    border-radius: var(--dx-radius-l) var(--dx-radius-l) 0 0;\n}\n\n#app [class*=\"metadetails-content\"]:has(> :not([class*=\"meta-preview\"]):not([class*=\"spacing\"]):not([class*=\"streams-list\"]):not([class*=\"videos-list\"])) > [class*=\"streams-list\"],\n#app [class*=\"metadetails-content\"]:has(> :not([class*=\"meta-preview\"]):not([class*=\"spacing\"]):not([class*=\"streams-list\"]):not([class*=\"videos-list\"])) > [class*=\"videos-list\"] {\n    grid-column: 2;\n    grid-row: 4;\n    width: auto !important;\n    flex: none !important;\n    min-height: 0;\n    margin: 0 0 1.5rem 0 !important;\n    border-top-left-radius: 0 !important;\n    border-top-right-radius: 0 !important;\n    animation: none;\n}\n\n/* Chips / inputs that stream plugins add: match dx.bi */\n#app [class*=\"metadetails-content\"] [class*=\"chip\"]:not([class*=\"chips\"]) {\n    border-radius: 999px;\n}\n\n/* AniSkip shows its buttons inside Stremio's \"up next\" popup */\n#app [id^=\"skip-\"][id$=\"-button\"] {\n    border-radius: var(--dx-radius) !important;\n    background: #fff !important;\n}\n\n#app [id^=\"skip-\"][id$=\"-button\"] * {\n    color: #000 !important;\n}\n\n/* =====================================================================\n   19b. CLEAN STREAM LIST (plugin): one Netflix-style row per stream\n   ===================================================================== */\n\n#app [class*=\"streams-list-container\"] [class*=\"streams-container\"] > [data-dxv] {\n    position: relative;\n    margin: 0;\n    padding: 0.9rem 1.1rem !important;\n    display: flex !important;\n    align-items: center;\n    flex: none !important;\n    height: auto !important;\n    min-height: 5.5rem;\n    border-radius: 0;\n    border-bottom: 1px solid var(--dx-line);\n    --dxv-tile: rgba(255, 255, 255, 0.09);\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"streams-container\"] > [data-dxv]:hover,\n#app [class*=\"streams-list-container\"] [class*=\"streams-container\"] > [data-dxv]:focus-visible {\n    background: rgba(255, 255, 255, 0.08);\n    transform: none;\n    --dxv-tile: var(--dx-accent);\n}\n\n/* Not drawn until dx.bi's row is ready, and loading rows match the finished ones */\nhtml[data-dx-rows] [class*=\"streams-container\"] > [class*=\"stream-container\"]:not([data-dxv]) {\n    visibility: hidden;\n}\n\nhtml[data-dx-rows] [class*=\"streams-list-container\"] [class*=\"stream-placeholder-container\"] {\n    min-height: 5.5rem;\n    margin: 0;\n    border-radius: 0;\n    border-bottom: 1px solid var(--dx-line);\n    background: none;\n}\n\nhtml[data-dx-rows] [class*=\"streams-list-container\"] [class*=\"stream-placeholder-container\"] > * {\n    visibility: hidden;\n}\n\n[data-dxv] > :not(.dxv-row):not([class*=\"menu-container\"]) {\n    position: absolute !important;\n    width: 1px !important;\n    height: 1px !important;\n    overflow: hidden !important;\n    opacity: 0 !important;\n    pointer-events: none !important;\n}\n\n.dxv-row {\n    display: flex;\n    align-items: center;\n    gap: 1rem;\n    width: 100%;\n    min-width: 0;\n    pointer-events: none;\n}\n\n.dxv-q {\n    flex: none;\n    display: flex;\n    flex-direction: column;\n    align-items: center;\n    justify-content: center;\n    gap: 0.2rem;\n    width: 6.25rem;\n    height: 3.55rem;\n    border-radius: var(--dx-radius-s);\n    background: var(--dxv-tile);\n    transition: background-color 0.18s;\n}\n\n.dxv-q b {\n    font: 800 1.15rem/1 Inter, system-ui, sans-serif !important;\n    color: #fff;\n}\n\n.dxv-q i {\n    font: 600 0.66rem/1 Inter, system-ui, sans-serif !important;\n    color: rgba(255, 255, 255, 0.82);\n    white-space: nowrap;\n}\n\n.dxv-main {\n    flex: 1 1 0;\n    display: flex;\n    flex-direction: column;\n    gap: 0.22rem;\n    min-width: 0;\n}\n\n.dxv-main strong {\n    font: 700 1rem/1.25 Inter, system-ui, sans-serif !important;\n    color: var(--dx-text);\n}\n\n.dxv-top {\n    display: flex;\n    align-items: baseline;\n    justify-content: space-between;\n    gap: 0.75rem;\n    min-width: 0;\n}\n\n/* Seeds, provider and size are never cut off: they wrap instead */\n.dxv-main small {\n    font: 500 0.82rem/1.3 Inter, system-ui, sans-serif !important;\n    color: var(--dx-text-2);\n    overflow-wrap: anywhere;\n}\n\n.dxv-main u {\n    font: 400 0.72rem/1.3 Inter, system-ui, sans-serif !important;\n    color: var(--dx-text-3);\n    text-decoration: none;\n    overflow: hidden;\n    text-overflow: ellipsis;\n    white-space: nowrap;\n}\n\n.dxv-best {\n    display: none;\n    font: 800 0.68rem/1 Inter, system-ui, sans-serif !important;\n    letter-spacing: 0.04em;\n    text-transform: uppercase;\n    color: var(--dx-accent);\n}\n\n[data-dx-best] .dxv-best {\n    display: block;\n}\n\n.dxv-state {\n    flex: none;\n    font: 600 0.74rem/1 Inter, system-ui, sans-serif !important;\n    color: var(--dx-text-3);\n    white-space: nowrap;\n}\n\n.dxv-state.is-ready {\n    color: #46d369;\n}\n\n.dxq-play {\n    display: inline-flex;\n    align-items: center;\n    gap: 0.5rem;\n    height: 3rem;\n    margin: 0 0.75rem 1rem 0;\n    padding: 0 1.75rem 0 1.25rem;\n    border: 0;\n    border-radius: var(--dx-radius);\n    background: #fff;\n    color: #000;\n    cursor: pointer;\n    transition: background-color 0.15s;\n}\n\n.dxq-play:hover,\n.dxq-play:focus-visible {\n    background: rgba(255, 255, 255, 0.78);\n}\n\n.dxq-play svg {\n    width: 1.4rem;\n    height: 1.4rem;\n}\n\n.dxq-play span {\n    font: 700 1rem/1 Inter, system-ui, sans-serif !important;\n}\n\n.dxq-status {\n    flex: none;\n    display: flex;\n    align-items: center;\n    justify-content: space-between;\n    gap: 1rem;\n    padding: 0.8rem 1.1rem;\n    border-bottom: 1px solid var(--dx-line);\n    font: 600 0.9rem/1.2 Inter, system-ui, sans-serif;\n    color: var(--dx-text);\n}\n\n.dxq-status button,\n.dxq-pill button {\n    border: 0;\n    background: none;\n    color: var(--dx-text-2);\n    font: 700 0.85rem/1 Inter, system-ui, sans-serif;\n    cursor: pointer;\n}\n\n.dxq-pill {\n    position: absolute;\n    left: 2rem;\n    top: 5rem;\n    z-index: 30;\n    display: flex;\n    align-items: center;\n    gap: 1rem;\n    padding: 0.7rem 1rem;\n    border-radius: var(--dx-radius);\n    background: rgba(0, 0, 0, 0.72);\n    color: #fff;\n    font: 600 0.9rem/1 Inter, system-ui, sans-serif;\n}\n\n.dxq-pill button {\n    color: #fff;\n    text-decoration: underline;\n}\n\n/* =====================================================================\n   20. STREAM SORT & FILTER BAR (plugin)\n   ===================================================================== */\n\n/* Sorting uses CSS order, so the list must be a flex column */\n#app [class*=\"streams-container\"].dx-sortable {\n    display: flex !important;\n    flex-direction: column;\n}\n\n/* Stremio's Install addons button stays after every stream, however they're sorted */\n#app [class*=\"streams-container\"].dx-sortable > :not([class*=\"stream-container\"]) {\n    order: 99999;\n}\n\n#app [class*=\"streams-container\"].dx-sortable > [data-dx-hide] {\n    display: none !important;\n}\n\n.dx-streambar {\n    flex: none;\n    padding: 0.85rem 0.85rem 0.75rem;\n    border-bottom: 1px solid var(--dx-line);\n    overflow: visible !important;\n}\n\n.dx-streambar[hidden] {\n    display: none;\n}\n\n.dx-sb-row {\n    display: flex;\n    flex-wrap: wrap;\n    align-items: center;\n    gap: 0.4rem;\n    overflow: visible !important;\n}\n\n.dx-sb-btn {\n    display: inline-flex;\n    align-items: center;\n    gap: 0.35rem;\n    height: 2rem;\n    padding: 0.12em 0.7rem 0 0.8rem;\n    border-radius: 999px;\n    background: rgba(255, 255, 255, 0.07);\n    border: 1px solid var(--dx-line);\n    color: var(--dx-text-2);\n    font-size: 0.82rem;\n    font-weight: 600;\n    line-height: 1;\n    white-space: nowrap;\n    cursor: pointer;\n    transition: background-color 0.15s, color 0.15s, border-color 0.15s;\n}\n\n.dx-sb-btn:hover,\n.dx-sb-btn:focus-visible {\n    background: rgba(255, 255, 255, 0.12);\n    color: #fff;\n}\n\n.dx-sb-btn svg {\n    width: 0.85rem;\n    height: 0.85rem;\n    flex: none;\n    margin-top: -0.12em;\n    transition: transform 0.2s var(--dx-ease-out);\n}\n\n.dx-sb-btn.is-open svg:last-child {\n    transform: rotate(180deg);\n}\n\n.dx-sb-btn.is-on {\n    background: #fff;\n    border-color: #fff;\n    color: #000;\n}\n\n.dx-sb-sort {\n    padding-left: 0.7rem;\n    color: #fff;\n}\n\n.dx-sb-sort svg:first-child {\n    width: 0.95rem;\n    height: 0.95rem;\n}\n\n.dx-sb-toggle {\n    padding-right: 0.8rem;\n}\n\n.dx-sb-div {\n    width: 1px;\n    height: 1.2rem;\n    margin: 0 0.15rem;\n    background: var(--dx-line-strong);\n}\n\n.dx-sb-count {\n    margin-left: auto;\n    padding-left: 0.5rem;\n    font-size: 0.78rem;\n    font-weight: 600;\n    font-variant-numeric: tabular-nums;\n    color: var(--dx-text-3);\n    white-space: nowrap;\n}\n\n.dx-sb-reset {\n    padding: 0.2rem 0.1rem;\n    background: none;\n    border: 0;\n    color: var(--dx-text-2);\n    font-size: 0.78rem;\n    font-weight: 700;\n    cursor: pointer;\n    text-decoration: underline;\n    text-underline-offset: 3px;\n}\n\n.dx-sb-reset:hover,\n.dx-sb-reset:focus-visible {\n    color: #fff;\n}\n\n/* The open menu unfolds in place (no clipping inside the panel) */\n.dx-sb-menu {\n    display: flex;\n    flex-wrap: wrap;\n    gap: 0.35rem;\n    margin-top: 0.65rem;\n    padding: 0.6rem;\n    border-radius: var(--dx-radius);\n    background: rgba(255, 255, 255, 0.04);\n    border: 1px solid var(--dx-line);\n    animation: dx-fade 0.18s ease both;\n}\n\n.dx-sb-opt {\n    display: inline-flex;\n    align-items: center;\n    gap: 0.4rem;\n    height: 2rem;\n    padding: 0.12em 0.75rem 0 0.55rem;\n    border-radius: var(--dx-radius-s);\n    background: transparent;\n    border: 1px solid transparent;\n    color: var(--dx-text-2);\n    font-size: 0.84rem;\n    font-weight: 500;\n    line-height: 1;\n    cursor: pointer;\n    transition: background-color 0.15s, color 0.15s;\n}\n\n.dx-sb-opt:hover,\n.dx-sb-opt:focus-visible {\n    background: rgba(255, 255, 255, 0.08);\n    color: #fff;\n}\n\n.dx-sb-opt.is-on {\n    background: rgba(255, 255, 255, 0.12);\n    border-color: rgba(255, 255, 255, 0.25);\n    color: #fff;\n    font-weight: 700;\n}\n\n.dx-sb-check {\n    display: inline-flex;\n    width: 0.95rem;\n    height: 0.95rem;\n    flex: none;\n    border-radius: 3px;\n    box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.35);\n    margin-top: -0.12em;\n}\n\n.dx-sb-opt.is-on .dx-sb-check {\n    background: var(--dx-accent);\n    box-shadow: none;\n    color: #fff;\n}\n\n.dx-sb-check svg {\n    width: 100%;\n    height: 100%;\n    padding: 1px;\n}\n\n.dx-sb-n {\n    font-size: 0.72rem;\n    font-weight: 700;\n    font-variant-numeric: tabular-nums;\n    color: var(--dx-text-3);\n}\n\n.dx-stream-empty {\n    display: flex;\n    flex-direction: column;\n    align-items: center;\n    gap: 0.75rem;\n    padding: 2.5rem 1rem;\n    color: var(--dx-text-2);\n    font-size: 0.95rem;\n    text-align: center;\n}\n\n.dx-stream-empty button {\n    height: 2.2rem;\n    padding: 0 1rem;\n    border-radius: var(--dx-radius);\n    background: #fff;\n    color: #000;\n    font-weight: 700;\n    cursor: pointer;\n}\n\n/* =====================================================================\n   21. SEEK BAR PREVIEW + NEXT EPISODE (plugin)\n   ===================================================================== */\n\n.dx-scrub {\n    position: absolute;\n    inset: 0;\n    z-index: 2;\n    pointer-events: none;\n    overflow: visible !important;\n}\n\n/* lighter fill from the playhead to the cursor */\n.dx-scrub-fill {\n    position: absolute;\n    top: 50%;\n    height: var(--track-size, 4px);\n    transform: translateY(-50%);\n    border-radius: 999px;\n    background: rgba(255, 255, 255, 0.35);\n    opacity: 0;\n    transition: opacity 0.15s;\n}\n\n.dx-scrub.is-on .dx-scrub-fill {\n    opacity: 1;\n}\n\n.dx-scrub-tip {\n    position: absolute;\n    bottom: calc(100% + 1.1rem);\n    display: flex;\n    flex-direction: column;\n    align-items: center;\n    gap: 0.45rem;\n    transform: translateX(-50%) translateY(6px);\n    opacity: 0;\n    transition: opacity 0.15s ease, transform 0.15s ease;\n}\n\n.dx-scrub.is-on .dx-scrub-tip {\n    opacity: 1;\n    transform: translateX(-50%);\n}\n\n.dx-scrub-frame {\n    display: none;\n    width: 16rem;\n    border: 2px solid rgba(255, 255, 255, 0.9);\n    border-radius: 6px;\n    background: #000;\n    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);\n    overflow: hidden !important;\n}\n\n.dx-scrub.has-frame .dx-scrub-frame,\n.dx-scrub.is-loading .dx-scrub-frame {\n    display: block;\n}\n\n/* loading: a 16:9 dark box with a soft moving sheen until the frame arrives */\n.dx-scrub.is-loading:not(.has-frame) .dx-scrub-frame {\n    position: relative;\n    aspect-ratio: 16 / 9;\n    background: #141414;\n}\n\n.dx-scrub.is-loading:not(.has-frame) .dx-scrub-frame canvas {\n    visibility: hidden;\n}\n\n.dx-scrub.is-loading:not(.has-frame) .dx-scrub-frame::after {\n    content: \"\";\n    position: absolute;\n    inset: 0;\n    background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.08) 50%, transparent 70%);\n    animation: dx-scrub-sheen 1.1s linear infinite;\n}\n\n@keyframes dx-scrub-sheen {\n    from { transform: translateX(-100%); }\n    to { transform: translateX(100%); }\n}\n\n.dx-scrub-frame canvas {\n    display: block;\n    width: 100%;\n    height: auto;\n}\n\n.dx-scrub-time {\n    padding: 0.3rem 0.6rem;\n    border-radius: 4px;\n    background: rgba(0, 0, 0, 0.75);\n    font-size: 0.95rem;\n    font-weight: 700;\n    font-variant-numeric: tabular-nums;\n    color: #fff;\n    white-space: nowrap;\n}\n\n/* Next Episode sits at the start of the right-hand group, like Netflix */\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > [class*=\"spacing\"] {\n    order: 3;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > .dx-next,\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > .dx-pip,\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > .dx-external {\n    order: 4;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > [class*=\"control-bar-buttons-menu-container\"],\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > [class*=\"control-bar-buttons-menu-button\"] {\n    order: 5;\n}\n\n/* Let the preview card rise above the bar (Stremio clips overflow on these) */\n#app [class*=\"player-container\"] [class*=\"control-bar-layer\"],\n#app [class*=\"player-container\"] [class*=\"control-bar-container\"],\n#app [class*=\"player-container\"] [class*=\"seek-bar-container\"],\n#app [class*=\"player-container\"] [class*=\"seek-bar-container\"] [class*=\"slider-wrapper\"],\n#app [class*=\"player-container\"] [class*=\"seek-bar-container\"] [class*=\"slider-container\"] {\n    overflow: visible !important;\n}\n\n/* dx.bi's card already shows the time — hide Stremio's small tooltip while it's there */\nbody[data-dx-route=\"player\"] > [class*=\"seek-tooltip\"] {\n    display: none !important;\n}\n\n/* =====================================================================\n   22. PICTURE ENHANCEMENT (plugin): upscaled canvas over the video\n   ===================================================================== */\n\n.dx-enhance {\n    position: absolute;\n    z-index: 0;\n    pointer-events: none;\n    image-rendering: auto;\n}\n\n/* The video's own subtitle lines would sit under the canvas — dx.bi redraws them on top */\n#app [class*=\"player-container\"] video[data-dx-enhanced]::cue {\n    visibility: hidden !important;\n}\n\n.dx-enhance-subs {\n    position: absolute;\n    z-index: 2;\n    display: flex;\n    flex-direction: column;\n    align-items: center;\n    gap: 0.15em;\n    pointer-events: none;\n    text-align: center;\n}\n\n.dx-enhance-cue {\n    display: inline-block;\n    max-width: 90%;\n    padding: 0.05em 0.35em;\n    line-height: 1.3;\n    white-space: pre-line;\n}\n\n.dx-enh-btn.is-on svg {\n    color: var(--dx-accent) !important;\n    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--dx-accent) 60%, transparent));\n}\n\n.dx-player-toast {\n    position: absolute;\n    z-index: 6;\n    top: 6rem;\n    left: 50%;\n    padding: 0.6rem 1.1rem;\n    border-radius: 999px;\n    background: rgba(20, 20, 20, 0.85);\n    color: #fff;\n    font-size: 0.95rem;\n    font-weight: 600;\n    pointer-events: none;\n    opacity: 0;\n    transform: translate(-50%, -6px);\n    transition: opacity 0.2s ease, transform 0.2s ease;\n}\n\n.dx-player-toast.is-on {\n    opacity: 1;\n    transform: translate(-50%, 0);\n}\n\n/* =====================================================================\n   WINDOWS AND TV: no blurred glass behind scrolling panels\n   ===================================================================== */\n\n/* Chromium on Windows can leave stale copies of a scrolled panel on screen when it has a blurred\n   (backdrop-filter) background: the streams list then looks like rows drawn over each other.\n   Solid backgrounds instead (dx.bi's plugin adds .dx-win on Windows). TVs (.dx-tv, dx.bi TV) get the\n   same, since their graphics are far weaker than a computer's. */\n.dx-win #app *,\n.dx-win body > *,\n.dx-tv #app *,\n/* No big soft shadows on a TV: each is a blur painted again whenever what it surrounds changes, the\n   selected poster's at every press of the remote. A fine line instead (from Nathflix, by Lavagnou) */\nhtml.dx-tv {\n    --dx-shadow-1: 0 0 0 1px rgba(255, 255, 255, 0.06);\n    --dx-shadow-2: 0 0 0 1px rgba(255, 255, 255, 0.08);\n}\n\n.dx-tv body #app [class*=\"main-nav-bars-container\"] > nav[class*=\"horizontal-nav-bar\"][data-dx-scrolled] {\n    box-shadow: 0 1px 0 var(--dx-line);\n}\n\n.dx-tv .dx-btn:focus-visible,\n.dx-tv #app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-layer\"] {\n    box-shadow: none;\n}\n\n.dx-tv .dx-hero-title,\n.dx-tv .dx-hero-desc {\n    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);\n}\n\n.dx-tv body > * {\n    backdrop-filter: none !important;\n}\n\n.dx-win #app [class*=\"metadetails-content\"] [class*=\"streams-list-container\"],\n.dx-tv #app [class*=\"metadetails-content\"] [class*=\"streams-list-container\"] {\n    background: rgb(19, 19, 23) !important;\n}\n\n.dx-win #app [class*=\"menu-container\"]:not([class*=\"buttons-menu-container\"]),\n.dx-win .context-menu-portal [class*=\"menu-container\"],\n.dx-tv #app [class*=\"menu-container\"]:not([class*=\"buttons-menu-container\"]) {\n    background: rgb(22, 22, 27) !important;\n}\n\n/* THE DX.BI APP: the top bar's fullscreen button repeats the window's own buttons (F11 still\n   toggles full screen, and the player keeps its fullscreen button) */\n.dx-app #app [class*=\"horizontal-nav-bar\"] [title*=\"ullscreen\"] {\n    display: none !important;\n}\n\n/* TV: what the remote is on must be plain to see from the sofa. A white ring on everything but\n   titles (they lift and open their card). See All always shows: it's at the end of each row. */\n.dx-tv #app :is(a, button, input, [tabindex]):not([class*=\"meta-item-link\"]):focus-visible {\n    outline: 3px solid var(--dx-focus, #fff) !important;\n    outline-offset: 3px;\n    /* the ring follows each control's own shape (pills stay pills) and shows at once: the controls'\n       own transitions faded it in, and a forced corner radius squared off the pills */\n    transition: none !important;\n    /* above its neighbours, so none of them paints over the ring (z-index needs no position here:\n       the controls are flex items) */\n    z-index: 2;\n}\n\n/* controls drawn square get softened corners, so their ring isn't boxy */\n.dx-tv #app :is([class*=\"nav-tab-button\"], [class*=\"horizontal-nav-bar\"] [class*=\"button-container\"], [class*=\"horizontal-nav-bar\"] [class*=\"submit-button-container\"], [class*=\"label-container\"]):focus-visible {\n    border-radius: var(--dx-radius-s);\n}\n\n/* the sort chips sit in a scroll box, which cut their ring off: room for it inside the box */\n.dx-tv #app [class*=\"selectable-inputs-container\"] [class*=\"horizontal-scroll\"] {\n    padding: 7px !important;\n    margin: -7px !important;\n}\n\n/* the billboard clips its text and buttons to its box: the ring may reach a little past it */\n.dx-tv .dx-hero-content,\n.dx-tv .dx-hero-actions {\n    overflow: clip !important;\n    overflow-clip-margin: 8px;\n}\n\n.dx-tv #app .dxl-tools {\n    padding-top: 7px !important;\n    margin-top: -7px !important;\n}\n\n.dx-tv #app [class*=\"meta-row\"] [class*=\"see-all-container\"] {\n    --dx-row-hot: 1;\n}\n\n/* TV titles: the selection moves at once, with a ring in the highlight colour. Lifts and zooms\n   that faded in and out left the last title looking selected for a moment on slower sticks. */\n.dx-tv #app [class*=\"meta-item-container\"],\n.dx-tv #app [class*=\"meta-item-container\"] [class*=\"poster-container\"],\n.dx-tv #app [class*=\"meta-item-container\"] [class*=\"poster-container\"]::after,\n.dx-tv #app [class*=\"meta-item-container\"] [class*=\"poster-image-layer\"] {\n    transition: none !important;\n}\n\n.dx-tv #app [class*=\"meta-item-container\"] [class*=\"poster-image-layer\"] {\n    transform: none !important;\n}\n\n.dx-tv #app [class*=\"meta-item-container\"]:focus-within [class*=\"poster-container\"]::after,\n.dx-tv body #app [class*=\"discover-content\"] [class*=\"meta-item-container\"].selected:focus-within:not(.hovered):not(.active) [class*=\"poster-container\"]::after {\n    box-shadow: inset 0 0 0 3px var(--dx-focus, #fff);\n}\n\n/* TV: a stick's graphics chip redraws whatever moves or is blurred, every frame, and the remote\n   waits behind it. The billboard's slow zoom, the rows' faded edges (each row drawn twice) and the\n   blurred Continue Watching backdrops are left out. */\n.dx-tv .dx-hero-backdrop {\n    animation: none !important;\n}\n\n/* TV: only the billboard picture on show (and one fading out) is kept on the graphics chip: each of\n   the others was a full-screen layer held in memory. The top bar turns solid at once, as its fade\n   was redrawn in full on every frame of the jump down into the rows. */\n.dx-tv .dx-hero-backdrop {\n    will-change: auto;\n}\n\n.dx-tv #app nav[class*=\"horizontal-nav-bar\"] {\n    transition: none !important;\n}\n\n/* TV: Home rows well out of view aren't drawn at all until you get near them. Every frame that\n   changed anything reworked all twenty-odd rows, which held the jump from row to row back. */\n.dx-tv #app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) > [class*=\"board-row\"] {\n    content-visibility: auto;\n    contain-intrinsic-size: auto 380px;\n}\n\n.dx-tv #app [class*=\"meta-row\"] > [class*=\"meta-items-container\"] {\n    -webkit-mask-image: none !important;\n    mask-image: none !important;\n}\n\n/* TV: a title's lift (a 3D move) and the rows' rise kept every poster and row on a layer of its\n   own, well over 200 on Home, all reworked with each press: flat cards and rows instead (the\n   selected title keeps its ring) */\n.dx-tv #app .animation-fade-in {\n    animation: none !important;\n}\n\n.dx-tv #app [class*=\"meta-item-container\"] [class*=\"poster-container\"] {\n    transform: none !important;\n    scale: none !important;\n}\n\n/* TV: badges appear as they are, rather than fading in together (a row's worth at a time) */\n.dx-tv .dx-badge {\n    animation: none;\n}\n\n.dx-tv .dx-wide-blur {\n    filter: brightness(0.45);\n}\n\n/* TV: the page jumps instead of gliding, so the selection never waits off screen for a slow scroll\n   (rows still glide sideways: the plugin asks for that itself) */\n.dx-tv #app * {\n    scroll-behavior: auto !important;\n}\n\n/* TV: the hover card's glow and soft shadow are big blurred layers redrawn as it opens */\n.dx-tv .dx-preview-aura,\n.dx-tv .dx-preview::before {\n    display: none;\n}\n\n/* TV: the card fades and grows in place rather than unfolding from the poster's outline (a moving\n   clip the stick redrew in full on every frame), and its artwork holds still */\n.dx-tv .dx-preview {\n    scale: 0.94;\n    transition: scale 0.18s ease, opacity 0.18s ease, visibility 0s linear 0.18s;\n}\n\n.dx-tv .dx-preview.is-open {\n    scale: 1;\n    transition: scale 0.18s ease, opacity 0.18s ease, visibility 0s;\n}\n\n.dx-tv .dx-preview-inner {\n    clip-path: none !important;\n    transition: none;\n    will-change: auto;\n}\n\n.dx-tv .dx-preview-ghost {\n    display: none;\n}\n\n.dx-tv .dx-preview.is-open .dx-preview-media::before {\n    animation: none;\n}\n\n/* Kids profiles and hidden titles (plugin): titles that mustn't show, and rows left with none, are\n   out; titles still being checked keep their place but stay unseen. A kids profile has no Addons or\n   Settings tabs (the parental PIN opens them). */\n#app [data-dx-off] {\n    display: none !important;\n}\n\n#app [data-dx-pending] {\n    visibility: hidden !important;\n}\n\nbody[data-dx-kids] #app [class*=\"horizontal-nav-bar\"] a[href=\"#/addons\"],\nbody[data-dx-kids] #app [class*=\"horizontal-nav-bar\"] a[href=\"#/settings\"],\nbody[data-dx-kids] #app [class*=\"vertical-nav-bar\"] a[href=\"#/addons\"],\nbody[data-dx-kids] #app [class*=\"vertical-nav-bar\"] a[href=\"#/settings\"] {\n    display: none !important;\n}\n\n/* Phones held upright: laid out at the phone's own width, with the tabs in a bar under the thumb */\n.dx-upright #app [class*=\"main-nav-bars-container\"] > nav[class*=\"vertical-nav-bar\"],\n.dx-upright #app nav[class*=\"vertical-nav-bar\"] {\n    position: fixed !important;\n    inset: auto 0 0 0 !important;\n    z-index: 50 !important;\n    display: flex !important;\n    flex-direction: row !important;\n    justify-content: space-around !important;\n    align-items: stretch !important;\n    width: 100% !important;\n    max-width: none !important;\n    height: 3.75rem !important;\n    padding: 0 !important;\n    transform: none !important;\n    background: rgb(16, 16, 20) !important;\n    border-top: 1px solid rgba(255, 255, 255, 0.08) !important;\n}\n\n.dx-upright #app nav[class*=\"vertical-nav-bar\"] > * {\n    flex: 1 1 0 !important;\n    width: auto !important;\n    height: 100% !important;\n    margin: 0 !important;\n    min-width: 0 !important;\n}\n\n.dx-upright #app nav[class*=\"horizontal-nav-bar\"] {\n    padding: 0 0.75rem !important;\n}\n\n/* The billboard: a tall picture, with everything centred over the bottom of it */\n.dx-upright .dx-hero {\n    height: min(128vw, 68vh);\n    min-height: 0;\n    margin-bottom: 0.5rem;\n}\n\n.dx-upright .dx-hero-content {\n    position: absolute;\n    inset: auto 0 1.75rem 0 !important;\n    top: auto !important;\n    width: 100% !important;\n    max-width: none !important;\n    padding: 0 1.25rem !important;\n    align-items: center !important;\n    text-align: center;\n}\n\n.dx-upright .dx-hero-kicker,\n.dx-upright .dx-hero-desc {\n    display: none !important;\n}\n\n.dx-upright .dx-hero-content > .dx-hero-logo {\n    max-width: 70% !important;\n    max-height: 7rem !important;\n    margin: 0 auto 0.6rem !important;\n    object-position: center bottom !important;\n}\n\n.dx-upright .dx-hero-meta {\n    justify-content: center !important;\n    flex-wrap: wrap;\n}\n\n.dx-upright .dx-hero-actions {\n    width: 100% !important;\n    justify-content: center !important;\n    flex-wrap: nowrap !important;\n    gap: 0.6rem !important;\n    overflow: visible !important;\n}\n\n.dx-upright .dx-hero-actions > * {\n    flex: 1 1 0 !important;\n    min-width: 0 !important;\n    justify-content: center !important;\n    padding-left: 0.5rem !important;\n    padding-right: 0.5rem !important;\n    white-space: nowrap;\n}\n\n.dx-upright .dx-hero-dots {\n    left: 0 !important;\n    right: 0 !important;\n    bottom: 0.6rem !important;\n    justify-content: center !important;\n}\n\n.dx-upright #app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) {\n    scrollbar-width: none;\n}\n\n.dx-upright #app [class*=\"board-content-\"]:not([class*=\"board-content-container\"])::-webkit-scrollbar {\n    display: none;\n}\n\n/* Three titles across, as Android streaming apps have them */\n.dx-upright #app [class*=\"discover-content\"] [class*=\"meta-items-container\"],\n.dx-upright #app [class*=\"library-content\"] [class*=\"meta-items-container\"] {\n    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;\n    gap: 0.75rem 0.6rem !important;\n    padding: 0 0.75rem 1.5rem !important;\n}\n\n.dx-upright #app [class*=\"metadetails-container\"] [class*=\"runtime-release-info-container\"] {\n    flex-wrap: wrap !important;\n    justify-content: flex-start !important;\n    gap: 0.5rem 1rem !important;\n}\n\n/* Text sits on the picture: keep it readable over bright ones */\n.dx-upright #app [class*=\"metadetails-container\"] [class*=\"meta-preview-container\"]::before {\n    content: \"\";\n    position: fixed;\n    inset: 0;\n    z-index: 0;\n    background: rgba(0, 0, 0, 0.45);\n    pointer-events: none;\n}\n\n.dx-upright #app [class*=\"metadetails-container\"] [class*=\"meta-preview-container\"] > * {\n    position: relative;\n    z-index: 1;\n}\n\n/* A phone is touched, not steered: no remote rings */\n.dx-phone #app :is(a, button, input, [tabindex]):not([class*=\"meta-item-link\"]):focus-visible {\n    outline: none !important;\n}\n\n.dx-phone #app [class*=\"meta-item-container\"]:focus-within [class*=\"poster-container\"]::after {\n    box-shadow: none !important;\n}\n\n/* Phones on their side: the profile menu scrolls when it's taller than the screen */\n.dx-phone #app [class*=\"nav-menu-container\"] {\n    max-height: calc(100vh - 4.5rem) !important;\n    overflow-y: auto !important;\n}\n\n/* Addons page on a phone on its side: the search box gives way to the Order & backup button */\n.dx-phone .dxe-addon-btn {\n    flex: none;\n    white-space: nowrap;\n}\n\n/* =====================================================================\n   Phones held upright: the layout is one column, so what it needs is less\n   desktop spacing, a top bar that stays readable and the list closer to hand\n   ===================================================================== */\n@media only screen and (max-width: 640px) and (orientation: portrait) {\n    /* Stremio leaves room for its taller bottom bar: a band of nothing above this one */\n    :root {\n        --vertical-nav-bar-size: 3.7rem !important;\n    }\n\n    /* \"See All\" sits at the screen's edge and is always there: phones have no hover */\n    html body #app [class*=\"board-row\"] > [class*=\"header-container\"],\n    html body #app [class*=\"meta-row\"] > [class*=\"header-container\"],\n    html body #app [class*=\"meta-row\"]:has(> .dx-row-pages) > [class*=\"header-container\"] {\n        padding-right: 0.8rem !important;\n    }\n    #app .dx-row-pages {\n        display: none !important;\n    }\n    #app [class*=\"board-row\"] [class*=\"see-all-container\"],\n    #app [class*=\"meta-row\"] [class*=\"see-all-container\"] {\n        margin-left: auto !important;\n        opacity: 1 !important;\n        transform: none !important;\n    }\n\n    /* Movie and series pages: the bar stays readable over what scrolls under it */\n    #app [class*=\"metadetails-container\"] > nav[class*=\"nav-bar\"] {\n        background: linear-gradient(to bottom, rgba(10, 10, 12, 0.95) 55%, rgba(10, 10, 12, 0)) !important;\n        z-index: 3;\n    }\n    #app [class*=\"metadetails-content\"] {\n        padding-left: 0 !important;\n    }\n    #app [class*=\"metadetails-content\"] > [class*=\"meta-preview-container\"] {\n        width: 100% !important;\n        padding-top: 0 !important;\n        padding-bottom: 0.75rem !important;\n    }\n    #app [class*=\"metadetails-content\"] [class*=\"meta-info-container\"] {\n        padding: 0 1rem !important;\n    }\n    #app [class*=\"metadetails-content\"] [class*=\"meta-info-container\"] [class*=\"logo\"] {\n        max-height: 5.5rem !important;\n        margin: 0 auto 0.75rem 0 !important;\n        object-position: left center;\n    }\n    /* Genres and cast: one line each that slides, so the page isn't mostly labels */\n    #app [class*=\"metadetails-content\"] [class*=\"meta-links\"] {\n        margin-top: 0.75rem !important;\n    }\n    #app [class*=\"metadetails-content\"] [class*=\"meta-links\"] [class*=\"links-container\"] {\n        flex-wrap: nowrap !important;\n        max-height: none !important;\n        overflow-x: auto;\n        scrollbar-width: none;\n    }\n    #app [class*=\"metadetails-content\"] [class*=\"meta-links\"] [class*=\"links-container\"]::-webkit-scrollbar {\n        display: none;\n    }\n    #app [class*=\"metadetails-content\"] [class*=\"meta-links\"] [class*=\"link-container\"] {\n        flex: none !important;\n    }\n    #app [class*=\"metadetails-content\"] [class*=\"description-container\"] {\n        margin-top: 0.75rem !important;\n    }\n    #app [class*=\"metadetails-content\"] > [class*=\"meta-preview-container\"] > [class*=\"action-buttons-container\"] {\n        gap: 0.6rem !important;\n        margin-top: 0.9rem !important;\n        padding: 0 1rem !important;\n    }\n    #app [class*=\"metadetails-content\"] [class*=\"action-buttons-container\"] > * {\n        margin: 0 !important;\n    }\n    #app [class*=\"metadetails-content\"] [class*=\"videos-list\"],\n    #app [class*=\"metadetails-content\"] [class*=\"streams-list\"] {\n        width: auto !important;\n        margin: 0 0.5rem 1rem !important;\n    }\n\n    /* Search: the box gives way so the profile stays on screen */\n    #app nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar\"] {\n        flex: 1 1 auto !important;\n        width: auto !important;\n        min-width: 0 !important;\n        max-width: none !important;\n        margin: 0 !important;\n    }\n    #app nav[class*=\"horizontal-nav-bar\"] [class*=\"buttons-container\"] {\n        flex: none !important;\n    }\n\n    /* Discover: Filters clear of the edge */\n    #app [class*=\"discover-content\"] {\n        padding-right: 0.5rem !important;\n    }\n}\n";
+    return /*@bundled-theme*/"/* dx.bi — Copyright (C) 2026 dx.bi. Free software under the GNU General Public License, version 3\n   or later (see LICENSE and NOTICE.md at github.com/notdxbi/dxbi-stremio). Versions up to 2.15.9: MIT. */\n\n@import url(\"https://fonts.googleapis.com/css2?family=Inter:wght@300..800&family=Bebas+Neue&display=swap\");\n\n/* Country flags drawn the same on every OS: Windows has no flag emoji and shows letters (\"GB\")\n   instead. A flag-only font (Twemoji Country Flags, 78 KB), downloaded only when a flag is on screen. */\n@font-face {\n    font-family: \"Twemoji Country Flags\";\n    unicode-range: U+1F1E6-1F1FF, U+1F3F4, U+E0062-E0063, U+E0065, U+E0067, U+E006C, U+E006E, U+E0073-E0074, U+E0077, U+E007F;\n    src: url(\"https://cdn.jsdelivr.net/npm/country-flag-emoji-polyfill@0.1.8/dist/TwemojiCountryFlags.woff2\") format(\"woff2\");\n    font-display: swap;\n}\n\n/* =====================================================================\n   1. TOKENS\n   ===================================================================== */\n\n:root {\n    /* Accent is overridable by the plugin (Settings → Lumen) */\n    --dx-accent: #2ee6d6;\n    /* Lumen: cyan → blue → amber, from the icon (the plugin sets one colour for the other accents) */\n    --dx-accent-gradient: linear-gradient(90deg, #2ee6d6 0%, #2f8bff 55%, #ffb547 100%);\n    --dx-on-accent: #06141a;\n    --dx-accent-hover: color-mix(in srgb, var(--dx-accent) 85%, white);\n    --dx-accent-soft: color-mix(in srgb, var(--dx-accent) 18%, transparent);\n\n    --dx-bg: #0b0b0d;\n    --dx-bg-raised: #131317;\n    --dx-surface: #18181d;\n    --dx-surface-2: #212128;\n    --dx-surface-3: #2b2b33;\n    --dx-line: rgba(255, 255, 255, 0.08);\n    --dx-line-strong: rgba(255, 255, 255, 0.16);\n\n    --dx-text: #f4f4f5;\n    --dx-text-2: #c4c4cc;\n    --dx-text-3: #8a8a96;\n\n    --dx-radius-s: 4px;\n    --dx-radius: 8px;\n    --dx-radius-l: 14px;\n\n    --dx-gutter: clamp(1.25rem, 4vw, 4.5rem);\n    --dx-nav-h: 4.25rem;\n    --dx-cols: 7;\n\n    --dx-ease: cubic-bezier(0.22, 0.61, 0.36, 1);\n    --dx-ease-out: cubic-bezier(0.16, 1, 0.3, 1);\n    --dx-shadow-1: 0 2px 10px rgba(0, 0, 0, 0.35);\n    --dx-shadow-2: 0 18px 50px rgba(0, 0, 0, 0.6);\n\n    /* Stremio's own variables — recolours every stock component at once */\n    --primary-background-color: var(--dx-bg);\n    --secondary-background-color: var(--dx-bg);\n    --primary-foreground-color: var(--dx-text);\n    --secondary-foreground-color: var(--dx-bg);\n    --primary-accent-color: var(--dx-accent);\n    --secondary-accent-color: var(--dx-accent);\n    --tertiary-accent-color: #f5c518;\n    --overlay-color: rgba(255, 255, 255, 0.07);\n    --modal-background-color: var(--dx-surface);\n    --outer-glow: 0 0 0 transparent;\n    --border-radius: var(--dx-radius);\n    --horizontal-nav-bar-size: var(--dx-nav-h);\n    --color-placeholder: rgba(255, 255, 255, 0.05);\n    --color-placeholder-background: rgba(255, 255, 255, 0.04);\n}\n\n@media (max-width: 2200px) { :root { --dx-cols: 7; --dx-wide-cols: 4.6; } }\n@media (max-width: 1800px) { :root { --dx-cols: 6; --dx-wide-cols: 4.2; } }\n@media (max-width: 1400px) { :root { --dx-cols: 5; --dx-wide-cols: 3.6; } }\n@media (max-width: 1050px) { :root { --dx-cols: 4; --dx-wide-cols: 2.6; } }\n@media (min-width: 2201px) { :root { --dx-cols: 8; --dx-wide-cols: 5.4; } }\n\n/* =====================================================================\n   2. BASE\n   ===================================================================== */\n\nhtml,\nhtml body {\n    background: var(--dx-bg) !important;\n    font-family: \"Twemoji Country Flags\", \"Inter\", \"PlusJakartaSans\", system-ui, sans-serif !important;\n    -webkit-font-smoothing: antialiased;\n    text-rendering: optimizeLegibility;\n}\n\n#app,\n#app * {\n    font-family: \"Twemoji Country Flags\", \"Inter\", \"PlusJakartaSans\", system-ui, sans-serif;\n}\n\n::selection {\n    background: var(--dx-accent);\n    color: var(--dx-on-accent);\n}\n\n* {\n    scrollbar-width: thin;\n    scrollbar-color: rgba(255, 255, 255, 0.14) transparent;\n}\n\n::-webkit-scrollbar {\n    width: 8px;\n    height: 8px;\n}\n\n::-webkit-scrollbar-thumb {\n    background: rgba(255, 255, 255, 0.14);\n    border-radius: 8px;\n}\n\n::-webkit-scrollbar-track {\n    background: transparent;\n}\n\n/* Smooth page entry */\n#app .animation-fade-in {\n    animation: dx-rise 0.5s var(--dx-ease-out) both !important;\n}\n\n@keyframes dx-rise {\n    from { opacity: 0; transform: translateY(10px); }\n    to { opacity: 1; transform: none; }\n}\n\n@keyframes dx-fade {\n    from { opacity: 0; }\n    to { opacity: 1; }\n}\n\n/* =====================================================================\n   3. TOP NAVIGATION (main pages)\n   ===================================================================== */\n\n#app [class*=\"main-nav-bars-container\"] > nav[class*=\"horizontal-nav-bar\"] {\n    z-index: 5;\n    height: var(--dx-nav-h);\n    padding: 0 var(--dx-gutter);\n    gap: 1.25rem;\n    justify-content: flex-start;\n    background: var(--dx-bg);\n    transition: background-color 0.35s var(--dx-ease), box-shadow 0.35s var(--dx-ease);\n}\n\n/* Board: header floats over the billboard and turns solid on scroll */\nbody[data-dx-route=\"board\"] #app [class*=\"main-nav-bars-container\"] > nav[class*=\"horizontal-nav-bar\"] {\n    background: linear-gradient(180deg, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.25) 70%, transparent 100%);\n}\n\nbody.dx-scrolled #app [class*=\"main-nav-bars-container\"] > nav[class*=\"horizontal-nav-bar\"],\nbody #app [class*=\"main-nav-bars-container\"] > nav[class*=\"horizontal-nav-bar\"][data-dx-scrolled] {\n    background-color: rgba(11, 11, 13, 0.97);\n    box-shadow: 0 1px 0 var(--dx-line), 0 10px 30px rgba(0, 0, 0, 0.35);\n}\n\n/* Wordmark */\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"logo-container\"] {\n    flex: none;\n    margin-right: auto;\n    width: 6.5rem;\n    height: var(--dx-nav-h);\n    justify-content: flex-start;\n    order: 0;\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"logo-container\"] img {\n    display: none !important;\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"logo-container\"]::before {\n    content: \"LUMEN\";\n    font-family: \"Bebas Neue\", \"Inter\", sans-serif;\n    font-size: 2.35rem;\n    line-height: 1;\n    letter-spacing: 0.08em;\n    color: var(--dx-accent);\n    background: var(--dx-accent-gradient);\n    -webkit-background-clip: text;\n    background-clip: text;\n    -webkit-text-fill-color: transparent;\n    filter: drop-shadow(0 0 10px color-mix(in srgb, var(--dx-accent) 35%, transparent));\n    transform: translateY(2px);\n}\n\n/* Tabs: the stock vertical bar becomes a row of text links beside the logo */\n#app [class*=\"main-nav-bars-container\"] > nav[class*=\"vertical-nav-bar\"] {\n    top: 0;\n    bottom: auto;\n    left: calc(var(--dx-gutter) + 6.5rem + 1.5rem);\n    z-index: 6;\n    width: auto;\n    height: var(--dx-nav-h);\n    padding: 0;\n    flex-direction: row;\n    align-items: center;\n    gap: 1.75rem;\n    background: transparent;\n    overflow: visible;\n}\n\n#app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"] {\n    position: relative;\n    width: auto;\n    height: auto;\n    min-height: 0;\n    padding: 0.4rem 0;\n    flex-direction: row;\n    border-radius: 0;\n    background: transparent !important;\n    overflow: visible;\n}\n\n#app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"] svg {\n    display: none;\n}\n\n#app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"] [class*=\"label\"] {\n    display: block;\n    max-height: none;\n    padding: 0;\n    margin: 0;\n    font-size: 0.92rem;\n    font-weight: 500;\n    letter-spacing: 0.01em;\n    text-transform: capitalize;\n    color: var(--dx-nav-label, var(--dx-text-2));\n    opacity: 1;\n    overflow: visible;\n    white-space: nowrap;\n    transition: color 0.25s var(--dx-ease);\n}\n\n/* Hover effects below set a variable on the hovered element itself, never \"hovered [class*=x]\":\n   that shape makes the browser restyle the whole page on every hover change. */\n#app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"]:hover,\n#app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"]:focus-visible {\n    --dx-nav-label: var(--dx-text);\n}\n\n#app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"].selected [class*=\"label\"] {\n    color: #fff;\n    font-weight: 700;\n}\n\n#app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"]::after {\n    content: \"\";\n    position: absolute;\n    left: 0;\n    right: 0;\n    bottom: -0.15rem;\n    height: 2px;\n    border-radius: 2px;\n    background: var(--dx-accent-gradient);\n    transform: scaleX(0);\n    transform-origin: left;\n    transition: transform 0.35s var(--dx-ease-out);\n}\n\n#app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"].selected::after {\n    transform: scaleX(1);\n}\n\n/* \"Board\" reads as \"Home\" */\n#app nav[class*=\"vertical-nav-bar\"] a[href=\"#/\"] [class*=\"label\"] {\n    font-size: 0 !important;\n}\n\n#app nav[class*=\"vertical-nav-bar\"] a[href=\"#/\"] [class*=\"label\"]::after {\n    content: \"Home\";\n    font-size: 0.92rem;\n}\n\n/* Search: compact field on the right */\n#app [class*=\"main-nav-bars-container\"] nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"] {\n    flex: none;\n    order: 1;\n    width: 15rem;\n    height: 2.4rem;\n    padding: 0 0.35rem 0 0.9rem;\n    border-radius: var(--dx-radius);\n    background: rgba(255, 255, 255, 0.06);\n    border: 1px solid var(--dx-line);\n    transition: width 0.4s var(--dx-ease-out), background-color 0.25s, border-color 0.25s;\n}\n\n#app [class*=\"main-nav-bars-container\"] nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"]:hover,\n#app [class*=\"main-nav-bars-container\"] nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.09);\n}\n\n#app [class*=\"main-nav-bars-container\"] nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"]:focus-within,\n#app [class*=\"main-nav-bars-container\"] nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"].active {\n    width: 22rem;\n    background: rgba(0, 0, 0, 0.85);\n    border-color: rgba(255, 255, 255, 0.55);\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"] [class*=\"search-input\"],\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"] input {\n    font-size: 0.9rem;\n    color: var(--dx-text);\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"] [class*=\"placeholder-label\"] {\n    font-size: 0.9rem;\n    color: var(--dx-text-3);\n    opacity: 1;\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"] [class*=\"submit-button-container\"] {\n    width: 2rem;\n    height: 2rem;\n    padding: 0;\n    border-radius: var(--dx-radius-s);\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"] svg {\n    width: 1.1rem;\n    height: 1.1rem;\n    color: var(--dx-text-2);\n    opacity: 1;\n}\n\n/* Right-hand buttons */\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"buttons-container\"] {\n    flex: none;\n    order: 2;\n    gap: 0.35rem;\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"buttons-container\"] > [class*=\"button-container\"] {\n    height: 2.5rem;\n    min-width: 2.5rem;\n    border-radius: var(--dx-radius);\n    background: transparent;\n    transition: background-color 0.2s;\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"buttons-container\"] > [class*=\"button-container\"]:hover,\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"buttons-container\"] > [class*=\"button-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.08);\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"buttons-container\"] svg {\n    width: 1.3rem;\n    height: 1.3rem;\n    color: var(--dx-text);\n    opacity: 0.9;\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"avatar\"] {\n    width: 2rem;\n    height: 2rem;\n    border: 0 !important;\n    border-radius: var(--dx-radius-s) !important;\n}\n\n#app nav[class*=\"horizontal-nav-bar\"] [class*=\"avatar\"] img {\n    border-radius: var(--dx-radius-s) !important;\n}\n\n/* Content starts under the header; full width (no sidebar) */\n#app [class*=\"main-nav-bars-container\"] > [class*=\"nav-content-container\"] {\n    top: var(--dx-nav-h);\n    left: 0;\n}\n\nbody[data-dx-route=\"board\"] #app [class*=\"board-container\"] [class*=\"nav-content-container\"] {\n    top: 0;\n}\n\n/* Narrower windows */\n@media (max-width: 1450px) {\n    #app [class*=\"main-nav-bars-container\"] > nav[class*=\"vertical-nav-bar\"] {\n        gap: 1.25rem;\n    }\n\n    #app [class*=\"main-nav-bars-container\"] nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"] {\n        width: 2.6rem;\n        padding: 0 0.25rem;\n        background: transparent;\n        border-color: transparent;\n    }\n\n    #app [class*=\"main-nav-bars-container\"] nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"] [class*=\"search-input\"] {\n        opacity: var(--dx-search-open, 0);\n    }\n\n    #app [class*=\"main-nav-bars-container\"] nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"]:focus-within,\n    #app [class*=\"main-nav-bars-container\"] nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar-container\"].active {\n        position: relative;\n        z-index: 7;\n        width: 18rem;\n        padding: 0 0.35rem 0 0.9rem;\n        --dx-search-open: 1;\n    }\n}\n\n@media (max-width: 1000px) {\n    #app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"] [class*=\"label\"] {\n        display: none;\n    }\n\n    #app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"] svg {\n        display: block;\n        width: 1.35rem;\n        height: 1.35rem;\n        color: var(--dx-text-2);\n    }\n\n    #app nav[class*=\"vertical-nav-bar\"] a[class*=\"nav-tab-button\"].selected svg {\n        color: #fff;\n    }\n}\n\n/* =====================================================================\n   4. BOARD — rows become carousels\n   ===================================================================== */\n\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) {\n    padding: 0 0 4rem 0 !important;\n    overflow-x: hidden;\n    scroll-behavior: smooth;\n}\n\n/* No billboard (plugin off): keep rows clear of the floating header */\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]):not(:has(> .dx-hero)) {\n    padding-top: calc(var(--dx-nav-h) + 1rem) !important;\n}\n\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"board-row\"],\n#app [class*=\"search-content\"] [class*=\"search-row\"] {\n    position: relative;\n    margin: 0 0 1.4rem 0 !important;\n}\n\n/* Rows that only show an addon error are noise — hide them */\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"board-row\"]:has(> [class*=\"message-container\"]),\n#app [class*=\"search-content\"] [class*=\"search-row\"]:has(> [class*=\"message-container\"]) {\n    display: none !important;\n}\n\n#app [class*=\"meta-row\"] > [class*=\"header-container\"] {\n    padding: 0 var(--dx-gutter) !important;\n    margin: 0 0 0.1rem 0;\n    height: 2.5rem;\n}\n\n#app [class*=\"meta-row\"] > [class*=\"header-container\"] [class*=\"title-container\"] {\n    font-size: clamp(1.05rem, 1.25vw, 1.45rem) !important;\n    font-weight: 700 !important;\n    letter-spacing: -0.005em;\n    color: var(--dx-text);\n    max-height: none;\n}\n\n#app [class*=\"meta-row\"] > [class*=\"header-container\"] [class*=\"title-container\"] [class*=\"title\"] {\n    font-size: inherit !important;\n    font-weight: inherit !important;\n}\n\n#app [class*=\"meta-row\"] [class*=\"see-all-container\"] {\n    height: 2rem;\n    padding: 0 0.4rem 0 0.75rem;\n    border-radius: var(--dx-radius-s);\n    opacity: var(--dx-row-hot, 0);\n    transform: translateX(calc(6px * (var(--dx-row-hot, 0) - 1)));\n    transition: opacity 0.3s, transform 0.3s var(--dx-ease-out), background-color 0.2s;\n}\n\n#app [class*=\"meta-row\"]:hover,\n#app [class*=\"meta-row\"]:focus-visible {\n    --dx-row-hot: 1;\n}\n\n/* (set on See All alone: on the whole row it would restyle every title in it at each key press) */\n#app [class*=\"meta-row\"]:focus-within [class*=\"see-all-container\"] {\n    --dx-row-hot: 1;\n}\n\n#app [class*=\"meta-row\"] [class*=\"see-all-container\"]:hover,\n#app [class*=\"meta-row\"] [class*=\"see-all-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.07);\n}\n\n#app [class*=\"meta-row\"] [class*=\"see-all-container\"] [class*=\"label\"] {\n    font-size: 0.82rem;\n    font-weight: 600;\n    color: var(--dx-text-2);\n}\n\n#app [class*=\"meta-row\"] [class*=\"see-all-container\"] svg {\n    height: 1rem;\n    color: var(--dx-text-2);\n}\n\n/* Rows fade softly into the screen edges: titles that slide aside for a hover card (or peek in\n   from a scrolled row) glide out of view instead of being sliced off at the edge */\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"meta-row\"] > [class*=\"meta-items-container\"],\n#app [class*=\"search-content\"] [class*=\"meta-row\"] > [class*=\"meta-items-container\"] {\n    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 calc(var(--dx-gutter) - 0.6rem), #000 calc(100% - var(--dx-gutter) + 0.6rem), transparent 100%);\n    mask-image: linear-gradient(90deg, transparent 0, #000 calc(var(--dx-gutter) - 0.6rem), #000 calc(100% - var(--dx-gutter) + 0.6rem), transparent 100%);\n}\n\n/* The track */\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"meta-row\"] > [class*=\"meta-items-container\"],\n#app [class*=\"search-content\"] [class*=\"meta-row\"] > [class*=\"meta-items-container\"] {\n    display: flex !important;\n    flex-wrap: nowrap;\n    overflow-x: auto !important;\n    overflow-y: hidden !important;\n    scroll-behavior: smooth;\n    scroll-snap-type: x proximity;\n    scroll-padding-inline: var(--dx-gutter);\n    scrollbar-width: none;\n    padding: 0.9rem calc(var(--dx-gutter) - 0.35rem) 1.1rem;\n    margin: -0.65rem 0 -0.35rem;\n    overscroll-behavior-x: contain;\n}\n\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"meta-row\"] > [class*=\"meta-items-container\"]::-webkit-scrollbar,\n#app [class*=\"search-content\"] [class*=\"meta-row\"] > [class*=\"meta-items-container\"]::-webkit-scrollbar {\n    display: none;\n}\n\n/* Show every item (stock hides some by screen width) */\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"meta-row\"] > [class*=\"meta-items-container\"] > *,\n#app [class*=\"search-content\"] [class*=\"meta-row\"] > [class*=\"meta-items-container\"] > * {\n    display: block !important;\n    flex: 0 0 calc(100% / var(--dx-cols)) !important;\n    max-width: none !important;\n    padding: 0 0.35rem !important;\n    scroll-snap-align: start;\n}\n\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"meta-row\"] > [class*=\"meta-items-container\"] > *:empty,\n#app [class*=\"search-content\"] [class*=\"meta-row\"] > [class*=\"meta-items-container\"] > *:empty {\n    display: none !important;\n}\n\n/* Landscape rows (and Continue Watching, made landscape by the plugin) */\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"board-row-landscape\"] > [class*=\"meta-items-container\"] > *,\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"continue-watching-row\"][data-dx-wide-row] > [class*=\"meta-items-container\"] > * {\n    flex-basis: calc(100% / var(--dx-wide-cols, 4)) !important;\n}\n\n/* =====================================================================\n   5. POSTER CARDS (everywhere)\n   ===================================================================== */\n\n#app [class*=\"meta-item-container\"] {\n    padding: 0.5rem 0.35rem;\n    transition: transform 0.35s var(--dx-ease-out);\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"poster-container\"] {\n    border-radius: var(--dx-radius) !important;\n    background: var(--dx-surface);\n    box-shadow: none !important;\n    overflow: hidden;\n    transform: translate3d(0, calc(-4px * var(--dx-card-focus, 0)), 0) scale(calc(1 + 0.035 * var(--dx-card-focus, 0)));\n    transition: transform 0.35s var(--dx-ease-out), box-shadow 0.35s var(--dx-ease-out) !important;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"poster-container\"]::after {\n    content: \"\";\n    position: absolute;\n    inset: 0;\n    border-radius: inherit;\n    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);\n    pointer-events: none;\n    z-index: 5;\n    transition: box-shadow 0.3s;\n}\n\n#app [class*=\"meta-item-container\"]:is(.hovered, .active, .selected) [class*=\"poster-container\"] {\n    box-shadow: var(--dx-shadow-2) !important;\n    transform: translateY(-4px) scale(1.035);\n}\n\n/* Titles on anime artwork (plugin): the name over a soft shade at the bottom of the card */\n.dx-anime-title {\n    position: absolute;\n    z-index: 4;\n    left: 0;\n    right: 0;\n    bottom: 0;\n    padding: 2.2rem 0.6rem 0.55rem;\n    background: linear-gradient(to top, rgba(0, 0, 0, 0.88), rgba(0, 0, 0, 0.55) 55%, transparent);\n    color: #fff;\n    font-size: 0.92rem;\n    font-weight: 700;\n    line-height: 1.2;\n    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);\n    display: -webkit-box;\n    -webkit-line-clamp: 2;\n    -webkit-box-orient: vertical;\n    overflow: hidden;\n    pointer-events: none;\n}\n\n/* Discover selects its first title by itself (to fill its side panel): no lift or ring for that one\n   until a title is picked (the plugin sets the flag) */\nbody:not(.dx-discover-picked) #app [class*=\"discover-content\"] [class*=\"meta-item-container\"].selected:not(.hovered):not(.active) [class*=\"poster-container\"] {\n    box-shadow: none !important;\n    transform: none;\n}\n\nbody:not(.dx-discover-picked) #app [class*=\"discover-content\"] [class*=\"meta-item-container\"].selected:not(.hovered):not(.active) [class*=\"poster-container\"]::after {\n    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);\n}\n\n/* keyboard highlight: the poster lifts like it does under the mouse, and the hover card shows\n   what's selected: no outline or ring around the card */\n#app [class*=\"meta-item-link\"]:focus-visible {\n    --dx-card-focus: 1;\n    outline: none !important;\n}\n\n#app [class*=\"meta-item-container\"]:active:not(.active) {\n    --dx-card-press: 1;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"poster-container\"] {\n    scale: calc(1 - 0.03 * var(--dx-card-press, 0));\n}\n\n#app [class*=\"meta-item-container\"]:is(.hovered, .active, .selected) [class*=\"poster-container\"]::after {\n    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.85);\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"poster-image-layer\"] {\n    transition: transform 0.6s var(--dx-ease-out) !important;\n}\n\n#app [class*=\"meta-item-container\"].hovered [class*=\"poster-image-layer\"] {\n    transform: scale(1.04) !important;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"poster-image\"] {\n    object-fit: cover;\n}\n\n\n/* Library: no ring, lift or zoom under the mouse (a grid of posters reads calmer); the poster\n   just brightens a little */\n#app [class*=\"library-content\"] [class*=\"meta-item-container\"]:is(.hovered, .active, .selected) [class*=\"poster-container\"] {\n    box-shadow: none !important;\n    transform: none;\n}\n\n#app [class*=\"library-content\"] [class*=\"meta-item-container\"]:is(.hovered, .active, .selected) [class*=\"poster-container\"]::after {\n    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);\n}\n\n#app [class*=\"library-content\"] [class*=\"meta-item-container\"] [class*=\"poster-image-layer\"] {\n    transition: filter 0.25s var(--dx-ease) !important;\n}\n\n#app [class*=\"library-content\"] [class*=\"meta-item-container\"].hovered [class*=\"poster-image-layer\"] {\n    transform: none !important;\n    filter: brightness(1.12);\n}\n\n/* Titles under cards: quiet, single line */\n#app [class*=\"meta-item-container\"] [class*=\"title-bar-container\"] {\n    height: auto;\n    min-height: 0;\n    padding: 0.55rem 0.15rem 0 0.15rem;\n    justify-content: flex-start;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"title-bar-container\"] [class*=\"title-label\"] {\n    padding: 0;\n    font-size: 0.85rem;\n    font-weight: 500;\n    color: var(--dx-text-2);\n    text-align: left;\n    white-space: nowrap;\n    text-overflow: ellipsis;\n    max-height: 1.3em;\n    transition: color 0.2s;\n}\n\n#app [class*=\"meta-item-container\"].hovered [class*=\"title-bar-container\"] [class*=\"title-label\"] {\n    color: var(--dx-text);\n}\n\n/* Rows on Home/Search: artwork only, like the real thing (titles live in the preview card) */\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) [class*=\"meta-row\"] [class*=\"meta-item-container\"] [class*=\"title-bar-container\"],\n#app [class*=\"search-content\"] [class*=\"meta-row\"] [class*=\"meta-item-container\"] [class*=\"title-bar-container\"] {\n    display: none;\n}\n\n/* Progress */\n#app [class*=\"meta-item-container\"] [class*=\"progress-bar-layer\"] {\n    left: 0.6rem;\n    right: 0.6rem;\n    bottom: 0.6rem;\n    height: 3px;\n    border-radius: 3px;\n    overflow: hidden;\n}\n\n#app [class*=\"progress-bar-layer\"] [class*=\"progress-bar-background\"] {\n    background: rgba(255, 255, 255, 0.28) !important;\n    opacity: 1 !important;\n}\n\n#app [class*=\"progress-bar-layer\"] [class*=\"progress-bar\"]:not([class*=\"background\"]),\n#app [class*=\"progress-bar-container\"] [class*=\"progress-bar\"]:not([class*=\"background\"]) {\n    background: var(--dx-accent-gradient) !important;\n}\n\n/* Play overlay on Continue Watching */\n#app [class*=\"meta-item-container\"] [class*=\"play-icon-layer\"] {\n    opacity: 0;\n    transition: opacity 0.25s;\n}\n\n#app [class*=\"meta-item-container\"].hovered [class*=\"play-icon-layer\"] {\n    opacity: 1;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"play-icon-background\"] {\n    background: rgba(0, 0, 0, 0.55) !important;\n    border: 2px solid rgba(255, 255, 255, 0.9);\n    opacity: 1 !important;\n    backdrop-filter: blur(6px);\n}\n\n#app [class*=\"meta-item-container\"].hovered [class*=\"play-icon-background\"] {\n    background: var(--dx-accent) !important;\n    border-color: var(--dx-accent);\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"play-icon-outer\"] {\n    display: none;\n}\n\n/* Watched tick */\n#app [class*=\"meta-item-container\"] [class*=\"watched-icon-layer\"] {\n    background: rgba(0, 0, 0, 0.7);\n    border-radius: 50%;\n    backdrop-filter: blur(4px);\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"watched-icon\"] {\n    color: #fff;\n}\n\n/* \"New episodes\" stack */\n#app [class*=\"meta-item-container\"] [class*=\"new-videos\"] [class*=\"layer\"]:last-child {\n    background: var(--dx-accent) !important;\n    border-radius: var(--dx-radius-s);\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"new-videos\"] [class*=\"layer\"]:not(:last-child) {\n    background: color-mix(in srgb, var(--dx-accent) 55%, black) !important;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"new-videos\"] [class*=\"label\"],\n#app [class*=\"meta-item-container\"] [class*=\"new-videos\"] svg {\n    color: #fff !important;\n}\n\n/* Dismiss on Continue Watching: a slim glass tab that opens out into \"Remove\" when pointed at.\n   It takes the corner from the \"+N new episodes\" badge while the card is hovered. */\n#app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-layer\"] {\n    z-index: 7 !important;\n    top: 0.6rem;\n    left: auto;\n    right: 0.6rem;\n    width: auto !important;\n    height: 1.55rem !important;\n    min-width: 1.55rem;\n    padding: 0 0.42rem;\n    display: flex;\n    align-items: center;\n    justify-content: center;\n    border-radius: 0.4rem;\n    background: rgba(12, 12, 14, 0.62);\n    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), 0 4px 14px rgba(0, 0, 0, 0.35);\n    backdrop-filter: blur(8px);\n    opacity: 0;\n    transform: translateY(-2px);\n    transition: opacity 0.18s ease, transform 0.18s ease, background-color 0.15s ease, box-shadow 0.15s ease;\n}\n\n#app [class*=\"meta-item-container\"].hovered [class*=\"dismiss-icon-layer\"],\n#app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-layer\"]:focus-visible {\n    opacity: 1;\n    transform: none;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-backdrop\"] {\n    display: none !important;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-layer\"] svg {\n    position: static !important;\n    flex: none;\n    width: 0.62rem !important;\n    height: 0.62rem !important;\n    color: #fff !important;\n    fill: currentColor !important;\n    opacity: 1;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-layer\"]::before {\n    content: \"Remove\";\n    max-width: 0;\n    overflow: hidden;\n    white-space: nowrap;\n    color: #fff;\n    font: 600 0.72rem/1 Inter, system-ui, sans-serif;\n    letter-spacing: 0.02em;\n    transition: max-width 0.22s ease, margin 0.22s ease;\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-layer\"]:hover,\n#app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-layer\"]:focus-visible {\n    background: var(--dx-accent);\n    box-shadow: 0 4px 16px color-mix(in srgb, var(--dx-accent) 45%, transparent);\n}\n\n#app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-layer\"]:hover::before,\n#app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-layer\"]:focus-visible::before {\n    max-width: 4.5rem;\n    margin-right: 0.4rem;\n}\n\n/* the \"+N\" badge steps aside while the remove tab is showing */\n#app [class*=\"meta-item-container\"] [class*=\"new-videos\"] {\n    transition: opacity 0.18s ease;\n}\n\n#app [class*=\"continue-watching-row\"] [class*=\"meta-item-container\"].hovered [class*=\"new-videos\"] {\n    opacity: 0;\n}\n\n/* Card menu dots */\n#app [class*=\"meta-item-container\"] [class*=\"menu-label-container\"] {\n    border-radius: var(--dx-radius-s);\n}\n\n/* Placeholders while loading */\n#app [class*=\"meta-row-placeholder-container\"] [class*=\"poster-container\"],\n#app [class*=\"meta-item-placeholder\"] [class*=\"poster-container\"],\n#app [class*=\"placeholder\"] [class*=\"poster-container\"] {\n    border-radius: var(--dx-radius) !important;\n    /* static on purpose: rows from broken addons stay placeholders forever, and an endless\n       animation on dozens of them would cost CPU the whole time Home is open */\n    background: var(--dx-surface) !important;\n    animation: none !important;\n}\n\n#app [class*=\"meta-row-placeholder-container\"] [class*=\"title-bar-container\"],\n#app [class*=\"meta-row-placeholder-container\"] [class*=\"title-label\"] {\n    display: none;\n}\n\n#app [class*=\"meta-row-placeholder-container\"] [class*=\"header-container\"] [class*=\"title-container\"] {\n    width: 14rem;\n    height: 1.1rem;\n    border-radius: var(--dx-radius-s);\n    background: var(--dx-surface);\n    color: transparent !important;\n}\n\n\n/* =====================================================================\n   6. BILLBOARD (built by the plugin)\n   ===================================================================== */\n\n.dx-hero {\n    position: relative;\n    width: 100%;\n    height: min(82vh, 56.25vw);\n    min-height: 26rem;\n    margin-bottom: -6vw;\n    overflow: hidden;\n    background: var(--dx-bg);\n    isolation: isolate;\n    animation: dx-fade 0.8s var(--dx-ease) both;\n}\n\n.dx-hero-slide {\n    position: absolute;\n    inset: 0;\n    pointer-events: none;\n}\n\n.dx-hero-slide.is-active {\n    pointer-events: auto;\n}\n\n/* Only the pictures cross-fade; the text is handled separately so it never looks washed out */\n.dx-hero-backdrop {\n    position: absolute;\n    inset: 0;\n    opacity: 0;\n    background-size: cover;\n    background-position: center 20%;\n    transform: scale(1.06);\n    transform-origin: 70% 40%;\n    transition: opacity 1.2s cubic-bezier(0.4, 0, 0.2, 1);\n    will-change: transform, opacity;\n}\n\n.dx-hero-slide.is-active .dx-hero-backdrop {\n    opacity: 1;\n}\n\n/* The slow zoom keeps running on the outgoing picture until it has faded (class managed by the plugin) */\n.dx-hero-backdrop.kb {\n    animation: dx-kenburns 16s linear both;\n}\n\n@keyframes dx-kenburns {\n    from { transform: scale(1.06) translate3d(0, 0, 0); }\n    to { transform: scale(1.14) translate3d(-1.2%, -1%, 0); }\n}\n\n.dx-hero-shade {\n    position: absolute;\n    inset: 0;\n    z-index: 1;\n    pointer-events: none;\n    background:\n        linear-gradient(90deg, rgba(11, 11, 13, 0.92) 0%, rgba(11, 11, 13, 0.6) 28%, rgba(11, 11, 13, 0.08) 58%, transparent 75%),\n        linear-gradient(0deg, var(--dx-bg) 0%, rgba(11, 11, 13, 0.75) 14%, rgba(11, 11, 13, 0) 42%),\n        linear-gradient(180deg, rgba(0, 0, 0, 0.45) 0%, transparent 18%);\n}\n\n.dx-hero-content {\n    position: absolute;\n    z-index: 2;\n    left: var(--dx-gutter);\n    bottom: calc(6vw + 4.5rem);\n    /* never higher than just under the top bar: on short screens (phones on their side, small\n       windows) the logo gives way first, so nothing slides up under the bar or off the screen */\n    top: calc(var(--dx-nav-h) + 0.75rem);\n    width: min(36rem, 42vw);\n    display: flex;\n    flex-direction: column;\n    justify-content: flex-end;\n    align-items: flex-start;\n    gap: min(1rem, 1.8vh);\n}\n\n.dx-hero-content > * {\n    flex-shrink: 0;\n}\n\n.dx-hero-content > .dx-hero-logo {\n    flex: 0 1 auto;\n    min-height: 2.75rem;\n}\n\n/* Shorter screens: a two-line description, then none, so the logo keeps a sensible size */\n@media (max-height: 680px) {\n    .dx-hero-desc {\n        -webkit-line-clamp: 2;\n    }\n}\n\n@media (max-height: 540px) {\n    .dx-hero-desc {\n        display: none !important;\n    }\n}\n\n/* Old text fades out first, then the new text fades in — never both at once, never moving,\n   so it stays crisp the whole time */\n.dx-hero-slide .dx-hero-content {\n    opacity: 0;\n    visibility: hidden;\n    transition: opacity 0.3s ease, visibility 0s linear 0.3s;\n}\n\n.dx-hero-slide.is-active .dx-hero-content {\n    opacity: 1;\n    visibility: visible;\n    transition: opacity 0.6s ease 0.45s, visibility 0s linear 0.45s;\n}\n\n/* First appearance on load: no waiting */\n.dx-hero.is-first .dx-hero-slide.is-active .dx-hero-content {\n    transition-delay: 0s;\n}\n\n.dx-hero-kicker {\n    display: inline-flex;\n    align-items: center;\n    gap: 0.5rem;\n    font-size: 0.78rem;\n    font-weight: 700;\n    letter-spacing: 0.22em;\n    text-transform: uppercase;\n    color: var(--dx-text-2);\n}\n\n.dx-hero-kicker b {\n    font-family: \"Bebas Neue\", sans-serif;\n    font-size: 1.25rem;\n    font-weight: 400;\n    letter-spacing: 0.06em;\n    color: var(--dx-accent);\n}\n\n.dx-hero-logo {\n    display: block;\n    max-width: min(30rem, 100%);\n    max-height: 11rem;\n    object-fit: contain;\n    object-position: left bottom;\n    filter: drop-shadow(0 6px 24px rgba(0, 0, 0, 0.55));\n}\n\n.dx-hero-title {\n    font-size: clamp(2.2rem, 4vw, 4rem);\n    font-weight: 800;\n    line-height: 1.02;\n    letter-spacing: -0.02em;\n    color: #fff;\n    text-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);\n}\n\n.dx-hero-meta {\n    display: flex;\n    flex-wrap: wrap;\n    align-items: center;\n    gap: 0.35rem 0.85rem;\n    font-size: 0.95rem;\n    font-weight: 500;\n    color: var(--dx-text-2);\n}\n\n.dx-hero-desc {\n    font-size: clamp(0.95rem, 1.05vw, 1.15rem);\n    line-height: 1.5;\n    color: rgba(255, 255, 255, 0.88);\n    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);\n    display: -webkit-box;\n    -webkit-line-clamp: 3;\n    -webkit-box-orient: vertical;\n    overflow: hidden;\n}\n\n.dx-hero-actions {\n    display: flex;\n    gap: 0.75rem;\n    margin-top: 0.35rem;\n}\n\n.dx-btn {\n    display: inline-flex;\n    align-items: center;\n    justify-content: center;\n    gap: 0.6rem;\n    height: 2.9rem;\n    padding: 0 1.6rem 0 1.3rem;\n    border-radius: var(--dx-radius);\n    font-size: 1.02rem;\n    font-weight: 700;\n    cursor: pointer;\n    white-space: nowrap;\n    transition: background-color 0.2s, transform 0.2s var(--dx-ease-out), box-shadow 0.2s;\n}\n\n.dx-btn:active {\n    transform: scale(0.97);\n}\n\n.dx-btn svg {\n    width: 1.35rem;\n    height: 1.35rem;\n    flex: none;\n}\n\n.dx-btn-primary {\n    background: #fff;\n    color: #000;\n}\n\n.dx-btn-primary svg {\n    fill: #000;\n}\n\n.dx-btn-primary:hover {\n    background: rgba(255, 255, 255, 0.82);\n}\n\n.dx-btn-secondary {\n    background: rgba(109, 109, 118, 0.55);\n    color: #fff;\n    backdrop-filter: blur(8px);\n}\n\n.dx-btn-secondary svg {\n    fill: none;\n    stroke: #fff;\n}\n\n.dx-btn-secondary:hover {\n    background: rgba(109, 109, 118, 0.38);\n}\n\n/* Keyboard: the selected button comes forward in white, like a TV menu (dimming it the way the\n   mouse hover does read as \"off\" when nothing points at it) */\n.dx-btn:focus-visible {\n    background: #fff;\n    color: #000;\n    transform: scale(1.06);\n    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);\n}\n\n.dx-btn:focus-visible svg {\n    fill: #000;\n}\n\n.dx-btn-secondary:focus-visible svg {\n    fill: none;\n    stroke: #000;\n}\n\n.dx-hero-dots {\n    position: absolute;\n    z-index: 3;\n    right: var(--dx-gutter);\n    bottom: calc(6vw + 4.75rem);\n    display: flex;\n    gap: 0.4rem;\n}\n\n.dx-hero-dot {\n    position: relative;\n    width: 1.6rem;\n    height: 3px;\n    border-radius: 3px;\n    background: rgba(255, 255, 255, 0.25);\n    cursor: pointer;\n    overflow: hidden;\n    transition: width 0.4s var(--dx-ease-out), background-color 0.2s;\n}\n\n.dx-hero-dot:hover,\n.dx-hero-dot:focus-visible {\n    background: rgba(255, 255, 255, 0.45);\n}\n\n.dx-hero-dot.is-active {\n    width: 3.2rem;\n}\n\n.dx-hero-dot.is-active::after {\n    content: \"\";\n    position: absolute;\n    inset: 0;\n    background: #fff;\n    transform-origin: left;\n    animation: dx-progress var(--dx-hero-interval, 9s) linear both;\n}\n\n.dx-hero.is-static .dx-hero-dot.is-active::after {\n    animation: none;\n}\n\n@keyframes dx-progress {\n    from { transform: scaleX(0); }\n    to { transform: scaleX(1); }\n}\n\n/* Rows that follow the billboard sit above its fade */\n#app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) > .dx-hero ~ * {\n    position: relative;\n    z-index: 2;\n}\n\n/* Shared rating / meta pills */\n.dx-imdb {\n    display: inline-flex;\n    align-items: center;\n    gap: 0.35rem;\n    font-weight: 700;\n    color: #fff;\n}\n\n.dx-imdb i {\n    font-style: normal;\n    font-size: 0.68em;\n    font-weight: 900;\n    letter-spacing: -0.01em;\n    line-height: 1;\n    padding: 0.18em 0.32em;\n    border-radius: 3px;\n    background: #f5c518;\n    color: #000;\n}\n\n.dx-match {\n    font-weight: 700;\n    color: #46d369;\n}\n\n.dx-pill {\n    display: inline-flex;\n    align-items: center;\n    height: 1.35rem;\n    padding: 0 0.45rem;\n    border: 1px solid rgba(255, 255, 255, 0.4);\n    border-radius: 3px;\n    font-size: 0.75rem;\n    font-weight: 600;\n    color: var(--dx-text-2);\n}\n\n.dx-sep {\n    width: 4px;\n    height: 4px;\n    border-radius: 50%;\n    background: var(--dx-text-3);\n}\n\n/* =====================================================================\n   7. CAROUSEL ARROWS + PREVIEW CARD + RATING BADGES (plugin parts)\n   ===================================================================== */\n\n.dx-arrow {\n    position: absolute;\n    z-index: 4;\n    bottom: 0.75rem;\n    width: calc(var(--dx-gutter) - 0.35rem);\n    min-width: 2.75rem;\n    display: flex;\n    align-items: center;\n    justify-content: center;\n    color: #fff;\n    cursor: pointer;\n    opacity: 0;\n    transition: opacity 0.25s, background-color 0.25s;\n}\n\n.dx-arrow svg {\n    width: 2rem;\n    height: 2rem;\n    transform: scale(var(--dx-arrow-scale, 1));\n    transition: transform 0.25s var(--dx-ease-out);\n}\n\n.dx-arrow-prev {\n    left: 0;\n    background: linear-gradient(90deg, rgba(11, 11, 13, 0.92), rgba(11, 11, 13, 0.4));\n}\n\n.dx-arrow-next {\n    right: 0;\n    background: linear-gradient(270deg, rgba(11, 11, 13, 0.92), rgba(11, 11, 13, 0.4));\n}\n\n[class*=\"meta-row\"]:hover > .dx-arrow:not(.is-hidden) {\n    opacity: 1;\n}\n\n.dx-arrow:hover,\n.dx-arrow:focus-visible {\n    --dx-arrow-scale: 1.25;\n}\n\n.dx-arrow.is-hidden {\n    pointer-events: none;\n}\n\n/* Row page indicator */\n.dx-row-pages {\n    position: absolute;\n    top: 0.95rem;\n    right: var(--dx-gutter);\n    display: flex;\n    gap: 3px;\n    opacity: 0;\n    transition: opacity 0.3s;\n}\n\n[class*=\"meta-row\"]:hover > .dx-row-pages,\n[class*=\"meta-row\"]:focus-visible > .dx-row-pages {\n    opacity: 1;\n}\n\n.dx-row-pages span {\n    width: 0.8rem;\n    height: 2px;\n    background: rgba(255, 255, 255, 0.25);\n}\n\n.dx-row-pages span.is-active {\n    background: rgba(255, 255, 255, 0.85);\n}\n\n/* Header pushes \"See all\" left of the page dots */\n#app [class*=\"meta-row\"]:has(> .dx-row-pages) > [class*=\"header-container\"] {\n    padding-right: calc(var(--dx-gutter) + 6rem) !important;\n}\n\n/* IMDb badge on posters */\n.dx-badge {\n    position: absolute;\n    z-index: 4;\n    top: 0.45rem;\n    left: 0.45rem;\n    display: inline-flex;\n    align-items: center;\n    gap: 0.3rem;\n    height: 1.35rem;\n    padding: 0 0.4rem 0 0.25rem;\n    border-radius: 4px;\n    background: rgba(0, 0, 0, 0.72);\n    backdrop-filter: blur(6px);\n    font-size: 0.72rem;\n    font-weight: 700;\n    color: #fff;\n    pointer-events: none;\n    animation: dx-fade 0.4s both;\n}\n\n.dx-badge i {\n    font-style: normal;\n    font-size: 0.6rem;\n    font-weight: 900;\n    padding: 0.12rem 0.22rem;\n    border-radius: 2px;\n    background: #f5c518;\n    color: #000;\n    line-height: 1;\n}\n\n/* Anime scores (Kitsu / AniList) get their own colour so they never read as IMDb */\n.dx-badge.is-anime i {\n    background: #3db4f2;\n    color: #fff;\n}\n\n/* Continue Watching as wide cards */\n.dx-wide-art {\n    position: absolute;\n    inset: 0;\n    z-index: 1;\n    background-size: cover;\n    background-position: center;\n    pointer-events: none;\n}\n\n.dx-wide-art::after {\n    content: \"\";\n    position: absolute;\n    inset: 0;\n    background: linear-gradient(0deg, rgba(0, 0, 0, 0.75) 0%, rgba(0, 0, 0, 0.1) 45%, transparent 70%);\n}\n\n.dx-wide-logo {\n    position: absolute;\n    z-index: 2;\n    left: 0.85rem;\n    bottom: 1.15rem;\n    max-width: 55%;\n    max-height: 32%;\n    object-fit: contain;\n    object-position: left bottom;\n    filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.7));\n}\n\n.dx-wide-name {\n    position: absolute;\n    z-index: 2;\n    left: 0.85rem;\n    right: 0.85rem;\n    bottom: 1.1rem;\n    font-size: 1rem;\n    font-weight: 700;\n    color: #fff;\n    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);\n    white-space: nowrap;\n    overflow: hidden;\n    text-overflow: ellipsis;\n}\n\n#app [class*=\"continue-watching-row\"][data-dx-wide-row] [class*=\"poster-container\"] {\n    padding-top: 56.25% !important;\n}\n\n#app [class*=\"continue-watching-row\"][data-dx-wide-row] [class*=\"poster-image-layer\"] {\n    opacity: 0;\n}\n\n#app [class*=\"continue-watching-row\"][data-dx-wide-row] [class*=\"progress-bar-layer\"],\n#app [class*=\"continue-watching-row\"][data-dx-wide-row] [class*=\"play-icon-layer\"],\n#app [class*=\"continue-watching-row\"][data-dx-wide-row] [class*=\"new-videos\"],\n#app [class*=\"continue-watching-row\"][data-dx-wide-row] [class*=\"watched-icon-layer\"] {\n    z-index: 3;\n}\n\n/* Hover preview — unfolds out of the card like Netflix's mini-modal. The outer box carries the\n   shadow (it follows the clipped shape), the inner layer is revealed from the card's outline. */\n/* The title under an open hover card: hidden once the card has grown over it, back at once as it closes */\n#app [data-dx-covered] [class*=\"poster-container\"] {\n    opacity: 0;\n    transition: opacity 0.15s 0.2s;\n}\n\n.dx-preview {\n    position: fixed;\n    z-index: 900;\n    opacity: 0;\n    visibility: hidden;\n    pointer-events: none;\n    will-change: transform, opacity;\n    transition:\n        transform 0.2s ease,\n        opacity 0.2s ease,\n        visibility 0s linear 0.2s;\n}\n\n.dx-preview.is-open {\n    opacity: 1;\n    visibility: visible;\n    pointer-events: auto;\n    transition: opacity 0.1s ease, visibility 0s;\n}\n\n.dx-preview.is-closing {\n    visibility: visible;\n    opacity: 0;\n    transform: scale(0.97) !important;\n    transition: transform 0.2s ease, opacity 0.2s ease;\n}\n\n.dx-preview-inner {\n    position: relative;\n    min-height: inherit;\n    display: flex;\n    flex-direction: column;\n    border-radius: 8px;\n    background: #181818;\n    overflow: hidden;\n    transition: clip-path 0.48s cubic-bezier(0.2, 0.85, 0.25, 1);\n    will-change: clip-path;\n}\n\n/* fine hairline so the panel's edge reads crisp against the page */\n.dx-preview-inner::after {\n    content: \"\";\n    position: absolute;\n    inset: 0;\n    z-index: 6;\n    border-radius: inherit;\n    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);\n    pointer-events: none;\n}\n\n/* Aura: the title's own colours glowing softly around the panel once it has opened,\n   with a deep shadow underneath for lift */\n.dx-preview-aura {\n    position: absolute;\n    z-index: -1;\n    inset: -14px -18px -22px;\n    border-radius: 22px;\n    background: #181818 center / cover no-repeat;\n    filter: blur(30px) saturate(1.5) brightness(0.9);\n    opacity: 0;\n    transform: scale(0.92);\n    transition: opacity 0.55s ease 0.16s, transform 0.6s cubic-bezier(0.2, 0.85, 0.25, 1) 0.1s;\n    pointer-events: none;\n    will-change: opacity, transform;\n}\n\n.dx-preview::before {\n    content: \"\";\n    position: absolute;\n    z-index: -2;\n    inset: 10% 6% -4%;\n    border-radius: 18px;\n    background: rgba(0, 0, 0, 0.85);\n    filter: blur(28px);\n    opacity: 0;\n    transition: opacity 0.4s ease 0.12s;\n    pointer-events: none;\n}\n\n.dx-preview.is-open .dx-preview-aura {\n    opacity: 0.55;\n    transform: none;\n}\n\n.dx-preview.is-open::before {\n    opacity: 1;\n}\n\n.dx-preview.is-closing .dx-preview-aura,\n.dx-preview.is-closing::before {\n    transition-delay: 0s;\n}\n\n/* the card's own artwork, fading into the panel as it unfolds */\n.dx-preview-ghost {\n    position: absolute;\n    z-index: 5;\n    /* the same corners as the poster it grows out of */\n    border-radius: var(--dx-radius);\n    background: #222 center / cover no-repeat;\n    pointer-events: none;\n    opacity: 1;\n    /* fades only once the panel's artwork is showing around it: no see-through moment */\n    transition: opacity 0.3s ease 0.16s;\n    will-change: opacity;\n}\n\n.dx-preview.is-open .dx-preview-ghost {\n    opacity: 0;\n}\n\n/* details settle in just after the panel has opened */\n.dx-preview .dx-preview-body {\n    opacity: 0;\n    transform: translateY(8px);\n    transition: opacity 0.3s ease 0.16s, transform 0.4s cubic-bezier(0.2, 0.85, 0.25, 1) 0.14s;\n}\n\n.dx-preview.is-open .dx-preview-body {\n    opacity: 1;\n    transform: none;\n}\n\n.dx-preview-media {\n    position: relative;\n    aspect-ratio: 16 / 9;\n    background: #2a2a2a center / cover no-repeat;\n    cursor: pointer;\n}\n\n/* its own rounded top as well: the zooming artwork and the trailer are layers of their own, and\n   the panel's rounded clip alone can let their corners show square while the card unfolds */\n.dx-preview-media {\n    overflow: hidden;\n    border-radius: var(--dx-radius) var(--dx-radius) 0 0;\n}\n\n.dx-preview-media::before {\n    content: \"\";\n    position: absolute;\n    inset: 0;\n    background: inherit;\n    transform-origin: 60% 40%;\n}\n\n.dx-preview.is-open .dx-preview-media::before {\n    animation: dx-preview-zoom 6s ease-out both;\n}\n\n@keyframes dx-preview-zoom {\n    from { transform: scale(1); }\n    to { transform: scale(1.08); }\n}\n\n.dx-preview-media::after {\n    content: \"\";\n    position: absolute;\n    inset: 0;\n    background: linear-gradient(0deg, #181818 0%, rgba(24, 24, 24, 0.35) 22%, transparent 45%);\n}\n\n.dx-preview-media img {\n    position: absolute;\n    z-index: 1;\n    left: 0.9rem;\n    bottom: 0.7rem;\n    max-width: 58%;\n    max-height: 40%;\n    object-fit: contain;\n    object-position: left bottom;\n    filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.8));\n}\n\n.dx-preview-name {\n    position: absolute;\n    z-index: 1;\n    left: 0.9rem;\n    right: 0.9rem;\n    bottom: 0.7rem;\n    font-size: 1.2rem;\n    font-weight: 800;\n    line-height: 1.15;\n    color: #fff;\n    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85);\n}\n\n.dx-preview-media.has-logo .dx-preview-name {\n    display: none;\n}\n\n\n.dx-preview-body {\n    flex: 1;\n    padding: 0.85rem 1rem 1.1rem;\n    display: flex;\n    flex-direction: column;\n    gap: 0.75rem;\n}\n\n.dx-preview-actions {\n    display: flex;\n    align-items: center;\n    gap: 0.5rem;\n}\n\n.dx-round {\n    position: relative;\n    width: 2.5rem;\n    height: 2.5rem;\n    flex: none;\n    display: inline-flex;\n    align-items: center;\n    justify-content: center;\n    border-radius: 50%;\n    border: 2px solid rgba(255, 255, 255, 0.5);\n    background: rgba(42, 42, 42, 0.6);\n    color: #fff;\n    cursor: pointer;\n    transition: border-color 0.15s, background-color 0.15s;\n}\n\n.dx-round:hover,\n.dx-round:focus-visible {\n    border-color: #fff;\n    background: rgba(255, 255, 255, 0.1);\n}\n\n.dx-round svg {\n    width: 1.2rem;\n    height: 1.2rem;\n}\n\n.dx-round.is-primary {\n    background: #fff;\n    border-color: #fff;\n    color: #000;\n}\n\n.dx-round.is-primary:hover,\n.dx-round.is-primary:focus-visible {\n    background: rgba(255, 255, 255, 0.8);\n}\n\n.dx-round.is-primary svg {\n    margin-left: 2px;\n}\n\n.dx-round.is-end {\n    margin-left: auto;\n}\n\n/* Remove from Continue Watching: quieter than the others until pointed at */\n.dx-round.dx-remove {\n    border-color: rgba(255, 255, 255, 0.28);\n    color: rgba(255, 255, 255, 0.8);\n}\n\n.dx-round.dx-remove:hover,\n.dx-round.dx-remove:focus-visible {\n    border-color: var(--dx-accent);\n    background: color-mix(in srgb, var(--dx-accent) 22%, transparent);\n    color: #fff;\n}\n\n.dx-round.dx-remove + .dx-round {\n    margin-left: 0.5rem;\n}\n\n/* the last button's tooltip opens leftwards so the card's edge never cuts it off */\n.dx-preview-actions .dx-round:last-child[data-tip]::after {\n    left: auto;\n    right: 0;\n    transform: translate(0, 4px);\n}\n\n.dx-preview-actions .dx-round:last-child[data-tip]:hover::after,\n.dx-preview-actions .dx-round:last-child[data-tip]:focus-visible::after {\n    transform: none;\n}\n\n.dx-round.is-pop {\n    animation: dx-pop-btn 0.35s var(--dx-ease-out);\n}\n\n@keyframes dx-pop-btn {\n    40% { transform: scale(1.2); }\n}\n\n/* Small tooltip above the round buttons */\n.dx-round[data-tip]::after {\n    content: attr(data-tip);\n    position: absolute;\n    bottom: calc(100% + 0.6rem);\n    left: 50%;\n    transform: translate(-50%, 4px);\n    padding: 0.35rem 0.6rem;\n    border-radius: 4px;\n    background: #e6e6e6;\n    color: #111;\n    font-size: 0.78rem;\n    font-weight: 700;\n    white-space: nowrap;\n    opacity: 0;\n    pointer-events: none;\n    transition: opacity 0.15s, transform 0.15s;\n}\n\n.dx-round[data-tip]:hover::after,\n.dx-round[data-tip]:focus-visible::after {\n    opacity: 1;\n    transform: translate(-50%, 0);\n}\n\n.dx-round.is-end[data-tip]::after {\n    left: auto;\n    right: 0;\n    transform: translate(0, 4px);\n}\n\n.dx-round.is-end[data-tip]:hover::after,\n.dx-round.is-end[data-tip]:focus-visible::after {\n    transform: none;\n}\n\n.dx-preview-facts {\n    display: flex;\n    flex-wrap: wrap;\n    align-items: center;\n    gap: 0.3rem 0.55rem;\n    font-size: 0.88rem;\n    font-weight: 500;\n    color: #bcbcbc;\n}\n\n.dx-preview-facts .dx-match {\n    color: #46d369;\n    font-weight: 700;\n}\n\n.dx-hd {\n    padding: 0 0.3rem;\n    border: 1px solid rgba(255, 255, 255, 0.4);\n    border-radius: 3px;\n    font-size: 0.68rem;\n    font-weight: 700;\n    line-height: 1.3;\n    color: rgba(255, 255, 255, 0.85);\n}\n\n.dx-preview-genres {\n    display: flex;\n    flex-wrap: wrap;\n    align-items: center;\n    gap: 0.25rem 0.45rem;\n    font-size: 0.88rem;\n    color: #fff;\n}\n\n.dx-preview-genres span + span::before {\n    content: \"•\";\n    margin-right: 0.45rem;\n    color: #646464;\n}\n\n/* ---------- Intro (pre-rendered film, see plugin) ---------- */\n.dx-splash {\n    position: fixed;\n    inset: 0;\n    z-index: 100000;\n    background: #000;\n    cursor: pointer;\n    transition: opacity 0.6s ease, visibility 0.6s;\n}\n\n.dx-splash.is-done {\n    opacity: 0;\n    visibility: hidden;\n}\n\n.dx-splash-video {\n    position: absolute;\n    inset: 0;\n    width: 100%;\n    height: 100%;\n    object-fit: cover;\n    background: #000;\n}\n\n/* Fallback when video can't play: opacity/transform only, so it stays on the compositor */\n.dx-splash-mark {\n    position: absolute;\n    left: 50%;\n    top: 50%;\n    font-family: \"Bebas Neue\", \"Inter\", sans-serif;\n    font-size: clamp(5rem, 16vw, 18rem);\n    line-height: 1;\n    color: var(--dx-accent);\n    transform: translate(-50%, -50%);\n    animation: dx-intro-fallback 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;\n    will-change: transform, opacity;\n}\n\n@keyframes dx-intro-fallback {\n    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.92); }\n    30% { opacity: 1; transform: translate(-50%, -50%) scale(1); }\n    75% { opacity: 1; transform: translate(-50%, -50%) scale(1.04); }\n    100% { opacity: 0; transform: translate(-50%, -50%) scale(1.2); }\n}\n\n/* =====================================================================\n   8. DETAIL PAGE\n   ===================================================================== */\n\n#app [class*=\"metadetails-container\"] > [class*=\"background-image-layer\"] {\n    opacity: 1;\n}\n\n#app [class*=\"metadetails-container\"] > [class*=\"background-image-layer\"] img {\n    opacity: 1 !important;\n    filter: none !important;\n    object-fit: cover;\n    object-position: center 20%;\n    animation: dx-fade 0.9s var(--dx-ease) both;\n}\n\n#app [class*=\"metadetails-container\"] > [class*=\"background-image-layer\"]::after {\n    content: \"\";\n    position: absolute;\n    inset: 0;\n    background:\n        linear-gradient(90deg, rgba(11, 11, 13, 0.94) 0%, rgba(11, 11, 13, 0.7) 32%, rgba(11, 11, 13, 0.12) 60%, rgba(11, 11, 13, 0.35) 100%),\n        linear-gradient(0deg, rgba(11, 11, 13, 0.9) 0%, transparent 38%),\n        linear-gradient(180deg, rgba(0, 0, 0, 0.5) 0%, transparent 18%);\n}\n\n#app [class*=\"metadetails-container\"] > nav[class*=\"horizontal-nav-bar\"] {\n    height: var(--dx-nav-h);\n    padding: 0 var(--dx-gutter) 0 calc(var(--dx-gutter) - 0.6rem);\n    background: transparent;\n}\n\n#app [class*=\"metadetails-container\"] > nav [class*=\"back-button-container\"],\n#app [class*=\"player-container\"] nav [class*=\"back-button-container\"] {\n    height: 2.5rem;\n    width: 2.5rem;\n    margin: 0;\n    border-radius: 50%;\n    background: rgba(0, 0, 0, 0.45);\n    backdrop-filter: blur(8px);\n    transition: background-color 0.2s, transform 0.2s;\n}\n\n#app [class*=\"metadetails-container\"] > nav [class*=\"back-button-container\"]:hover,\n#app [class*=\"player-container\"] nav [class*=\"back-button-container\"]:hover,\n#app [class*=\"metadetails-container\"] > nav [class*=\"back-button-container\"]:focus-visible,\n#app [class*=\"player-container\"] nav [class*=\"back-button-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.16);\n    transform: translateX(-2px);\n}\n\n#app [class*=\"metadetails-content\"] {\n    padding-left: var(--dx-gutter);\n}\n\n#app [class*=\"metadetails-content\"] > [class*=\"meta-preview-container\"] {\n    padding-top: 1rem;\n    padding-bottom: 8vh;\n    justify-content: flex-end;\n}\n\n#app [class*=\"metadetails-content\"] > [class*=\"meta-preview-container\"] > [class*=\"meta-info-container\"] {\n    flex: 0 1 auto;\n}\n\n#app [class*=\"metadetails-content\"] > [class*=\"meta-preview-container\"] > [class*=\"action-buttons-container\"] {\n    margin-top: 1.75rem;\n}\n\n/* Meta preview (detail + discover side panel) */\n#app [class*=\"meta-preview-container\"] [class*=\"meta-info-container\"] {\n    padding-right: 1rem;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"logo\"] {\n    filter: drop-shadow(0 6px 24px rgba(0, 0, 0, 0.6));\n    animation: dx-rise 0.6s var(--dx-ease-out) both;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"logo-placeholder\"] {\n    font-size: clamp(2rem, 3.4vw, 3.4rem);\n    font-weight: 800;\n    letter-spacing: -0.02em;\n    line-height: 1.05;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"runtime-release-info-container\"] {\n    gap: 1.1rem;\n    flex-wrap: wrap;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"runtime-label\"],\n#app [class*=\"meta-preview-container\"] [class*=\"release-info-label\"] {\n    font-size: 1rem;\n    font-weight: 600;\n    color: var(--dx-text-2);\n    margin: 0;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"imdb-button-container\"] {\n    height: 1.9rem;\n    padding: 0 0.6rem;\n    gap: 0.45rem;\n    border-radius: var(--dx-radius-s);\n    background: rgba(245, 197, 24, 0.12);\n    border: 1px solid rgba(245, 197, 24, 0.35);\n    transition: background-color 0.2s;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"imdb-button-container\"]:hover,\n#app [class*=\"meta-preview-container\"] [class*=\"imdb-button-container\"]:focus-visible {\n    background: rgba(245, 197, 24, 0.22);\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"imdb-button-container\"] [class*=\"label\"] {\n    font-weight: 800;\n    color: #fff;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"imdb-button-container\"] svg {\n    color: #f5c518;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"meta-links-container\"] [class*=\"label-container\"] {\n    font-size: 0.72rem;\n    font-weight: 700;\n    letter-spacing: 0.14em;\n    text-transform: uppercase;\n    color: var(--dx-text-3);\n    opacity: 1;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"link-container\"] {\n    display: inline-flex !important;\n    align-items: center;\n    justify-content: center;\n    height: 2rem;\n    /* optical centring: the font reserves descender space below, so nudge capitals down */\n    padding: 0.15em 0.85rem 0 !important;\n    line-height: 1 !important;\n    vertical-align: middle;\n    border-radius: 999px;\n    background: rgba(255, 255, 255, 0.07);\n    border: 1px solid var(--dx-line);\n    font-size: 0.85rem;\n    font-weight: 500;\n    color: var(--dx-text);\n    transition: background-color 0.2s, border-color 0.2s;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"link-container\"]:hover,\n#app [class*=\"meta-preview-container\"] [class*=\"link-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.14);\n    border-color: var(--dx-line-strong);\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"description-container\"] {\n    font-size: 1.02rem;\n    line-height: 1.6;\n    color: rgba(255, 255, 255, 0.86);\n    max-width: 48rem;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"description-container\"] [class*=\"label-container\"] {\n    display: none;\n}\n\n/* Action buttons: first (Play/Trailer) is a solid button, the rest are round */\n#app [class*=\"meta-preview-container\"] [class*=\"action-buttons-container\"] {\n    gap: 0.6rem;\n    align-items: center;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"action-button-container\"],\n#app [class*=\"meta-preview-container\"] [class*=\"group-container\"] {\n    height: 3rem;\n    min-width: 3rem;\n    border-radius: 999px;\n    background: rgba(42, 42, 48, 0.65);\n    border: 1.5px solid rgba(255, 255, 255, 0.28);\n    backdrop-filter: blur(10px);\n    transition: background-color 0.2s, border-color 0.2s, transform 0.2s var(--dx-ease-out);\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"action-button-container\"]:hover,\n#app [class*=\"meta-preview-container\"] [class*=\"action-button-container\"]:focus-visible {\n    border-color: #fff;\n    background: rgba(255, 255, 255, 0.12);\n    transform: translateY(-1px);\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"group-container\"] [class*=\"icon-container\"] {\n    border-radius: 999px;\n    transition: background-color 0.2s;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"group-container\"] [class*=\"icon-container\"]:hover,\n#app [class*=\"meta-preview-container\"] [class*=\"group-container\"] [class*=\"icon-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.12);\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"action-button-container\"][class*=\"wide\"] {\n    padding: 0 1.5rem 0 1.15rem;\n    border-radius: var(--dx-radius);\n    background: #fff;\n    border-color: #fff;\n    color: #000;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"action-button-container\"][class*=\"wide\"] * {\n    color: #000 !important;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"action-button-container\"][class*=\"wide\"] [class*=\"label\"] {\n    font-weight: 700;\n    font-size: 1rem;\n}\n\n#app [class*=\"meta-preview-container\"] [class*=\"action-button-container\"][class*=\"wide\"]:hover,\n#app [class*=\"meta-preview-container\"] [class*=\"action-button-container\"][class*=\"wide\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.84);\n}\n\n/* Episodes / streams panel */\n#app [class*=\"metadetails-content\"] [class*=\"videos-list-container\"],\n#app [class*=\"metadetails-content\"] [class*=\"streams-list-container\"] {\n    flex: 0 0 clamp(28rem, 31vw, 42rem) !important;\n    width: clamp(28rem, 31vw, 42rem);\n    margin: 0.75rem var(--dx-gutter) 1.5rem 0;\n    border-radius: var(--dx-radius-l);\n    background: rgba(19, 19, 23, 0.82);\n    border: 1px solid var(--dx-line);\n    backdrop-filter: blur(24px) saturate(140%);\n    box-shadow: var(--dx-shadow-2);\n    animation: dx-slide-in 0.5s var(--dx-ease-out) both;\n}\n\n@keyframes dx-slide-in {\n    from { opacity: 0; transform: translateX(24px); }\n    to { opacity: 1; transform: none; }\n}\n\n#app [class*=\"seasons-bar-container\"] {\n    padding: 0.5rem 0.75rem;\n    border-bottom: 1px solid var(--dx-line);\n}\n\n#app [class*=\"seasons-bar-container\"] [class*=\"button-container\"] {\n    border-radius: var(--dx-radius);\n}\n\n#app [class*=\"seasons-bar-container\"] [class*=\"button-container\"]:hover,\n#app [class*=\"seasons-bar-container\"] [class*=\"button-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.07);\n}\n\n#app [class*=\"seasons-popup-label-container\"] [class*=\"button-container\"] {\n    background: rgba(255, 255, 255, 0.07);\n    border: 1px solid var(--dx-line);\n    font-weight: 700;\n}\n\n#app [class*=\"videos-list-container\"] [class*=\"search-bar-container\"] {\n    margin: 0.75rem;\n    border-radius: var(--dx-radius);\n    background: rgba(255, 255, 255, 0.05);\n    border: 1px solid var(--dx-line);\n}\n\n#app [class*=\"video-container\"] {\n    margin: 0 0.5rem;\n    border-radius: var(--dx-radius);\n    transition: background-color 0.2s;\n}\n\n#app [class*=\"video-container\"]:hover,\n#app [class*=\"video-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.06);\n}\n\n#app [class*=\"video-container\"][class*=\"selected\"] {\n    background: rgba(255, 255, 255, 0.09);\n    box-shadow: inset 3px 0 0 var(--dx-accent);\n}\n\n#app [class*=\"video-container\"] [class*=\"thumbnail-container\"] {\n    border-radius: var(--dx-radius-s);\n    overflow: hidden;\n}\n\n#app [class*=\"video-container\"] [class*=\"title-container\"] {\n    font-weight: 600;\n    color: var(--dx-text);\n}\n\n#app [class*=\"video-container\"] [class*=\"released-container\"] {\n    color: var(--dx-text-3);\n}\n\n#app [class*=\"video-container\"] [class*=\"upcoming-watched-container\"] > * {\n    border-radius: var(--dx-radius-s);\n}\n\n#app [class*=\"video-container\"] [class*=\"watched-container\"] {\n    background: rgba(70, 211, 105, 0.15);\n    color: #46d369;\n}\n\n/* Blur unwatched episodes (Settings → Browsing & library): the picture of an episode that's neither\n   watched nor started. (\"upcoming-watched-container\" holds both marks, so it doesn't count.) */\nbody.dx-blur-unwatched [class*=\"videos-list\"] [class*=\"video-container\"]:not(:has([class*=\"watched-container\"]:not([class*=\"upcoming-watched\"]), [class*=\"progress-bar\"])) [class*=\"thumbnail-container\"] img {\n    filter: blur(14px) brightness(0.8);\n    transform: scale(1.15);\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"select-choices-wrapper\"] {\n    padding: 0.5rem 0.75rem;\n    border-bottom: 1px solid var(--dx-line);\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"stream-container\"] {\n    margin: 0.2rem 0.5rem;\n    border-radius: var(--dx-radius);\n    transition: background-color 0.2s, transform 0.2s var(--dx-ease-out);\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"stream-container\"]:hover,\n#app [class*=\"streams-list-container\"] [class*=\"stream-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.07);\n    transform: translateX(3px);\n}\n\n/* A stream's right-click menu lives inside its card: lift that card above the ones after it,\n   otherwise they paint over the menu */\n#app [class*=\"streams-list-container\"] [class*=\"stream-container\"]:has([class*=\"menu-container\"]) {\n    position: relative;\n    z-index: 40;\n    transform: none;\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"stream-container\"] [class*=\"menu-container\"] {\n    z-index: 41;\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"streams-container\"] > [class*=\"stream-container\"] {\n    align-self: stretch;\n    width: auto !important;\n    padding: 0.8rem 1rem;\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"stream-container\"] [class*=\"info-container\"] {\n    width: 8.5rem;\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"stream-container\"] [class*=\"description-container\"] {\n    max-width: none !important;\n    flex: 1 1 0 !important;\n    white-space: pre-wrap !important;\n    overflow-wrap: anywhere;\n    max-height: none !important;\n    font-size: 0.85rem;\n    line-height: 1.45;\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"addon-name\"] {\n    font-weight: 700;\n    color: var(--dx-text);\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"description-container\"] {\n    color: var(--dx-text-2);\n}\n\n/* =====================================================================\n   9. DISCOVER / LIBRARY / SEARCH / CALENDAR\n   ===================================================================== */\n\n#app [class*=\"discover-content\"],\n#app [class*=\"library-content\"],\n#app [class*=\"search-content\"] {\n    padding-top: 0.75rem;\n}\n\n#app [class*=\"search-content\"] {\n    padding-left: 0 !important;\n    padding-right: 0 !important;\n}\n\n#app [class*=\"discover-content\"] [class*=\"catalog-container\"] {\n    padding-left: calc(var(--dx-gutter) - 0.35rem);\n}\n\n#app [class*=\"library-content\"] {\n    padding-left: calc(var(--dx-gutter) - 0.35rem);\n    padding-right: calc(var(--dx-gutter) - 0.35rem);\n}\n\n#app [class*=\"selectable-inputs-container\"] {\n    gap: 0.6rem;\n    padding: 0 0.35rem 0.75rem;\n}\n\n/* Dropdowns / filters / chips */\n#app [class*=\"multiselect-menu\"] > [class*=\"button-container\"],\n#app [class*=\"select-input\"] > [class*=\"button-container\"],\n#app [class*=\"filter-button\"],\n#app [class*=\"selectable-inputs\"] [class*=\"button-container\"] {\n    height: 2.5rem;\n    border-radius: var(--dx-radius);\n    background: var(--dx-surface);\n    border: 1px solid var(--dx-line);\n    transition: background-color 0.2s, border-color 0.2s;\n}\n\n#app [class*=\"multiselect-menu\"] > [class*=\"button-container\"]:hover,\n#app [class*=\"filter-button\"]:hover,\n#app [class*=\"multiselect-menu\"] > [class*=\"button-container\"]:focus-visible,\n#app [class*=\"filter-button\"]:focus-visible {\n    background: var(--dx-surface-2);\n    border-color: var(--dx-line-strong);\n}\n\n#app [class*=\"multiselect-menu\"] [class*=\"text\"] {\n    font-size: 0.9rem;\n    font-weight: 600;\n}\n\n#app [class*=\"chips\"] [class*=\"chip\"] {\n    height: 2.2rem;\n    padding: 0 1rem;\n    border-radius: 999px;\n    background: var(--dx-surface);\n    border: 1px solid var(--dx-line);\n    font-size: 0.85rem;\n    font-weight: 600;\n    color: var(--dx-text-2);\n    transition: background-color 0.2s, color 0.2s, border-color 0.2s;\n}\n\n#app [class*=\"chips\"] [class*=\"chip\"]:hover,\n#app [class*=\"chips\"] [class*=\"chip\"]:focus-visible {\n    color: var(--dx-text);\n    border-color: var(--dx-line-strong);\n}\n\n#app [class*=\"chips\"] [class*=\"chip\"][class*=\"active\"] {\n    background: #fff;\n    border-color: #fff;\n    color: #000;\n}\n\n/* Grids */\n#app [class*=\"discover-content\"] [class*=\"meta-items-container\"],\n#app [class*=\"library-content\"] [class*=\"meta-items-container\"] {\n    grid-template-columns: repeat(auto-fill, minmax(clamp(9.5rem, 11vw, 13rem), 1fr)) !important;\n    gap: 0.35rem 0;\n    padding-bottom: 3rem;\n}\n\n/* Discover side preview */\n#app [class*=\"discover-content\"] > [class*=\"meta-preview-container\"] {\n    margin: 0 var(--dx-gutter) 1.25rem 0.75rem;\n    border-radius: var(--dx-radius-l);\n    background: var(--dx-bg-raised);\n    border: 1px solid var(--dx-line);\n    overflow: hidden;\n    box-shadow: var(--dx-shadow-2);\n}\n\n#app [class*=\"discover-content\"] > [class*=\"meta-preview-container\"] [class*=\"background-image-layer\"] img {\n    opacity: 0.55;\n    filter: none;\n}\n\n#app [class*=\"discover-content\"] > [class*=\"meta-preview-container\"] [class*=\"background-image-layer\"]::after {\n    content: \"\";\n    position: absolute;\n    inset: 0;\n    background: linear-gradient(0deg, var(--dx-bg-raised) 20%, rgba(19, 19, 23, 0.55) 60%, rgba(19, 19, 23, 0.3) 100%);\n}\n\n/* Empty / message states */\n#app [class*=\"message-container\"],\n#app [class*=\"placeholder-label\"] {\n    color: var(--dx-text-3);\n}\n\n/* Calendar */\n#app [class*=\"calendar\"] [class*=\"selector\"] {\n    gap: 1rem;\n}\n\n#app [class*=\"calendar\"] [class*=\"selector\"] [class*=\"button-container\"] {\n    border-radius: var(--dx-radius);\n    background: var(--dx-surface);\n    border: 1px solid var(--dx-line);\n}\n\n#app [class*=\"calendar\"] [class*=\"cell\"] {\n    border-radius: var(--dx-radius);\n    background: var(--dx-bg-raised);\n    border: 1px solid var(--dx-line);\n    transition: background-color 0.2s, border-color 0.2s;\n}\n\n#app [class*=\"calendar\"] [class*=\"cell\"]:hover,\n#app [class*=\"calendar\"] [class*=\"cell\"]:focus-visible {\n    background: var(--dx-surface);\n    border-color: var(--dx-line-strong);\n}\n\n#app [class*=\"calendar\"] [class*=\"cell\"][class*=\"today\"] {\n    border-color: var(--dx-accent);\n    box-shadow: inset 0 0 0 1px var(--dx-accent);\n}\n\n#app [class*=\"calendar\"] [class*=\"cell\"][class*=\"today\"] [class*=\"day\"] {\n    color: #fff;\n    font-weight: 800;\n}\n\n#app [class*=\"calendar\"] [class*=\"list-\"] [class*=\"item-\"] {\n    border-radius: var(--dx-radius);\n}\n\n#app [class*=\"calendar\"] [class*=\"episode-\"] {\n    border-radius: var(--dx-radius);\n    transition: background-color 0.2s;\n}\n\n#app [class*=\"calendar\"] [class*=\"episode-\"]:hover,\n#app [class*=\"calendar\"] [class*=\"episode-\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.06);\n}\n\n#app [class*=\"calendar\"] [class*=\"artwork-container\"] {\n    border-radius: var(--dx-radius-s);\n    overflow: hidden;\n}\n\n/* =====================================================================\n   10. ADDONS + SETTINGS\n   ===================================================================== */\n\n#app [class*=\"addons-content\"] {\n    padding: 0.75rem calc(var(--dx-gutter) - 0.35rem) 0;\n}\n\n#app [class*=\"addons-content\"] [class*=\"add-button-container\"] {\n    height: 2.5rem;\n    padding: 0 1.1rem;\n    border-radius: var(--dx-radius);\n    background: var(--dx-accent);\n    transition: background-color 0.2s;\n    color: var(--dx-on-accent) !important;\n}\n\n#app [class*=\"addons-content\"] [class*=\"add-button-container\"]:hover,\n#app [class*=\"addons-content\"] [class*=\"add-button-container\"]:focus-visible {\n    background: var(--dx-accent-hover);\n}\n\n#app [class*=\"addons-content\"] [class*=\"add-button-container\"] * {\n    color: #fff !important;\n    font-weight: 700;\n}\n\n#app [class*=\"addons-content\"] label[class*=\"search-bar-container\"] {\n    height: 2.5rem;\n    border-radius: var(--dx-radius);\n    background: var(--dx-surface);\n    border: 1px solid var(--dx-line);\n}\n\n#app [class*=\"addons-list-container\"] {\n    gap: 0.75rem;\n    padding-bottom: 2rem;\n}\n\n#app [class*=\"addons-list-container\"] [class*=\"addon-container\"] {\n    margin: 0 0 0.75rem 0;\n    padding: 1.1rem 1.25rem;\n    border-radius: var(--dx-radius-l);\n    background: var(--dx-bg-raised);\n    border: 1px solid var(--dx-line);\n    transition: background-color 0.25s, border-color 0.25s, transform 0.25s var(--dx-ease-out);\n}\n\n#app [class*=\"addons-list-container\"] [class*=\"addon-container\"]:hover,\n#app [class*=\"addons-list-container\"] [class*=\"addon-container\"]:focus-visible {\n    background: var(--dx-surface);\n    border-color: var(--dx-line-strong);\n}\n\n#app [class*=\"addon-container\"] [class*=\"logo-container\"] {\n    border-radius: var(--dx-radius);\n    background: var(--dx-surface-2);\n    overflow: hidden;\n}\n\n#app [class*=\"addon-container\"] [class*=\"name-container\"] {\n    font-weight: 700;\n}\n\n#app [class*=\"addon-container\"] [class*=\"version-container\"],\n#app [class*=\"addon-container\"] [class*=\"types-container\"] {\n    color: var(--dx-text-3);\n}\n\n#app [class*=\"addon-container\"] [class*=\"description-container\"] {\n    color: var(--dx-text-2);\n}\n\n/* Install / uninstall / configure / share */\n#app [class*=\"add-button-container\"] *,\n#app [class*=\"install-button-container\"] *,\n#app [class*=\"configure-button-container\"] * {\n    color: var(--dx-on-accent) !important;\n    fill: var(--dx-on-accent) !important;\n}\n\n#app [class*=\"install-button-container\"],\n#app [class*=\"configure-button-container\"] {\n    border-radius: var(--dx-radius) !important;\n    background: var(--dx-accent) !important;\n    border: 0 !important;\n    transition: background-color 0.2s, opacity 0.2s;\n    color: var(--dx-on-accent) !important;\n}\n\n#app [class*=\"install-button-container\"]:hover,\n#app [class*=\"configure-button-container\"]:hover,\n#app [class*=\"install-button-container\"]:focus-visible,\n#app [class*=\"configure-button-container\"]:focus-visible {\n    background: var(--dx-accent-hover) !important;\n}\n\n#app [class*=\"install-button-container\"] *,\n#app [class*=\"configure-button-container\"] * {\n    color: #fff !important;\n}\n\n#app [class*=\"uninstall-button-container\"],\n#app [class*=\"share-button-container\"] {\n    border-radius: var(--dx-radius) !important;\n    background: var(--dx-surface-2) !important;\n    border: 1px solid var(--dx-line) !important;\n    outline: none !important;\n}\n\n#app [class*=\"uninstall-button-container\"]:hover,\n#app [class*=\"share-button-container\"]:hover,\n#app [class*=\"uninstall-button-container\"]:focus-visible,\n#app [class*=\"share-button-container\"]:focus-visible {\n    background: var(--dx-surface-3) !important;\n}\n\n#app [class*=\"uninstall-button-container\"] *,\n#app [class*=\"share-button-container\"] * {\n    color: var(--dx-text) !important;\n}\n\n/* Settings */\n#app [class*=\"settings-content\"] {\n    padding: 0.75rem var(--dx-gutter) 0;\n    gap: 2rem;\n}\n\n#app [class*=\"settings-content\"] > [class*=\"menu-\"] {\n    padding: 0.5rem;\n    border-radius: var(--dx-radius-l);\n    background: var(--dx-bg-raised);\n    border: 1px solid var(--dx-line);\n    height: fit-content;\n    max-height: 100%;\n}\n\n#app [class*=\"settings-content\"] > [class*=\"menu-\"] > [class*=\"button\"],\n#app [class*=\"settings-content\"] > [class*=\"menu-\"] > div > [class*=\"button\"] {\n    height: 2.75rem;\n    margin: 0.1rem 0;\n    padding: 0 1rem;\n    border-radius: var(--dx-radius);\n    font-weight: 600;\n    color: var(--dx-text-2);\n    opacity: 1;\n    transition: background-color 0.2s, color 0.2s;\n}\n\n#app [class*=\"settings-content\"] > [class*=\"menu-\"] [class*=\"button\"]:hover,\n#app [class*=\"settings-content\"] > [class*=\"menu-\"] [class*=\"button\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.06);\n    color: var(--dx-text);\n}\n\n#app [class*=\"settings-content\"] > [class*=\"menu-\"] [class*=\"button\"][class*=\"selected\"] {\n    background: rgba(255, 255, 255, 0.1);\n    color: #fff;\n    box-shadow: inset 3px 0 0 var(--dx-accent);\n}\n\n#app [class*=\"settings-content\"] [class*=\"section-\"] {\n    border-bottom: 1px solid var(--dx-line);\n}\n\n#app [class*=\"settings-content\"] [class*=\"heading-\"] {\n    font-weight: 700;\n}\n\n#app [class*=\"settings-content\"] [class*=\"option-\"] [class*=\"content-\"] [class*=\"button-container\"],\n#app [class*=\"settings-content\"] [class*=\"multiselect-menu\"] > [class*=\"button-container\"] {\n    border-radius: var(--dx-radius);\n}\n\n#app [class*=\"settings-content\"] [class*=\"user-info-content\"] [class*=\"avatar\"],\n#app [class*=\"settings-content\"] [class*=\"user-info-content\"] img {\n    border-radius: var(--dx-radius) !important;\n}\n\n/* Toggles and checkboxes */\n#app [class*=\"toggle-container\"] [class*=\"toggle\"] {\n    background: var(--dx-surface-3);\n}\n\n#app [class*=\"toggle-container\"].checked [class*=\"toggle\"],\n#app .checked > [class*=\"toggle\"] {\n    background: var(--dx-accent) !important;\n}\n\n#app [class*=\"checkbox-container\"].checked [class*=\"checkbox\"],\n#app [class*=\"checkbox\"].checked {\n    background: var(--dx-accent) !important;\n    border-color: var(--dx-accent) !important;\n}\n\n/* Keyboard: a selected switch or choice glows softly and grows a touch (they have no hover look\n   to borrow) */\n#app [class*=\"toggle-container\"]:focus-visible,\n#app [class*=\"radio-container\"]:focus-visible,\n#app [class*=\"checkbox-container\"]:focus-visible {\n    filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.5));\n    transform: scale(1.08);\n    transition: transform 0.2s var(--dx-ease-out), filter 0.2s;\n}\n\n/* Text inputs */\n#app input[class*=\"text-input\"],\n#app [class*=\"text-input\"] input {\n    border-radius: var(--dx-radius);\n}\n\n/* =====================================================================\n   11. POPUPS, MENUS, MODALS, TOASTS, TOOLTIPS\n   ===================================================================== */\n\n#app [class*=\"menu-container\"][class*=\"menu-direction\"]:not([class*=\"context-menu\"]),\n#app [class*=\"nav-menu-container\"] {\n    border-radius: var(--dx-radius-l) !important;\n    background: rgba(22, 22, 27, 0.97) !important;\n    border: 1px solid var(--dx-line-strong) !important;\n    box-shadow: var(--dx-shadow-2) !important;\n    backdrop-filter: blur(20px);\n    overflow: hidden;\n}\n\n/* Animate the menu's content, never the container: other plugins hide containers with inline opacity */\n#app [class*=\"menu-container\"][class*=\"menu-direction\"] > * {\n    animation: dx-pop 0.18s var(--dx-ease-out) both;\n}\n\n@keyframes dx-pop {\n    from { opacity: 0; transform: translateY(-4px) scale(0.98); }\n    to { opacity: 1; transform: none; }\n}\n\n#app [class*=\"nav-menu-container\"] [class*=\"nav-menu-option-container\"],\n#app [class*=\"menu-container\"] [class*=\"option-container\"] {\n    border-radius: var(--dx-radius);\n    transition: background-color 0.15s;\n}\n\n#app [class*=\"nav-menu-container\"] [class*=\"nav-menu-option-container\"]:hover,\n#app [class*=\"menu-container\"] [class*=\"option-container\"]:hover,\n#app [class*=\"nav-menu-container\"] [class*=\"nav-menu-option-container\"]:focus-visible,\n#app [class*=\"menu-container\"] [class*=\"option-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.08) !important;\n}\n\n#app [class*=\"menu-container\"] [class*=\"option-container\"][class*=\"selected\"] {\n    background: rgba(255, 255, 255, 0.1) !important;\n}\n\n#app [class*=\"nav-menu-container\"] [class*=\"nav-menu-section\"] {\n    border-color: var(--dx-line) !important;\n}\n\n#app [class*=\"modal-container\"] {\n    background: rgba(0, 0, 0, 0.7);\n    backdrop-filter: blur(6px);\n    animation: dx-fade 0.2s both;\n}\n\n#app [class*=\"modal-dialog-container\"] {\n    border-radius: var(--dx-radius-l) !important;\n    background: var(--dx-surface) !important;\n    border: 1px solid var(--dx-line) !important;\n    box-shadow: var(--dx-shadow-2) !important;\n}\n\n/* The content sits inside the dialog: one card only, not a second inset one */\n#app [class*=\"modal-dialog-container\"] [class*=\"modal-dialog-content\"] {\n    border-radius: 0 !important;\n    background: transparent !important;\n    border: 0 !important;\n    box-shadow: none !important;\n}\n\n#app [class*=\"modal-dialog-container\"] {\n    animation: dx-pop 0.25s var(--dx-ease-out) both;\n}\n\n#app [class*=\"modal-dialog-container\"] [class*=\"action-button\"],\n#app [class*=\"modal-dialog-container\"] [class*=\"button-container\"][class*=\"action\"] {\n    border-radius: var(--dx-radius) !important;\n}\n\n#app [class*=\"toasts-container\"] [class*=\"toast-item-container\"] {\n    border-radius: var(--dx-radius) !important;\n    background: var(--dx-surface-2) !important;\n    border: 1px solid var(--dx-line) !important;\n    border-left: 3px solid var(--dx-accent) !important;\n    box-shadow: var(--dx-shadow-2) !important;\n    animation: dx-slide-in 0.35s var(--dx-ease-out) both;\n}\n\n#app [class*=\"toasts-container\"] [class*=\"toast-item-container\"][class*=\"success\"] {\n    border-left-color: #46d369 !important;\n}\n\n#app [class*=\"toasts-container\"] [class*=\"toast-item-container\"][class*=\"error\"] {\n    border-left-color: #ff5a5f !important;\n}\n\n#app [class*=\"tooltip-container\"] {\n    border-radius: var(--dx-radius-s) !important;\n    background: #fff !important;\n    color: #000 !important;\n    font-weight: 600;\n    font-size: 0.8rem;\n}\n\n/* =====================================================================\n   12. PLAYER — Netflix-style controls and panels\n   ===================================================================== */\n\n/* Top bar: just a large back arrow (title moves to the bottom when the plugin is on) */\n#app [class*=\"player-container\"] [class*=\"nav-bar-layer\"] {\n    background: linear-gradient(180deg, rgba(0, 0, 0, 0.7) 0%, transparent 100%) !important;\n    height: 7rem;\n}\n\n#app [class*=\"player-container\"] [class*=\"player-nav\"] {\n    padding: 1.5rem var(--dx-gutter) 0 calc(var(--dx-gutter) - 0.75rem) !important;\n    align-items: center;\n}\n\n#app [class*=\"player-container\"] [class*=\"player-nav\"] [class*=\"player-button\"] {\n    width: 3.25rem;\n    height: 3.25rem;\n    border-radius: 50%;\n    background: transparent !important;\n    transition: transform 0.2s var(--dx-ease-out);\n}\n\n#app [class*=\"player-container\"] [class*=\"player-nav\"] [class*=\"player-button\"]:hover,\n#app [class*=\"player-container\"] [class*=\"player-nav\"] [class*=\"player-button\"]:focus-visible {\n    transform: scale(1.15);\n}\n\n/* Some Windows installs drew the back arrow unsized: a black chevron across the whole video that\n   sent every click back to the streams list. Keep top-bar icons small and click-through always. */\n#app [class*=\"player-container\"] [class*=\"nav-bar-layer\"] svg {\n    max-width: 3rem !important;\n    max-height: 3rem !important;\n    pointer-events: none !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"player-nav\"] [class*=\"player-button\"] svg {\n    width: 2.1rem;\n    height: 2.1rem;\n    color: #fff;\n}\n\n#app [class*=\"player-container\"] [class*=\"player-title\"] {\n    font-size: 1.15rem;\n    font-weight: 600;\n    color: var(--dx-text-2);\n}\n\nbody[data-dx-ptitle] #app [class*=\"player-container\"] [class*=\"player-title-container\"] {\n    visibility: hidden;\n}\n\n/* Bottom bar */\n#app [class*=\"player-container\"] [class*=\"control-bar-layer\"] {\n    padding: 5rem var(--dx-gutter) 1.4rem !important;\n    background: linear-gradient(0deg, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.5) 45%, transparent 100%) !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-layer\"] [class*=\"seek-bar-container\"] {\n    height: 2.25rem;\n    gap: 1rem;\n}\n\n#app [class*=\"player-container\"] [class*=\"seek-bar-container\"] [class*=\"label\"] {\n    font-size: 0.95rem;\n    font-weight: 600;\n    font-variant-numeric: tabular-nums;\n    color: var(--dx-text);\n    opacity: 1;\n}\n\n#app [class*=\"player-container\"] [class*=\"seek-bar-container\"] > [class*=\"button-container\"] {\n    background: transparent !important;\n    padding: 0 0.25rem;\n}\n\n#app [class*=\"slider-container\"] [class*=\"track\"] {\n    border-radius: 999px;\n    background: rgba(255, 255, 255, 0.25) !important;\n}\n\n#app [class*=\"slider-container\"] [class*=\"track-before\"] {\n    background: rgba(255, 255, 255, 0.45) !important;\n}\n\n#app [class*=\"slider-container\"] [class*=\"track-after\"] {\n    background: var(--dx-accent-gradient) !important;\n}\n\n#app [class*=\"slider-container\"] [class*=\"thumb\"] {\n    background: var(--dx-accent) !important;\n    box-shadow: none !important;\n    transition: transform 0.15s var(--dx-ease-out);\n    transform-origin: center;\n}\n\n#app [class*=\"player-container\"] [class*=\"seek-bar-container\"] [class*=\"slider-container\"] {\n    --track-size: calc(4px + 3px * var(--dx-seek-hot, 0));\n    --thumb-size: 16px;\n}\n\n#app [class*=\"player-container\"] [class*=\"seek-bar-container\"]:hover,\n#app [class*=\"player-container\"] [class*=\"seek-bar-container\"]:focus-visible {\n    --dx-seek-hot: 1;\n}\n\n/* Stremio centres the knob with translateX(-50%) — keep that, only add the scale */\n#app [class*=\"player-container\"] [class*=\"seek-bar-container\"] [class*=\"thumb\"] {\n    transform: translateX(-50%) scale(calc(1.15 * var(--dx-seek-hot, 0)));\n}\n\nhtml[class*=\"active-slider-within\"] #app [class*=\"player-container\"] [class*=\"seek-bar-container\"] [class*=\"thumb\"] {\n    transform: translateX(-50%) scale(1.15);\n}\n\n/* Button row */\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] {\n    position: relative;\n    gap: 0.35rem;\n    margin-top: 0.35rem;\n    border-radius: 0 !important;\n    background: transparent !important;\n    transform: none !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > * {\n    order: 3;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > [class*=\"control-bar-button-\"]:first-child {\n    order: 0;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > .dx-seek-back {\n    order: 1;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > .dx-seek-fwd {\n    order: 2;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-menu-container\"] {\n    gap: 0.35rem;\n    border-radius: 0 !important;\n    background: transparent !important;\n}\n\n/* Narrow windows: Stremio folds these buttons into a pop-up behind \"⋯\", which needs its panel */\n@media only screen and (max-width: 640px) {\n    #app [class*=\"player-container\"] [class*=\"control-bar-buttons-menu-container\"] {\n        background: rgb(22, 22, 27) !important;\n        border-radius: 12px !important;\n    }\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-button-\"],\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-menu-button\"],\n#app [class*=\"player-container\"] .dxp-player-btn,\n.dx-seek {\n    width: 3.5rem !important;\n    height: 3.5rem !important;\n    border-radius: 50% !important;\n    background: transparent !important;\n    transform: none !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-button-\"] svg,\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-menu-button\"] svg,\n#app [class*=\"player-container\"] .dxp-player-btn svg,\n.dx-seek svg {\n    width: 2.15rem !important;\n    height: 2.15rem !important;\n    color: #fff;\n    opacity: 1 !important;\n    transform: scale(var(--dx-btn-scale, 1));\n    transition: transform 0.18s var(--dx-ease-out);\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-button-\"]:hover:not(.disabled),\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-menu-button\"]:hover,\n.dx-seek:hover,\n#app [class*=\"player-container\"] [class*=\"control-bar-button-\"]:focus-visible,\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-menu-button\"]:focus-visible,\n#app [class*=\"player-container\"] .dxp-player-btn:hover,\n#app [class*=\"player-container\"] .dxp-player-btn:focus-visible,\n.dx-seek:focus-visible {\n    --dx-btn-scale: 1.22;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-button-\"].disabled svg {\n    opacity: 0.3 !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-button-\"].active svg,\n#app [class*=\"player-container\"] [class*=\"control-bar-button-\"][class*=\"active\"] svg {\n    color: #fff;\n    filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.5));\n}\n\n.dx-seek {\n    position: relative;\n    display: inline-flex;\n    align-items: center;\n    justify-content: center;\n    color: #fff;\n    cursor: pointer;\n}\n\n/* Volume: slider slides out when you point at the speaker */\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > [class*=\"volume-slider\"] {\n    flex: 0 0 0 !important;\n    width: 0;\n    margin: 0 !important;\n    opacity: 0;\n    --track-size: 4px;\n    --thumb-size: 14px;\n    transition: flex-basis 0.3s var(--dx-ease-out), opacity 0.2s, margin 0.3s;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-button-\"]:hover + [class*=\"volume-slider\"],\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > [class*=\"volume-slider\"]:hover,\nhtml[class*=\"active-slider-within\"] #app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > [class*=\"volume-slider\"],\n#app [class*=\"player-container\"] [class*=\"control-bar-button-\"]:focus-visible + [class*=\"volume-slider\"],\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > [class*=\"volume-slider\"]:focus-visible {\n    flex-basis: 8rem !important;\n    margin: 0 0.75rem 0 0.25rem !important;\n    opacity: 1;\n}\n\n/* Title in the bar (plugin): in the free space between the left and right buttons. It shortens\n   with \"…\" as the space shrinks (episode name first) and steps aside when there's no room left. */\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > [class*=\"spacing\"] {\n    min-width: 0;\n    display: flex;\n    align-items: center;\n    justify-content: center;\n    overflow: hidden;\n    container-type: inline-size;\n}\n\n.dx-player-title {\n    display: flex;\n    align-items: baseline;\n    justify-content: center;\n    gap: 0.6rem;\n    min-width: 0;\n    max-width: 100%;\n    padding: 0 1rem;\n    box-sizing: border-box;\n    white-space: nowrap;\n    pointer-events: none;\n}\n\n.dx-player-title b {\n    flex: 0 1 auto;\n    min-width: 0;\n    font-size: 1.2rem;\n    font-weight: 700;\n    color: #fff;\n    overflow: hidden;\n    text-overflow: ellipsis;\n}\n\n.dx-player-title span {\n    flex: 0 1000 auto;\n    min-width: 0;\n    font-size: 1.05rem;\n    font-weight: 500;\n    color: var(--dx-text-2);\n    overflow: hidden;\n    text-overflow: ellipsis;\n}\n\n@container (max-width: 180px) {\n    .dx-player-title {\n        display: none;\n    }\n}\n\n/* Play / pause / seek feedback in the centre */\n.dx-player-flash {\n    position: absolute;\n    z-index: 5;\n    left: 50%;\n    top: 50%;\n    width: 6rem;\n    height: 6rem;\n    margin: -3rem 0 0 -3rem;\n    display: flex;\n    align-items: center;\n    justify-content: center;\n    border-radius: 50%;\n    background: rgba(0, 0, 0, 0.45);\n    color: #fff;\n    pointer-events: none;\n    opacity: 0;\n}\n\n.dx-player-flash svg {\n    width: 2.8rem;\n    height: 2.8rem;\n}\n\n.dx-player-flash b {\n    position: absolute;\n    bottom: -2rem;\n    font-size: 1rem;\n    font-weight: 700;\n    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);\n}\n\n.dx-player-flash.is-on {\n    animation: dx-flash 0.65s var(--dx-ease-out) both;\n}\n\n@keyframes dx-flash {\n    0% { opacity: 0; transform: scale(0.6); }\n    25% { opacity: 1; transform: scale(1); }\n    100% { opacity: 0; transform: scale(1.35); }\n}\n\n/* ---------- Panels (subtitles, audio, speed, info, more) ---------- */\n\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] {\n    bottom: 7.5rem !important;\n    right: var(--dx-gutter) !important;\n    border-radius: 6px !important;\n    background: rgba(38, 38, 38, 0.97) !important;\n    border: 0 !important;\n    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6) !important;\n    backdrop-filter: none !important;\n    overflow: hidden;\n    /* Must stay a transition: Stremio unmounts menus on transitionend */\n    transition: opacity 0.18s ease, transform 0.24s var(--dx-ease-out) !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"menu-layer\"].fade-enter {\n    transform: translateY(10px);\n}\n\n#app [class*=\"player-container\"] [class*=\"menu-layer\"].fade-enter.fade-active {\n    transform: none;\n}\n\n#app [class*=\"player-container\"] [class*=\"menu-layer\"].fade-exit.fade-active {\n    transform: translateY(6px);\n}\n\n@keyframes dx-panel {\n    from { opacity: 0; transform: translateY(8px); }\n    to { opacity: 1; transform: none; }\n}\n\n/* Headings */\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"languages-header\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"variants-header\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"settings-header\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] > [class^=\"title-\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"speed-title\"] {\n    padding: 1.35rem 1.5rem 0.75rem !important;\n    font-size: 1.3rem !important;\n    font-weight: 700 !important;\n    color: #fff !important;\n    opacity: 1 !important;\n    text-align: left !important;\n}\n\n/* Subtitles: three columns separated by hairlines */\n#app [class*=\"subtitles-menu-container\"] {\n    min-width: 0;\n}\n\n#app [class*=\"subtitles-menu-container\"] [class*=\"languages-container\"] {\n    width: 15rem;\n}\n\n#app [class*=\"subtitles-menu-container\"] [class*=\"variants-container\"] {\n    width: 17rem;\n}\n\n#app [class*=\"subtitles-menu-container\"] [class*=\"subtitles-settings-container\"] {\n    width: 15rem;\n    padding: 0 !important;\n}\n\n/* Short, Netflix-style column titles */\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"subtitles-menu-container\"] [class*=\"languages-header\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"subtitles-menu-container\"] [class*=\"variants-header\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"subtitles-menu-container\"] [class*=\"settings-header\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"audio-menu-container\"] [class*=\"languages-header\"] {\n    font-size: 0 !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"subtitles-menu-container\"] [class*=\"languages-header\"]::after,\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"subtitles-menu-container\"] [class*=\"variants-header\"]::after,\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"subtitles-menu-container\"] [class*=\"settings-header\"]::after,\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"audio-menu-container\"] [class*=\"languages-header\"]::after {\n    font-size: 1.3rem;\n    font-weight: 700;\n}\n\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"subtitles-menu-container\"] [class*=\"languages-header\"]::after { content: \"Subtitles\"; }\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"subtitles-menu-container\"] [class*=\"variants-header\"]::after { content: \"Source\"; }\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"subtitles-menu-container\"] [class*=\"settings-header\"]::after { content: \"Adjust\"; }\n#app [class*=\"player-container\"] [class*=\"menu-layer\"][class*=\"audio-menu-container\"] [class*=\"languages-header\"]::after { content: \"Audio\"; }\n\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"languages-header\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"variants-header\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"settings-header\"] {\n    white-space: nowrap;\n    overflow: hidden;\n    text-overflow: ellipsis;\n}\n\n#app [class*=\"subtitles-settings-container\"] [class*=\"stepper\"] {\n    width: 100%;\n    padding: 0 !important;\n}\n\n#app [class*=\"subtitles-settings-container\"] [class*=\"stepper\"] [class*=\"content\"] {\n    width: 100%;\n    justify-content: space-between;\n}\n\n#app [class*=\"subtitles-settings-container\"] [class*=\"stepper\"] [class*=\"value\"] {\n    white-space: nowrap;\n}\n\n#app [class*=\"subtitles-menu-container\"] > * {\n    border-right: 1px solid rgba(255, 255, 255, 0.08);\n}\n\n#app [class*=\"subtitles-menu-container\"] > *:last-child {\n    border-right: 0;\n}\n\n/* Option rows with a tick on the selected one */\n#app [class*=\"player-container\"] [class*=\"language-option\"],\n#app [class*=\"player-container\"] [class*=\"variant-option\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"option-container\"] {\n    position: relative;\n    min-height: 3rem;\n    margin: 0 !important;\n    padding: 0.55rem 1.5rem 0.55rem 3rem !important;\n    border-radius: 0 !important;\n    background: transparent !important;\n    box-shadow: none !important;\n    transition: background-color 0.15s;\n}\n\n#app [class*=\"player-container\"] [class*=\"language-option\"]:hover,\n#app [class*=\"player-container\"] [class*=\"variant-option\"]:hover,\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"option-container\"]:hover,\n#app [class*=\"player-container\"] [class*=\"language-option\"]:focus-visible,\n#app [class*=\"player-container\"] [class*=\"variant-option\"]:focus-visible,\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"option-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.06) !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"language-label\"],\n#app [class*=\"player-container\"] [class*=\"variant-label\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"option-container\"] [class*=\"label\"] {\n    font-size: 1.08rem !important;\n    font-weight: 500 !important;\n    color: var(--dx-text-2) !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"variant-origin\"] {\n    font-size: 0.82rem;\n    color: var(--dx-text-3) !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"language-option\"].selected [class*=\"language-label\"],\n#app [class*=\"player-container\"] [class*=\"variant-option\"].selected [class*=\"variant-label\"],\n#app [class*=\"player-container\"] [class*=\"menu-layer\"] [class*=\"option-container\"].selected [class*=\"label\"] {\n    color: #fff !important;\n    font-weight: 700 !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"language-option\"].selected::before,\n#app [class*=\"player-container\"] [class*=\"variant-option\"].selected::before {\n    content: \"\";\n    position: absolute;\n    left: 1.2rem;\n    top: 50%;\n    width: 1.1rem;\n    height: 1.1rem;\n    margin-top: -0.55rem;\n    background: #fff;\n    -webkit-mask: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 12.5l5 5L20 6.5' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\") center / contain no-repeat;\n    mask: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 12.5l5 5L20 6.5' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\") center / contain no-repeat;\n}\n\n/* Stock \"selected\" dot is replaced by the tick */\n#app [class*=\"player-container\"] [class*=\"language-option\"] > [class*=\"icon\"],\n#app [class*=\"player-container\"] [class*=\"variant-option\"] > [class*=\"icon\"] {\n    display: none !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"languages-list\"],\n#app [class*=\"player-container\"] [class*=\"variants-list\"] {\n    padding-bottom: 0.75rem;\n}\n\n/* Delay / size / position steppers */\n#app [class*=\"subtitles-settings-container\"] [class*=\"settings-list\"] {\n    padding: 0 1.5rem 1.25rem;\n    gap: 0.9rem;\n}\n\n#app [class*=\"player-container\"] [class*=\"stepper\"] [class*=\"header\"] {\n    font-size: 0.85rem;\n    font-weight: 600;\n    color: var(--dx-text-3);\n    text-transform: uppercase;\n    letter-spacing: 0.08em;\n}\n\n#app [class*=\"player-container\"] [class*=\"stepper\"] [class*=\"content\"] {\n    height: 2.75rem;\n    border-radius: var(--dx-radius);\n    background: rgba(255, 255, 255, 0.07);\n}\n\n#app [class*=\"player-container\"] [class*=\"stepper\"] [class*=\"button\"] {\n    width: 2.75rem;\n    height: 2.75rem;\n    border-radius: var(--dx-radius);\n    background: transparent !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"stepper\"] [class*=\"button\"]:hover,\n#app [class*=\"player-container\"] [class*=\"stepper\"] [class*=\"button\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.1) !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"stepper\"] [class*=\"value\"] {\n    font-size: 1rem;\n    font-weight: 700;\n    font-variant-numeric: tabular-nums;\n}\n\n/* Playback speed: one line, dots, current speed highlighted */\n#app [class*=\"speed-menu-container\"] {\n    width: 36rem;\n}\n\n#app [class*=\"speed-menu-container\"] [class*=\"top-container\"] {\n    display: none !important;\n}\n\n#app [class*=\"speed-menu-container\"] [class*=\"options-container\"] {\n    position: relative;\n    display: flex !important;\n    justify-content: space-between;\n    padding: 1.25rem 1.5rem 1.6rem !important;\n    gap: 0 !important;\n}\n\n#app [class*=\"speed-menu-container\"] [class*=\"options-container\"]::before {\n    content: \"\";\n    position: absolute;\n    left: 2.75rem;\n    right: 2.75rem;\n    top: 2.05rem;\n    height: 2px;\n    background: rgba(255, 255, 255, 0.3);\n}\n\n#app [class*=\"speed-menu-container\"] [class*=\"speed-button\"] {\n    position: relative;\n    flex: 1 1 0;\n    display: flex;\n    flex-direction: column;\n    align-items: center;\n    gap: 0.9rem;\n    height: auto !important;\n    padding: 0 !important;\n    background: transparent !important;\n    border-radius: 0 !important;\n    font-size: 1rem;\n    font-weight: 500;\n    color: var(--dx-text-2);\n}\n\n#app [class*=\"speed-menu-container\"] [class*=\"speed-button\"]::before {\n    content: \"\";\n    order: -1;\n    width: 0.9rem;\n    height: 0.9rem;\n    margin: 0.35rem 0;\n    border-radius: 50%;\n    background: rgba(255, 255, 255, 0.55);\n    transition: transform 0.2s var(--dx-ease-out), background-color 0.2s;\n}\n\n#app [class*=\"speed-menu-container\"] [class*=\"speed-button\"]:hover::before,\n#app [class*=\"speed-menu-container\"] [class*=\"speed-button\"]:focus-visible::before {\n    transform: scale(1.3);\n    background: #fff;\n}\n\n#app [class*=\"speed-menu-container\"] [class*=\"speed-button\"][class*=\"active\"] {\n    color: #fff;\n    font-weight: 700;\n}\n\n#app [class*=\"speed-menu-container\"] [class*=\"speed-button\"][class*=\"active\"]::before {\n    transform: scale(1.75);\n    background: #fff;\n    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);\n}\n\n/* Stream info */\n#app [class*=\"statistics-menu-container\"] {\n    min-width: 24rem;\n    padding-bottom: 1rem;\n}\n\n#app [class*=\"statistics-menu-container\"] [class*=\"stats\"] {\n    padding: 0 1.5rem;\n    gap: 1.5rem;\n}\n\n#app [class*=\"statistics-menu-container\"] [class*=\"stat-\"] [class*=\"label\"],\n#app [class*=\"statistics-menu-container\"] [class*=\"detail\"] [class*=\"label\"] {\n    font-size: 0.78rem;\n    font-weight: 700;\n    letter-spacing: 0.08em;\n    text-transform: uppercase;\n    color: var(--dx-text-3);\n}\n\n#app [class*=\"statistics-menu-container\"] [class*=\"value\"] {\n    font-size: 1.15rem;\n    font-weight: 700;\n    color: #fff;\n}\n\n#app [class*=\"statistics-menu-container\"] [class*=\"detail\"] {\n    padding: 1rem 1.5rem 0;\n}\n\n#app [class*=\"statistics-menu-container\"] [class*=\"copyable-value\"] {\n    border-radius: var(--dx-radius);\n    background: rgba(255, 255, 255, 0.07) !important;\n}\n\n/* \"More\" options */\n#app [class*=\"options-menu-container\"] {\n    min-width: 17rem;\n    padding: 0.5rem 0;\n}\n\n#app [class*=\"options-menu-container\"] [class*=\"option-container\"] {\n    padding-left: 1.25rem !important;\n    gap: 0.9rem;\n}\n\n#app [class*=\"options-menu-container\"] [class*=\"option-container\"] svg {\n    width: 1.3rem;\n    height: 1.3rem;\n    color: var(--dx-text-2);\n}\n\n/* Episodes side drawer + its handle */\n#app [class*=\"player-container\"] [class*=\"side-drawer-button-layer\"] {\n    width: 2.5rem !important;\n    height: 6rem !important;\n    padding: 0 !important;\n    border-radius: 6px 0 0 6px !important;\n    background: rgba(38, 38, 38, 0.85) !important;\n    border: 0 !important;\n    box-shadow: none !important;\n    backdrop-filter: none !important;\n    transition: background-color 0.2s, width 0.2s;\n}\n\n#app [class*=\"player-container\"] [class*=\"side-drawer-button-layer\"]:hover,\n#app [class*=\"player-container\"] [class*=\"side-drawer-button-layer\"]:focus-visible {\n    width: 3rem !important;\n    background: rgba(60, 60, 60, 0.95) !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"side-drawer-layer\"] {\n    background: rgba(24, 24, 24, 0.97) !important;\n    border-left: 1px solid rgba(255, 255, 255, 0.06) !important;\n    border-radius: 0 !important;\n    box-shadow: -20px 0 60px rgba(0, 0, 0, 0.5) !important;\n    backdrop-filter: none !important;\n}\n\n/* Buffering: a spinner instead of Stremio's title logo (the layer only exists while buffering) */\n#app [class*=\"player-container\"] [class*=\"buffering-layer\"] img,\n#app [class*=\"player-container\"] [class*=\"buffering-layer\"] [class*=\"image\"] {\n    display: none !important;\n}\n\n#app [class*=\"player-container\"] [class*=\"buffering-layer\"] {\n    display: flex !important;\n    align-items: center;\n    justify-content: center;\n    pointer-events: none;\n}\n\n#app [class*=\"player-container\"] [class*=\"buffering-layer\"]::before {\n    content: \"\";\n    width: 4.2rem;\n    height: 4.2rem;\n    border-radius: 50%;\n    border: 3px solid rgba(255, 255, 255, 0.14);\n    border-top-color: var(--dx-accent);\n    filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.6));\n    animation: dx-spin 0.85s linear infinite;\n}\n\n@keyframes dx-spin {\n    to { transform: rotate(360deg); }\n}\n\n/* Up next */\n#app [class*=\"next-video-popup-container\"] {\n    right: var(--dx-gutter) !important;\n    bottom: 8rem !important;\n    border-radius: 6px !important;\n    background: rgba(38, 38, 38, 0.97) !important;\n    border: 0;\n    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);\n    overflow: hidden;\n    animation: dx-panel 0.3s var(--dx-ease-out) both;\n}\n\n#app [class*=\"next-video-popup-container\"] [class*=\"play-button\"] {\n    background: #fff !important;\n    border-radius: var(--dx-radius) !important;\n}\n\n#app [class*=\"next-video-popup-container\"] [class*=\"play-button\"] * {\n    color: #000 !important;\n}\n\n/* =====================================================================\n   13. STREMIO ENHANCED'S OWN UI (themes/plugins list, alerts)\n   ===================================================================== */\n\n#enhanced [class*=\"option-\"] {\n    border-radius: var(--dx-radius);\n}\n\n#enhanced .install-button-container-yfcq5,\n#enhanced .uninstall-button-container-oV4Yo,\n#enhanced [id$=\".theme.css\"],\n#enhanced [id=\"Default\"] {\n    border-radius: var(--dx-radius) !important;\n}\n\n.toast-container,\n#enhanced-alert-container,\n[class*=\"enhanced-alert\"] {\n    border-radius: var(--dx-radius-l) !important;\n}\n\n/* =====================================================================\n   14. ACCESSIBILITY\n   ===================================================================== */\n\n/* Keyboard focus looks the same as pointing with the mouse (every hover style above also answers\n   to :focus-visible), never a square outline drawn around things */\n:focus-visible {\n    outline: none !important;\n}\n\n@media (prefers-reduced-motion: reduce) {\n    *,\n    *::before,\n    *::after {\n        animation-duration: 0.01ms !important;\n        animation-iteration-count: 1 !important;\n        transition-duration: 0.01ms !important;\n    }\n}\n\n/* =====================================================================\n   15. REFINEMENTS\n   ===================================================================== */\n\n/* Stock hover tooltips sit in the middle of posters — the preview card replaces them.\n   The plugin flags the tooltip box itself while a poster is pointed at: a body:has(...:hover) rule\n   (or any class on <html>/<body>) made the browser restyle the whole page on every hover. */\n.tooltips-items-container[data-dx-hide] {\n    display: none !important;\n}\n\n\n/* Wide card when no backdrop exists: blurred poster + sharp poster */\n.dx-wide-art.is-fallback {\n    background: var(--dx-surface-2) !important;\n}\n\n.dx-wide-blur {\n    position: absolute;\n    inset: -20px;\n    background-size: cover;\n    background-position: center;\n    filter: blur(22px) brightness(0.55) saturate(1.2);\n}\n\n.dx-wide-thumb {\n    position: absolute;\n    top: 0;\n    right: 0;\n    height: 100%;\n    aspect-ratio: 2 / 3;\n    object-fit: cover;\n    -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 35%);\n    mask-image: linear-gradient(90deg, transparent 0%, #000 35%);\n}\n\n.dx-wide-art.is-fallback .dx-wide-name {\n    right: 40%;\n    white-space: normal;\n    display: -webkit-box;\n    -webkit-line-clamp: 2;\n    -webkit-box-orient: vertical;\n}\n\n/* Addons: actions readable; disabled stays dim */\n#app [class*=\"addon-container\"] [class*=\"uninstall-button-container\"] {\n    opacity: 1 !important;\n}\n\n#app [class*=\"addon-container\"] [class*=\"uninstall-button-container\"].disabled {\n    opacity: 0.35 !important;\n}\n\n#app [class*=\"addon-container\"] [class*=\"configure-button-container\"] {\n    background: var(--dx-surface-2) !important;\n    border: 1px solid var(--dx-line) !important;\n}\n\n#app [class*=\"addon-container\"] [class*=\"configure-button-container\"]:hover,\n#app [class*=\"addon-container\"] [class*=\"configure-button-container\"]:focus-visible {\n    background: var(--dx-surface-3) !important;\n}\n\n#app [class*=\"addon-container\"] [class*=\"configure-button-container\"] * {\n    color: var(--dx-text) !important;\n}\n\n/* Settings: links in white, not accent */\n#app [class*=\"settings-content\"] [class*=\"link-\"],\n#app [class*=\"settings-content\"] a {\n    color: var(--dx-text-2) !important;\n    transition: color 0.2s;\n}\n\n#app [class*=\"settings-content\"] [class*=\"link-\"]:hover,\n#app [class*=\"settings-content\"] a:hover,\n#app [class*=\"settings-content\"] [class*=\"link-\"]:focus-visible,\n#app [class*=\"settings-content\"] a:focus-visible {\n    color: #fff !important;\n    text-decoration: underline;\n    text-underline-offset: 3px;\n}\n\n#app [class*=\"settings-content\"] [class*=\"user-info-content\"] [class*=\"avatar\"] {\n    border: 0 !important;\n    box-shadow: 0 0 0 1px var(--dx-line-strong);\n}\n\n/* =====================================================================\n   16. COMMUNITY PLUGINS (Addon Manager, TheIntroDB, Enhanced Player)\n   ===================================================================== */\n\nhtml:root {\n    --am-accent: var(--dx-accent);\n    --am-bg: var(--dx-bg-raised);\n    --am-border-radius: var(--dx-radius-l);\n}\n\nbody .am-header-btn {\n    height: 2.5rem;\n    border-radius: var(--dx-radius);\n    border: 1px solid var(--dx-line-strong);\n    background: var(--dx-surface);\n    color: var(--dx-text);\n    font-size: 0.9rem;\n}\n\nbody .am-header-btn:hover,\nbody .am-header-btn:focus-visible {\n    background: var(--dx-surface-2);\n    transform: none;\n}\n\nbody .am-header-btn.active {\n    background: var(--dx-accent);\n    border-color: var(--dx-accent);\n    color: #fff;\n}\n\nbody .am-modal {\n    background: var(--dx-surface);\n    border: 1px solid var(--dx-line);\n    border-radius: var(--dx-radius-l);\n}\n\n/* Skip intro / recap button from TheIntroDB */\nbody #tidb-active-btn,\nbody #skiprange-active-btn,\nbody #skiprange-upgrade-btn {\n    padding: 0.85rem 1.5rem 0.85rem 1.25rem !important;\n    border-radius: var(--dx-radius) !important;\n    border: 1.5px solid rgba(255, 255, 255, 0.75) !important;\n    background: rgba(18, 18, 22, 0.72) !important;\n    backdrop-filter: blur(10px) !important;\n    font-family: \"Inter\", sans-serif !important;\n    font-size: 1rem !important;\n    font-weight: 700 !important;\n    letter-spacing: 0.01em;\n    box-shadow: var(--dx-shadow-2);\n}\n\nbody #tidb-active-btn:hover,\nbody #skiprange-active-btn:hover,\nbody #skiprange-upgrade-btn:hover,\nbody #tidb-active-btn:focus-visible,\nbody #skiprange-active-btn:focus-visible,\nbody #skiprange-upgrade-btn:focus-visible {\n    background: #fff !important;\n    color: #000 !important;\n    border-color: #fff !important;\n}\n\n\n/* Enhanced Player title above the seek bar */\n#app .custom-series-name {\n    font-size: 0.8rem;\n    font-weight: 700;\n    letter-spacing: 0.08em;\n    text-transform: uppercase;\n    color: var(--dx-text-2);\n}\n\n#app .custom-episode-title {\n    font-size: 1.05rem;\n    font-weight: 700;\n    color: #fff;\n}\n\n/* Plugin settings dialogs: label above its description, not squeezed beside it */\n[class*=\"modal-dialog-container\"] [class*=\"option-\"] > [class*=\"heading-\"] {\n    display: flex !important;\n    flex-direction: column !important;\n    align-items: flex-start !important;\n    justify-content: center;\n    gap: 0.2rem;\n}\n\n[class*=\"modal-dialog-container\"] [class*=\"option-\"] > [class*=\"heading-\"] > [class*=\"label-\"] {\n    font-weight: 600;\n    color: var(--dx-text);\n}\n\n[class*=\"modal-dialog-container\"] [class*=\"option-\"] > [class*=\"heading-\"] > div:not([class]) {\n    color: var(--dx-text-3) !important;\n    margin-top: 0 !important;\n}\n\n[class*=\"modal-dialog-container\"] select {\n    border-radius: var(--dx-radius) !important;\n    background-color: var(--dx-surface-2) !important;\n    border: 1px solid var(--dx-line) !important;\n}\n\n[class*=\"modal-dialog-container\"] [class*=\"buttons-container\"] [class*=\"action-button\"] {\n    border-radius: var(--dx-radius) !important;\n}\n\n[class*=\"modal-dialog-container\"] [class*=\"option-\"] > [class*=\"heading-\"] {\n    flex: 1 1 auto !important;\n    max-width: none !important;\n    width: auto !important;\n}\n\n[class*=\"modal-dialog-container\"] [class*=\"option-\"] > [class*=\"content-\"]:has([class*=\"toggle-container\"]) {\n    flex: 0 0 auto !important;\n    width: auto !important;\n    max-width: none !important;\n}\n\n#app [class*=\"subtitles-settings-container\"] [class*=\"stepper\"] + [class*=\"stepper\"] {\n    margin-top: 1rem !important;\n}\n\n#app [class*=\"subtitles-settings-container\"] [class*=\"stepper\"] [class*=\"header\"] {\n    margin-bottom: 0.45rem !important;\n}\n\n::-webkit-scrollbar-button {\n    display: none;\n    width: 0;\n    height: 0;\n}\n\n/* =====================================================================\n   17. CONTEXT MENU FIX compatibility\n   That plugin clones the account button (and other menus) into\n   .context-menu-portal outside #app, so give the clones the same look.\n   ===================================================================== */\n\n.context-menu-portal [class*=\"menu-button-container\"] {\n    display: flex !important;\n    align-items: center;\n    gap: 0.4rem;\n    height: 2.5rem !important;\n    padding: 0 0.4rem !important;\n    border-radius: var(--dx-radius) !important;\n    background: rgba(255, 255, 255, 0.08) !important;\n    overflow: visible !important;\n}\n\n.context-menu-portal [class*=\"menu-button-container\"] > [class*=\"avatar\"] {\n    flex: none;\n    width: 2rem !important;\n    height: 2rem !important;\n    border: 0 !important;\n    border-radius: var(--dx-radius-s) !important;\n    overflow: hidden;\n}\n\n.context-menu-portal [class*=\"menu-button-container\"] > [class*=\"avatar\"] img {\n    width: 100% !important;\n    height: 100% !important;\n    object-fit: cover;\n}\n\n.context-menu-portal [class*=\"menu-button-container\"] > svg {\n    flex: none;\n    width: 1.1rem !important;\n    height: 1.1rem !important;\n    color: var(--dx-text);\n}\n\n.context-menu-portal [class*=\"menu-container\"][class*=\"menu-direction\"],\n.context-menu-portal [class*=\"nav-menu-container\"] {\n    border-radius: var(--dx-radius-l) !important;\n    background: rgba(22, 22, 27, 0.97) !important;\n    border: 1px solid var(--dx-line-strong) !important;\n    box-shadow: var(--dx-shadow-2) !important;\n    overflow: hidden;\n}\n\n.context-menu-portal [class*=\"menu-container\"][class*=\"menu-direction\"] [class*=\"nav-menu-container\"] {\n    border: 0 !important;\n    box-shadow: none !important;\n}\n\n/* Account menu (both in-app and cloned) */\n[class*=\"nav-menu-container\"] [class*=\"user-info-container\"] [class*=\"avatar\"],\n[class*=\"nav-menu-container\"] [class*=\"avatar\"] {\n    border: 0 !important;\n    border-radius: var(--dx-radius) !important;\n    box-shadow: 0 0 0 1px var(--dx-line-strong);\n}\n\n[class*=\"nav-menu-container\"] [class*=\"nav-menu-option-container\"] {\n    border-radius: var(--dx-radius);\n    transition: background-color 0.15s;\n}\n\n[class*=\"nav-menu-container\"] [class*=\"nav-menu-option-container\"]:hover,\n[class*=\"nav-menu-container\"] [class*=\"nav-menu-option-container\"]:focus-visible {\n    background: rgba(255, 255, 255, 0.08) !important;\n}\n\n[class*=\"nav-menu-container\"] [class*=\"nav-menu-option-container\"] svg {\n    color: var(--dx-text-2);\n}\n\n\n/* =====================================================================\n   18. ENHANCED VIDEO PLAYER compatibility (subtitle style panel + title)\n   ===================================================================== */\n\n/* dx.bi shows the title in the control bar; hide the duplicate */\nbody[data-dx-ptitle] #app .custom-series-name,\nbody[data-dx-ptitle] #app .custom-episode-title {\n    display: none !important;\n}\n\n#app [class*=\"subtitles-menu-container\"] .enhanced-subtitle-customize-section {\n    width: 22rem;\n    max-height: 100%;\n    padding: 0 1.5rem 1.25rem;\n    overflow-y: auto;\n    border-left: 1px solid rgba(255, 255, 255, 0.08);\n    font-size: 0.9rem;\n    color: var(--dx-text-2);\n}\n\n#app .enhanced-subtitle-customize-header {\n    display: flex;\n    align-items: center;\n    padding: 1.35rem 0 0.75rem;\n    font-size: 0 !important;\n}\n\n#app .enhanced-subtitle-customize-header > * {\n    display: none !important;\n}\n\n#app .enhanced-subtitle-customize-header::after {\n    content: \"Style\";\n    font-size: 1.3rem;\n    font-weight: 700;\n    color: #fff;\n}\n\n#app .enhanced-subtitle-presets-bar {\n    display: flex;\n    flex-wrap: wrap;\n    gap: 0.4rem;\n    margin-bottom: 1rem;\n}\n\n#app .enhanced-subtitle-preset-btn {\n    height: 2rem;\n    padding: 0 0.85rem;\n    border-radius: 999px;\n    background: rgba(255, 255, 255, 0.07);\n    border: 1px solid transparent;\n    font-size: 0.82rem;\n    font-weight: 600;\n    color: var(--dx-text-2);\n    cursor: pointer;\n    transition: background-color 0.15s, color 0.15s;\n}\n\n#app .enhanced-subtitle-preset-btn:hover,\n#app .enhanced-subtitle-preset-btn:focus-visible {\n    background: rgba(255, 255, 255, 0.12);\n    color: #fff;\n}\n\n#app .enhanced-subtitle-preset-btn.selected {\n    background: #fff;\n    color: #000;\n}\n\n#app .enhanced-subtitle-preview-section {\n    margin-bottom: 1rem;\n}\n\n#app .enhanced-subtitle-preview-label,\n#app .enhanced-stepper-header,\n#app .enhanced-select-header,\n#app .enhanced-color-header,\n#app .enhanced-text-header {\n    margin-bottom: 0.4rem;\n    font-size: 0.72rem;\n    font-weight: 700;\n    letter-spacing: 0.08em;\n    text-transform: uppercase;\n    color: var(--dx-text-3);\n}\n\n#app .enhanced-subtitle-preview-box {\n    display: flex;\n    align-items: flex-end;\n    justify-content: center;\n    height: 5.5rem;\n    padding: 0.75rem;\n    border-radius: var(--dx-radius);\n    background:\n        linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.35)),\n        url(\"https://images.metahub.space/background/medium/tt1375666/img\") center / cover,\n        #333;\n    overflow: hidden;\n}\n\n#app .enhanced-subtitle-preview-text {\n    max-width: 100%;\n    text-align: center;\n    white-space: normal;\n}\n\n#app .enhanced-settings-grid {\n    display: grid;\n    grid-template-columns: 1fr 1fr;\n    gap: 0.85rem 0.75rem;\n}\n\n#app .enhanced-stepper-content {\n    display: flex;\n    align-items: center;\n    justify-content: space-between;\n    height: 2.5rem;\n    border-radius: var(--dx-radius);\n    background: rgba(255, 255, 255, 0.07);\n}\n\n#app .enhanced-stepper-button {\n    width: 2.5rem;\n    height: 2.5rem;\n    display: inline-flex;\n    align-items: center;\n    justify-content: center;\n    border-radius: var(--dx-radius);\n    background: transparent;\n    color: #fff;\n    cursor: pointer;\n}\n\n#app .enhanced-stepper-button:hover,\n#app .enhanced-stepper-button:focus-visible {\n    background: rgba(255, 255, 255, 0.1);\n}\n\n#app .enhanced-stepper-button svg {\n    width: 0.9rem;\n    height: 0.9rem;\n}\n\n#app .enhanced-stepper-value {\n    font-weight: 700;\n    font-variant-numeric: tabular-nums;\n    color: #fff;\n}\n\n#app .enhanced-select,\n#app .enhanced-text-input {\n    width: 100%;\n    height: 2.5rem;\n    padding: 0 0.75rem;\n    border-radius: var(--dx-radius);\n    background: rgba(255, 255, 255, 0.07);\n    border: 1px solid transparent;\n    color: #fff;\n    font-size: 0.85rem;\n    appearance: auto;\n}\n\n#app .enhanced-select:focus,\n#app .enhanced-text-input:focus {\n    border-color: rgba(255, 255, 255, 0.5);\n}\n\n#app .enhanced-select option {\n    background: #262626;\n    color: #fff;\n}\n\n#app .enhanced-color-content {\n    display: flex;\n    align-items: center;\n    gap: 0.6rem;\n    height: 2.5rem;\n    padding: 0 0.5rem;\n    border-radius: var(--dx-radius);\n    background: rgba(255, 255, 255, 0.07);\n}\n\n#app .enhanced-color-input {\n    width: 1.6rem;\n    height: 1.6rem;\n    padding: 0;\n    border: 0;\n    border-radius: 50%;\n    overflow: hidden;\n    cursor: pointer;\n    appearance: none;\n}\n\n#app .enhanced-color-input::-webkit-color-swatch-wrapper {\n    padding: 0;\n}\n\n#app .enhanced-color-input::-webkit-color-swatch {\n    border: 2px solid rgba(255, 255, 255, 0.5);\n    border-radius: 50%;\n}\n\n#app .enhanced-color-value {\n    font-size: 0.8rem;\n    font-variant-numeric: tabular-nums;\n    color: var(--dx-text-2);\n}\n\n/* =====================================================================\n   19. STREAM PLUGINS compatibility (Stream Keyword Filter, Stream Finder,\n   FilterStreams, Stream Quality Picker…). Anything a plugin inserts next to\n   the streams/episodes panel is stacked on top of it as one column.\n   ===================================================================== */\n\n#app [class*=\"metadetails-content\"]:has(> :not([class*=\"meta-preview\"]):not([class*=\"spacing\"]):not([class*=\"streams-list\"]):not([class*=\"videos-list\"])) {\n    display: grid !important;\n    grid-template-columns: minmax(0, 1fr) clamp(28rem, 31vw, 42rem);\n    grid-template-rows: auto auto auto minmax(0, 1fr);\n    column-gap: 1.5rem;\n    padding-right: var(--dx-gutter) !important;\n}\n\n#app [class*=\"metadetails-content\"]:has(> :not([class*=\"meta-preview\"]):not([class*=\"spacing\"]):not([class*=\"streams-list\"]):not([class*=\"videos-list\"])) > [class*=\"meta-preview\"] {\n    grid-column: 1;\n    grid-row: 1 / -1;\n    min-height: 0;\n}\n\n#app [class*=\"metadetails-content\"]:has(> :not([class*=\"meta-preview\"]):not([class*=\"spacing\"]):not([class*=\"streams-list\"]):not([class*=\"videos-list\"])) > [class*=\"spacing\"] {\n    display: none !important;\n}\n\n#app [class*=\"metadetails-content\"] > :not([class*=\"meta-preview\"]):not([class*=\"spacing\"]):not([class*=\"streams-list\"]):not([class*=\"videos-list\"]) {\n    grid-column: 2;\n    width: auto !important;\n    max-width: none !important;\n    margin: 0 !important;\n    padding: 0.85rem 1rem !important;\n    background: rgba(19, 19, 23, 0.86) !important;\n    border: 1px solid var(--dx-line);\n    border-bottom: 0;\n    backdrop-filter: blur(24px) saturate(140%);\n    z-index: 2;\n}\n\n#app [class*=\"metadetails-content\"] > :not([class*=\"meta-preview\"]):not([class*=\"spacing\"]):not([class*=\"streams-list\"]):not([class*=\"videos-list\"]):first-of-type,\n#app [class*=\"metadetails-content\"] > [class*=\"spacing\"] + :not([class*=\"streams-list\"]):not([class*=\"videos-list\"]) {\n    margin-top: 0.75rem !important;\n    border-radius: var(--dx-radius-l) var(--dx-radius-l) 0 0;\n}\n\n#app [class*=\"metadetails-content\"]:has(> :not([class*=\"meta-preview\"]):not([class*=\"spacing\"]):not([class*=\"streams-list\"]):not([class*=\"videos-list\"])) > [class*=\"streams-list\"],\n#app [class*=\"metadetails-content\"]:has(> :not([class*=\"meta-preview\"]):not([class*=\"spacing\"]):not([class*=\"streams-list\"]):not([class*=\"videos-list\"])) > [class*=\"videos-list\"] {\n    grid-column: 2;\n    grid-row: 4;\n    width: auto !important;\n    flex: none !important;\n    min-height: 0;\n    margin: 0 0 1.5rem 0 !important;\n    border-top-left-radius: 0 !important;\n    border-top-right-radius: 0 !important;\n    animation: none;\n}\n\n/* Chips / inputs that stream plugins add: match dx.bi */\n#app [class*=\"metadetails-content\"] [class*=\"chip\"]:not([class*=\"chips\"]) {\n    border-radius: 999px;\n}\n\n/* AniSkip shows its buttons inside Stremio's \"up next\" popup */\n#app [id^=\"skip-\"][id$=\"-button\"] {\n    border-radius: var(--dx-radius) !important;\n    background: #fff !important;\n}\n\n#app [id^=\"skip-\"][id$=\"-button\"] * {\n    color: #000 !important;\n}\n\n/* =====================================================================\n   19b. CLEAN STREAM LIST (plugin): one Netflix-style row per stream\n   ===================================================================== */\n\n#app [class*=\"streams-list-container\"] [class*=\"streams-container\"] > [data-dxv] {\n    position: relative;\n    margin: 0;\n    padding: 0.9rem 1.1rem !important;\n    display: flex !important;\n    align-items: center;\n    flex: none !important;\n    height: auto !important;\n    min-height: 5.5rem;\n    border-radius: 0;\n    border-bottom: 1px solid var(--dx-line);\n    --dxv-tile: rgba(255, 255, 255, 0.09);\n}\n\n#app [class*=\"streams-list-container\"] [class*=\"streams-container\"] > [data-dxv]:hover,\n#app [class*=\"streams-list-container\"] [class*=\"streams-container\"] > [data-dxv]:focus-visible {\n    background: rgba(255, 255, 255, 0.08);\n    transform: none;\n    --dxv-tile: var(--dx-accent);\n}\n\n/* Not drawn until dx.bi's row is ready, and loading rows match the finished ones */\nhtml[data-dx-rows] [class*=\"streams-container\"] > [class*=\"stream-container\"]:not([data-dxv]) {\n    visibility: hidden;\n}\n\nhtml[data-dx-rows] [class*=\"streams-list-container\"] [class*=\"stream-placeholder-container\"] {\n    min-height: 5.5rem;\n    margin: 0;\n    border-radius: 0;\n    border-bottom: 1px solid var(--dx-line);\n    background: none;\n}\n\nhtml[data-dx-rows] [class*=\"streams-list-container\"] [class*=\"stream-placeholder-container\"] > * {\n    visibility: hidden;\n}\n\n[data-dxv] > :not(.dxv-row):not([class*=\"menu-container\"]) {\n    position: absolute !important;\n    width: 1px !important;\n    height: 1px !important;\n    overflow: hidden !important;\n    opacity: 0 !important;\n    pointer-events: none !important;\n}\n\n.dxv-row {\n    display: flex;\n    align-items: center;\n    gap: 1rem;\n    width: 100%;\n    min-width: 0;\n    pointer-events: none;\n}\n\n.dxv-q {\n    flex: none;\n    display: flex;\n    flex-direction: column;\n    align-items: center;\n    justify-content: center;\n    gap: 0.2rem;\n    width: 6.25rem;\n    height: 3.55rem;\n    border-radius: var(--dx-radius-s);\n    background: var(--dxv-tile);\n    transition: background-color 0.18s;\n}\n\n.dxv-q b {\n    font: 800 1.15rem/1 Inter, system-ui, sans-serif !important;\n    color: #fff;\n}\n\n.dxv-q i {\n    font: 600 0.66rem/1 Inter, system-ui, sans-serif !important;\n    color: rgba(255, 255, 255, 0.82);\n    white-space: nowrap;\n}\n\n.dxv-main {\n    flex: 1 1 0;\n    display: flex;\n    flex-direction: column;\n    gap: 0.22rem;\n    min-width: 0;\n}\n\n.dxv-main strong {\n    font: 700 1rem/1.25 Inter, system-ui, sans-serif !important;\n    color: var(--dx-text);\n}\n\n.dxv-top {\n    display: flex;\n    align-items: baseline;\n    justify-content: space-between;\n    gap: 0.75rem;\n    min-width: 0;\n}\n\n/* Seeds, provider and size are never cut off: they wrap instead */\n.dxv-main small {\n    font: 500 0.82rem/1.3 Inter, system-ui, sans-serif !important;\n    color: var(--dx-text-2);\n    overflow-wrap: anywhere;\n}\n\n.dxv-main u {\n    font: 400 0.72rem/1.3 Inter, system-ui, sans-serif !important;\n    color: var(--dx-text-3);\n    text-decoration: none;\n    overflow: hidden;\n    text-overflow: ellipsis;\n    white-space: nowrap;\n}\n\n.dxv-best {\n    display: none;\n    font: 800 0.68rem/1 Inter, system-ui, sans-serif !important;\n    letter-spacing: 0.04em;\n    text-transform: uppercase;\n    color: var(--dx-accent);\n}\n\n[data-dx-best] .dxv-best {\n    display: block;\n}\n\n.dxv-state {\n    flex: none;\n    font: 600 0.74rem/1 Inter, system-ui, sans-serif !important;\n    color: var(--dx-text-3);\n    white-space: nowrap;\n}\n\n.dxv-state.is-ready {\n    color: #46d369;\n}\n\n.dxq-play {\n    display: inline-flex;\n    align-items: center;\n    gap: 0.5rem;\n    height: 3rem;\n    margin: 0 0.75rem 1rem 0;\n    padding: 0 1.75rem 0 1.25rem;\n    border: 0;\n    border-radius: var(--dx-radius);\n    background: #fff;\n    color: #000;\n    cursor: pointer;\n    transition: background-color 0.15s;\n}\n\n.dxq-play:hover,\n.dxq-play:focus-visible {\n    background: rgba(255, 255, 255, 0.78);\n}\n\n.dxq-play svg {\n    width: 1.4rem;\n    height: 1.4rem;\n}\n\n.dxq-play span {\n    font: 700 1rem/1 Inter, system-ui, sans-serif !important;\n}\n\n.dxq-status {\n    flex: none;\n    display: flex;\n    align-items: center;\n    justify-content: space-between;\n    gap: 1rem;\n    padding: 0.8rem 1.1rem;\n    border-bottom: 1px solid var(--dx-line);\n    font: 600 0.9rem/1.2 Inter, system-ui, sans-serif;\n    color: var(--dx-text);\n}\n\n.dxq-status button,\n.dxq-pill button {\n    border: 0;\n    background: none;\n    color: var(--dx-text-2);\n    font: 700 0.85rem/1 Inter, system-ui, sans-serif;\n    cursor: pointer;\n}\n\n.dxq-pill {\n    position: absolute;\n    left: 2rem;\n    top: 5rem;\n    z-index: 30;\n    display: flex;\n    align-items: center;\n    gap: 1rem;\n    padding: 0.7rem 1rem;\n    border-radius: var(--dx-radius);\n    background: rgba(0, 0, 0, 0.72);\n    color: #fff;\n    font: 600 0.9rem/1 Inter, system-ui, sans-serif;\n}\n\n.dxq-pill button {\n    color: #fff;\n    text-decoration: underline;\n}\n\n/* =====================================================================\n   20. STREAM SORT & FILTER BAR (plugin)\n   ===================================================================== */\n\n/* Sorting uses CSS order, so the list must be a flex column */\n#app [class*=\"streams-container\"].dx-sortable {\n    display: flex !important;\n    flex-direction: column;\n}\n\n/* Stremio's Install addons button stays after every stream, however they're sorted */\n#app [class*=\"streams-container\"].dx-sortable > :not([class*=\"stream-container\"]) {\n    order: 99999;\n}\n\n#app [class*=\"streams-container\"].dx-sortable > [data-dx-hide] {\n    display: none !important;\n}\n\n.dx-streambar {\n    flex: none;\n    padding: 0.85rem 0.85rem 0.75rem;\n    border-bottom: 1px solid var(--dx-line);\n    overflow: visible !important;\n}\n\n.dx-streambar[hidden] {\n    display: none;\n}\n\n.dx-sb-row {\n    display: flex;\n    flex-wrap: wrap;\n    align-items: center;\n    gap: 0.4rem;\n    overflow: visible !important;\n}\n\n.dx-sb-btn {\n    display: inline-flex;\n    align-items: center;\n    gap: 0.35rem;\n    height: 2rem;\n    padding: 0.12em 0.7rem 0 0.8rem;\n    border-radius: 999px;\n    background: rgba(255, 255, 255, 0.07);\n    border: 1px solid var(--dx-line);\n    color: var(--dx-text-2);\n    font-size: 0.82rem;\n    font-weight: 600;\n    line-height: 1;\n    white-space: nowrap;\n    cursor: pointer;\n    transition: background-color 0.15s, color 0.15s, border-color 0.15s;\n}\n\n.dx-sb-btn:hover,\n.dx-sb-btn:focus-visible {\n    background: rgba(255, 255, 255, 0.12);\n    color: #fff;\n}\n\n.dx-sb-btn svg {\n    width: 0.85rem;\n    height: 0.85rem;\n    flex: none;\n    margin-top: -0.12em;\n    transition: transform 0.2s var(--dx-ease-out);\n}\n\n.dx-sb-btn.is-open svg:last-child {\n    transform: rotate(180deg);\n}\n\n.dx-sb-btn.is-on {\n    background: #fff;\n    border-color: #fff;\n    color: #000;\n}\n\n.dx-sb-sort {\n    padding-left: 0.7rem;\n    color: #fff;\n}\n\n.dx-sb-sort svg:first-child {\n    width: 0.95rem;\n    height: 0.95rem;\n}\n\n.dx-sb-toggle {\n    padding-right: 0.8rem;\n}\n\n.dx-sb-div {\n    width: 1px;\n    height: 1.2rem;\n    margin: 0 0.15rem;\n    background: var(--dx-line-strong);\n}\n\n.dx-sb-count {\n    margin-left: auto;\n    padding-left: 0.5rem;\n    font-size: 0.78rem;\n    font-weight: 600;\n    font-variant-numeric: tabular-nums;\n    color: var(--dx-text-3);\n    white-space: nowrap;\n}\n\n.dx-sb-reset {\n    padding: 0.2rem 0.1rem;\n    background: none;\n    border: 0;\n    color: var(--dx-text-2);\n    font-size: 0.78rem;\n    font-weight: 700;\n    cursor: pointer;\n    text-decoration: underline;\n    text-underline-offset: 3px;\n}\n\n.dx-sb-reset:hover,\n.dx-sb-reset:focus-visible {\n    color: #fff;\n}\n\n/* The open menu unfolds in place (no clipping inside the panel) */\n.dx-sb-menu {\n    display: flex;\n    flex-wrap: wrap;\n    gap: 0.35rem;\n    margin-top: 0.65rem;\n    padding: 0.6rem;\n    border-radius: var(--dx-radius);\n    background: rgba(255, 255, 255, 0.04);\n    border: 1px solid var(--dx-line);\n    animation: dx-fade 0.18s ease both;\n}\n\n.dx-sb-opt {\n    display: inline-flex;\n    align-items: center;\n    gap: 0.4rem;\n    height: 2rem;\n    padding: 0.12em 0.75rem 0 0.55rem;\n    border-radius: var(--dx-radius-s);\n    background: transparent;\n    border: 1px solid transparent;\n    color: var(--dx-text-2);\n    font-size: 0.84rem;\n    font-weight: 500;\n    line-height: 1;\n    cursor: pointer;\n    transition: background-color 0.15s, color 0.15s;\n}\n\n.dx-sb-opt:hover,\n.dx-sb-opt:focus-visible {\n    background: rgba(255, 255, 255, 0.08);\n    color: #fff;\n}\n\n.dx-sb-opt.is-on {\n    background: rgba(255, 255, 255, 0.12);\n    border-color: rgba(255, 255, 255, 0.25);\n    color: #fff;\n    font-weight: 700;\n}\n\n.dx-sb-check {\n    display: inline-flex;\n    width: 0.95rem;\n    height: 0.95rem;\n    flex: none;\n    border-radius: 3px;\n    box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.35);\n    margin-top: -0.12em;\n}\n\n.dx-sb-opt.is-on .dx-sb-check {\n    background: var(--dx-accent);\n    box-shadow: none;\n    color: var(--dx-on-accent);\n}\n\n.dx-sb-check svg {\n    width: 100%;\n    height: 100%;\n    padding: 1px;\n}\n\n.dx-sb-n {\n    font-size: 0.72rem;\n    font-weight: 700;\n    font-variant-numeric: tabular-nums;\n    color: var(--dx-text-3);\n}\n\n.dx-stream-empty {\n    display: flex;\n    flex-direction: column;\n    align-items: center;\n    gap: 0.75rem;\n    padding: 2.5rem 1rem;\n    color: var(--dx-text-2);\n    font-size: 0.95rem;\n    text-align: center;\n}\n\n.dx-stream-empty button {\n    height: 2.2rem;\n    padding: 0 1rem;\n    border-radius: var(--dx-radius);\n    background: #fff;\n    color: #000;\n    font-weight: 700;\n    cursor: pointer;\n}\n\n/* =====================================================================\n   21. SEEK BAR PREVIEW + NEXT EPISODE (plugin)\n   ===================================================================== */\n\n.dx-scrub {\n    position: absolute;\n    inset: 0;\n    z-index: 2;\n    pointer-events: none;\n    overflow: visible !important;\n}\n\n/* lighter fill from the playhead to the cursor */\n.dx-scrub-fill {\n    position: absolute;\n    top: 50%;\n    height: var(--track-size, 4px);\n    transform: translateY(-50%);\n    border-radius: 999px;\n    background: rgba(255, 255, 255, 0.35);\n    opacity: 0;\n    transition: opacity 0.15s;\n}\n\n.dx-scrub.is-on .dx-scrub-fill {\n    opacity: 1;\n}\n\n.dx-scrub-tip {\n    position: absolute;\n    bottom: calc(100% + 1.1rem);\n    display: flex;\n    flex-direction: column;\n    align-items: center;\n    gap: 0.45rem;\n    transform: translateX(-50%) translateY(6px);\n    opacity: 0;\n    transition: opacity 0.15s ease, transform 0.15s ease;\n}\n\n.dx-scrub.is-on .dx-scrub-tip {\n    opacity: 1;\n    transform: translateX(-50%);\n}\n\n.dx-scrub-frame {\n    display: none;\n    width: 16rem;\n    border: 2px solid rgba(255, 255, 255, 0.9);\n    border-radius: 6px;\n    background: #000;\n    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);\n    overflow: hidden !important;\n}\n\n.dx-scrub.has-frame .dx-scrub-frame,\n.dx-scrub.is-loading .dx-scrub-frame {\n    display: block;\n}\n\n/* loading: a 16:9 dark box with a soft moving sheen until the frame arrives */\n.dx-scrub.is-loading:not(.has-frame) .dx-scrub-frame {\n    position: relative;\n    aspect-ratio: 16 / 9;\n    background: #141414;\n}\n\n.dx-scrub.is-loading:not(.has-frame) .dx-scrub-frame canvas {\n    visibility: hidden;\n}\n\n.dx-scrub.is-loading:not(.has-frame) .dx-scrub-frame::after {\n    content: \"\";\n    position: absolute;\n    inset: 0;\n    background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.08) 50%, transparent 70%);\n    animation: dx-scrub-sheen 1.1s linear infinite;\n}\n\n@keyframes dx-scrub-sheen {\n    from { transform: translateX(-100%); }\n    to { transform: translateX(100%); }\n}\n\n.dx-scrub-frame canvas {\n    display: block;\n    width: 100%;\n    height: auto;\n}\n\n.dx-scrub-time {\n    padding: 0.3rem 0.6rem;\n    border-radius: 4px;\n    background: rgba(0, 0, 0, 0.75);\n    font-size: 0.95rem;\n    font-weight: 700;\n    font-variant-numeric: tabular-nums;\n    color: #fff;\n    white-space: nowrap;\n}\n\n/* Next Episode sits at the start of the right-hand group, like Netflix */\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > [class*=\"spacing\"] {\n    order: 3;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > .dx-next,\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > .dx-pip,\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > .dx-external {\n    order: 4;\n}\n\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > [class*=\"control-bar-buttons-menu-container\"],\n#app [class*=\"player-container\"] [class*=\"control-bar-buttons-container\"] > [class*=\"control-bar-buttons-menu-button\"] {\n    order: 5;\n}\n\n/* Let the preview card rise above the bar (Stremio clips overflow on these) */\n#app [class*=\"player-container\"] [class*=\"control-bar-layer\"],\n#app [class*=\"player-container\"] [class*=\"control-bar-container\"],\n#app [class*=\"player-container\"] [class*=\"seek-bar-container\"],\n#app [class*=\"player-container\"] [class*=\"seek-bar-container\"] [class*=\"slider-wrapper\"],\n#app [class*=\"player-container\"] [class*=\"seek-bar-container\"] [class*=\"slider-container\"] {\n    overflow: visible !important;\n}\n\n/* dx.bi's card already shows the time — hide Stremio's small tooltip while it's there */\nbody[data-dx-route=\"player\"] > [class*=\"seek-tooltip\"] {\n    display: none !important;\n}\n\n/* =====================================================================\n   22. PICTURE ENHANCEMENT (plugin): upscaled canvas over the video\n   ===================================================================== */\n\n.dx-enhance {\n    position: absolute;\n    z-index: 0;\n    pointer-events: none;\n    image-rendering: auto;\n}\n\n/* The video's own subtitle lines would sit under the canvas — dx.bi redraws them on top */\n#app [class*=\"player-container\"] video[data-dx-enhanced]::cue {\n    visibility: hidden !important;\n}\n\n.dx-enhance-subs {\n    position: absolute;\n    z-index: 2;\n    display: flex;\n    flex-direction: column;\n    align-items: center;\n    gap: 0.15em;\n    pointer-events: none;\n    text-align: center;\n}\n\n.dx-enhance-cue {\n    display: inline-block;\n    max-width: 90%;\n    padding: 0.05em 0.35em;\n    line-height: 1.3;\n    white-space: pre-line;\n}\n\n.dx-enh-btn.is-on svg {\n    color: var(--dx-accent) !important;\n    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--dx-accent) 60%, transparent));\n}\n\n.dx-player-toast {\n    position: absolute;\n    z-index: 6;\n    top: 6rem;\n    left: 50%;\n    padding: 0.6rem 1.1rem;\n    border-radius: 999px;\n    background: rgba(20, 20, 20, 0.85);\n    color: #fff;\n    font-size: 0.95rem;\n    font-weight: 600;\n    pointer-events: none;\n    opacity: 0;\n    transform: translate(-50%, -6px);\n    transition: opacity 0.2s ease, transform 0.2s ease;\n}\n\n.dx-player-toast.is-on {\n    opacity: 1;\n    transform: translate(-50%, 0);\n}\n\n/* =====================================================================\n   WINDOWS AND TV: no blurred glass behind scrolling panels\n   ===================================================================== */\n\n/* Chromium on Windows can leave stale copies of a scrolled panel on screen when it has a blurred\n   (backdrop-filter) background: the streams list then looks like rows drawn over each other.\n   Solid backgrounds instead (dx.bi's plugin adds .dx-win on Windows). TVs (.dx-tv, dx.bi TV) get the\n   same, since their graphics are far weaker than a computer's. */\n.dx-win #app *,\n.dx-win body > *,\n.dx-tv #app *,\n/* No big soft shadows on a TV: each is a blur painted again whenever what it surrounds changes, the\n   selected poster's at every press of the remote. A fine line instead (from Nathflix, by Lavagnou) */\nhtml.dx-tv {\n    --dx-shadow-1: 0 0 0 1px rgba(255, 255, 255, 0.06);\n    --dx-shadow-2: 0 0 0 1px rgba(255, 255, 255, 0.08);\n}\n\n.dx-tv body #app [class*=\"main-nav-bars-container\"] > nav[class*=\"horizontal-nav-bar\"][data-dx-scrolled] {\n    box-shadow: 0 1px 0 var(--dx-line);\n}\n\n.dx-tv .dx-btn:focus-visible,\n.dx-tv #app [class*=\"meta-item-container\"] [class*=\"dismiss-icon-layer\"] {\n    box-shadow: none;\n}\n\n.dx-tv .dx-hero-title,\n.dx-tv .dx-hero-desc {\n    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);\n}\n\n.dx-tv body > * {\n    backdrop-filter: none !important;\n}\n\n.dx-win #app [class*=\"metadetails-content\"] [class*=\"streams-list-container\"],\n.dx-tv #app [class*=\"metadetails-content\"] [class*=\"streams-list-container\"] {\n    background: rgb(19, 19, 23) !important;\n}\n\n.dx-win #app [class*=\"menu-container\"]:not([class*=\"buttons-menu-container\"]),\n.dx-win .context-menu-portal [class*=\"menu-container\"],\n.dx-tv #app [class*=\"menu-container\"]:not([class*=\"buttons-menu-container\"]) {\n    background: rgb(22, 22, 27) !important;\n}\n\n/* THE DX.BI APP: the top bar's fullscreen button repeats the window's own buttons (F11 still\n   toggles full screen, and the player keeps its fullscreen button) */\n.dx-app #app [class*=\"horizontal-nav-bar\"] [title*=\"ullscreen\"] {\n    display: none !important;\n}\n\n/* TV: what the remote is on must be plain to see from the sofa. A white ring on everything but\n   titles (they lift and open their card). See All always shows: it's at the end of each row. */\n.dx-tv #app :is(a, button, input, [tabindex]):not([class*=\"meta-item-link\"]):focus-visible {\n    outline: 3px solid var(--dx-focus, #fff) !important;\n    outline-offset: 3px;\n    /* the ring follows each control's own shape (pills stay pills) and shows at once: the controls'\n       own transitions faded it in, and a forced corner radius squared off the pills */\n    transition: none !important;\n    /* above its neighbours, so none of them paints over the ring (z-index needs no position here:\n       the controls are flex items) */\n    z-index: 2;\n}\n\n/* controls drawn square get softened corners, so their ring isn't boxy */\n.dx-tv #app :is([class*=\"nav-tab-button\"], [class*=\"horizontal-nav-bar\"] [class*=\"button-container\"], [class*=\"horizontal-nav-bar\"] [class*=\"submit-button-container\"], [class*=\"label-container\"]):focus-visible {\n    border-radius: var(--dx-radius-s);\n}\n\n/* the sort chips sit in a scroll box, which cut their ring off: room for it inside the box */\n.dx-tv #app [class*=\"selectable-inputs-container\"] [class*=\"horizontal-scroll\"] {\n    padding: 7px !important;\n    margin: -7px !important;\n}\n\n/* the billboard clips its text and buttons to its box: the ring may reach a little past it */\n.dx-tv .dx-hero-content,\n.dx-tv .dx-hero-actions {\n    overflow: clip !important;\n    overflow-clip-margin: 8px;\n}\n\n.dx-tv #app .dxl-tools {\n    padding-top: 7px !important;\n    margin-top: -7px !important;\n}\n\n.dx-tv #app [class*=\"meta-row\"] [class*=\"see-all-container\"] {\n    --dx-row-hot: 1;\n}\n\n/* TV titles: the selection moves at once, with a ring in the highlight colour. Lifts and zooms\n   that faded in and out left the last title looking selected for a moment on slower sticks. */\n.dx-tv #app [class*=\"meta-item-container\"],\n.dx-tv #app [class*=\"meta-item-container\"] [class*=\"poster-container\"],\n.dx-tv #app [class*=\"meta-item-container\"] [class*=\"poster-container\"]::after,\n.dx-tv #app [class*=\"meta-item-container\"] [class*=\"poster-image-layer\"] {\n    transition: none !important;\n}\n\n.dx-tv #app [class*=\"meta-item-container\"] [class*=\"poster-image-layer\"] {\n    transform: none !important;\n}\n\n.dx-tv #app [class*=\"meta-item-container\"]:focus-within [class*=\"poster-container\"]::after,\n.dx-tv body #app [class*=\"discover-content\"] [class*=\"meta-item-container\"].selected:focus-within:not(.hovered):not(.active) [class*=\"poster-container\"]::after {\n    box-shadow: inset 0 0 0 3px var(--dx-focus, #fff);\n}\n\n/* TV: a stick's graphics chip redraws whatever moves or is blurred, every frame, and the remote\n   waits behind it. The billboard's slow zoom, the rows' faded edges (each row drawn twice) and the\n   blurred Continue Watching backdrops are left out. */\n.dx-tv .dx-hero-backdrop {\n    animation: none !important;\n}\n\n/* TV: only the billboard picture on show (and one fading out) is kept on the graphics chip: each of\n   the others was a full-screen layer held in memory. The top bar turns solid at once, as its fade\n   was redrawn in full on every frame of the jump down into the rows. */\n.dx-tv .dx-hero-backdrop {\n    will-change: auto;\n}\n\n.dx-tv #app nav[class*=\"horizontal-nav-bar\"] {\n    transition: none !important;\n}\n\n/* TV: Home rows well out of view aren't drawn at all until you get near them. Every frame that\n   changed anything reworked all twenty-odd rows, which held the jump from row to row back. */\n.dx-tv #app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) > [class*=\"board-row\"] {\n    content-visibility: auto;\n    contain-intrinsic-size: auto 380px;\n}\n\n.dx-tv #app [class*=\"meta-row\"] > [class*=\"meta-items-container\"] {\n    -webkit-mask-image: none !important;\n    mask-image: none !important;\n}\n\n/* TV: a title's lift (a 3D move) and the rows' rise kept every poster and row on a layer of its\n   own, well over 200 on Home, all reworked with each press: flat cards and rows instead (the\n   selected title keeps its ring) */\n.dx-tv #app .animation-fade-in {\n    animation: none !important;\n}\n\n.dx-tv #app [class*=\"meta-item-container\"] [class*=\"poster-container\"] {\n    transform: none !important;\n    scale: none !important;\n}\n\n/* TV: badges appear as they are, rather than fading in together (a row's worth at a time) */\n.dx-tv .dx-badge {\n    animation: none;\n}\n\n.dx-tv .dx-wide-blur {\n    filter: brightness(0.45);\n}\n\n/* TV: the page jumps instead of gliding, so the selection never waits off screen for a slow scroll\n   (rows still glide sideways: the plugin asks for that itself) */\n.dx-tv #app * {\n    scroll-behavior: auto !important;\n}\n\n/* TV: the hover card's glow and soft shadow are big blurred layers redrawn as it opens */\n.dx-tv .dx-preview-aura,\n.dx-tv .dx-preview::before {\n    display: none;\n}\n\n/* TV: the card fades and grows in place rather than unfolding from the poster's outline (a moving\n   clip the stick redrew in full on every frame), and its artwork holds still */\n.dx-tv .dx-preview {\n    scale: 0.94;\n    transition: scale 0.18s ease, opacity 0.18s ease, visibility 0s linear 0.18s;\n}\n\n.dx-tv .dx-preview.is-open {\n    scale: 1;\n    transition: scale 0.18s ease, opacity 0.18s ease, visibility 0s;\n}\n\n.dx-tv .dx-preview-inner {\n    clip-path: none !important;\n    transition: none;\n    will-change: auto;\n}\n\n.dx-tv .dx-preview-ghost {\n    display: none;\n}\n\n.dx-tv .dx-preview.is-open .dx-preview-media::before {\n    animation: none;\n}\n\n/* Kids profiles and hidden titles (plugin): titles that mustn't show, and rows left with none, are\n   out; titles still being checked keep their place but stay unseen. A kids profile has no Addons or\n   Settings tabs (the parental PIN opens them). */\n#app [data-dx-off] {\n    display: none !important;\n}\n\n#app [data-dx-pending] {\n    visibility: hidden !important;\n}\n\nbody[data-dx-kids] #app [class*=\"horizontal-nav-bar\"] a[href=\"#/addons\"],\nbody[data-dx-kids] #app [class*=\"horizontal-nav-bar\"] a[href=\"#/settings\"],\nbody[data-dx-kids] #app [class*=\"vertical-nav-bar\"] a[href=\"#/addons\"],\nbody[data-dx-kids] #app [class*=\"vertical-nav-bar\"] a[href=\"#/settings\"] {\n    display: none !important;\n}\n\n/* Phones held upright: laid out at the phone's own width, with the tabs in a bar under the thumb */\n.dx-upright #app [class*=\"main-nav-bars-container\"] > nav[class*=\"vertical-nav-bar\"],\n.dx-upright #app nav[class*=\"vertical-nav-bar\"] {\n    position: fixed !important;\n    inset: auto 0 0 0 !important;\n    z-index: 50 !important;\n    display: flex !important;\n    flex-direction: row !important;\n    justify-content: space-around !important;\n    align-items: stretch !important;\n    width: 100% !important;\n    max-width: none !important;\n    height: 3.75rem !important;\n    padding: 0 !important;\n    transform: none !important;\n    background: rgb(16, 16, 20) !important;\n    border-top: 1px solid rgba(255, 255, 255, 0.08) !important;\n}\n\n.dx-upright #app nav[class*=\"vertical-nav-bar\"] > * {\n    flex: 1 1 0 !important;\n    width: auto !important;\n    height: 100% !important;\n    margin: 0 !important;\n    min-width: 0 !important;\n}\n\n.dx-upright #app nav[class*=\"horizontal-nav-bar\"] {\n    padding: 0 0.75rem !important;\n}\n\n/* The billboard: a tall picture, with everything centred over the bottom of it */\n.dx-upright .dx-hero {\n    height: min(128vw, 68vh);\n    min-height: 0;\n    margin-bottom: 0.5rem;\n}\n\n.dx-upright .dx-hero-content {\n    position: absolute;\n    inset: auto 0 1.75rem 0 !important;\n    top: auto !important;\n    width: 100% !important;\n    max-width: none !important;\n    padding: 0 1.25rem !important;\n    align-items: center !important;\n    text-align: center;\n}\n\n.dx-upright .dx-hero-kicker,\n.dx-upright .dx-hero-desc {\n    display: none !important;\n}\n\n.dx-upright .dx-hero-content > .dx-hero-logo {\n    max-width: 70% !important;\n    max-height: 7rem !important;\n    margin: 0 auto 0.6rem !important;\n    object-position: center bottom !important;\n}\n\n.dx-upright .dx-hero-meta {\n    justify-content: center !important;\n    flex-wrap: wrap;\n}\n\n.dx-upright .dx-hero-actions {\n    width: 100% !important;\n    justify-content: center !important;\n    flex-wrap: nowrap !important;\n    gap: 0.6rem !important;\n    overflow: visible !important;\n}\n\n.dx-upright .dx-hero-actions > * {\n    flex: 1 1 0 !important;\n    min-width: 0 !important;\n    justify-content: center !important;\n    padding-left: 0.5rem !important;\n    padding-right: 0.5rem !important;\n    white-space: nowrap;\n}\n\n.dx-upright .dx-hero-dots {\n    left: 0 !important;\n    right: 0 !important;\n    bottom: 0.6rem !important;\n    justify-content: center !important;\n}\n\n.dx-upright #app [class*=\"board-content-\"]:not([class*=\"board-content-container\"]) {\n    scrollbar-width: none;\n}\n\n.dx-upright #app [class*=\"board-content-\"]:not([class*=\"board-content-container\"])::-webkit-scrollbar {\n    display: none;\n}\n\n/* Three titles across, as Android streaming apps have them */\n.dx-upright #app [class*=\"discover-content\"] [class*=\"meta-items-container\"],\n.dx-upright #app [class*=\"library-content\"] [class*=\"meta-items-container\"] {\n    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;\n    gap: 0.75rem 0.6rem !important;\n    padding: 0 0.75rem 1.5rem !important;\n}\n\n.dx-upright #app [class*=\"metadetails-container\"] [class*=\"runtime-release-info-container\"] {\n    flex-wrap: wrap !important;\n    justify-content: flex-start !important;\n    gap: 0.5rem 1rem !important;\n}\n\n/* Text sits on the picture: keep it readable over bright ones */\n.dx-upright #app [class*=\"metadetails-container\"] [class*=\"meta-preview-container\"]::before {\n    content: \"\";\n    position: fixed;\n    inset: 0;\n    z-index: 0;\n    background: rgba(0, 0, 0, 0.45);\n    pointer-events: none;\n}\n\n.dx-upright #app [class*=\"metadetails-container\"] [class*=\"meta-preview-container\"] > * {\n    position: relative;\n    z-index: 1;\n}\n\n/* A phone is touched, not steered: no remote rings */\n.dx-phone #app :is(a, button, input, [tabindex]):not([class*=\"meta-item-link\"]):focus-visible {\n    outline: none !important;\n}\n\n.dx-phone #app [class*=\"meta-item-container\"]:focus-within [class*=\"poster-container\"]::after {\n    box-shadow: none !important;\n}\n\n/* Phones on their side: the profile menu scrolls when it's taller than the screen */\n.dx-phone #app [class*=\"nav-menu-container\"] {\n    max-height: calc(100vh - 4.5rem) !important;\n    overflow-y: auto !important;\n}\n\n/* Addons page on a phone on its side: the search box gives way to the Order & backup button */\n.dx-phone .dxe-addon-btn {\n    flex: none;\n    white-space: nowrap;\n}\n\n/* =====================================================================\n   Phones held upright: the layout is one column, so what it needs is less\n   desktop spacing, a top bar that stays readable and the list closer to hand\n   ===================================================================== */\n@media only screen and (max-width: 640px) and (orientation: portrait) {\n    /* Stremio leaves room for its taller bottom bar: a band of nothing above this one */\n    :root {\n        --vertical-nav-bar-size: 3.7rem !important;\n    }\n\n    /* \"See All\" sits at the screen's edge and is always there: phones have no hover */\n    html body #app [class*=\"board-row\"] > [class*=\"header-container\"],\n    html body #app [class*=\"meta-row\"] > [class*=\"header-container\"],\n    html body #app [class*=\"meta-row\"]:has(> .dx-row-pages) > [class*=\"header-container\"] {\n        padding-right: 0.8rem !important;\n    }\n    #app .dx-row-pages {\n        display: none !important;\n    }\n    #app [class*=\"board-row\"] [class*=\"see-all-container\"],\n    #app [class*=\"meta-row\"] [class*=\"see-all-container\"] {\n        margin-left: auto !important;\n        opacity: 1 !important;\n        transform: none !important;\n    }\n\n    /* Movie and series pages: the bar stays readable over what scrolls under it */\n    #app [class*=\"metadetails-container\"] > nav[class*=\"nav-bar\"] {\n        background: linear-gradient(to bottom, rgba(10, 10, 12, 0.95) 55%, rgba(10, 10, 12, 0)) !important;\n        z-index: 3;\n    }\n    #app [class*=\"metadetails-content\"] {\n        padding-left: 0 !important;\n    }\n    #app [class*=\"metadetails-content\"] > [class*=\"meta-preview-container\"] {\n        width: 100% !important;\n        padding-top: 0 !important;\n        padding-bottom: 0.75rem !important;\n    }\n    #app [class*=\"metadetails-content\"] [class*=\"meta-info-container\"] {\n        padding: 0 1rem !important;\n    }\n    #app [class*=\"metadetails-content\"] [class*=\"meta-info-container\"] [class*=\"logo\"] {\n        max-height: 5.5rem !important;\n        margin: 0 auto 0.75rem 0 !important;\n        object-position: left center;\n    }\n    /* Genres and cast: one line each that slides, so the page isn't mostly labels */\n    #app [class*=\"metadetails-content\"] [class*=\"meta-links\"] {\n        margin-top: 0.75rem !important;\n    }\n    #app [class*=\"metadetails-content\"] [class*=\"meta-links\"] [class*=\"links-container\"] {\n        flex-wrap: nowrap !important;\n        max-height: none !important;\n        overflow-x: auto;\n        scrollbar-width: none;\n    }\n    #app [class*=\"metadetails-content\"] [class*=\"meta-links\"] [class*=\"links-container\"]::-webkit-scrollbar {\n        display: none;\n    }\n    #app [class*=\"metadetails-content\"] [class*=\"meta-links\"] [class*=\"link-container\"] {\n        flex: none !important;\n    }\n    #app [class*=\"metadetails-content\"] [class*=\"description-container\"] {\n        margin-top: 0.75rem !important;\n    }\n    #app [class*=\"metadetails-content\"] > [class*=\"meta-preview-container\"] > [class*=\"action-buttons-container\"] {\n        gap: 0.6rem !important;\n        margin-top: 0.9rem !important;\n        padding: 0 1rem !important;\n    }\n    #app [class*=\"metadetails-content\"] [class*=\"action-buttons-container\"] > * {\n        margin: 0 !important;\n    }\n    #app [class*=\"metadetails-content\"] [class*=\"videos-list\"],\n    #app [class*=\"metadetails-content\"] [class*=\"streams-list\"] {\n        width: auto !important;\n        margin: 0 0.5rem 1rem !important;\n    }\n\n    /* Search: the box gives way so the profile stays on screen */\n    #app nav[class*=\"horizontal-nav-bar\"] [class*=\"search-bar\"] {\n        flex: 1 1 auto !important;\n        width: auto !important;\n        min-width: 0 !important;\n        max-width: none !important;\n        margin: 0 !important;\n    }\n    #app nav[class*=\"horizontal-nav-bar\"] [class*=\"buttons-container\"] {\n        flex: none !important;\n    }\n\n    /* Discover: Filters clear of the edge */\n    #app [class*=\"discover-content\"] {\n        padding-right: 0.5rem !important;\n    }\n}\n";
   }
 
   function introVideoData() {

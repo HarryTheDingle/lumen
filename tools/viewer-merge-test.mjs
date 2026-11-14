@@ -19,7 +19,8 @@ function setup(data, viewerCount = 2) {
   const noop = { apply() {}, load() {}, reset() {}, switched() { calls.push("switched"); } };
   const local = new Map([["profile", JSON.stringify({ auth: { key: "k", user: { _id: "u1" } } })]]);
   return vm.runInNewContext(code + "\n({ SYNCED, syncMerge, cloudSync })", {
-    store, settings: { profileSync: true }, stats: noop, restrict: noop, viewerLibrary: noop, hero: noop,
+    // (Lumen ships with no sync server: the merging is still tested, against a made-up one)
+    SYNC_ENDPOINT: "https://sync.invalid/sync", store, settings: { profileSync: true }, stats: noop, restrict: noop, viewerLibrary: noop, hero: noop,
     whoIsWatching: {}, scheduleSync() {}, log() {}, Date, JSON, Object, Number, Math, Set, Array, String, setTimeout, clearTimeout,
     viewers: { list: () => ({ list: Array.from({ length: viewerCount }, (_, i) => ({ id: "v" + i })) }) },
     localStorage: { getItem: (k) => local.get(k) ?? null, setItem: (k, v) => local.set(k, v), removeItem: (k) => local.delete(k) },

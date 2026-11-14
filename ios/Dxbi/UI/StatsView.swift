@@ -1,7 +1,7 @@
 import Charts
 import SwiftUI
 
-/** Your stats: how long you've watched, what and when (dx.bi's Watch stats, counted on this phone) */
+/** Your stats: how long you've watched, what and when (Lumen's Watch stats, counted on this phone) */
 struct StatsView: View {
     @Environment(Stremio.self) private var stremio
     @State private var stats: JSON?
@@ -12,7 +12,7 @@ struct StatsView: View {
             if let s = stats {
                 content(s)
             } else if loaded {
-                ContentUnavailableView("Watch Stats Are Off", systemImage: "chart.bar", description: Text("Turn on Watch stats in dx.bi Settings to count how long you watch."))
+                ContentUnavailableView("Watch Stats Are Off", systemImage: "chart.bar", description: Text("Turn on Watch stats in Lumen Settings to count how long you watch."))
                     .padding(.top, 60)
             } else {
                 ProgressView().padding(60)
@@ -85,7 +85,7 @@ struct StatsView: View {
                 fact("Busiest day", s.text("day") ?? "–")
                 fact("In your Stremio library", "\(s.int("movies")) films · \(s.int("series")) series")
             }
-            Text("Stats stay on this phone (saved with dx.bi's data). Only time spent actually playing counts.")
+            Text("Stats stay on this phone (saved with Lumen's data). Only time spent actually playing counts.")
                 .font(.footnote).foregroundStyle(Dx.faint)
         }
         .padding(Dx.gutter)

@@ -56,6 +56,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.draw.blur
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -106,6 +108,7 @@ fun DetailScreen(stremio: Stremio, type: String, id: String, preview: Title?, pl
     // what's shown is this title's (the model can still hold the last title's for a moment)
     val details = all?.takeIf { it.metaId == id }
     val title = details?.title ?: preview ?: Title(id, type, "")
+    val blurUnwatched by produceState(false) { value = stremio.blurUnwatched() }
     val context = LocalContext.current
     val config = LocalConfiguration.current
     val wide = config.screenWidthDp > config.screenHeightDp && config.screenWidthDp >= 600
@@ -242,7 +245,7 @@ fun DetailScreen(stremio: Stremio, type: String, id: String, preview: Title?, pl
             val shown = season ?: nextVideo(details)?.season ?: seasons.firstOrNull()
             item { SeasonPicker(seasons, shown) { season = it } }
             items(details.videos.filter { it.season == shown }, key = { it.id }) { v ->
-                Episode(v, resumeHere = v.id == nextVideo(details)?.id, inProgress = v.id == details.resumeVideoId && details.resumeMs > 0, onWatched = { watched, upTo -> stremio.setWatched(v.id, watched, upTo) }) { start(v.id) }
+                Episode(v, resumeHere = v.id == nextVideo(details)?.id, inProgress = v.id == details.resumeVideoId && details.resumeMs > 0, onWatched = { watched, upTo -> stremio.setWatched(v.id, watched, upTo) }, blur = blurUnwatched) { start(v.id) }
             }
         }
         if (details != null && details.cast.isNotEmpty()) item {
@@ -275,7 +278,7 @@ fun DetailScreen(stremio: Stremio, type: String, id: String, preview: Title?, pl
                             SeasonPicker(seasons, shown) { season = it }
                             LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
                                 items(details.videos.filter { it.season == shown }, key = { it.id }) { v ->
-                                    Episode(v, resumeHere = v.id == nextVideo(details)?.id, inProgress = v.id == details.resumeVideoId && details.resumeMs > 0, onWatched = { watched, upTo -> stremio.setWatched(v.id, watched, upTo) }) { start(v.id) }
+                                    Episode(v, resumeHere = v.id == nextVideo(details)?.id, inProgress = v.id == details.resumeVideoId && details.resumeMs > 0, onWatched = { watched, upTo -> stremio.setWatched(v.id, watched, upTo) }, blur = blurUnwatched) { start(v.id) }
                                 }
                             }
                         } else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Dx.Accent) }
@@ -417,7 +420,7 @@ private fun seasonName(s: Int?) = when (s) {
 /** An episode: tap to play it; hold for watched, unwatched, or watched up to here */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Episode(v: Video, resumeHere: Boolean, inProgress: Boolean, onWatched: (watched: Boolean, upTo: Boolean) -> Unit, onPlay: () -> Unit) {
+private fun Episode(v: Video, resumeHere: Boolean, inProgress: Boolean, onWatched: (watched: Boolean, upTo: Boolean) -> Unit, blur: Boolean = false, onPlay: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().combinedClickable(enabled = !v.upcoming, onLongClick = { menu = true }, onClick = onPlay).padding(horizontal = Gutter, vertical = 10.dp)) {
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -426,7 +429,11 @@ private fun Episode(v: Video, resumeHere: Boolean, inProgress: Boolean, onWatche
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(132.dp).aspectRatio(16f / 9f)) {
-                Art(v.thumbnail, "", Modifier.fillMaxSize(), RoundedCornerShape(4.dp))
+                // (Blur unwatched episodes: the picture hidden until it's watched or started; Android 11 and
+                // older can't blur, so it's covered instead)
+                val hidden = blur && !v.watched && (v.progress ?: 0f) <= 0f
+                Art(v.thumbnail, "", Modifier.fillMaxSize().then(if (hidden) Modifier.blur(12.dp) else Modifier), RoundedCornerShape(4.dp))
+                if (hidden && android.os.Build.VERSION.SDK_INT < 31) Box(Modifier.fillMaxSize().clip(RoundedCornerShape(4.dp)).background(Color(0xFF2A2A2E)))
                 if (!v.upcoming) Box(Modifier.align(Alignment.Center).size(34.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f)).border(1.dp, Color.White, CircleShape), contentAlignment = Alignment.Center) {
                     Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(22.dp))
                 }

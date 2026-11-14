@@ -63,7 +63,9 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // (TVs and dx.bi's phone app keep the screen on while it's open. Lumen on a phone doesn't: browsing should let it
+        // sleep as any app does, and the player keeps it on while a video plays)
+        if (BuildConfig.IMMERSIVE) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
 
         if (!webViewIsRecentEnough()) return
@@ -77,11 +79,12 @@ class MainActivity : AppCompatActivity() {
         // dx.bi for phones: its own screens over the page (nothing in dx.bi TV: see PhoneHooks.kt)
         Phone.attach(this, root, ::js)
         // Only when dx.bi is opened, not when the screen is rebuilt (after a page crash, a turned phone).
-        // (not in the phone app: the film is made for a TV screen)
-        if (savedInstanceState == null && !BuildConfig.PHONE_UI) intro = Intro(this, root).also { it.start() }
+        // (not in the phone app: the film is made for a TV screen. Lumen plays its own)
+        if (savedInstanceState == null && BuildConfig.INTRO) intro = Intro(this, root).also { it.start() }
         web.setBackgroundColor(getColor(R.color.background))
-        web.isFocusable = true
-        web.isFocusableInTouchMode = true
+        // (Lumen's own screens take the remote's keys: the page underneath never has them)
+        web.isFocusable = !Phone.ownsKeys()
+        web.isFocusableInTouchMode = !Phone.ownsKeys()
 
         web.settings.apply {
             javaScriptEnabled = true
@@ -100,7 +103,9 @@ class MainActivity : AppCompatActivity() {
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
 
         web.addJavascriptInterface(Bridge(this), "DxbiTV")
-        val startScript = (assets.open("dxbi-tv.js").bufferedReader().use { it.readText() } + Phone.pageScript(this)).replace(Bridge.PLACEHOLDER, Bridge.TOKEN)
+        // (Lumen's own TMDB key, for the plugin when the viewer hasn't put one in Settings: see tmdbKey in dxbi.plugin.js)
+        val tmdb = if (BuildConfig.TMDB_KEY.isNotEmpty()) "window.__lumenTmdbKey=${org.json.JSONObject.quote(BuildConfig.TMDB_KEY)};\n" else ""
+        val startScript = (tmdb + assets.open("dxbi-tv.js").bufferedReader().use { it.readText() } + Phone.pageScript(this)).replace(Bridge.PLACEHOLDER, Bridge.TOKEN)
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(web, startScript, setOf(STREMIO_ORIGIN))
             injectedAtStart = true
@@ -180,6 +185,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // (the screen's back: Stremio reads it as it starts, a moment later, then it goes)
+        window.decorView.postDelayed({ getSharedPreferences("phone-cache", MODE_PRIVATE).edit().remove("x.playerUntil").apply() }, 4000)
         hideSystemBars()
         if (::web.isInitialized) {
             web.requestFocus()
@@ -206,7 +213,7 @@ class MainActivity : AppCompatActivity() {
             if (now - lastBack < 2500) finish()
             else {
                 lastBack = now
-                Toast.makeText(this, "Press Back again to leave dx.bi", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Press Back again to leave ${BuildConfig.APP_NAME}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -232,8 +239,8 @@ class MainActivity : AppCompatActivity() {
         if (again) {
             setContentView(View(this))
             AlertDialog.Builder(this)
-                .setTitle("dx.bi keeps stopping")
-                .setMessage("dx.bi's screen stopped twice in a row on this TV, usually because the TV is short of memory. Closing other apps (or restarting the TV) helps. Try again?")
+                .setTitle("${BuildConfig.APP_NAME} keeps stopping")
+                .setMessage("${BuildConfig.APP_NAME}'s screen stopped twice in a row on this TV, usually because the TV is short of memory. Closing other apps (or restarting the TV) helps. Try again?")
                 .setCancelable(false)
                 .setPositiveButton("Try again") { _, _ -> recreate() }
                 .setNegativeButton("Close") { _, _ -> finish() }
@@ -247,6 +254,8 @@ class MainActivity : AppCompatActivity() {
         PlaybackBus.started(json)
         // (the phone app can send it to another app, a Chromecast or a download instead)
         if (Phone.play(this, json)) return
+        // (the TV may close this screen while the player has it: coming back mustn't ask who's watching again)
+        getSharedPreferences("phone-cache", MODE_PRIVATE).edit().putLong("x.playerUntil", System.currentTimeMillis() + 12 * 3600_000L).apply()
         startActivity(Intent(this, PlayerActivity::class.java).putExtra(PlayerActivity.EXTRA_STREAM, json))
     }
 
@@ -287,6 +296,24 @@ class MainActivity : AppCompatActivity() {
 
     private fun hideSystemBars() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        if (!BuildConfig.IMMERSIVE) {
+            // Lumen on a phone, as on the iPhone: the status and gesture bars stay, see-through over the app's
+            // own black, and the screens leave room for them (and for a camera cut-out in the Fold's inner screen)
+            // (from Android 15 the bars are see-through whatever is asked: these are for the Androids before it)
+            @Suppress("DEPRECATION")
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+            @Suppress("DEPRECATION")
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                window.attributes = window.attributes.apply { layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES }
+            }
+            WindowInsetsControllerCompat(window, window.decorView).apply {
+                show(WindowInsetsCompat.Type.systemBars())
+                isAppearanceLightStatusBars = false
+                isAppearanceLightNavigationBars = false
+            }
+            return
+        }
         WindowInsetsControllerCompat(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.systemBars())
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -310,10 +337,10 @@ class MainActivity : AppCompatActivity() {
             .setTitle(if (fireTv) "Update your Fire TV" else "Update Android System WebView")
             .setCancelable(false)
         if (fireTv) {
-            builder.setMessage("dx.bi needs a newer web engine than this Fire TV has ($major). Update it under Settings → My Fire TV → About → Check for Updates, then open dx.bi again.")
+            builder.setMessage("${BuildConfig.APP_NAME} needs a newer web engine than this Fire TV has ($major). Update it under Settings → My Fire TV → About → Check for Updates, then open ${BuildConfig.APP_NAME} again.")
                 .setPositiveButton("Close") { _, _ -> finish() }
         } else {
-            builder.setMessage("dx.bi needs Android System WebView $MIN_WEBVIEW or newer (this TV has $major). Update it from the Play Store (search \"Android System WebView\"), then open dx.bi again.")
+            builder.setMessage("${BuildConfig.APP_NAME} needs Android System WebView $MIN_WEBVIEW or newer (this TV has $major). Update it from the Play Store (search \"Android System WebView\"), then open ${BuildConfig.APP_NAME} again.")
                 .setPositiveButton("Open Play Store") { _, _ ->
                     openExternal("market://details?id=com.google.android.webview")
                     finish()

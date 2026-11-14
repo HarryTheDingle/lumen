@@ -1,6 +1,6 @@
 import SwiftUI
 
-/** dx.bi's watch party: start one or join with a code; everyone streams from their own addons */
+/** Lumen's watch party: start one or join with a code; everyone streams from their own addons */
 struct PartyView: View {
     @Environment(Stremio.self) private var stremio
     @Environment(\.dismiss) private var dismiss
@@ -57,7 +57,7 @@ struct PartyView: View {
             VStack(spacing: 6) {
                 Text(s.string("code")).font(.system(size: 34, weight: .bold, design: .monospaced))
                 Text(s.bool("connected") ? "Connected" : "Connecting…").font(.footnote).foregroundStyle(Dx.muted)
-                if let code = s.text("code") { ShareLink(item: "Join my dx.bi watch party: \(code)") { Label("Invite", systemImage: "square.and.arrow.up") }.padding(.top, 4) }
+                if let code = s.text("code") { ShareLink(item: "Join my Lumen watch party: \(code)") { Label("Invite", systemImage: "square.and.arrow.up") }.padding(.top, 4) }
             }
             .frame(maxWidth: .infinity)
         }
@@ -102,7 +102,7 @@ struct PartyView: View {
     }
 }
 
-/** Scores and reviews: MDBList, Wikidata, TMDB (with keys set in dx.bi settings) */
+/** Scores and reviews: MDBList, Wikidata, TMDB (with keys set in Lumen settings) */
 struct ReviewsView: View {
     var title: Title
     var reviews: Reviews?

@@ -24,8 +24,24 @@ struct DxbiApp: App {
 }
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
-    /** Upright, apart from the player, which turns the phone sideways */
-    static var orientations: UIInterfaceOrientationMask = .portrait
+    /** A phone stays upright, apart from the player, which turns it sideways. An iPad turns freely
+     (Split View and Stage Manager need every way up) */
+    static let isPad = UIDevice.current.userInterfaceIdiom == .pad
+    static var orientations: UIInterfaceOrientationMask = isPad ? .all : .portrait
+    /** The loading screen is up: the phone stays sideways for the player that follows (a stream change too) */
+    static var holdSideways = false
+
+    /** A phone turned sideways (the loading screen, the player) or back upright */
+    @MainActor
+    static func turn(sideways: Bool) {
+        guard !isPad else { return }
+        orientations = sideways ? .landscape : .portrait
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        var top = scene?.windows.first { $0.isKeyWindow }?.rootViewController
+        while let next = top?.presentedViewController { top = next }
+        top?.setNeedsUpdateOfSupportedInterfaceOrientations()
+        scene?.requestGeometryUpdate(.iOS(interfaceOrientations: orientations)) { _ in }
+    }
 
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         Self.orientations
@@ -45,6 +61,15 @@ enum Route: Hashable {
     /** A row's See All: a Discover link and the row's name */
     case browse(link: String, name: String)
     case library
+    /** A cast or crew member's page: TMDB's person id, their name and photo (shown while it loads) */
+    case person(id: String, name: String, photo: String?)
+    /** A genre's page, and the festive one (Discover's Genres) */
+    case genre(String)
+    case christmas
+    /** A franchise's page (Discover's Franchises): the list's own id, or "tmdb:" and TMDB's collection id */
+    case franchise(id: String, name: String)
+    /** A director's or writer's page: as a person's, with what they directed and wrote ([id] can be empty: found by name) */
+    case filmmaker(id: String, name: String, photo: String?)
 }
 
 struct RootView: View {
@@ -54,20 +79,51 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
+        @Bindable var stremio = stremio
         ZStack {
-            // Stremio's page, working underneath (it has to be in the window to keep running)
+            // Stremio's page, working underneath (it has to be in the window, a little visible, to keep
+            // running), drawn off the edge of the screen: at 2% it still showed faintly ("Page not found")
             PageHost(webView: stremio.page.webView)
                 .opacity(0.02)
+                .offset(x: -4000)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
                 .ignoresSafeArea()
-            if stremio.account?.signedIn == true || stremio.guest {
-                tabs
+            if stremio.swapping {
+                // another account is being read in: Stremio's page starts again
+                VStack(spacing: 16) { Logo(size: 54); ProgressView().tint(.white) }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if stremio.account?.signedIn == true || stremio.guest {
+                if !stremio.profileChosen && stremio.viewers.count > 1 {
+                    ProfilePicker { stremio.profileChosen = true }
+                        .transition(.opacity)
+                } else {
+                    tabs
+                }
             } else {
                 WelcomeView()
             }
         }
         .screenBackground()
+        .fullScreenCover(isPresented: $stremio.tuning) { TasteSetup() }
+        // (opened from the Profile sheet or its picker, the cover can't present under them: tried again until it shows)
+        .task(id: stremio.tuningPending) {
+            guard stremio.tuningPending else { return }
+            while stremio.tuningPending && !Task.isCancelled {
+                if !stremio.tuningShown {
+                    stremio.tuning = false
+                    try? await Task.sleep(for: .milliseconds(200))
+                    stremio.tuning = true
+                }
+                try? await Task.sleep(for: .seconds(1.5))
+            }
+        }
+        .overlay {
+            if let launch = stremio.launch {
+                LoadingScreen(screen: launch).transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.3), value: stremio.launch != nil)
         .overlay(alignment: .top) {
             if let message = stremio.message {
                 Text(message)
@@ -88,12 +144,12 @@ struct RootView: View {
             guard phase == .active else { return }
             Task { if let found = await Updates.check() { update = found } }
         }
-        .alert("dx.bi \(update?.version ?? "") is out", isPresented: Binding(get: { update != nil }, set: { if !$0 { update = nil } }), presenting: update) { release in
+        .alert("Lumen \(update?.version ?? "") is out", isPresented: Binding(get: { update != nil }, set: { if !$0 { update = nil } }), presenting: update) { release in
             Button("Open the Release") { UIApplication.shared.open(release.page) }
             Button("Skip This Version") { Updates.skip(release) }
             Button("Not Now", role: .cancel) {}
         } message: { _ in
-            Text("You have \(Page.version). The release page has dxbi.ipa: install it over this one with SideStore, AltStore or Sideloadly, and your sign-in, settings and downloads stay.")
+            Text("You have \(Page.version). The release page has the new app: install it over this one with SideStore, AltStore or Sideloadly, and your sign-in, settings and downloads stay.")
         }
     }
 
@@ -112,6 +168,8 @@ struct RootView: View {
                 Stack { SearchView() }
             }
         }
+        // A sidebar on iPad (it folds into a tab bar at the top), the tab bar on a phone
+        .tabViewStyle(.sidebarAdaptable)
         .tabBarMinimizeBehavior(.onScrollDown)
         .onChange(of: stremio.pendingSearch) { _, q in if q != nil { tab = .search } }
     }
@@ -147,6 +205,16 @@ struct Stack<Content: View>: View {
                             BrowseView(link: link, name: name)
                         case .library:
                             LibraryView()
+                        case .person(let id, let name, let photo):
+                            PersonView(id: id, name: name, photo: photo)
+                        case .genre(let name):
+                            GenreView(name: name)
+                        case .christmas:
+                            ChristmasView()
+                        case .franchise(let id, let name):
+                            FranchiseView(id: id, name: name)
+                        case .filmmaker(let id, let name, let photo):
+                            PersonView(id: id, name: name, photo: photo, crew: true)
                         }
                     }
                 }
@@ -200,17 +268,25 @@ final class PageBox: UIView {
         addSubview(webView)
     }
 
-    /** Under the player's picture (kept the size it was, so the page isn't laid out again) */
+    /**
+     * With the player, off the edge of its screen (kept the size it was, so the page isn't laid out
+     * again). It has to stay in the window and a little visible, or iOS pauses the page; under the
+     * picture, SwiftUI didn't keep it there, and Stremio's own player ("Page not found", its play
+     * circle) showed faintly over the video. Its page also draws nothing while it's away.
+     */
     static func lend(_ webView: WKWebView, to view: UIView) {
-        let size = webView.bounds.size
+        let size = webView.bounds.size.width > 0 ? webView.bounds.size : CGSize(width: 400, height: 800)
         webView.autoresizingMask = []
-        webView.frame = CGRect(origin: .zero, size: size.width > 0 ? size : CGSize(width: 400, height: 800))
+        webView.frame = CGRect(origin: CGPoint(x: -size.width - 200, y: 0), size: size)
         webView.alpha = 0.02
         webView.isUserInteractionEnabled = false
         view.insertSubview(webView, at: 0)
+        // (opacity: unlike visibility, nothing in the page can turn it back on)
+        webView.evaluateJavaScript("document.documentElement.style.setProperty('opacity', '0', 'important')")
     }
 
     static func bringBack(_ webView: WKWebView) {
+        webView.evaluateJavaScript("document.documentElement.style.removeProperty('opacity')")
         home?.take(webView)
     }
 }
