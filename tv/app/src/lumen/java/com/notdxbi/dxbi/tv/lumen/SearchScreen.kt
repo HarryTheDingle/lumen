@@ -121,6 +121,9 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
     var inLetters by remember { mutableStateOf(true) }
     val lettersWidth by animateDpAsState(if (inLetters) 300.dp else 0.dp, tween(320), label = "letters")
     val firstLetter = remember { FocusRequester() }
+    // (up from the letters' top row goes to the box: focus skipped it for the corner above, which opened the menu, so
+    // the box, and the TV keyboard's voice typing, couldn't be reached)
+    val searchBox = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     // Search chosen from the menu: the remote starts on the letters
     LaunchedEffect(Unit) { delay(300); if (nav.query.isEmpty()) runCatching { firstLetter.requestFocus() } }
@@ -131,7 +134,7 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
             // the box: what's typed, or the suggestion being looked at; OK opens the TV's keyboard (and its voice typing)
             Field(
                 "Movies, shows and more", previewing ?: text, { previewing = null; text = it }, KeyboardType.Text,
-                Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 6.dp).fillMaxWidth(),
+                Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 6.dp).fillMaxWidth().focusRequester(searchBox),
                 shape = RoundedCornerShape(50),
                 leading = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(22.dp)) },
             )
@@ -143,6 +146,7 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
                 ) {
                     Letters(
                         firstLetter,
+                        onUpFromTop = { runCatching { searchBox.requestFocus() } },
                         onType = { previewing = null; text += it },
                         onDelete = { previewing = null; text = text.dropLast(1) },
                         onClear = { previewing = null; text = "" },
@@ -186,8 +190,9 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
 
 /** Apple TV's letters: a to z six across (or the numbers), then Space, delete and Clear */
 @Composable
-private fun Letters(first: FocusRequester, onType: (String) -> Unit, onDelete: () -> Unit, onClear: () -> Unit, modifier: Modifier = Modifier) {
+private fun Letters(first: FocusRequester, onUpFromTop: () -> Unit, onType: (String) -> Unit, onDelete: () -> Unit, onClear: () -> Unit, modifier: Modifier = Modifier) {
     var numbers by remember { mutableStateOf(false) }
+    var onToggle by remember { mutableStateOf(false) }
     val keys = if (numbers) "1234567890".map { it.toString() } else ('a'..'z').map { it.toString() }
     // (left off the letters goes nowhere: it went up to the corner, which opened the menu)
     Column(
@@ -195,7 +200,13 @@ private fun Letters(first: FocusRequester, onType: (String) -> Unit, onDelete: (
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         // abc / 123
-        Row(Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(50)).padding(3.dp)) {
+        Row(
+            Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(50)).padding(3.dp)
+                .onFocusChanged { onToggle = it.hasFocus }
+                .onPreviewKeyEvent {
+                    if (it.key == Key.DirectionUp && onToggle) { if (it.type == KeyEventType.KeyDown) onUpFromTop(); true } else false
+                },
+        ) {
             listOf("abc", "123").forEachIndexed { i, label ->
                 val on = (i == 1) == numbers
                 KeyButton(label, Modifier.weight(1f).height(32.dp), selected = on, small = true) { numbers = i == 1 }

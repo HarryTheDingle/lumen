@@ -820,17 +820,34 @@ private fun Episodes(
     }
     // (the episode they're on, else the first of the season shown at the start: where Down from Play lands)
     val target = remember(all, current) { all.firstOrNull { it.id == current }?.id ?: all.firstOrNull { it.season == season }?.id ?: all.firstOrNull()?.id }
+    // A season chosen from the tabs: Down goes to its episode to watch (the one they're on if it's in that season, else
+    // its first one not watched that's out, else its first), not back to the episode the remote was last on, which
+    // scrolled the row all the way back (season 22 of Taskmaster, back to S1, E1)
+    var aimId by remember { mutableStateOf<String?>(null) }
+    val aim = remember { FocusRequester() }
+    fun seasonEpisode(s: Int): Video? {
+        val eps = all.filter { it.season == s }
+        return eps.firstOrNull { it.id == current } ?: eps.firstOrNull { !it.watched && !it.upcoming } ?: eps.firstOrNull()
+    }
     // (its rows scroll sideways by the row's own rule, not the page's, which is for up and down)
     CompositionLocalProvider(LocalBringIntoViewSpec provides RowScrolling) {
     Column(Modifier.fillMaxWidth().onFocusChanged { remoteInRow = it.hasFocus }, verticalArrangement = Arrangement.spacedBy(14.dp)) {
         // the show's name over its seasons, as on Apple TV (the art it was on has gone by now)
         TitleLogo(title, maxHeight = 46.dp, maxWidth = 320.dp, textSize = 30.sp, centred = true, modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
         if (seasons.size > 1) {
-            LazyRow(contentPadding = PaddingValues(horizontal = Dx.Gutter), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            LazyRow(
+                Modifier.onPreviewKeyEvent {
+                    if (it.key != Key.DirectionDown || aimId == null) return@onPreviewKeyEvent false
+                    if (it.type == KeyEventType.KeyDown) runCatching { aim.requestFocus() }.isSuccess else true
+                },
+                contentPadding = PaddingValues(horizontal = Dx.Gutter), horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 items(seasons) { s ->
                     Pill(if (s == 0) "Specials" else "Season $s", selected = s == season, onClick = {
                         onSeason(s)
-                        scope.launch { row.scrollToItem(all.indexOfFirst { it.season == s }.coerceAtLeast(0)) }
+                        val v = seasonEpisode(s)
+                        aimId = v?.id
+                        scope.launch { row.scrollToItem(all.indexOfFirst { it.id == v?.id }.coerceAtLeast(0)) }
                     })
                 }
             }
@@ -841,7 +858,8 @@ private fun Episodes(
             state = row,
             // (back up into the episodes: the one the remote was last on, else the one they're on; it landed on whichever was
             // nearest the card it came from, often one half off the screen)
-            modifier = @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.focusRestorer { landing },
+            // (not while a season chosen from the tabs is waiting to be landed on: the row going back to where it was won over it)
+            modifier = if (aimId != null) Modifier else @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.focusRestorer { landing },
             contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 18.dp),
             horizontalArrangement = Arrangement.spacedBy(18.dp),
         ) {
@@ -851,7 +869,13 @@ private fun Episodes(
                     v, fallbackArt, isCurrent = v.id == current, blur = blurUnwatched,
                     onClick = { onPlay(v) }, onLongClick = { onMenu(v) },
                     modifier = (if (here) Modifier.focusRequester(landing) else Modifier)
-                        .onFocusChanged { if ((it.isFocused || it.hasFocus) && v.season != null && v.season != season) onSeason(v.season!!) },
+                        .then(if (v.id == aimId) Modifier.focusRequester(aim) else Modifier)
+                        .onFocusChanged {
+                            if (!(it.isFocused || it.hasFocus)) return@onFocusChanged
+                            // (landed: from here the row remembers it as usual)
+                            if (v.id == aimId) aimId = null
+                            if (v.season != null && v.season != season) onSeason(v.season!!)
+                        },
                     showSeason = seasons.size > 1,
                 )
             }
