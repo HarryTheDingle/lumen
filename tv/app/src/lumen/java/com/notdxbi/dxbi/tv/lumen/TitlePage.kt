@@ -162,6 +162,10 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
     val markedNow by stremio.listMarks.collectAsState()
     val libraryRows by stremio.myList.collectAsState()
     val inList = markedNow[ref.id] ?: (title.inLibrary || mine?.title?.inLibrary == true || libraryRows.any { r -> r.items.any { it.id == ref.id } })
+    /** Its age rating, countries and languages (TMDB, with a key) */
+    val facts by androidx.compose.runtime.produceState<TitleFacts?>(null, ref.id) {
+        imdbId(ref.id)?.let { value = TitleFacts.from(stremio.facts(ref.type, it)) }
+    }
     /** Lumen settings → Blur unwatched episodes */
     val blurUnwatched by androidx.compose.runtime.produceState(false) { value = stremio.blurUnwatched() }
     /** Lumen settings → Play Trailers (null until read) */
@@ -369,6 +373,8 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                             episode = if (ref.type == "series") d?.let(::nextVideo) else null,
                             badges = streamBadges(choices?.takeIf { c -> c.videoId == d?.videoId }?.let { c -> c.picked ?: c.items.minWithOrNull(StreamOption.BEST) }),
                             notice = notice?.first,
+                            facts = facts,
+                            tag = newTag(ref.type, d, releaseDates) ?: if (title.watched) "Watched" else null,
                             height = screen,
                             playLabel = playLabel(ref, d),
                             inList = inList,
@@ -556,6 +562,19 @@ private class PageScrollingSpec(private val list: androidx.compose.foundation.la
     }
 }
 
+/** Apple TV's "New": a film out on digital in the last month, or a show with an episode out in the last ten days */
+private fun newTag(type: String, d: Details?, dates: DiscoverFeed.ReleaseDates?): String? {
+    val now = System.currentTimeMillis()
+    val day = 86_400_000L
+    if (type == "movie") {
+        val out = dates?.digital ?: return null
+        return if (out <= now && now - out < 30 * day) "New" else null
+    }
+    val iso = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+    val latest = d?.videos?.filter { (it.season ?: 0) > 0 }?.mapNotNull { v -> v.released?.take(10)?.let { runCatching { iso.parse(it)?.time }.getOrNull() } }?.filter { it <= now }?.maxOrNull() ?: return null
+    return if (now - latest < 10 * day) "New Episode" else null
+}
+
 /** What Play starts: the episode last played if it was left part-way, the one after it if it was finished, else the first (the engine decides) */
 fun nextVideo(d: Details): Video? {
     if (d.title?.type != "series" && d.videos.none { it.season != null }) return null
@@ -609,6 +628,8 @@ private fun Header(
     onRate: () -> Unit,
     onMore: () -> Unit,
     notice: String? = null,
+    facts: TitleFacts? = null,
+    tag: String? = null,
 ) {
     Box(Modifier.fillMaxWidth().height(height)) {
         TitleInfo(
@@ -619,6 +640,8 @@ private fun Header(
             reviews = reviews,
             badges = badges,
             notice = notice,
+            facts = facts,
+            tag = tag,
             buttonsModifier = Modifier
                 // (back up from the rows below always lands on Play, not whichever button is nearest the card it came from)
                 .focusProperties { enter = { playFocus } }
@@ -662,24 +685,29 @@ private fun Credit(role: String, names: String) {
             append(names)
         },
         fontSize = 13.sp,
+        lineHeight = 18.sp,
         color = Color.White,
         maxLines = 3,
         overflow = TextOverflow.Ellipsis,
     )
 }
 
-/** "2026 · 47 min", Watched, and the scores */
+/**
+ * Apple TV's facts line: "2026 · 2 hr 6 min", the age rating, what the stream offers (4K, Dolby Vision…), then the
+ * scores, each with its own mark. (Watched is the tag over the logo, not in among these.)
+ */
 @Composable
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-fun Facts(title: Title, reviews: Reviews?, badges: List<String> = emptyList(), notice: String? = null) {
+fun Facts(title: Title, reviews: Reviews?, badges: List<String> = emptyList(), notice: String? = null, rating: String? = null) {
     // (wraps onto a second line when the badges and the scores are more than fit across, rather than running off the edge)
     androidx.compose.foundation.layout.FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        val when_ = listOfNotNull(title.year, title.runtime).joinToString(" · ")
+        val when_ = listOfNotNull(title.year, runtimeText(title.runtime)).joinToString(" · ")
         if (when_.isNotEmpty()) Text(when_, fontSize = 14.sp, color = Color.White)
-        // (a film that isn't on digital yet, whatever cinema copies are about: said plainly, first)
+        rating?.let { FormatBadge(it) }
+        // (a film that isn't on digital yet, whatever cinema copies are about: said plainly)
         notice?.let {
             Text(
                 it.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Black, maxLines = 1,
@@ -687,19 +715,11 @@ fun Facts(title: Title, reviews: Reviews?, badges: List<String> = emptyList(), n
             )
         }
         badges.forEach { FormatBadge(it) }
-        if (title.watched) Text("Watched", fontSize = 14.sp, color = Dx.Muted)
-        // Rotten Tomatoes, then Metacritic, the audience score, IMDb: each in its own soft chip, as the open card had them
-        val order = listOf("tomatoes", "metacritic", "popcorn", "imdb")
-        reviews?.scores.orEmpty().sortedBy { order.indexOf(it.source).let { i -> if (i < 0) order.size else i } }.take(4).forEach { s ->
-            Row(
-                Modifier.border(BorderStroke(1.dp, Color.White.copy(alpha = 0.5f)), RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(scoreName(s, short = true), fontSize = 10.sp, color = Color.White.copy(alpha = 0.85f), maxLines = 1)
-                Text(s.value, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
-            }
-        }
+        // Rotten Tomatoes, then the audience score, Metacritic, IMDb, with a little room before them
+        val order = listOf("tomatoes", "popcorn", "metacritic", "imdb")
+        val scores = reviews?.scores.orEmpty().filter { it.source in order }.sortedBy { order.indexOf(it.source) }.take(4)
+        if (scores.isNotEmpty()) Spacer(Modifier.width(4.dp))
+        scores.forEach { sc -> ScoreChip(sc.source, sc.value) }
     }
 }
 

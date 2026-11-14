@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -76,18 +77,26 @@ fun TitleInfo(
     /** A film not out on digital yet: "In Cinemas", "Digital 18 Nov" */
     notice: String? = null,
     buttonsModifier: Modifier = Modifier,
+    /** A small tag over the logo, as Apple TV's "New": "New", "New Episode", "Watched" */
+    tag: String? = null,
+    /** The age rating and the like (TMDB) */
+    facts: TitleFacts? = null,
     buttons: @Composable RowScope.() -> Unit,
 ) {
     var full by remember { mutableStateOf(false) }
     val info: @Composable (Title) -> Unit = { t ->
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (tag != null) Text(
+                tag, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
+                modifier = Modifier.glass(RoundedCornerShape(6.dp)).padding(horizontal = 7.dp, vertical = 2.dp),
+            )
             TitleLogo(t, maxHeight = 110.dp, maxWidth = 380.dp, textSize = 40.sp, modifier = Modifier.padding(bottom = 4.dp))
             Text(kindLine(t), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.85f))
             if (detailed) {
                 val lead = episode?.let(::episodeLead)?.takeIf { episode.overview != null }
                 val body = if (lead != null) episode.overview else t.description
                 if (body != null) Synopsis(lead, body, onMore = { full = true })
-                Facts(t, reviews, badges, notice)
+                Facts(t, reviews, badges, notice, facts?.rating)
             } else {
                 t.description?.let {
                     Text(it, fontSize = 14.sp, color = Dx.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 19.sp)
@@ -196,10 +205,11 @@ fun FormatBadge(text: String) {
         text,
         fontSize = 10.sp,
         fontWeight = FontWeight.Bold,
-        color = Color.White.copy(alpha = 0.85f),
+        color = Color.White.copy(alpha = 0.9f),
         maxLines = 1,
+        // (glass, so it reads on bright art and on black alike)
         modifier = Modifier
-            .border(BorderStroke(1.dp, Color.White.copy(alpha = 0.5f)), RoundedCornerShape(4.dp))
+            .glass(RoundedCornerShape(4.dp), fill = Color.White.copy(alpha = 0.12f))
             .padding(horizontal = 5.dp, vertical = 1.dp),
     )
 }
@@ -211,13 +221,14 @@ fun PlayButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier
         onClick = onClick,
         modifier = modifier,
         colors = ButtonDefaults.colors(
-            // Apple TV's: dark glass at rest, a soft white when the remote's on it
-            containerColor = Color.Black.copy(alpha = 0.42f),
+            // Apple TV's: frosted glass at rest (light enough to see on black), a soft white when the remote's on it
+            containerColor = Glass.Fill,
             contentColor = Color.White,
             focusedContainerColor = Color(0xFFE8E8E8),
             focusedContentColor = Color.Black,
         ),
         scale = ButtonDefaults.scale(focusedScale = 1.08f),
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Glass.Edge), shape = RoundedCornerShape(50)), focusedBorder = androidx.tv.material3.Border.None),
     ) {
         Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(6.dp))
@@ -232,13 +243,103 @@ fun RoundButton(icon: ImageVector, label: String, onClick: () -> Unit, modifier:
         onClick = onClick,
         modifier = modifier,
         colors = IconButtonDefaults.colors(
-            containerColor = Color.Black.copy(alpha = 0.42f),
+            containerColor = Glass.Fill,
             contentColor = tint,
             focusedContainerColor = Color(0xFFE8E8E8),
             focusedContentColor = Color.Black,
         ),
         scale = IconButtonDefaults.scale(focusedScale = 1.1f),
+        border = IconButtonDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Glass.Edge), shape = androidx.compose.foundation.shape.CircleShape), focusedBorder = androidx.tv.material3.Border.None),
     ) {
         Icon(icon, contentDescription = label)
+    }
+}
+
+/**
+ * A score's own mark, drawn (no emoji): Rotten Tomatoes' tomato (a green splat when it's rotten, under 60%), the
+ * audience's popcorn bucket, IMDb's yellow badge, Metacritic's coloured square. [size]: the mark's height.
+ */
+@Composable
+fun ScoreMark(source: String, value: String, size: androidx.compose.ui.unit.Dp = 14.dp) {
+    val pct = value.filter { it.isDigit() || it == '.' }.toFloatOrNull()
+    when (source) {
+        "tomatoes" -> androidx.compose.foundation.Canvas(Modifier.size(size)) {
+            val w = this.size.width
+            if (pct != null && pct < 60f) {
+                // rotten: a green splat
+                val splat = Color(0xFF0FA34A)
+                drawCircle(splat, radius = w * 0.36f, center = center)
+                for (i in 0 until 7) {
+                    val a = Math.toRadians(i * 360.0 / 7 + 10).toFloat()
+                    drawCircle(splat, radius = w * 0.11f, center = androidx.compose.ui.geometry.Offset(center.x + kotlin.math.cos(a) * w * 0.4f, center.y + kotlin.math.sin(a) * w * 0.4f))
+                }
+            } else {
+                // fresh: a red tomato with its green leaves
+                drawCircle(Color(0xFFFA320A), radius = w * 0.44f, center = androidx.compose.ui.geometry.Offset(center.x, center.y + w * 0.05f))
+                drawCircle(Color.White.copy(alpha = 0.35f), radius = w * 0.1f, center = androidx.compose.ui.geometry.Offset(center.x - w * 0.18f, center.y - w * 0.04f))
+                val leaf = Color(0xFF00912D)
+                for (dx in listOf(-0.16f, 0f, 0.16f)) {
+                    drawOval(leaf, topLeft = androidx.compose.ui.geometry.Offset(center.x + dx * w - w * 0.09f, w * 0.02f), size = androidx.compose.ui.geometry.Size(w * 0.18f, w * 0.2f))
+                }
+            }
+        }
+        "popcorn" -> androidx.compose.foundation.Canvas(Modifier.size(size)) {
+            val w = this.size.width
+            val h = this.size.height
+            // the corn on top, then the striped bucket
+            val corn = Color(0xFFFFE9A8)
+            for ((x, y) in listOf(0.3f to 0.25f, 0.5f to 0.18f, 0.7f to 0.25f, 0.4f to 0.34f, 0.6f to 0.34f)) drawCircle(corn, radius = w * 0.14f, center = androidx.compose.ui.geometry.Offset(x * w, y * h))
+            val bucket = androidx.compose.ui.graphics.Path().apply {
+                moveTo(w * 0.18f, h * 0.38f); lineTo(w * 0.82f, h * 0.38f); lineTo(w * 0.72f, h); lineTo(w * 0.28f, h); close()
+            }
+            drawPath(bucket, Color(0xFFFA320A))
+            drawLine(Color.White, androidx.compose.ui.geometry.Offset(w * 0.41f, h * 0.4f), androidx.compose.ui.geometry.Offset(w * 0.44f, h * 0.98f), strokeWidth = w * 0.09f)
+            drawLine(Color.White, androidx.compose.ui.geometry.Offset(w * 0.59f, h * 0.4f), androidx.compose.ui.geometry.Offset(w * 0.56f, h * 0.98f), strokeWidth = w * 0.09f)
+        }
+        "imdb" -> Box(
+            Modifier.height(size).background(Color(0xFFF5C518), RoundedCornerShape(3.dp)).padding(horizontal = 3.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("IMDb", fontSize = (size.value * 0.62f).sp, fontWeight = FontWeight.Black, color = Color.Black, maxLines = 1, lineHeight = (size.value * 0.7f).sp)
+        }
+        "metacritic" -> Box(
+            Modifier.size(size).background(
+                when { pct == null -> Color.Gray; pct >= 61f -> Color(0xFF00CE7A); pct >= 40f -> Color(0xFFFFBD3F); else -> Color(0xFFFF6874) },
+                RoundedCornerShape(3.dp),
+            ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("M", fontSize = (size.value * 0.62f).sp, fontWeight = FontWeight.Black, color = Color.Black, lineHeight = (size.value * 0.7f).sp)
+        }
+        else -> Text(source.take(4), fontSize = (size.value * 0.7f).sp, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.8f))
+    }
+}
+
+/** A score as its mark and its value ("🍅 92%" drawn properly) */
+@Composable
+fun ScoreChip(source: String, value: String, size: androidx.compose.ui.unit.Dp = 14.dp, fontSize: androidx.compose.ui.unit.TextUnit = 13.sp) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        ScoreMark(source, value, size)
+        Text(value, fontSize = fontSize, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
+    }
+}
+
+/** "126 min" → "2 hr 6 min", as Apple TV says it (anything else as it was) */
+fun runtimeText(runtime: String?): String? {
+    if (runtime == null) return null
+    val m = Regex("""^\s*(\d+)\s*min""").find(runtime)?.groupValues?.get(1)?.toIntOrNull() ?: return runtime
+    if (m < 60) return "$m min"
+    return if (m % 60 == 0) "${m / 60} hr" else "${m / 60} hr ${m % 60} min"
+}
+
+/** What TMDB says of a title for its page (Stremio.facts): the age rating, where it's from, its languages, who made it */
+data class TitleFacts(val rating: String?, val countries: List<String>, val language: String?, val spoken: List<String>, val studio: String?) {
+    companion object {
+        fun from(o: org.json.JSONObject?): TitleFacts? {
+            if (o == null) return null
+            fun list(k: String) = o.optJSONArray(k)?.let { a -> (0 until a.length()).mapNotNull { a.optString(it).takeIf { s -> s.isNotBlank() } } }.orEmpty()
+            fun text(k: String) = o.optString(k).takeIf { it.isNotBlank() && it != "null" }
+            return TitleFacts(text("rating"), list("countries"), text("language"), list("spoken"), text("studio"))
+        }
     }
 }

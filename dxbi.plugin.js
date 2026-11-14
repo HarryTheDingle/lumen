@@ -16533,6 +16533,45 @@
         writeCached(key, result);
         return result;
       },
+      // A title's facts for its page's Information (Apple TV's): the age rating (the UK's, else the US's), the countries
+      // it's from, its original language and the languages spoken in it. From TMDB (needs the key); null without one.
+      async facts(type, imdb) {
+        if (!settings.tmdbKey.trim() || !/^tt\d+$/.test(imdb || "")) return null;
+        const key = `facts1:${type}:${imdb}`;
+        const cached = readCached(key);
+        if (cached !== undefined) return cached;
+        const get = (path) => this.tmdbGet(path);
+        const kind = type === "movie" ? "movie" : "tv";
+        const found = await get(`/find/${encodeURIComponent(imdb)}?external_source=imdb_id`);
+        const first = found && found[`${kind}_results`] && found[`${kind}_results`][0];
+        if (!first) return null;
+        const d = await get(`/${kind}/${first.id}?language=en-GB&append_to_response=${kind === "movie" ? "release_dates" : "content_ratings"}`);
+        if (!d) return null;
+        const rating = (country) => {
+          if (kind === "movie") {
+            const r = ((d.release_dates && d.release_dates.results) || []).find((x) => x.iso_3166_1 === country);
+            const c = r && (r.release_dates || []).map((x) => x.certification).find((x) => x && x.trim());
+            return c ? c.trim() : null;
+          }
+          const r = ((d.content_ratings && d.content_ratings.results) || []).find((x) => x.iso_3166_1 === country);
+          return r && r.rating ? r.rating.trim() : null;
+        };
+        const names = new Intl.DisplayNames(["en-GB"], { type: "language" });
+        const lang = (code) => { try { return code ? names.of(code) : null; } catch (_) { return null; } };
+        const result = {
+          rating: rating("GB") || rating("US"),
+          ratingCountry: rating("GB") ? "GB" : rating("US") ? "US" : null,
+          countries: (d.production_countries || d.origin_country || []).map((c) => (typeof c === "string" ? c : c.name)).filter(Boolean).slice(0, 4),
+          language: lang(d.original_language),
+          spoken: (d.spoken_languages || []).map((l) => l.english_name || l.name).filter(Boolean).slice(0, 8),
+          released: d.release_date || d.first_air_date || null,
+          runtime: d.runtime || null,
+          seasons: d.number_of_seasons || null,
+          studio: ((d.production_companies || [])[0] || {}).name || ((d.networks || [])[0] || {}).name || null,
+        };
+        writeCached(key, result);
+        return result;
+      },
       // A person's page, from TMDB (needs the TMDB key): who they are and everything they're known for, as
       // titles Stremio can open (IMDb ids). [id]: TMDB's person id (the cast list gives it), else [name] is
       // searched. null without a key or when TMDB has no such person.

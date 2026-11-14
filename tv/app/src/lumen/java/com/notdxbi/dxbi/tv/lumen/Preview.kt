@@ -125,11 +125,11 @@ fun TitleHoldMenu(title: Title, onOpen: () -> Unit, onDismiss: () -> Unit) {
 /** Each title's scores, once fetched (kept while Lumen's open: they're slow to come) */
 private val scoreMemory = ConcurrentHashMap<String, List<Score>>()
 
-/** A score's name: short on a card ("🍅 92%"), whole on a title's page */
+/** A score's name, whole ("Rotten Tomatoes"); short, its mark's stand-in where only text will do */
 fun scoreName(s: Score, short: Boolean = false): String = when (s.source) {
     "imdb" -> "IMDb"
-    "tomatoes" -> if (short) "🍅" else "Rotten Tomatoes"
-    "popcorn" -> if (short) "🍿" else "Rotten Tomatoes Audience"
+    "tomatoes" -> if (short) "RT" else "Rotten Tomatoes"
+    "popcorn" -> if (short) "RT Audience" else "Rotten Tomatoes Audience"
     else -> s.name
 }
 
@@ -371,15 +371,17 @@ fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 270.dp,
 @Composable
 private fun FactsLine(facts: List<String>, scores: List<Score>?) {
     val style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium, shadow = Shadow(Color.Black, blurRadius = 6f))
-    val found = scores.orEmpty().take(3).map { "${scoreName(it, short = true)} ${it.value}" }
+    val found = scores.orEmpty().take(3)
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(facts.joinToString(" · "), style = style, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-        // (nothing is reserved for them: the facts stay where they are and the scores come in after them)
+        // (nothing is reserved for them: the facts stay where they are and the scores come in after them, each with its mark)
         androidx.compose.animation.AnimatedVisibility(
             visible = found.isNotEmpty(),
             enter = androidx.compose.animation.fadeIn(tween(700)),
         ) {
-            Text(" · " + found.joinToString(" · "), style = style, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(Modifier.padding(start = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                found.forEach { ScoreChip(it.source, it.value, size = 12.dp, fontSize = 12.sp) }
+            }
         }
     }
 }

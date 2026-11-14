@@ -656,6 +656,10 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
     suspend fun cast(type: String, imdb: String, names: JSONArray): List<JSONObject>? =
         (engine.runCatching { call("dx", JSONObject().put("method", "phone.cast").put("args", JSONArray().put(type).put(imdb).put(names)), 25_000) }.getOrNull() as? JSONArray)?.objects()
 
+    /** A title's age rating, countries and languages (TMDB, with a key in dx.bi settings), or null: the title page's Information */
+    suspend fun facts(type: String, imdb: String): JSONObject? =
+        engine.runCatching { call("dx", JSONObject().put("method", "phone.facts").put("args", JSONArray().put(type).put(imdb)), 20_000) }.getOrNull() as? JSONObject
+
     /**
      * The intro, recap and credits times for a video, fetched ahead (the plugin keeps them): the player's start waited for
      * them, up to 4 seconds, before it opened
