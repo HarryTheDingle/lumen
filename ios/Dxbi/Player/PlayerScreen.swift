@@ -129,7 +129,7 @@ struct PlayerScreen: View {
         h.doubleTap = { x, width in
             guard !locked else { return }
             let forward = x > width / 2
-            playback.mpv.seek(by: forward ? 10 : -10)
+            if forward { playback.mpv.seek(by: 10) } else { playback.back() }
             playback.show(forward ? "+10 seconds" : "−10 seconds")
         }
         // Up and down along a side: brightness (left) or volume (right), following the finger one for one. The value
@@ -232,7 +232,7 @@ struct PlayerScreen: View {
 
     private var centre: some View {
         HStack(spacing: 56) {
-            GlassCircle(icon: "gobackward.10", label: "Back 10 seconds", size: 62) { playback.mpv.seek(by: -10); poke() }
+            GlassCircle(icon: "gobackward.10", label: "Back 10 seconds", size: 62) { playback.back(); poke() }
             Button {
                 playback.mpv.toggle()
                 poke()

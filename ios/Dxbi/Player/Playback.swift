@@ -286,6 +286,61 @@ final class Playback: Identifiable {
         }
         if mpv.stalled { if stalledSince == nil, settledIn, Date().timeIntervalSince(mpv.lastSeek) > 4 { stallCount += 1 }; stalledSince = stalledSince ?? Date() } else { stalledSince = nil }
         if !subtitlesDecided, mpv.started { decideSubtitles() }
+        replayCheck()
+    }
+
+    // MARK: - Going back a little
+
+    /**
+     * Back a little (the back-10 button, a double tap on the left, the keyboard, the lock screen): English subtitles over
+     * the bit gone back over, in case a line was missed, then back to how they were once it's past where it was, as the
+     * Apple TV app does. Not when full subtitles are on already, nor for more than a minute back. (Lumen TV does the same.)
+     */
+    func back(_ seconds: Double = 10) {
+        let from = mpv.position
+        mpv.seek(by: -seconds)
+        replaySubtitles(from: from, to: max(0, from - seconds))
+    }
+
+    @ObservationIgnored private var replayUntil: Double?
+    /** The subtitles before (nil: off), and the track put up for the bit gone back over */
+    @ObservationIgnored private var replayBefore: Int?
+    @ObservationIgnored private var replayTrack: Int?
+
+    private func replaySubtitles(from: Double, to: Double) {
+        guard from - to <= 60, from > to else { return }
+        if let until = replayUntil { replayUntil = max(until, from); return }
+        let subs = mpv.tracks.filter { $0.type == "sub" }
+        let shown = subs.first { $0.selected }
+        if let shown, !Self.isForced(shown) { return }
+        // the video's own English first (made for this release, so in time), else a subtitle file's
+        let english = subs.filter { !Self.isForced($0) && ["en", "eng", "english", ""].contains($0.lang.lowercased()) }
+        guard let pick = english.first(where: { !$0.external && !$0.lang.isEmpty }) ?? english.first(where: { !$0.external }) ?? english.first else { return }
+        replayBefore = shown?.id
+        replayTrack = pick.id
+        replayUntil = from
+        Log.note("subtitles over the \(Int(from - to)) s gone back: \(pick.title)")
+        mpv.select("sub", pick.id)
+    }
+
+    /** Past where it was (or the subtitles changed in the menu meanwhile): back as it was */
+    private func replayCheck() {
+        guard let until = replayUntil else { return }
+        let showing = mpv.tracks.first { $0.type == "sub" && $0.selected }?.id
+        if showing != replayTrack, Date().timeIntervalSince(mpv.lastSeek) > 1.5 {
+            // (chosen in the menu: theirs, left as it is)
+            replayUntil = nil
+            return
+        }
+        if mpv.position >= until + 1.5 {
+            replayUntil = nil
+            mpv.select("sub", replayBefore)
+        }
+    }
+
+    /** A forced track: flagged so, or named so ("Forced", "Foreign", "FRC") */
+    static func isForced(_ t: MPV.Track) -> Bool {
+        t.forced || t.title.range(of: #"\b(forced|foreign|frc)\b"#, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     /**
@@ -636,7 +691,7 @@ final class Playback: Identifiable {
         center.skipForwardCommand.preferredIntervals = [10]
         center.skipBackwardCommand.preferredIntervals = [10]
         center.skipForwardCommand.addTarget { [weak self] e in self?.mpv.seek(by: (e as? MPSkipIntervalCommandEvent)?.interval ?? 10); return .success }
-        center.skipBackwardCommand.addTarget { [weak self] e in self?.mpv.seek(by: -((e as? MPSkipIntervalCommandEvent)?.interval ?? 10)); return .success }
+        center.skipBackwardCommand.addTarget { [weak self] e in self?.back((e as? MPSkipIntervalCommandEvent)?.interval ?? 10); return .success }
         center.changePlaybackPositionCommand.addTarget { [weak self] e in
             if let e = e as? MPChangePlaybackPositionCommandEvent { self?.mpv.seek(to: e.positionTime) }
             return .success

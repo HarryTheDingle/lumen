@@ -53,7 +53,7 @@ final class PlayerHost: UIHostingController<AnyView> {
         switch command.input {
         case " ", "k": playback.mpv.toggle()
         case UIKeyCommand.inputLeftArrow, "j":
-            playback.mpv.seek(by: -10)
+            playback.back()
             playback.show("−10 seconds")
         case UIKeyCommand.inputRightArrow, "l":
             playback.mpv.seek(by: 10)

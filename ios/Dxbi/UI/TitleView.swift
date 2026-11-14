@@ -422,14 +422,19 @@ struct TitleView: View {
         return TitleInfo(
             title: title, detailed: true, logoHeight: wide ? 120 : 100,
             episodeLabel: label, episodeText: video?.overview ?? (label == nil ? nil : title.description),
-            more: $moreText, formats: formats
+            more: $moreText, formats: formats, tag: watchedAll ? "Watched" : nil
         ) {
-            if watchedAll { Badge(text: "WATCHED") }
-            if let scores = reviews?.scores, !scores.isEmpty {
+            // Rotten Tomatoes, the audience, Metacritic, IMDb: each its own mark and value (tap for the reviews)
+            let order = ["tomatoes", "popcorn", "metacritic", "imdb"]
+            let scores = (reviews?.scores ?? []).filter { order.contains($0.source) }.sorted { order.firstIndex(of: $0.source)! < order.firstIndex(of: $1.source)! }
+            if !scores.isEmpty {
                 Button { reviewsOpen = true } label: {
-                    HStack(spacing: 10) {
-                        ForEach(scores.prefix(3)) { s in
-                            (Text(s.value).fontWeight(.semibold) + Text(" \(s.name)").foregroundStyle(Dx.muted))
+                    HStack(spacing: 12) {
+                        ForEach(scores.prefix(4)) { s in
+                            HStack(spacing: 5) {
+                                ScoreMark(source: s.source, value: s.value)
+                                Text(s.value).fontWeight(.semibold)
+                            }
                         }
                     }
                     .lineLimit(1)
