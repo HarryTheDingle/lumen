@@ -2,6 +2,13 @@
 
 Lumen's own history starts here. The history of the dx.bi code it's built on is in [docs/dxbi/CHANGELOG.md](docs/dxbi/CHANGELOG.md).
 
+## 2.30.28
+
+- Lumen TV: choosing a season from a show's season tabs and moving down now lands on that season's next episode (or its first), instead of jumping back to series 1, episode 1.
+- Lumen TV: Back on Home, Discover, Search, the Calendar or Settings goes to the top, then opens the menu, as the Apple TV app does; Back in the menu leaves Lumen.
+- Lumen TV and phone: the update offer is in Lumen's own look, and the permission step it needs the first time says exactly what to switch on.
+- Lumen TV: the search box can be reached again (up from the letters), for the TV keyboard and voice typing.
+
 ## 2.30.27
 
 - Lumen TV, the Apple TV app's look: a title's picture blurs into the page as you move down, the film's name centred over the rows, About in a frosted box with Information and Languages under it, and the facts in Apple TV's order with drawn Rotten Tomatoes, IMDb and Metacritic marks.
