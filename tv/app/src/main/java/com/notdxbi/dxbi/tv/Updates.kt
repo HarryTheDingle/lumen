@@ -111,6 +111,64 @@ object Updates {
         return if (found) Latest(version, url, -1) else null
     }
 
+    /** What changed between two versions, for the update panel: new things, and fixes */
+    class Notes(val added: List<String>, val fixed: List<String>) {
+        val isEmpty get() = added.isEmpty() && fixed.isEmpty()
+    }
+
+    /**
+     * The notes of every release after [current] up to [latest] (a version skipped before is still told), newest first,
+     * from the releases' own text: a "- " line each. Only what's about this app: a line led by "Lumen iPad:" or
+     * "Lumen TV:" belongs to that one, and the lines of a "Fixes:" list are told as fixes. null when GitHub can't say
+     */
+    private fun releaseNotes(current: String, latest: String): Notes? {
+        val list = org.json.JSONArray(get("https://api.github.com/repos/$REPO/releases?per_page=10") ?: return null)
+        val added = ArrayList<String>()
+        val fixed = ArrayList<String>()
+        for (i in 0 until list.length()) {
+            val release = list.getJSONObject(i)
+            val v = release.optString("tag_name").removePrefix("v")
+            if (release.optBoolean("draft") || !isNewer(v, current) || isNewer(v, latest)) continue
+            for (raw in release.optString("body").lines()) {
+                val line = raw.trim().removePrefix("- ").trim()
+                if (!raw.trim().startsWith("- ") || line.isEmpty()) continue
+                val colon = line.indexOf(':')
+                val prefix = if (colon in 1..60) line.substring(0, colon) else ""
+                val about = prefix.lowercase()
+                val device = about.contains("tv") || about.contains("phone") || about.contains("ipad") || about.contains("iphone") || about.contains("android")
+                if (device) {
+                    val mine = if (BuildConfig.PHONE_UI) about.contains("android") || about.contains("phone") && !about.contains("iphone") else about.contains("tv")
+                    if (!mine) continue
+                }
+                val text = (if (device || about == "fixes") line.substring(colon + 1) else line).trim()
+                    .replaceFirstChar { it.uppercase() }
+                when {
+                    about == "fixes" || about.endsWith(", fixes") -> splitFixes(text).forEach { fixed += it }
+                    Regex("""\bfix(es|ed)?\b""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> fixed += text
+                    else -> added += text
+                }
+            }
+        }
+        return Notes(added.distinct(), fixed.distinct())
+    }
+
+    /** "a, b (c, d), e." as a, b (c, d), e: split at the commas outside brackets */
+    private fun splitFixes(text: String): List<String> {
+        val out = ArrayList<String>()
+        var depth = 0
+        val cur = StringBuilder()
+        for (c in text.trimEnd('.')) {
+            when {
+                c == '(' -> { depth++; cur.append(c) }
+                c == ')' -> { depth = maxOf(0, depth - 1); cur.append(c) }
+                c == ',' && depth == 0 -> { out += cur.toString().trim(); cur.clear() }
+                else -> cur.append(c)
+            }
+        }
+        out += cur.toString().trim()
+        return out.filter { it.isNotEmpty() }.map { it.replaceFirstChar { c -> c.uppercase() } }
+    }
+
     fun checkApp(activity: MainActivity) = thread(name = "dxbi-app-update") {
         if (offering || !ENABLED) return@thread
         lastCheck = System.currentTimeMillis()
@@ -121,6 +179,7 @@ object Updates {
             if (!isNewer(latest, current)) return@thread
             val prefs = activity.getSharedPreferences("updates", Context.MODE_PRIVATE)
             if (prefs.getString("skipped", null) == latest) return@thread
+            val notes = try { releaseNotes(current, latest) } catch (_: Exception) { null }
             activity.runOnUiThread {
                 if (activity.isFinishing || offering) return@runOnUiThread
                 offering = true
@@ -136,6 +195,7 @@ object Updates {
                         UpdatePanel.Choice("Skip This Version") { prefs.edit().putString("skipped", latest).apply() },
                     ),
                     onDismiss = { offering = false },
+                    notes = notes?.takeIf { !it.isEmpty },
                 )
             }
         } catch (_: Exception) { /* offline: try again next launch */ }

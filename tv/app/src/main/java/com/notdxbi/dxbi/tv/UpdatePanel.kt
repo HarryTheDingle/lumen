@@ -26,7 +26,7 @@ object UpdatePanel {
 
     class Choice(val label: String, val action: () -> Unit)
 
-    fun show(activity: Activity, title: String, message: String, choices: List<Choice>, onDismiss: () -> Unit = {}): Dialog {
+    fun show(activity: Activity, title: String, message: String, choices: List<Choice>, onDismiss: () -> Unit = {}, notes: Updates.Notes? = null): Dialog {
         val dp = { v: Float -> TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, activity.resources.displayMetrics) }
         val dialog = Dialog(activity)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
@@ -53,8 +53,35 @@ object UpdatePanel {
             setTextColor(Color.argb(184, 255, 255, 255))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             setLineSpacing(0f, 1.2f)
-            setPadding(0, dp(10f).toInt(), 0, dp(24f).toInt())
+            setPadding(0, dp(10f).toInt(), 0, dp(if (notes == null) 24f else 14f).toInt())
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        // What's changed since this version: new things, then fixes (a few of each: the remote can't scroll a long list)
+        if (notes != null) {
+            fun section(name: String, items: List<String>, room: Int) {
+                if (items.isEmpty() || room <= 0) return
+                card.addView(TextView(activity).apply {
+                    text = if (items.size > room) "$name  ·  ${items.size - room} MORE" else name
+                    setTextColor(Color.WHITE)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                    typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    letterSpacing = 0.06f
+                    setPadding(0, dp(6f).toInt(), 0, dp(4f).toInt())
+                })
+                for (item in items.take(room)) card.addView(TextView(activity).apply {
+                    text = "•  $item"
+                    setTextColor(Color.argb(200, 255, 255, 255))
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                    maxLines = 2
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    setPadding(0, dp(2f).toInt(), 0, dp(2f).toInt())
+                })
+            }
+            // (new things first; the lines are shared so the card never grows past the screen)
+            val newRoom = minOf(notes.added.size, if (notes.fixed.isEmpty()) 5 else 3)
+            section("WHAT'S NEW", notes.added, newRoom)
+            section("FIXES", notes.fixed, if (notes.added.isEmpty()) 5 else 2)
+            card.addView(View(activity), LinearLayout.LayoutParams(1, dp(16f).toInt()))
+        }
 
         // (room for the chosen pill to grow without being cut off at its edges)
         val row = LinearLayout(activity).apply {
