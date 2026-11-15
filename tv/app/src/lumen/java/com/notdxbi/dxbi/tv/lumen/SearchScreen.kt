@@ -66,7 +66,9 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.notdxbi.dxbi.tv.phone.AiPhase
 import com.notdxbi.dxbi.tv.phone.Load
+import com.notdxbi.dxbi.tv.phone.rememberAiSearch
 import com.notdxbi.dxbi.tv.phone.Stremio
 import com.notdxbi.dxbi.tv.phone.Title
 import kotlinx.coroutines.delay
@@ -125,6 +127,14 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
     // the box, and the TV keyboard's voice typing, couldn't be reached)
     val searchBox = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
+    // Ask AI: say what you're after; the posters come back as one row below the box (typing in the letters puts it away)
+    val ai = rememberAiSearch(stremio)
+    val firstAiTile = remember { FocusRequester() }
+    var topFocused by remember { mutableStateOf(false) }
+    LaunchedEffect(ai.phase) {
+        // (focus goes onto the first poster when they arrive, if the remote was up by the box waiting)
+        if (ai.phase == AiPhase.Ready && topFocused) { delay(120); runCatching { firstAiTile.requestFocus() } }
+    }
     // Search chosen from the menu: the remote starts on the letters
     LaunchedEffect(Unit) { delay(300); if (nav.query.isEmpty()) runCatching { firstLetter.requestFocus() } }
 
@@ -132,12 +142,19 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
         Column(Modifier.fillMaxSize()) {
             ScreenTag(nav)
             // the box: what's typed, or the suggestion being looked at; OK opens the TV's keyboard (and its voice typing)
-            Field(
-                "Movies, shows and more", previewing ?: text, { previewing = null; text = it }, KeyboardType.Text,
-                Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 6.dp).fillMaxWidth().focusRequester(searchBox),
-                shape = RoundedCornerShape(50),
-                leading = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(22.dp)) },
-            )
+            Row(
+                Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 6.dp).fillMaxWidth().onFocusChanged { topFocused = it.hasFocus },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Field(
+                    "Movies, shows and more", previewing ?: text, { previewing = null; ai.close(); text = it }, KeyboardType.Text,
+                    Modifier.weight(1f).focusRequester(searchBox),
+                    shape = RoundedCornerShape(50),
+                    leading = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(22.dp)) },
+                )
+                AskAiButton(onClick = { ai.start(text) })
+            }
             Row(Modifier.fillMaxSize().padding(top = 18.dp)) {
                 // the letters
                 Box(
@@ -147,9 +164,9 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
                     Letters(
                         firstLetter,
                         onUpFromTop = { runCatching { searchBox.requestFocus() } },
-                        onType = { previewing = null; text += it },
-                        onDelete = { previewing = null; text = text.dropLast(1) },
-                        onClear = { previewing = null; text = "" },
+                        onType = { previewing = null; ai.close(); text += it },
+                        onDelete = { previewing = null; ai.close(); text = text.dropLast(1) },
+                        onClear = { previewing = null; ai.close(); text = "" },
                         modifier = Modifier.width(300.dp).padding(start = Dx.Gutter - 8.dp, end = 12.dp),
                     )
                 }
@@ -165,7 +182,9 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
                             true
                         },
                 ) {
-                    if (asked.length < 2 && text.trim().length < 2) {
+                    if (ai.active) {
+                        AiSearchPanel(ai, stremio, nav, searchBox, firstAiTile, onRetry = { ai.retry() })
+                    } else if (asked.length < 2 && text.trim().length < 2) {
                         CompositionLocalProvider(LocalBringIntoViewSpec provides CentredScrolling) {
                             LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
                                 item(key = "hint") {

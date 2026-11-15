@@ -69,6 +69,9 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         # A streaming server on the network (Stremio or Lumen on a computer) plays torrents for the phone
         NSLocalNetworkUsageDescription: Lumen looks for a Stremio streaming server on your network to play torrents.
+        # "Ask AI" on Search: say what you feel like watching
+        NSSpeechRecognitionUsageDescription: Lumen turns your voice into text so you can describe what you want to watch.
+        NSMicrophoneUsageDescription: Lumen listens while you describe what you want to watch.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         # "Play in another app"

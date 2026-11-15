@@ -173,7 +173,7 @@ await ask(23, "library", { add: false });
 assert.deepEqual(dispatched.at(-1).action.args, { action: "RemoveFromLibrary", args: "tt2" });
 await ask(24, "dismiss", { id: "tt2" });
 assert.deepEqual(dispatched.slice(-2).map((d) => d.action.args.action), ["RewindLibraryItem", "DismissNotificationItem"]);
-console.log("PASS My List and Remove from row");
+console.log("PASS Library and Remove from row");
 
 // dx.bi's features, by path, called on the object they belong to
 window.__dxbi = { phone: { who: "phone", name() { return this.who; } }, viewers: { list: [], select(id) { this.list.push(id); return id; } } };

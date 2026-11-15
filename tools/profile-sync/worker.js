@@ -76,7 +76,7 @@ async function accountOf(key) {
 function parseJsonAnswer(raw) {
   if (!raw) return null;
   if (typeof raw === "object") {
-    if (Array.isArray(raw.ranked) || Array.isArray(raw.additions)) return raw;
+    if (Array.isArray(raw.ranked) || Array.isArray(raw.additions) || Array.isArray(raw.titles)) return raw;
     if (raw.response) return parseJsonAnswer(raw.response);
     return null;
   }
@@ -265,11 +265,80 @@ async function handlePicks(request, env, account) {
   return reply(request, 200, { ranked, additions, cached: false });
 }
 
+// Search by prompt: titles that fit what the viewer typed, in the order their taste says (no cache: prompts vary)
+async function handleAsk(request, env) {
+  if (Number(request.headers.get("Content-Length") || 0) > MAX_PICKS_BODY) return reply(request, 413, { error: "Too much at once." });
+  let body;
+  try {
+    const raw = await request.text();
+    if (raw.length > MAX_PICKS_BODY) return reply(request, 413, { error: "Too much at once." });
+    body = JSON.parse(raw || "{}");
+  } catch (_) {
+    return reply(request, 400, { error: "Invalid JSON." });
+  }
+  const prompt = body && typeof body.prompt === "string" ? body.prompt.trim() : "";
+  if (!body || typeof body.viewer !== "string" || !/^[\w-]{1,40}$/.test(body.viewer) || prompt.length < 3 || prompt.length > 500) {
+    return reply(request, 400, { error: "Invalid search request." });
+  }
+  const watched = (Array.isArray(body.watched) ? body.watched : []).slice(0, 10)
+    .filter((w) => w && typeof w.id === "string" && typeof w.name === "string" && w.name.trim())
+    .map((w) => ({
+      id: w.id.slice(0, 24),
+      type: w.type === "series" ? "series" : "movie",
+      name: w.name.trim().slice(0, 120),
+      year: Number(w.year) || 0,
+      genres: (Array.isArray(w.genres) ? w.genres : []).slice(0, 4).map((g) => String(g).slice(0, 30)),
+      weight: Math.round((Number(w.weight) || 1) * 100) / 100,
+    }));
+  const dropped = (Array.isArray(body.dropped) ? body.dropped : []).slice(0, 8)
+    .filter((d) => d && typeof d.name === "string" && d.name.trim())
+    .map((d) => ({ id: String(d.id || "").slice(0, 24), type: d.type === "series" ? "series" : "movie", name: d.name.trim().slice(0, 120) }));
+  const ratings = (Array.isArray(body.ratings) ? body.ratings : []).slice(0, 20)
+    .filter((r) => r && typeof r.id === "string" && Number.isInteger(r.rating) && r.rating >= 1 && r.rating <= 10 && typeof r.name === "string" && r.name.trim())
+    .map((r) => {
+      const entry = { id: r.id.slice(0, 24), rating: r.rating, name: r.name.trim().slice(0, 120) };
+      if (r.type === "movie" || r.type === "series") entry.type = r.type;
+      if (Number(r.year) > 1880) entry.year = Number(r.year);
+      return entry;
+    });
+
+  if (!env.GEMINI_API_KEY && !(env.AI && typeof env.AI.run === "function")) {
+    return reply(request, 503, { error: "AI suggestions aren't configured on this Worker." });
+  }
+
+  const system =
+    "You find films and series for one viewer from a PROMPT they typed. Return ONLY strict JSON of the shape {\"titles\":[{\"type\":\"movie\"|\"series\",\"name\":\"exact original IMDb title\",\"year\":2014}]}. " +
+    "Give up to 16 titles that best match the PROMPT (its theme, setting, era, tone, people): the prompt decides what is included. " +
+    "The input JSON has \"prompt\", \"watched\" (their taste; a higher \"weight\" says more), \"ratings\" (their scores out of 10: 8 to 10 love, 1 to 4 dislike) and \"dropped\" (titles they gave up on or hid). " +
+    "Their taste only decides the ORDER among genuine matches and what to leave out: nothing resembling \"dropped\" or rated 1 to 4. Do not leave out titles they merely watched, but put ones they have not seen first. " +
+    "If the prompt names a film or series (\"like X\"), do not return X itself. If the prompt asks for films only or series only, respect it. " +
+    "Each needs \"type\", the exact original release \"name\" as IMDb lists it, and the 4-digit release \"year\". Never invent a title.";
+  const user = JSON.stringify({ prompt, watched, ratings, dropped });
+
+  let parsed;
+  try {
+    parsed = await askModel(env, system, user);
+  } catch (err) {
+    console.error("ask model error:", err && err.message ? err.message : err);
+    return reply(request, 502, { error: "AI model request failed.", detail: String((err && err.message) || err) });
+  }
+  if (!parsed) return reply(request, 502, { error: "AI returned an invalid response." });
+
+  const titles = (Array.isArray(parsed.titles) ? parsed.titles : [])
+    .filter((a) => a && (a.type === "movie" || a.type === "series") && typeof a.name === "string" && a.name.trim())
+    .slice(0, 16)
+    .map((a) => {
+      const yr = Number(a.year);
+      return { type: a.type, name: a.name.trim().slice(0, 120), year: Number.isInteger(yr) && yr >= 1900 && yr <= 2100 ? yr : 0 };
+    });
+  return reply(request, 200, { titles });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(request) });
-    if (url.pathname !== "/sync" && url.pathname !== "/picks") return reply(request, 404, { error: "not found" });
+    if (url.pathname !== "/sync" && url.pathname !== "/picks" && url.pathname !== "/ask") return reply(request, 404, { error: "not found" });
     if (request.method !== "POST") return reply(request, 405, { error: "POST only" });
     if (!env.DB) return reply(request, 503, { error: "Profile sync isn't set up yet." });
 
@@ -289,6 +358,7 @@ export default {
     if (env.ACCOUNT_LIMIT && !(await env.ACCOUNT_LIMIT.limit({ key: account })).success) return reply(request, 429, { error: "Too many requests: try again in a few minutes." });
 
     if (url.pathname === "/picks") return handlePicks(request, env, account);
+    if (url.pathname === "/ask") return handleAsk(request, env);
 
     if (Number(request.headers.get("Content-Length") || 0) > MAX_BODY) return reply(request, 413, { error: "Too much at once." });
     let body;

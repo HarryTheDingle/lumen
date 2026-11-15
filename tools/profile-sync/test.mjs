@@ -177,6 +177,50 @@ check(pr.status === 200 && geminiCalls === 1 && pr.json.additions[0].name === "P
 delete env.GEMINI_API_KEY;
 globalThis.fetch = prevFetch;
 
+// /ask: titles for a typed prompt (no cache, no candidates)
+const ask = async (key, body) => {
+  const headers = { "Content-Type": "application/json", Origin: "https://web.stremio.com" };
+  if (key) headers.Authorization = `Stremio ${key}`;
+  const r = await worker.fetch(new Request("https://sync.example/ask", { method: "POST", headers, body: JSON.stringify(body) }), env);
+  return { status: r.status, json: await r.json() };
+};
+let askPayload = null;
+const picksAi = env.AI.run;
+env.AI.run = async (model, input) => {
+  askPayload = JSON.parse(input.messages[1].content);
+  return { response: JSON.stringify({ titles: [
+    { type: "movie", name: "  Heat ", year: 1995 },
+    { type: "series", name: "The Wire", year: "2002" },
+    { type: "book", name: "Not a film", year: 2000 },
+    { type: "movie", name: "", year: 2000 },
+    { type: "movie", name: "Odd Year", year: 3000 },
+  ].concat(Array.from({ length: 30 }, (_, i) => ({ type: "movie", name: `Filler ${i}`, year: 2000 }))) }) };
+};
+const askReq = { viewer: "main", prompt: "heist films set in Los Angeles", watched: samplePicksReq.watched, ratings: [{ id: "tt0000999", name: "Bad Film", rating: 2 }, { id: "x", rating: 9 }], dropped: samplePicksReq.dropped };
+check((await ask(null, askReq)).status === 401, "/ask requires Stremio auth");
+check((await ask("key-u1", { ...askReq, prompt: "hi" })).status === 400, "/ask refuses a prompt under 3 characters");
+check((await ask("key-u1", { ...askReq, prompt: "x".repeat(501) })).status === 400, "/ask refuses a prompt over 500 characters");
+check((await ask("key-u1", { ...askReq, viewer: "bad viewer!" })).status === 400, "/ask refuses a bad viewer");
+const ar = await ask("key-u1", askReq);
+check(
+  ar.status === 200 && ar.json.titles.length === 16 &&
+  JSON.stringify(ar.json.titles[0]) === JSON.stringify({ type: "movie", name: "Heat", year: 1995 }) &&
+  ar.json.titles[1].year === 2002 && ar.json.titles[2].name === "Odd Year" && ar.json.titles[2].year === 0 &&
+  !ar.json.titles.some((t) => t.type === "book" || !t.name),
+  "/ask sanitises the model's titles and caps them at 16"
+);
+check(
+  askPayload && askPayload.prompt === askReq.prompt && askPayload.watched[0].id === "tt0816692" &&
+  askPayload.ratings.length === 1 && askPayload.ratings[0].rating === 2 && askPayload.dropped[0].name === "Bad Film" && !("candidates" in askPayload),
+  "/ask passes the prompt and the taste payload to the model"
+);
+env.AI.run = async () => ({ response: "nonsense" });
+check((await ask("key-u1", askReq)).status === 502, "/ask answers 502 when the model's answer is unusable");
+const noAi = env.AI; delete env.AI;
+check((await ask("key-u1", askReq)).status === 503, "/ask answers 503 with no AI configured");
+env.AI = noAi;
+env.AI.run = picksAi;
+
 const syncAfterPicks = await sync("key-u1", { since: 0, entries: [] });
 check(!syncAfterPicks.json.entries.some((e) => e.k.startsWith("picks:")), "/sync never leaks picks:<viewer> cache rows");
 

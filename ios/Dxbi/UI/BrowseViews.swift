@@ -37,12 +37,17 @@ struct SearchView: View {
     @State private var query = ""
     @State private var searched = ""
     @AppStorage("recentSearches") private var recentText = ""
+    // Ask AI: a described wish instead of a name
+    @State private var ai = AISearchModel()
+    @State private var askOpen = false
 
     private var recent: [String] { recentText.split(separator: "\n").map(String.init) }
 
     var body: some View {
         ScrollView {
-            if searched.isEmpty {
+            if ai.on {
+                AIResultsView(model: ai) { askOpen = true }
+            } else if searched.isEmpty {
                 VStack(alignment: .leading, spacing: 14) {
                     if !recent.isEmpty {
                         HStack {
@@ -93,6 +98,16 @@ struct SearchView: View {
         .navigationTitle("Search")
         .searchable(text: $query, prompt: "Films, shows, people")
         .onSubmit(of: .search, run)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                // (plain white, as the rest of the app: no accent colour)
+                Button { askOpen = true } label: { Image(systemName: "sparkles").foregroundStyle(.white) }
+                    .accessibilityLabel("Ask AI")
+            }
+        }
+        .sheet(isPresented: $askOpen) {
+            AskAISheet(initial: ai.prompt) { ai.find($0, stremio: stremio) }
+        }
         // a name tapped on a title's page
         .onChange(of: stremio.pendingSearch, initial: true) { _, q in
             guard let q else { return }

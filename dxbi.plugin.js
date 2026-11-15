@@ -412,7 +412,7 @@
     {
       key: "myList",
       type: "select",
-      label: "My List on Home",
+      label: "Library on Home",
       description: "Your library as a row under Continue Watching.",
       defaultValue: DEFAULTS.myList,
       options: [
@@ -429,7 +429,7 @@
     { key: "partySounds", type: "toggle", label: "Watch party: sounds", description: "Soft chimes when people join, leave or send a message.", defaultValue: DEFAULTS.partySounds },
     { key: "splash", type: "toggle", label: "Intro animation", description: "Plays once each time the app starts.", defaultValue: DEFAULTS.splash },
     { key: "introSound", type: "toggle", label: "Intro sound", description: "Play the intro's score (a 'ta-dum', a chord and a whoosh).", defaultValue: DEFAULTS.introSound },
-    { key: "uiSounds", type: "toggle", label: "Interface sounds", description: "Soft sounds for tabs, opening titles, previews, My List, player controls and keyboard navigation.", defaultValue: DEFAULTS.uiSounds },
+    { key: "uiSounds", type: "toggle", label: "Interface sounds", description: "Soft sounds for tabs, opening titles, previews, the Library, player controls and keyboard navigation.", defaultValue: DEFAULTS.uiSounds },
     {
       key: "soundVolume",
       type: "select",
@@ -1999,8 +1999,8 @@
     paintList(button) {
       const on = this.library.ids.has(button.dataset.id);
       button.innerHTML = on ? ICONS.check : ICONS.plus;
-      button.setAttribute("aria-label", on ? "Remove from My List" : "Add to My List");
-      button.dataset.tip = on ? "Remove from My List" : "Add to My List";
+      button.setAttribute("aria-label", on ? "Remove from Library" : "Add to Library");
+      button.dataset.tip = on ? "Remove from Library" : "Add to Library";
     },
 
     render(info, meta) {
@@ -11417,7 +11417,7 @@
     ]],
     ["Everywhere", [
       ["← ↑ → ↓", "Move around (titles preview as you land on them)", true],
-      ["↓ on a preview", "Its buttons: play, My List, trailer", true],
+      ["↓ on a preview", "Its buttons: play, Library, trailer", true],
       ["Enter", "Open / press"],
       ["1 – 6", "Switch tabs"],
       ["0", "Search"],
@@ -11531,6 +11531,16 @@
       return null;
     },
 
+    // The ids of series in the library right now (a removed show leaves the Calendar and rows at once)
+    liveIds() {
+      return new Set(stremioLibrary().filter((i) => i.type === "series" && !i.removed && !i.temp).map((i) => i._id));
+    },
+    // The index's entries for shows still in the library (the index itself is only added to by refresh)
+    entries() {
+      const live = this.liveIds();
+      return [...this.index].filter(([id]) => live.has(id));
+    },
+
     librarySeries(bases) {
       return stremioLibrary()
         // (TMDB shows count even with no TMDB addon left: fetchMeta finds them on Cinemeta)
@@ -11546,6 +11556,9 @@
       this.loading = (async () => {
         const bases = await this.metaBases();
         const list = this.librarySeries(bases);
+        // (a show taken out of the library is dropped here, not kept until restart)
+        const live = this.liveIds();
+        for (const id of [...this.index.keys()]) if (!live.has(id)) this.index.delete(id);
         let i = 0;
         const worker = async () => {
           while (i < list.length) {
@@ -11751,7 +11764,7 @@
       const sample = grid.querySelector('a[class*="item-"]:not(.dx-cal-item)');
       const itemClass = sample ? sample.className : "";
       const posterClass = sample && sample.querySelector("img") ? sample.querySelector("img").className : "";
-      for (const [id, e] of episodes.index) {
+      for (const [id, e] of episodes.entries()) {
         if (/^tt\d+$/.test(id) || shown.has(norm(e.name)) || !e.all) continue;
         for (const ep of e.all) {
           const d = new Date(ep.t);
@@ -11835,7 +11848,7 @@
       // One card per show: its next episode (or the one just out), with a count of the rest this week.
       // The same show can sit in the library under several ids (Cinemeta, TMDB, Kitsu): keep one.
       const byShow = new Map();
-      for (const [id, e] of episodes.index) {
+      for (const [id, e] of episodes.entries()) {
         const eps = e.upcoming || [];
         if (!eps.length) continue;
         const ep = eps[0];
@@ -11945,7 +11958,7 @@
         .sort((a, b) => Date.parse(b._mtime || 0) - Date.parse(a._mtime || 0));
       const groups = settings.myList === "split"
         ? [["My Films", items.filter((i) => i.type === "movie")], ["My Shows", items.filter((i) => i.type === "series")]]
-        : [["My List", items]];
+        : [["Library", items]];
       return groups.filter(([, list]) => list.length).map(([name, list]) => [name, list.slice(0, this.MAX)]);
     },
 
@@ -12491,6 +12504,28 @@
       return saved ? { rows: saved.rows, stale: true } : null;
     },
 
+    // What the Worker is told about this viewer's taste: watched (top 12, weighted), their scores and what they dropped
+    tastePayload(taste) {
+      return {
+        watched: taste.slice(0, 12).map((s) => ({
+          id: s.item._id,
+          type: s.item.type === "series" ? "series" : "movie",
+          name: s.item.name || "",
+          year: Number(String(s.item.year || s.item.releaseInfo || "").slice(0, 4)) || 0,
+          genres: (s.genres || s.item.genres || []).slice(0, 4),
+          weight: Math.round(s.weight * 100) / 100,
+        })),
+        dropped: this.dropped(),
+        // (the scores that say most first, loved and hated; one whose name isn't known tells the model nothing)
+        ratings: Object.entries(ratings.all())
+          .map(([id, r]) => ({ id, rating: r, meta: ratings.meta(id) }))
+          .filter((e) => e.meta)
+          .sort((a, b) => Math.abs(b.rating - 5.5) - Math.abs(a.rating - 5.5))
+          .slice(0, 20)
+          .map((e) => ({ id: e.id, rating: e.rating, name: e.meta.name, type: e.meta.type, year: e.meta.year || 0 })),
+      };
+    },
+
     // AI curation via Lumen's Worker (/picks): reorders candidates and resolves new additions through Cinemeta,
     // then enforces id, poster, skip and duplicate guardrails on the device. Falls back to scored on any error.
     async rank(taste, scored, skip) {
@@ -12502,24 +12537,9 @@
       const payload = {
         viewer: viewers.current().id,
         sig: this.sig(taste),
-        watched: taste.slice(0, 12).map((s) => ({
-          id: s.item._id,
-          type: s.item.type === "series" ? "series" : "movie",
-          name: s.item.name || "",
-          year: Number(String(s.item.year || s.item.releaseInfo || "").slice(0, 4)) || 0,
-          genres: (s.genres || s.item.genres || []).slice(0, 4),
-          weight: Math.round(s.weight * 100) / 100,
-        })),
+        ...this.tastePayload(taste),
         genres: ((tuned && Array.isArray(tuned.genres) ? tuned.genres : [])).slice(0, 12),
         prefer: this.prefer(),
-        dropped: this.dropped(),
-        // (the scores that say most first, loved and hated; one whose name isn't known tells the model nothing)
-        ratings: Object.entries(ratings.all())
-          .map(([id, r]) => ({ id, rating: r, meta: ratings.meta(id) }))
-          .filter((e) => e.meta)
-          .sort((a, b) => Math.abs(b.rating - 5.5) - Math.abs(a.rating - 5.5))
-          .slice(0, 20)
-          .map((e) => ({ id: e.id, rating: e.rating, name: e.meta.name, type: e.meta.type, year: e.meta.year || 0 })),
         candidates: scored.slice(0, 40).map((c) => ({
           id: c.id,
           type: c.type === "series" ? "series" : "movie",
@@ -16982,12 +17002,64 @@
           : (await Promise.all((genres || []).slice(0, 2).map((g) => json(`/catalog/${type}/top/genre=${encodeURIComponent(g)}.json`)))).map((l) => (l && l.metas) || []);
         return forYou.pick(lists, new Set([id])).map((m) => ({ id: m.id, type, name: m.name, poster: m.poster || null }));
       },
+      // Search by prompt: Lumen's Worker (/ask) names films and series that fit what was typed (this viewer's
+      // taste only orders them), each checked against Cinemeta so an invented title is dropped. Returns
+      // [{id, type, name, poster}] in the model's order, like related(); [] when nothing matched; null when the
+      // Worker couldn't answer (offline, signed out, or no AI)
+      async aiSearch(prompt) {
+        const text = String(prompt || "").trim();
+        if (text.length < 3 || viewers.current().kids) return [];
+        if (!SYNC_ENDPOINT) return null;
+        const auth = cloudSync.auth();
+        if (!auth || cloudSync.rejectedKey === auth.key) return null;
+        const r = await fetch(SYNC_ENDPOINT.replace(/\/sync$/, "/ask"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Stremio ${auth.key}` },
+          body: JSON.stringify({ viewer: viewers.current().id, prompt: text.slice(0, 500), ...recommender.tastePayload(recommender.history()) }),
+          signal: AbortSignal.timeout(25000),
+        }).catch(() => null);
+        if (!r || !r.ok) {
+          if (r && r.status === 401) cloudSync.rejectedKey = auth.key;
+          return null;
+        }
+        const answer = await r.json().catch(() => null);
+        if (!answer || !Array.isArray(answer.titles)) return null;
+        const wanted = answer.titles.filter((a) => a && (a.type === "movie" || a.type === "series") && typeof a.name === "string" && a.name.trim()).slice(0, 16);
+        const norm = (n) => String(n || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+        const found = new Array(wanted.length).fill(null);
+        let next = 0;
+        const worker = async () => {
+          while (next < wanted.length) {
+            const at = next++;
+            const a = wanted[at];
+            try {
+              const res = await fetch(`${forYou.BASE}/catalog/${a.type}/top/search=${encodeURIComponent(a.name)}.json`, { signal: AbortSignal.timeout(10000) });
+              if (!res.ok) continue;
+              const metas = ((await res.json()) || {}).metas || [];
+              // (the same name, and a year within 1 of the model's: else it's likely invented)
+              const year = (m) => Number(String(m.releaseInfo || m.year || "").slice(0, 4)) || 0;
+              const hit = metas.find((m) => /^tt\d+$/.test(m.id || "") && norm(m.name) === norm(a.name) && (!Number(a.year) || (year(m) && Math.abs(year(m) - Number(a.year)) <= 1)));
+              if (hit) found[at] = { id: hit.id, type: a.type, name: hit.name, poster: hit.poster || null };
+            } catch (_) { /* skipped */ }
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(6, wanted.length) }, worker));
+        const hidden = new Set((store.get(viewers.key("hidden"), null) || []).map((x) => String(x.key).split(":").slice(1).join(":")));
+        const seen = new Set();
+        return found.filter((t) => {
+          if (!t || seen.has(t.id) || hidden.has(t.id)) return false;
+          const score = Number(ratings.get(t.id));
+          if (score >= 1 && score <= 4) return false;
+          seen.add(t.id);
+          return true;
+        });
+      },
       // Airing this week: each show's next episode (or the one just out), soonest first
       airing() {
         if (!settings.airingRow) return [];
         episodes.refresh();
         const byShow = new Map();
-        for (const [id, e] of episodes.index) {
+        for (const [id, e] of episodes.entries()) {
           const eps = e.upcoming || [];
           if (!eps.length) continue;
           const key = String(e.name || id).toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -17021,7 +17093,7 @@
         const to = new Date(start.getFullYear(), start.getMonth() + 3, 1).getTime();
         const seen = new Set();
         const out = [];
-        for (const [id, e] of episodes.index) {
+        for (const [id, e] of episodes.entries()) {
           for (const v of e.all || []) {
             if (!(v.t >= from && v.t <= to)) continue;
             // (one show under two ids, as Cinemeta and TMDB both list it: each episode once)

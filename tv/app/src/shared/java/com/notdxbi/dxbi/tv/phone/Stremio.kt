@@ -704,6 +704,11 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
         (engine.runCatching { call("dx", JSONObject().put("method", "phone.related").put("args", JSONArray().put(type).put(id).put(JSONArray(genres))), 25_000) }.getOrNull() as? JSONArray)
             .objects().map(Title::from)
 
+    /** Titles the AI picked for a described mood or plot, in its order. Empty when nothing matched, null when the AI service failed (it can take 5-15 s) */
+    suspend fun aiSearch(prompt: String): List<Title>? =
+        (engine.runCatching { call("dx", JSONObject().put("method", "phone.aiSearch").put("args", JSONArray().put(prompt)), 40_000) }.getOrNull() as? JSONArray)
+            ?.objects()?.map(Title::from)
+
     /** The catalog browser's first catalog (films, if there are any), unless one's already open */
     fun discoverStart() {
         if (discover.value?.request != null) return

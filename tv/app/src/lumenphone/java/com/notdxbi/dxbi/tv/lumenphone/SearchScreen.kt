@@ -48,7 +48,9 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.notdxbi.dxbi.tv.phone.AiPhase
 import com.notdxbi.dxbi.tv.phone.Load
+import com.notdxbi.dxbi.tv.phone.rememberAiSearch
 import com.notdxbi.dxbi.tv.phone.Stremio
 import com.notdxbi.dxbi.tv.phone.Title
 import kotlinx.coroutines.delay
@@ -70,6 +72,8 @@ fun SearchScreen(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, onOpen: (
     val results by stremio.search.collectAsState()
     val focus = LocalFocusManager.current
     val listState = rememberLazyListState()
+    // Ask AI: say what you're after; one row of posters comes back above the usual results
+    val ai = rememberAiSearch(stremio)
 
     fun noteRecent(q: String) {
         recent = (listOf(q) + recent.filter { it != q }).take(8)
@@ -116,7 +120,21 @@ fun SearchScreen(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, onOpen: (
                 item(key = "head") {
                     androidx.compose.foundation.layout.Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Text("Search", modifier = Modifier.padding(horizontal = layout.gutter), color = Dx.Text, style = MaterialTheme.typography.headlineMedium)
-                        SearchField(query, layout, onChange = { query = it }, onSearch = { run(query) }, onClear = { query = ""; searched = "" })
+                        SearchField(query, layout, onAskAi = { ai.start(query) }, onChange = { ai.close(); query = it }, onSearch = { run(query) }, onClear = { query = ""; searched = "" })
+                    }
+                }
+                if (ai.active) item(key = "ai") {
+                    when (ai.phase) {
+                        AiPhase.Listening -> BrowseEmpty(if (ai.prompt.isBlank()) "Listening…" else ai.prompt, "Say what you feel like watching")
+                        AiPhase.Finding -> androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            BrowseSpinner()
+                            Text("Finding titles…", color = Dx.Muted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        }
+                        AiPhase.Failed -> AiMessage("Couldn't search right now", ai::retry)
+                        AiPhase.Empty -> AiMessage("Nothing matched, try describing it differently", ai::retry)
+                        AiPhase.NeedsText -> BrowseEmpty("Type what you're after", "Then tap ✨ again")
+                        AiPhase.Ready -> BrowseShelf(ai.prompt.replaceFirstChar { it.uppercase() }, ai.titles, layout, onOpen = onOpen)
+                        AiPhase.Idle -> {}
                     }
                 }
                 if (searched.isEmpty()) {
@@ -163,7 +181,7 @@ fun SearchScreen(stremio: Stremio, layout: AppLayout, bottomSpace: Dp, onOpen: (
 
 /** The box to type in: a rounded grey field with a magnifier, and a cross to clear it (iOS: .searchable) */
 @Composable
-private fun SearchField(query: String, layout: AppLayout, onChange: (String) -> Unit, onSearch: () -> Unit, onClear: () -> Unit) {
+private fun SearchField(query: String, layout: AppLayout, onAskAi: () -> Unit, onChange: (String) -> Unit, onSearch: () -> Unit, onClear: () -> Unit) {
     val focus = remember { FocusRequester() }
     Row(
         Modifier.padding(horizontal = layout.gutter).fillMaxWidth().height(44.dp).clip(RoundedCornerShape(14.dp)).background(Color(0x1FFFFFFF)).padding(horizontal = 12.dp),
@@ -183,9 +201,20 @@ private fun SearchField(query: String, layout: AppLayout, onChange: (String) -> 
                 keyboardActions = KeyboardActions(onSearch = { onSearch() }),
             )
         }
+        // ✨ Ask AI: speaks what they're after (the typed words are used when there's no speech recogniser)
+        Text("✨", modifier = Modifier.clip(androidx.compose.foundation.shape.CircleShape).clickable(onClick = onAskAi).padding(horizontal = 4.dp, vertical = 2.dp), style = MaterialTheme.typography.titleMedium)
         if (query.isNotEmpty()) Icon(
             Icons.Filled.Close, contentDescription = "Clear", tint = Dx.Muted,
             modifier = Modifier.size(20.dp).clip(androidx.compose.foundation.shape.CircleShape).clickable(onClick = onClear),
         )
+    }
+}
+
+/** A short line with Retry under it */
+@Composable
+private fun AiMessage(line: String, onRetry: () -> Unit) {
+    androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(line, color = Dx.Text, style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Text("Retry", color = Dx.Muted, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0x1FFFFFFF)).clickable(onClick = onRetry).padding(horizontal = 18.dp, vertical = 8.dp))
     }
 }

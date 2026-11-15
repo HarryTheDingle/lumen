@@ -1138,6 +1138,12 @@ final class Stremio {
         return (list ?? []).compactMap { $0 as? JSON }.map(Title.init)
     }
 
+    /** Titles that fit a described wish ("a slow sci-fi about grief"); nil when the AI service failed, [] when nothing matched */
+    func aiSearch(_ prompt: String) async -> [Title]? {
+        guard let list = await ask("dx", ["method": "phone.aiSearch", "args": [prompt]], timeout: 40) as? [Any] else { return nil }
+        return list.compactMap { $0 as? JSON }.map(Title.init)
+    }
+
     @MainActor
     func rating(for id: String) async -> Int? {
         let r = await dx("phone.rating", id)
