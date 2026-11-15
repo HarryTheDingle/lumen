@@ -55,6 +55,7 @@ struct HomeView: View {
                             }
                         }
                     }
+                    if kind == nil { GeniusShelf() }
                     // Because you watched …: on what this profile actually watched
                     if kind == nil {
                         ForEach(stremio.picks.dropFirst(), id: \.name) { row in titleRow(row.name, row.items) }

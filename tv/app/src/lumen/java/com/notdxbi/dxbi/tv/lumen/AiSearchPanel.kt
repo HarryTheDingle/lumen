@@ -71,12 +71,11 @@ fun AskAiButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 /**
- * What Ask AI shows below the box: listening, finding, a failure, or one row of posters titled with the prompt. Resting on
- * a poster brings a second row, "More like <it>" (as Apple TV's Genius Browse does), switching as the remote moves.
- * Back from the posters goes to the box.
+ * What Ask AI shows below the box while it works: listening, finding, or a failure. The results themselves open as a
+ * page of their own (the "More like" chain, as Apple TV's Genius Browse), and Back from it returns here.
  */
 @Composable
-fun AiSearchPanel(ai: AiSearch, stremio: Stremio, nav: Nav, searchBox: FocusRequester, firstTile: FocusRequester, onRetry: () -> Unit) {
+fun AiSearchPanel(ai: AiSearch, onRetry: () -> Unit) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         when (ai.phase) {
             AiPhase.Listening -> Status(if (ai.prompt.isBlank()) "Listening…" else ai.prompt, hint = if (ai.prompt.isBlank()) "Say what you feel like watching" else "Listening…")
@@ -84,8 +83,7 @@ fun AiSearchPanel(ai: AiSearch, stremio: Stremio, nav: Nav, searchBox: FocusRequ
             AiPhase.Failed -> Status("Couldn't search right now", retry = onRetry)
             AiPhase.Empty -> Status("Nothing matched, try describing it differently", retry = onRetry)
             AiPhase.NeedsText -> Status("Type what you're after in the box, then choose Ask AI")
-            AiPhase.Ready -> Results(ai, stremio, nav, searchBox, firstTile)
-            AiPhase.Idle -> {}
+            AiPhase.Ready, AiPhase.Idle -> {}
         }
     }
 }
@@ -109,59 +107,6 @@ private fun Status(line: String, hint: String? = null, spinner: Boolean = false,
                 colors = ClickableSurfaceDefaults.colors(containerColor = Glass.Fill, contentColor = Color.White, focusedContainerColor = Color.White, focusedContentColor = Color.Black),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
             ) { Text("Retry", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)) }
-        }
-    }
-}
-
-@Composable
-private fun Results(ai: AiSearch, stremio: Stremio, nav: Nav, searchBox: FocusRequester, firstTile: FocusRequester) {
-    var hovered by remember { mutableStateOf<Title?>(null) }
-    // the row shown, and whose it is: the old one stays until the next has loaded, and isn't swapped under the remote
-    var moreFor by remember { mutableStateOf<Title?>(null) }
-    var moreLike by remember { mutableStateOf<List<Title>>(emptyList()) }
-    var pending by remember { mutableStateOf<Pair<Title, List<Title>>?>(null) }
-    var inMore by remember { mutableStateOf(false) }
-    var inRow by remember { mutableStateOf(false) }
-
-    // a moment after the remote rests on a poster (a new focus cancels the load in flight)
-    LaunchedEffect(hovered) {
-        val t = hovered ?: return@LaunchedEffect
-        if (moreFor == null && pending == null) delay(150) else delay(350)
-        val list = runCatching { stremio.related(t.type, t.id, t.genres) }.getOrDefault(emptyList()).filter { it.id != t.id }.take(20)
-        if (list.isNotEmpty()) pending = t to list
-    }
-    LaunchedEffect(pending, inMore) {
-        val p = pending ?: return@LaunchedEffect
-        if (!inMore) { moreFor = p.first; moreLike = p.second; pending = null }
-    }
-    // (the box is where Back goes from the posters)
-    BackHandler(enabled = inRow || inMore) { runCatching { searchBox.requestFocus() } }
-
-    CompositionLocalProvider(LocalBringIntoViewSpec provides RowScrolling) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(ai.prompt.replaceFirstChar { it.uppercase() }, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, modifier = Modifier.padding(horizontal = Dx.Gutter))
-            LazyRow(
-                Modifier.focusRestorer(firstTile).onFocusChanged { inRow = it.hasFocus },
-                contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                items(ai.titles, key = { it.id }) { t ->
-                    Box(Modifier.onFocusChanged { if (it.hasFocus) hovered = t }.then(if (t.id == ai.titles.first().id) Modifier.focusRequester(firstTile) else Modifier)) {
-                        PosterCard(t, onClick = { nav.open(t) })
-                    }
-                }
-            }
-            val shownFor = moreFor
-            if (shownFor != null && moreLike.isNotEmpty()) {
-                Text("More like ${shownFor.name}", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.85f), maxLines = 1, modifier = Modifier.padding(horizontal = Dx.Gutter))
-                LazyRow(
-                    Modifier.focusRestorer().onFocusChanged { inMore = it.hasFocus },
-                    contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    items(moreLike, key = { it.id }) { t -> PosterCard(t, onClick = { nav.open(t) }) }
-                }
-            }
         }
     }
 }

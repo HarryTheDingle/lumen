@@ -93,6 +93,9 @@ sealed interface Page {
     /** A genre's own page (Discover's Genres row), and Christmas at Home */
     data class Genre(val name: String) : Page
     data object Christmas : Page
+    /** Genius Browse's page for a mood, and the AI search's results: both an endless "More like" chain */
+    data class Genius(val mood: String) : Page
+    data class Chain(val name: String, val titles: List<Title>) : Page
     /** A franchise's page (Discover's Franchises row) */
     data class Franchise(val id: String, val name: String) : Page
 }

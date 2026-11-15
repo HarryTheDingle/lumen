@@ -395,6 +395,10 @@
     async signIn({ email, password }) {
       await core().dispatch({ action: "Ctx", args: { action: "Authenticate", args: { type: "Login", email, password } } });
     },
+    // Sign-in finished on a phone through Stremio's link code: its key stands in for the password
+    async signInWithToken({ token }) {
+      await core().dispatch({ action: "Ctx", args: { action: "Authenticate", args: { type: "LoginWithToken", token } } });
+    },
     async signOut() {
       await core().dispatch({ action: "Ctx", args: { action: "Logout" } });
     },

@@ -129,11 +129,12 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
     val focusManager = LocalFocusManager.current
     // Ask AI: say what you're after; the posters come back as one row below the box (typing in the letters puts it away)
     val ai = rememberAiSearch(stremio)
-    val firstAiTile = remember { FocusRequester() }
-    var topFocused by remember { mutableStateOf(false) }
     LaunchedEffect(ai.phase) {
-        // (focus goes onto the first poster when they arrive, if the remote was up by the box waiting)
-        if (ai.phase == AiPhase.Ready && topFocused) { delay(120); runCatching { firstAiTile.requestFocus() } }
+        // the results open as a page of their own (a "More like" chain); Back returns to the box with Ask AI cleared
+        if (ai.phase == AiPhase.Ready && ai.titles.isNotEmpty()) {
+            nav.push(Page.Chain(ai.prompt.replaceFirstChar { it.uppercase() }, ai.titles))
+            ai.close()
+        }
     }
     // Search chosen from the menu: the remote starts on the letters
     LaunchedEffect(Unit) { delay(300); if (nav.query.isEmpty()) runCatching { firstLetter.requestFocus() } }
@@ -143,7 +144,7 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
             ScreenTag(nav)
             // the box: what's typed, or the suggestion being looked at; OK opens the TV's keyboard (and its voice typing)
             Row(
-                Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 6.dp).fillMaxWidth().onFocusChanged { topFocused = it.hasFocus },
+                Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 6.dp).fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
@@ -183,7 +184,7 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
                         },
                 ) {
                     if (ai.active) {
-                        AiSearchPanel(ai, stremio, nav, searchBox, firstAiTile, onRetry = { ai.retry() })
+                        AiSearchPanel(ai, onRetry = { ai.retry() })
                     } else if (asked.length < 2 && text.trim().length < 2) {
                         CompositionLocalProvider(LocalBringIntoViewSpec provides CentredScrolling) {
                             LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {

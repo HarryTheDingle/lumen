@@ -4,7 +4,7 @@ import AVFoundation
 
 // MARK: - State
 
-/** What "Ask AI" on Search is doing: the prompt, its titles, and the "More like" row under them */
+/** What "Ask AI" on Search is doing: the prompt and its titles (the chain below them is ChainView's) */
 @Observable @MainActor
 final class AISearchModel {
     enum Phase { case idle, loading, failed, empty, done }
@@ -12,19 +12,13 @@ final class AISearchModel {
     var prompt = ""
     var phase = Phase.idle
     var titles: [Title] = []
-    // "More like <title>": kept until the next one is ready, so the row doesn't flicker away
-    var likeName = ""
-    var like: [Title] = []
     private var findTask: Task<Void, Never>?
-    private var likeTask: Task<Void, Never>?
-    private var likeFor = ""
 
     func find(_ text: String, stremio: Stremio) {
         let q = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return }
         prompt = q; on = true; phase = .loading
-        titles = []; like = []; likeName = ""; likeFor = ""
-        likeTask?.cancel()
+        titles = []
         findTask?.cancel()
         findTask = Task {
             let r = await stremio.aiSearch(q)
@@ -36,24 +30,8 @@ final class AISearchModel {
     func retry(stremio: Stremio) { find(prompt, stremio: stremio) }
 
     func leave() {
-        findTask?.cancel(); likeTask?.cancel()
-        on = false; phase = .idle; titles = []; like = []; likeName = ""; likeFor = ""
-    }
-
-    /** Hovering a poster (or "More like this"): after a short pause, load its related titles */
-    func more(like title: Title, stremio: Stremio, immediately: Bool = false) {
-        guard title.id != likeFor else { return }
-        likeFor = title.id
-        likeTask?.cancel()
-        likeTask = Task {
-            // (debounced, so sweeping the pointer across the row doesn't start a load per poster)
-            if !immediately { try? await Task.sleep(for: .milliseconds(350)) }
-            if Task.isCancelled { return }
-            let r = await stremio.related(title.type, title.id, genres: title.genres)
-            if Task.isCancelled { return }
-            like = r.filter { $0.id != title.id }
-            likeName = title.name
-        }
+        findTask?.cancel()
+        on = false; phase = .idle; titles = []
     }
 }
 
@@ -84,42 +62,13 @@ struct AIResultsView: View {
             case .empty:
                 message("Nothing matched, try describing it differently", icon: "sparkles", action: ("Edit", edit))
             case .done:
-                Shelf(title: model.prompt, see: nil) {
-                    ForEach(model.titles) { title in
-                        NavigationLink(value: Route.title(title.ref)) {
-                            PosterCard(title: title, width: Dx.pad ? 160 : Dx.poster).zoomSource(title.id)
-                        }
-                        .buttonStyle(.plain)
-                        // iPad pointer: resting on a poster fills the row below
-                        .onHover { if $0 { model.more(like: title, stremio: stremio) } }
-                        // touch: the same through the long-press menu
-                        .contextMenu {
-                            Button { model.more(like: title, stremio: stremio, immediately: true) } label: {
-                                Label("More like this", systemImage: "square.stack")
-                            }
-                            TitleMenu(title: title)
-                        }
-                    }
-                }
-                if !model.like.isEmpty {
-                    Shelf(title: "More like \(model.likeName)", see: nil) {
-                        ForEach(model.like) { title in
-                            NavigationLink(value: Route.title(title.ref)) {
-                                PosterCard(title: title, width: Dx.pad ? 160 : Dx.poster).zoomSource(title.id)
-                            }
-                            .buttonStyle(.plain)
-                            .titleMenu(title)
-                        }
-                    }
-                    .id(model.likeName)
-                    .transition(.opacity)
-                }
+                // the AI's titles, then "More like" rows as on Genius Browse
+                ChainView(title: model.prompt, firstRow: model.titles)
             case .idle:
                 EmptyView()
             }
         }
         .padding(.top, 8)
-        .animation(.easeInOut(duration: 0.25), value: model.likeName)
     }
 
     private func message(_ text: String, icon: String, action: (String, () -> Void)) -> some View {

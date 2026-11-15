@@ -26,6 +26,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.key
+import coil3.compose.AsyncImage
 import coil3.request.crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.graphicsLayer
@@ -213,6 +214,8 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
                     Page.Networks -> PageWindow(onBack = { nav.back() }) { NetworksScreen(stremio) }
                     is Page.Genre -> GenrePage(nav, feed, page.name)
                     Page.Christmas -> ChristmasPage(stremio, nav)
+                    is Page.Genius -> GeniusPage(nav, feed, stremio, page.mood)
+                    is Page.Chain -> ChainPage(nav, stremio, page.name, page.titles)
                     is Page.Franchise -> FranchisePage(stremio, nav, page.id, page.name)
                     Page.Addons -> PageWindow(onBack = { nav.back() }) { AddonsScreen(stremio) }
                     Page.Profiles -> PageWindow(onBack = { nav.back() }) { ProfilePicker(stremio) { nav.back() } }
@@ -251,9 +254,48 @@ private fun SignIn(stremio: Stremio) {
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
 
-    Box(Modifier.fillMaxSize().background(Dx.Background), contentAlignment = Alignment.Center) {
+    // Sign in on a phone: Stremio's link code, asked for again before it runs out, and watched until it's been finished
+    var link by remember { mutableStateOf<Stremio.LinkCode?>(null) }
+    var linking by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val made = stremio.linkCreate()
+            link = made
+            if (made == null) { delay(30_000); continue }
+            val until = System.currentTimeMillis() + 4 * 60_000
+            var gone = 0
+            while (System.currentTimeMillis() < until) {
+                delay(3_000)
+                if (busy) continue
+                val key = stremio.linkRead(made.code)
+                if (key == null) continue
+                linking = true
+                busy = true
+                error = null
+                val failed = stremio.signInWithToken(key)
+                android.util.Log.i("lumen-link", "token sign-in: ${failed ?: "ok"}")
+                busy = false
+                linking = false
+                if (failed != null) { error = failed; gone++; if (gone >= 3) break }
+            }
+        }
+    }
+
+    Row(Modifier.fillMaxSize().background(Dx.Background), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+        link?.let { l ->
+            Column(Modifier.width(380.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Logo(70.dp)
+                Text("Scan to sign in", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                Box(Modifier.size(260.dp).background(Color.White, RoundedCornerShape(20.dp)).padding(14.dp)) {
+                    AsyncImage(model = l.qrUrl, contentDescription = "QR code to sign in", modifier = Modifier.fillMaxSize())
+                }
+                Text("or go to link.stremio.com and enter", fontSize = 14.sp, color = Dx.Muted)
+                Text(l.code, fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 8.sp)
+            }
+            Spacer(Modifier.width(72.dp))
+        }
         Column(Modifier.width(420.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Logo(100.dp)
+            if (link == null) Logo(100.dp)
             Text("Sign in with your Stremio account", fontSize = 16.sp, color = Dx.Muted)
             Spacer(Modifier.height(6.dp))
             Field("Email", email, { email = it }, KeyboardType.Email, Modifier.focusRequester(first))
@@ -271,7 +313,7 @@ private fun SignIn(stremio: Stremio) {
                         }
                     },
                     colors = ButtonDefaults.colors(containerColor = Dx.Accent.copy(alpha = 0.8f), contentColor = Dx.OnAccent, focusedContainerColor = Dx.Accent, focusedContentColor = Dx.OnAccent),
-                ) { Text(if (busy) "Signing in…" else "Sign In", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+                ) { Text(if (busy || linking) "Signing in…" else "Sign In", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
                 Button(
                     onClick = { stremio.continueAsGuest() },
                     colors = ButtonDefaults.colors(containerColor = Color.White.copy(alpha = 0.12f), contentColor = Color.White, focusedContainerColor = Color.White, focusedContentColor = Color.Black),

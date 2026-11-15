@@ -433,6 +433,16 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
     /** Signs in; null when it worked, else what went wrong */
     suspend fun signIn(email: String, password: String): String? {
         ask("signIn", JSONObject().put("email", email).put("password", password))
+        return afterSignIn("That email and password didn't work.")
+    }
+
+    /** Signs in with the key a link code gave (finished on a phone); null when it worked, else what went wrong */
+    suspend fun signInWithToken(authKey: String): String? {
+        ask("signInWithToken", JSONObject().put("token", authKey))
+        return afterSignIn("Stremio didn't accept that sign-in. Try again.")
+    }
+
+    private suspend fun afterSignIn(failed: String): String? {
         val answer = withTimeoutOrNull(20_000) {
             engine.events.filter { it.first == "UserAuthenticated" || it.first == "Error" }.first()
         } ?: return "Stremio didn't answer. Check your connection and try again."
@@ -440,7 +450,40 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
             didSignIn()
             return null
         }
-        return answer.second?.optJSONObject("error")?.text("message") ?: "That email and password didn't work."
+        return answer.second?.optJSONObject("error")?.text("message") ?: failed
+    }
+
+    /** A code to enter at link.stremio.com, and the picture of it to scan */
+    class LinkCode(val code: String, val link: String, val qrUrl: String)
+
+    private val linkHttp = okhttp3.OkHttpClient.Builder()
+        .connectTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
+
+    private suspend fun linkGet(url: String): JSONObject? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        runCatching {
+            linkHttp.newCall(okhttp3.Request.Builder().url(url).build()).execute().use { r ->
+                val body = r.body?.string().orEmpty()
+                android.util.Log.i("lumen-link", "${url.substringBefore('?')} -> ${r.code} ${body.take(120)}")
+                JSONObject(body)
+            }
+        }.getOrNull()
+    }
+
+    /** Asks Stremio for a fresh link code; null when it can't be reached */
+    suspend fun linkCreate(): LinkCode? {
+        val r = linkGet("https://link.stremio.com/api/v2/create?type=Create")?.optJSONObject("result") ?: return null
+        val code = r.optString("code")
+        if (code.isEmpty()) return null
+        return LinkCode(code, r.optString("link", "https://link.stremio.com/$code"), r.optString("qrcode"))
+    }
+
+    /** The sign-in key once the code has been finished on a phone; null while waiting (or when the code is no good: [linkRead] can't tell) */
+    suspend fun linkRead(code: String): String? {
+        val r = linkGet("https://link.stremio.com/api/v2/read?type=Read&code=$code")?.optJSONObject("result") ?: return null
+        val key = r.optString("authKey").ifEmpty { r.optJSONObject("data")?.optString("authKey").orEmpty() }
+        return key.ifEmpty { null }
     }
 
     fun signOut() = scope.launch {
