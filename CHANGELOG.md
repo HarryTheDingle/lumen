@@ -2,6 +2,15 @@
 
 Lumen's own history starts here. The history of the dx.bi code it's built on is in [docs/dxbi/CHANGELOG.md](docs/dxbi/CHANGELOG.md).
 
+## 2.30.29
+
+- Ask AI in Search: say (or type) what you're in the mood for, such as "spy films set in the Cold War", and get a row of matches, ordered by what you like and leaving out what you rated low or hid. On Lumen TV, iPad, iPhone and Android phones.
+- Lumen TV: Genius Browse opens its own page, as on Apple TV: each row's chosen title brings a "More like" row beneath, and Down keeps going. TV Shows & Movies and genre filters at the top. Ask AI results open the same way.
+- Lumen TV: sign in by scanning a QR code with your phone (or entering the code at link.stremio.com), as well as with email and password.
+- Lumen TV and phone: the update offer lists what's new and what's fixed since your version.
+- Lumen iPad: Genius Browse moods on Home, with the same endless "More like" rows.
+- Fixes: a show taken out of the Library no longer stays on the Calendar or in the airing rows, "My List" is called Library everywhere, voice input on Google TV boxes uses the box's own voice search
+
 ## 2.30.28
 
 - Lumen TV: choosing a season from a show's season tabs and moving down now lands on that season's next episode (or its first), instead of jumping back to series 1, episode 1.
