@@ -2,6 +2,10 @@
 
 Lumen's own history starts here. The history of the dx.bi code it's built on is in [docs/dxbi/CHANGELOG.md](docs/dxbi/CHANGELOG.md).
 
+## 2.30.30
+
+- Streams that are AI upscales (a 1080p or 720p file stretched to 4K, "AI Upscaled", "AI Enhanced", "Upscaled", Topaz, ESRGAN and the like) are no longer picked by Play and no longer listed in Choose a Stream, on Lumen TV, iPad, iPhone and Android phones. If a title has nothing but upscales, they're still there so there's something to watch. A genuine 4K remaster, IMAX Enhanced or restoration isn't touched.
+
 ## 2.30.29
 
 - Ask AI in Search: say (or type) what you're in the mood for, such as "spy films set in the Cold War", and get a row of matches, ordered by what you like and leaving out what you rated low or hid. On Lumen TV, iPad, iPhone and Android phones.

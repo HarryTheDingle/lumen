@@ -44,6 +44,32 @@ assert.equal(pick([uncached, cached1080]), cached1080.label, "never starts a deb
 assert.equal(pick([cam, cached1080]), cached1080.label, "never a cinema recording");
 console.log("PASS never starts a debrid download or a cinema recording");
 
+// AI upscales (and any named upscale): never picked and not listed, unless they're all there is
+{
+  const yes = [
+    "Movie.2024.2160p.AI.Upscaled.x265", "Movie 2024 4K AI Enhanced HDR", "Movie.2024.AI-Remaster.2160p", "Movie (2024) AI Upscale 4K",
+    "Movie.2024.AIUpscale.2160p", "Movie 2024 2160p [AI]", "Movie 2024 4K AI", "Movie.UHD.AI.x265", "Upscaled by AI to 4K",
+    "Movie.2024.1080p.Topaz.Video.AI", "Movie.Real-ESRGAN.2160p", "Movie 2160p Upscaled", "Movie.2024.2160p.UPSCALE.HDR", "Movie 4K upscaled from 1080p",
+    "Movie.2024.AI.Interpolated.60fps", "Movie 2160p Remastered with AI", "Movie.TVAI.4K", "Movie.2160p.waifu2x", "Movie 2024 ML Upscaled", "Movie 4k Super Resolution",
+  ];
+  const no = [
+    "A.I. Artificial Intelligence 2001 2160p UHD Blu-ray Remux", "AI.Artificial.Intelligence.2001.2160p.UHD.BluRay.x265", "Movie.2001.IMAX.Enhanced.AI.Artificial.Intelligence.2160p",
+    "Ex.Machina.2014.2160p.UHD.BluRay.REMUX", "Topaz.1969.1080p.BluRay", "Movie.2024.2160p.4K.Remastered.HDR", "Movie.1960.4K.Restoration.2160p.UHD",
+    "Movie.2024.2160p.IMAX.Enhanced.DV.HDR", "Maid.in.Manhattan.2002.1080p", "Movie.2024.2160p.WEB-DL.DDP5.1.Atmos.H.265", "Chappie.2015.1080p.BluRay",
+  ];
+  for (const n of yes) assert.equal(describeStream(n, n).upscaled, true, `an upscale: ${n}`);
+  for (const n of no) assert.equal(describeStream(n, n).upscaled, false, `not an upscale: ${n}`);
+  const ai4k = item("[RD+] Torrentio\n4k", "Film.2160p.AI.Upscaled.HDR 👤 900 💾 40 GB");
+  const real1080 = item("[RD+] Torrentio\n1080p", "Film.1080p.WEB-DL 👤 12 💾 4 GB");
+  const ai4kToo = item("[RD+] Comet\n4k", "Film.2160p.Upscaled 👤 10 💾 30 GB");
+  assert.equal(pick([ai4k, real1080]), real1080.label, "a real 1080p before an AI 4K");
+  assert.equal(streamChoice.samples([ai4k, real1080]).has(ai4k), true, "AI upscales aren't listed");
+  assert.equal(streamChoice.samples([ai4k, real1080]).has(real1080), false);
+  assert.equal(pick([ai4k, ai4kToo]) !== null, true, "only upscales: still something to play");
+  assert.equal(streamChoice.samples([ai4k, ai4kToo]).size, 0, "only upscales: all kept");
+  console.log("PASS AI upscales are never picked or listed, unless they're all there is");
+}
+
 assert.equal(pick([cached1080, cached4k]), cached4k.label);
 assert.equal(pick([cachedDv, cached4k]), cached4k.label, "HDR before Dolby Vision");
 assert.equal(pick([remux, cached4k]), cached4k.label, "an encode before a remux");

@@ -1,7 +1,7 @@
 /**
  * @name Lumen
  * @description The Lumen experience: cinematic billboard, Netflix-style carousels, hover previews with trailers, ratings on posters, critic reviews, skip intro and up next, anime filler guide, new episode badges, watch stats and viewers, stream sorting & filters, a Netflix-style player with black-bar removal, night mode and subtitle sync, watch parties with friends, a cinematic intro and interface sounds. Use with the Lumen theme.
- * @version 2.30.29
+ * @version 2.30.30
  * @author dx.bi
  * @updateUrl https://raw.githubusercontent.com/HarryTheDingle/lumen/main/dxbi.plugin.js
  */
@@ -19,7 +19,7 @@
   // Stremio Enhanced loads each plugin as <script id="<file name>">, which tells us our settings key
   const SCRIPT_ID = (document.currentScript && document.currentScript.id) || "dxbi.plugin.js";
   const PLUGIN_KEY = SCRIPT_ID.replace(/\.plugin\.js$/, "");
-  const PLUGIN_VERSION = "2.30.29"; // kept in step with @version by tools/bundle-theme.mjs
+  const PLUGIN_VERSION = "2.30.30"; // kept in step with @version by tools/bundle-theme.mjs
   // Recent messages and errors, kept for problem reports (see `report`)
   const recent = { logs: [], errors: [] };
   const remember = (list, text) => {
@@ -3936,6 +3936,26 @@
     const openMatte = /\bopen[ ._-]?matte\b/i.test(all);
     const threeD = /\b(?:3d|h?sbs)\b/i.test(all);
     const lesser = /\b(?:ai[ ._-]?upscal\w*|upscal\w*|\d{2,3}fps|hfr|3d|h?sbs)\b/i.test(all);
+    // An AI upscale (or any upscale) sold as a better picture: a 1080p or 720p file stretched to 4K, its edges and faces
+    // redrawn by a model, or its frames made up (interpolated). Never picked, and not listed (streamChoice.samples), unless
+    // there's nothing else. Needs "AI" (or a tool's name, or "upscaled") in what the stream says, so a genuine "4K
+    // Remaster", "IMAX Enhanced" or restoration isn't caught, nor the film A.I. Artificial Intelligence.
+    const upscaled = (() => {
+      const tail = String.raw`(?![ ._-]*artificial)`;
+      return [
+        // "AI Upscaled", "AI.Enhanced", "AI-Remaster", "AI 4K", "AIUpscale", "AI interpolated"
+        new RegExp(String.raw`\bai[ ._+-]*(?:up[ ._-]?)?(?:scal\w*|sampl\w*|enhanc\w*|remaster\w*|restor\w*|sharpen\w*|boost\w*|improv\w*|interpolat\w*|upres\w*|4k|8k|uhd|2160p|1080p)`, "i"),
+        // "Upscaled by AI", "Enhanced with AI", "Remastered AI"
+        new RegExp(String.raw`\b(?:upscal|upsampl|upres|up[ ._-]?res|enhanc|remaster|restor|sharpen|interpolat)\w*[ ._-]*(?:by|with|using|via|\()?[ ._-]*ai\b${tail}`, "i"),
+        // "4K AI", "2160p.AI", "[AI]"
+        new RegExp(String.raw`\b(?:2160p|4k|uhd|1440p|1080p|8k)[ ._-]*ai\b${tail}`, "i"),
+        /[\[(]\s*ai\s*[\])]/i,
+        // the tools, and "ML" / "neural" / "super resolution"
+        /\b(?:real[ ._-]?)?esrgan\b|\bwaifu2x\b|\breal[ ._-]?cugan\b|\bgigapixel\b|\btvai\b|\bvideo[ ._-]?ai\b|\btopaz[ ._-]?(?:video|ai|labs|enhance|gigapixel)\w*|\bml[ ._-]?(?:upscal|enhanc)\w*|\bneural[ ._-]?(?:upscal|enhanc|net)\w*|\bsuper[ ._-]?res(?:olution)?\b/i,
+        // an upscale named as one
+        /\b(?:upscal(?:e|ed|ing)|upsampl(?:e|ed|ing))\b/i,
+      ].some((re) => re.test(all));
+    })();
 
     const site = (/(?:⚙\uFE0F?|🔎)\s*([^\s\n]+)/u.exec(all) || [])[1] || "";
     const codec = /\b(?:x265|h\.?265|hevc)\b/i.test(all) ? "HEVC" : /\bav1\b/i.test(all) ? "AV1" : /\b(?:x264|h\.?264|avc)\b/i.test(all) ? "H.264" : "";
@@ -3943,7 +3963,7 @@
     // A sample: a minute or two of the release, not the film
     const sample = /\bsample\b/i.test(all);
 
-    return { provider, site, codec, instant, pending, lesser, sample, res, hdr, dv, dvOnly, imax, atmos, hdr10plus, openMatte, threeD, size, seeds, source, langs: [...langs] };
+    return { provider, site, codec, instant, pending, lesser, upscaled, sample, res, hdr, dv, dvOnly, imax, atmos, hdr10plus, openMatte, threeD, size, seeds, source, langs: [...langs] };
   }
 
   function parseStream(el) {
@@ -4086,7 +4106,7 @@
     },
 
     // Sample clips and other files far too small to be the whole thing: never picked (being small, they
-    // looked ideal for a slow connection). A sample by name; at least 5 times smaller than the usual size
+    // looked ideal for a slow connection). AI upscales go with them. A sample by name; at least 5 times smaller than the usual size
     // at its quality; or, with the title's length known, under 0.35 Mbit/s for 720p or better.
     samples(list, minutes = 0) {
       const out = new Set(list.filter((x) => x.d.sample));
@@ -4097,6 +4117,8 @@
         for (const x of list) if (x.d.res === res && x.d.size > 0 && x.d.size < usual / 5) out.add(x);
       }
       if (minutes > 0) for (const x of list) if (x.d.res >= 720 && x.d.size > 0 && this.mbps(x.d, minutes) < 0.35) out.add(x);
+      // AI upscales (see describeStream): left out as well, except when they're all there is
+      if (list.some((x) => !out.has(x) && !x.d.upscaled)) for (const x of list) if (x.d.upscaled) out.add(x);
       return out;
     },
 
