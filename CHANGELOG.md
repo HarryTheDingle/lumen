@@ -2,6 +2,11 @@
 
 Lumen's own history starts here. The history of the dx.bi code it's built on is in [docs/dxbi/CHANGELOG.md](docs/dxbi/CHANGELOG.md).
 
+## 2.30.31
+
+- Just press Play and Match my internet speed are on by default, so Lumen picks the best stream that suits your connection every time. A choice already made in Settings is kept.
+- Lumen TV and phone: Play waits for Lumen to finish starting (a cold start, or a TV that took its memory back) and says "Starting Lumen" while it does, instead of "Couldn't open" or "Couldn't find a stream that plays" and a spinner that never ends.
+
 ## 2.30.30
 
 - Streams that are AI upscales (a 1080p or 720p file stretched to 4K, "AI Upscaled", "AI Enhanced", "Upscaled", Topaz, ESRGAN and the like) are no longer picked by Play and no longer listed in Choose a Stream, on Lumen TV, iPad, iPhone and Android phones. If a title has nothing but upscales, they're still there so there's something to watch. A genuine 4K remaster, IMAX Enhanced or restoration isn't touched.

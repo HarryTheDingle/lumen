@@ -137,6 +137,13 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
         }
     }
 
+    /**
+     * The page's engine (Stremio's core) takes a while on a cold start, longer on a slow TV, and a call made before it
+     * is up is lost (it times out after 20 s). Play waits for it here instead of failing; true when it's up.
+     */
+    suspend fun awaitEngine(ms: Long = 150_000): Boolean =
+        engine.ready.value || kotlinx.coroutines.withTimeoutOrNull(ms) { engine.ready.first { it } } == true
+
     private suspend fun ask(op: String, args: JSONObject = JSONObject()): Any? = try {
         engine.call(op, args)
     } catch (e: Exception) {

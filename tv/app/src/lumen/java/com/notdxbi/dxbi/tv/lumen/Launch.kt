@@ -216,6 +216,11 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
     private suspend fun run(t: Title, wanted: String?, fromStart: Boolean) {
         playStarted = System.currentTimeMillis()
         mark("Play ${t.name}")
+        // The page's engine may still be starting (a cold start, or the TV took its memory back): wait for it, and say so
+        if (!stremio.engine.ready.value) {
+            step = Step("Starting Lumen", "Loading your library", 0.02f)
+            if (!stremio.awaitEngine()) return fail("Lumen didn't start properly", "Close Lumen and open it again.")
+        }
         val checkSpeed = runCatching { stremio.settings().firstOrNull { it.key == "quickPlaySpeed" }?.value == true }.getOrDefault(false)
 
         // 1. The title (and for a show, which episode)
