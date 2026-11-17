@@ -58,19 +58,24 @@ jobs:
         run: node tools/party-roles-test.mjs
       - name: Just press Play picks the right stream
         run: node tools/quick-play-test.mjs
+      - name: Speed per network
+        run: node tools/network-memory-test.mjs
       - name: Times follow the device's clock
         run: node tools/device-clock-test.mjs
       - name: Dropped subtitles keep their encoding and reach the player
         run: node tools/subtitle-drop-test.mjs
 
-      # The one-liners from the README, exactly as users run them (downloads the latest release)
+      # The one-liners from the README, exactly as users run them (downloads the latest release). Lumen
+      # has no published release yet: until it does, these can fail without failing the run
       - name: Published installer (Windows PowerShell 5.1)
         if: runner.os == 'Windows'
+        continue-on-error: true
         shell: powershell
-        run: irm https://github.com/notdxbi/dxbi-stremio/releases/latest/download/install.ps1 | iex
+        run: irm https://github.com/HarryTheDingle/lumen/releases/latest/download/install.ps1 | iex
       - name: Published installer (bash)
         if: runner.os != 'Windows'
-        run: curl -fsSL https://github.com/notdxbi/dxbi-stremio/releases/latest/download/install.sh | bash
+        continue-on-error: true
+        run: curl -fsSL https://github.com/HarryTheDingle/lumen/releases/latest/download/install.sh | bash
 
       # Then this commit's installers and plugin, served locally
       - name: Serve this commit

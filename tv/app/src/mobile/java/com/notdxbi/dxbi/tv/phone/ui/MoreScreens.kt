@@ -404,7 +404,7 @@ fun CustomiseHomeScreen(stremio: Stremio, onBack: () -> Unit) {
         ScreenTitle("Customise Home", onBack) {
             TextButton(onClick = { save(HomeLayout.NONE) }) { Text("Reset", color = Dx.Muted) }
         }
-        Text("Move rows up and down, or hide them. Continue Watching and My List always come first.", color = Dx.Faint, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = Gutter))
+        Text("Move rows up and down, or hide them. Continue Watching and Library always come first.", color = Dx.Faint, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = Gutter))
         Spacer(Modifier.height(8.dp))
         LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
             itemsIndexed(rows, key = { _, r -> r.key }) { i, r ->
@@ -437,7 +437,7 @@ fun LibraryScreen(stremio: Stremio, onBack: () -> Unit, onOpen: (Title) -> Unit)
         ScreenTitle("Library", onBack)
         Choices(listOf("All", "Films", "Series"), type) { type = it }
         Spacer(Modifier.height(10.dp))
-        if (items.isEmpty()) Text("Nothing here yet. Add titles with My List on a title's page.", color = Dx.Muted, modifier = Modifier.padding(Gutter))
+        if (items.isEmpty()) Text("Nothing here yet. Add titles with Library on a title's page.", color = Dx.Muted, modifier = Modifier.padding(Gutter))
         else PosterGrid(items, loading = false, onEnd = { stremio.libraryMore() }, onOpen = onOpen)
     }
 }

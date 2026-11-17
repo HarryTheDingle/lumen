@@ -30,7 +30,7 @@ export function setupAutoUpdate(window: () => BrowserWindow | null): void {
 
     autoUpdater.on("update-available", (info) => {
         if (askedByViewer) {
-            dialog.showMessageBox({ type: "info", title: "Update found", message: `Downloading dx.bi ${info.version} in the background. It'll ask to restart when it's ready.`, buttons: ["OK"] });
+            dialog.showMessageBox({ type: "info", title: "Update found", message: `Downloading Lumen ${info.version} in the background. It'll ask to restart when it's ready.`, buttons: ["OK"] });
         }
     });
     autoUpdater.on("update-not-available", () => {
@@ -50,8 +50,8 @@ export function setupAutoUpdate(window: () => BrowserWindow | null): void {
         const options = {
             type: "info" as const,
             title: "Update ready",
-            message: `dx.bi ${info.version} is ready to install.`,
-            detail: "Restart now to update, or it'll install the next time you close dx.bi.",
+            message: `Lumen ${info.version} is ready to install.`,
+            detail: "Restart now to update, or it'll install the next time you close Lumen.",
             buttons: ["Restart now", "Later"],
             defaultId: 0,
             cancelId: 1,

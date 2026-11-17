@@ -2,26 +2,27 @@ import SwiftUI
 
 /** Posters in a grid that fits the screen */
 struct PosterGrid: View {
+    @Environment(Stremio.self) private var stremio
     var items: [Title]
     var onEnd: (() -> Void)?
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 108, maximum: 170), spacing: 12)], spacing: 14) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: Dx.pad ? 150 : 108, maximum: Dx.pad ? 210 : 170), spacing: Dx.pad ? 18 : 12)], spacing: Dx.pad ? 22 : 14) {
             ForEach(items) { title in
                 NavigationLink(value: Route.title(title.ref)) {
                     Color.clear
                         .aspectRatio(2 / 3, contentMode: .fit)
-                        .overlay { Art(url: title.art) }
+                        .overlay { PosterArt(title: title) }
                         .clipShape(.rect(cornerRadius: 14))
                         .overlay(alignment: .topTrailing) {
-                            if title.watched {
+                            if stremio.isWatched(title) {
                                 Image(systemName: "checkmark.circle.fill").symbolRenderingMode(.palette).foregroundStyle(.black, .white).padding(6)
                             }
                         }
                         .zoomSource(title.id)
                 }
                 .buttonStyle(.plain)
-                .contextMenu { TitleMenu(title: title) }
+                .titleMenu(title)
                 .onAppear { if title.id == items.last?.id { onEnd?() } }
             }
         }
@@ -36,12 +37,17 @@ struct SearchView: View {
     @State private var query = ""
     @State private var searched = ""
     @AppStorage("recentSearches") private var recentText = ""
+    // Ask AI: a described wish instead of a name
+    @State private var ai = AISearchModel()
+    @State private var askOpen = false
 
     private var recent: [String] { recentText.split(separator: "\n").map(String.init) }
 
     var body: some View {
         ScrollView {
-            if searched.isEmpty {
+            if ai.on {
+                AIResultsView(model: ai) { askOpen = true }
+            } else if searched.isEmpty {
                 VStack(alignment: .leading, spacing: 14) {
                     if !recent.isEmpty {
                         HStack {
@@ -57,19 +63,22 @@ struct SearchView: View {
                             .padding(.vertical, 4)
                         }
                     }
-                    hints.padding(.top, recent.isEmpty ? 60 : 30)
                 }
                 .padding(.horizontal, Dx.gutter)
+                // (nothing typed: the genres, as Apple TV's Search page has them)
+                GenresSection().padding(.top, recent.isEmpty ? 14 : 24).padding(.bottom, 20)
             } else {
                 LazyVStack(alignment: .leading, spacing: 28) {
                     let rows = stremio.search.filter { !$0.items.isEmpty }
                     ForEach(rows) { row in
-                        Shelf(title: row.heading, see: row.discover.map { .browse(link: $0, name: row.heading) }) {
+                        let heading = heading(row, among: rows)
+                        Shelf(title: heading, see: row.discover.map { .browse(link: $0, name: heading) }) {
                             ForEach(row.items) { title in
                                 NavigationLink(value: Route.title(title.ref)) {
-                                    PosterCard(title: title, width: 130).zoomSource(title.id)
+                                    PosterCard(title: title, width: Dx.pad ? 160 : Dx.poster).zoomSource(title.id)
                                 }
                                 .buttonStyle(.plain)
+                                .titleMenu(title)
                             }
                         }
                     }
@@ -83,11 +92,22 @@ struct SearchView: View {
                 }
             }
         }
-        .padding(.bottom, 30)
+        // (room at the foot inside the scrolling, not under it: the list was cut off short of the screen's edge)
+        .contentMargins(.bottom, 30, for: .scrollContent)
         .screenBackground()
         .navigationTitle("Search")
         .searchable(text: $query, prompt: "Films, shows, people")
         .onSubmit(of: .search, run)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                // (plain white, as the rest of the app: no accent colour)
+                Button { askOpen = true } label: { Image(systemName: "sparkles").foregroundStyle(.white) }
+                    .accessibilityLabel("Ask AI")
+            }
+        }
+        .sheet(isPresented: $askOpen) {
+            AskAISheet(initial: ai.prompt) { ai.find($0, stremio: stremio) }
+        }
         // a name tapped on a title's page
         .onChange(of: stremio.pendingSearch, initial: true) { _, q in
             guard let q else { return }
@@ -105,22 +125,10 @@ struct SearchView: View {
         }
     }
 
-    /** Nothing typed yet: what Search finds, as Stremio's desktop app says it */
-    private var hints: some View {
-        VStack(spacing: 30) {
-            Text("You can search anything…").font(.title3).foregroundStyle(Dx.muted)
-            HStack(alignment: .top, spacing: 12) {
-                ForEach([("film.stack", "Movies, series & anime"), ("person.fill", "Actors, directors & writers"), ("tv", "Channels & TV from your addons")], id: \.0) { icon, label in
-                    VStack(spacing: 12) {
-                        Image(systemName: icon).font(.system(size: 34)).frame(height: 40)
-                        Text(label).font(.footnote).multilineTextAlignment(.center)
-                    }
-                    .foregroundStyle(Dx.muted)
-                    .frame(maxWidth: .infinity)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
+    /** "Films", "TV Shows": what the row holds, and whose it is when two addons found the same kind */
+    private func heading(_ row: Row, among rows: [Row]) -> String {
+        let kind = row.type == "movie" ? "Films" : row.type == "series" ? "TV Shows" : typeName(row.type)
+        return rows.filter { $0.type == row.type }.count > 1 && !row.addon.isEmpty ? "\(kind) · \(row.addon)" : kind
     }
 
     private func run() {
@@ -134,8 +142,8 @@ struct SearchView: View {
 
 // MARK: - Discover
 
-/** Every catalog the addons have, by type, catalog and genre */
-struct DiscoverView: View {
+/** Every catalog the addons have, by type, catalog and genre (Discover's "Browse All Catalogs") */
+struct CatalogBrowserView: View {
     @Environment(Stremio.self) private var stremio
 
     var body: some View {
@@ -153,7 +161,7 @@ struct DiscoverView: View {
             .padding(.bottom, 30)
         }
         .screenBackground()
-        .navigationTitle("Discover")
+        .navigationTitle("All Catalogs")
         .onAppear { stremio.discoverStart() }
         .onChange(of: stremio.allRows.count) { stremio.discoverStart() }
     }
@@ -222,7 +230,7 @@ struct BrowseView: View {
                 if d.state == .loading { ProgressView().padding() }
             }
         }
-        .padding(.bottom, 30)
+        .contentMargins(.bottom, 30, for: .scrollContent)
         .screenBackground()
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)

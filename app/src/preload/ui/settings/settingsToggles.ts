@@ -79,7 +79,7 @@ export function setupGpuDropdown() {
             await alertAPI.showAlert(
                 "info",
                 "Restart Required",
-                "Your hardware acceleration settings have been saved. Please restart dx.bi to apply the changes.",
+                "Your hardware acceleration settings have been saved. Please restart Lumen to apply the changes.",
                 ["OK"]
             );
         });
@@ -169,7 +169,7 @@ export function setupMpvPlayerToggle(): void {
             toggle.classList.toggle(CLASSES.CHECKED);
             const on = toggle.classList.contains(CLASSES.CHECKED);
             ipcRenderer.send(IPC_CHANNELS.MPV_SET_ENABLED, on);
-            alertAPI.showAlert("info", "Video player changed", "Restart dx.bi to use the new player.", ["OK"]);
+            alertAPI.showAlert("info", "Video player changed", "Restart Lumen to use the new player.", ["OK"]);
         });
     }).catch(() => {});
 }

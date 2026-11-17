@@ -112,7 +112,7 @@ fun ProfileScreen(
         if (continueWatching.isNotEmpty()) item {
             PosterRow("Continue Watching", continueWatching.map { it.title }, onOpen = onOpen)
         }
-        item { PosterRow(myList.firstOrNull()?.name ?: "My List", myList.flatMap { it.items }, onMore = onLibrary, onOpen = onOpen) }
+        item { PosterRow(myList.firstOrNull()?.name ?: "Library", myList.flatMap { it.items }, onMore = onLibrary, onOpen = onOpen) }
         item {
             Column(Modifier.padding(top = 6.dp)) {
                 Line(Icons.Filled.VideoLibrary, "Library", "Everything you've added or watched", onClick = onLibrary)

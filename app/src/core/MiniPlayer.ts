@@ -41,7 +41,7 @@ function open(main: BrowserWindow, hash: string, at: number) {
         minimizable: false,
         hasShadow: true,
         backgroundColor: "#000000",
-        title: "dx.bi",
+        title: "Lumen",
         icon: join(__dirname, "..", "..", "images", process.platform === "win32" ? "icon.ico" : "icon.png"),
         webPreferences: {
             // the same page setup as the main window (main.ts), so dx.bi runs in it too

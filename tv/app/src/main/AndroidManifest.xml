@@ -6,6 +6,14 @@
     <!-- Installing dx.bi TV updates the app downloads (Android asks first) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Ask AI in Search: speaking what they're after -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <!-- (Android 11+ hides other apps' services unless asked for: the speech recogniser) -->
+    <queries>
+        <intent><action android:name="android.speech.RecognitionService" /></intent>
+    </queries>
+
     <!-- A TV app first, but it installs on any Android device -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />

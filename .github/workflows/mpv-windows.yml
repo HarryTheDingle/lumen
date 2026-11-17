@@ -59,7 +59,7 @@ jobs:
 
       - name: Play through mpv
         shell: bash
-        run: node tools/mpv-test.mjs "app/release-builds/win-unpacked/dx.bi.exe" mpv-shots
+        run: node tools/mpv-test.mjs "app/release-builds/win-unpacked/Lumen.exe" mpv-shots
 
       - name: Upload screenshots
         if: always()

@@ -10,3 +10,8 @@
 
 # The FFmpeg audio decoder: Media3 finds it by name and builds it by reflection
 -keep class androidx.media3.decoder.ffmpeg.** { *; }
+
+# Lumen's trailers tell the app their video's going, through the JavaScript bridge (lumen/Preview.kt)
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}

@@ -1,0 +1,14 @@
+<resources>
+    <!-- Lumen for phones, Android 12 and later: the system's splash screen black with the icon on it, not on the
+         white circle it draws behind an icon by default (an app icon without its own background looked like a
+         white disc on black). The icon is the launcher's, as before. -->
+    <style name="Theme.Dxbi" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowFullscreen">false</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="colorAccent">@android:color/white</item>
+        <item name="android:windowSplashScreenBackground">@android:color/black</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/black</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+    </style>
+</resources>

@@ -28,10 +28,10 @@ export function seedBuiltInPlugin(): void {
             : null;
         if (!installedVersion || (bundledVersion && Helpers.isNewerVersion(bundledVersion, installedVersion))) {
             writeFileSync(installed, content, "utf-8");
-            logger.info(`Installed the built-in dx.bi plugin v${bundledVersion}.`);
+            logger.info(`Installed the built-in Lumen plugin v${bundledVersion}.`);
         }
     } catch (err) {
-        logger.error("Failed to install the built-in dx.bi plugin: " + (err as Error).message);
+        logger.error("Failed to install the built-in Lumen plugin: " + (err as Error).message);
     }
 }
 
@@ -57,7 +57,7 @@ export async function offerEnhancedImport(): Promise<void> {
     const choice = preset ? (preset === "copy" ? 0 : 1) : await Helpers.showAlert(
         "question",
         "Bring your Stremio Enhanced setup?",
-        "dx.bi found Stremio Enhanced on this computer. It can copy your Stremio sign-in, library, settings, " +
+        "Lumen found Stremio Enhanced on this computer. It can copy your Stremio sign-in, library, settings, " +
         "plugins and themes over, so everything is just as you left it.\n\n" +
         "Close Stremio Enhanced first if it's open. Stremio Enhanced itself isn't changed.",
         ["Copy my setup", "Start fresh"]

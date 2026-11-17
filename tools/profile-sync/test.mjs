@@ -59,6 +59,8 @@ check(r.json.entries.some((e) => e.k === "homeLayout:v2"), "since: later changes
 
 r = await sync("key-u1", { since: 0, entries: [{ k: "libraryOwners", t: Date.now(), v: { tt1: ["v2"] } }] });
 check(r.status === 200, "who owns a title is kept (libraryOwners)");
+r = await sync("key-u1", { since: 0, entries: [{ k: "ratings:v2", t: Date.now(), v: { tt1: 9, tt2: 3 } }] });
+check(r.status === 200, "viewer ratings are kept (ratings:v2)");
 r = await sync("key-u1", { since: 0, entries: [{ k: "parentPin", t: Date.now(), v: "hash" }] });
 check(r.status === 400, "the parental PIN is refused: it stays on each device");
 r = await sync("key-u1", { since: 0, entries: [{ k: "dxbi.meta.tt1", t: Date.now(), v: {} }] });
@@ -78,6 +80,149 @@ check(stremioCalls === callsBefore, "Stremio isn't asked again for a key it just
 const stored = JSON.stringify(env.DB.dump());
 check(!stored.includes("key-u1") && !stored.includes("key-u2"), "the session key is never stored");
 check(env.DB.dump().every((row) => row.account === "u1"), "rows are filed under the Stremio account id");
+
+// /picks: AI-curated suggestions, 12-hour D1 cache, and isolation from /sync
+let aiCalls = 0;
+env.AI = {
+  async run(model, input) {
+    aiCalls++;
+    const payload = JSON.parse(input.messages[1].content);
+    return {
+      response: JSON.stringify({
+        ranked: payload.candidates.map((c) => c.id).reverse().concat(["tt9999999"]),
+        additions: [
+          { type: "movie", name: "Coherence", year: 2013, seeds: [payload.watched[0].id] },
+          { type: "series", name: "Dark", year: 2017, seeds: ["tt-not-watched"] },
+        ],
+      }),
+    };
+  },
+};
+const picks = async (key, body) => {
+  const headers = { "Content-Type": "application/json", Origin: "https://web.stremio.com" };
+  if (key) headers.Authorization = `Stremio ${key}`;
+  const r = await worker.fetch(new Request("https://sync.example/picks", { method: "POST", headers, body: JSON.stringify(body) }), env);
+  return { status: r.status, json: await r.json() };
+};
+
+const samplePicksReq = {
+  viewer: "main",
+  sig: "main|t|a|Sci-Fi|tt0816692",
+  watched: [{ id: "tt0816692", type: "movie", name: "Interstellar", year: 2014, genres: ["Sci-Fi"], weight: 1.5 }],
+  genres: ["Sci-Fi"],
+  dropped: [{ id: "tt0000999", type: "movie", name: "Bad Film" }],
+  candidates: [
+    { id: "tt0000001", type: "movie", name: "Arrival", year: 2016, genres: ["Sci-Fi"], rating: 7.9, seeds: ["tt0816692"] },
+    { id: "tt0000002", type: "movie", name: "Sunshine", year: 2007, genres: ["Sci-Fi"], rating: 7.2, seeds: ["tt0816692"] },
+  ],
+};
+
+check((await picks(null, samplePicksReq)).status === 401, "/picks requires Stremio auth");
+let pr = await picks("key-u1", samplePicksReq);
+check(
+  pr.status === 200 && pr.json.cached === false && aiCalls === 1 &&
+  JSON.stringify(pr.json.ranked) === JSON.stringify(["tt0000002", "tt0000001"]) &&
+  pr.json.additions.length === 2 && pr.json.additions[1].seeds[0] === "tt0816692",
+  "/picks calls Workers AI, filters invalid candidate/seed IDs, and caches result"
+);
+
+pr = await picks("key-u1", samplePicksReq);
+check(pr.status === 200 && pr.json.cached === true && aiCalls === 1, "/picks serves 12h D1 cache on matching sig without calling AI again");
+
+pr = await picks("key-u1", { ...samplePicksReq, sig: "main|t|a|Sci-Fi|tt0816692|tt0000003" });
+check(pr.status === 200 && pr.json.cached === false && aiCalls === 2, "/picks recomputes when sig changes");
+
+let lastPayload = null;
+const origAiRun = env.AI.run;
+env.AI.run = async (model, input) => {
+  lastPayload = JSON.parse(input.messages[1].content);
+  return origAiRun(model, input);
+};
+
+const picksWithRatings = {
+  ...samplePicksReq,
+  sig: "main|ratings-sig",
+  ratings: [
+    { id: "tt0816692", name: "Interstellar", rating: 9 },
+    { id: "tt0000999", name: "Bad Film", rating: 2 },
+    { id: "ttInvalid", rating: 15 },
+  ],
+};
+pr = await picks("key-u1", picksWithRatings);
+check(
+  pr.status === 200 &&
+  lastPayload &&
+  Array.isArray(lastPayload.ratings) &&
+  lastPayload.ratings.length === 2 &&
+  lastPayload.ratings[0].rating === 9 &&
+  lastPayload.ratings[1].rating === 2,
+  "/picks validates ratings array and passes sanitized 1-10 scores to AI model"
+);
+env.AI.run = origAiRun;
+
+let geminiCalls = 0;
+const prevFetch = globalThis.fetch;
+globalThis.fetch = async (url, init) => {
+  if (String(url).startsWith("https://generativelanguage.googleapis.com/")) {
+    geminiCalls++;
+    return new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ text: JSON.stringify({ ranked: ["tt0000001"], additions: [{ type: "movie", name: "Primer", year: 2004, seeds: ["tt0816692"] }] }) }] } }],
+    }));
+  }
+  return prevFetch(url, init);
+};
+env.GEMINI_API_KEY = "test-gemini-key";
+pr = await picks("key-u1", { ...samplePicksReq, sig: "main|gemini-sig" });
+check(pr.status === 200 && geminiCalls === 1 && pr.json.additions[0].name === "Primer", "/picks uses Gemini Flash when GEMINI_API_KEY is set");
+delete env.GEMINI_API_KEY;
+globalThis.fetch = prevFetch;
+
+// /ask: titles for a typed prompt (no cache, no candidates)
+const ask = async (key, body) => {
+  const headers = { "Content-Type": "application/json", Origin: "https://web.stremio.com" };
+  if (key) headers.Authorization = `Stremio ${key}`;
+  const r = await worker.fetch(new Request("https://sync.example/ask", { method: "POST", headers, body: JSON.stringify(body) }), env);
+  return { status: r.status, json: await r.json() };
+};
+let askPayload = null;
+const picksAi = env.AI.run;
+env.AI.run = async (model, input) => {
+  askPayload = JSON.parse(input.messages[1].content);
+  return { response: JSON.stringify({ titles: [
+    { type: "movie", name: "  Heat ", year: 1995 },
+    { type: "series", name: "The Wire", year: "2002" },
+    { type: "book", name: "Not a film", year: 2000 },
+    { type: "movie", name: "", year: 2000 },
+    { type: "movie", name: "Odd Year", year: 3000 },
+  ].concat(Array.from({ length: 30 }, (_, i) => ({ type: "movie", name: `Filler ${i}`, year: 2000 }))) }) };
+};
+const askReq = { viewer: "main", prompt: "heist films set in Los Angeles", watched: samplePicksReq.watched, ratings: [{ id: "tt0000999", name: "Bad Film", rating: 2 }, { id: "x", rating: 9 }], dropped: samplePicksReq.dropped };
+check((await ask(null, askReq)).status === 401, "/ask requires Stremio auth");
+check((await ask("key-u1", { ...askReq, prompt: "hi" })).status === 400, "/ask refuses a prompt under 3 characters");
+check((await ask("key-u1", { ...askReq, prompt: "x".repeat(501) })).status === 400, "/ask refuses a prompt over 500 characters");
+check((await ask("key-u1", { ...askReq, viewer: "bad viewer!" })).status === 400, "/ask refuses a bad viewer");
+const ar = await ask("key-u1", askReq);
+check(
+  ar.status === 200 && ar.json.titles.length === 16 &&
+  JSON.stringify(ar.json.titles[0]) === JSON.stringify({ type: "movie", name: "Heat", year: 1995 }) &&
+  ar.json.titles[1].year === 2002 && ar.json.titles[2].name === "Odd Year" && ar.json.titles[2].year === 0 &&
+  !ar.json.titles.some((t) => t.type === "book" || !t.name),
+  "/ask sanitises the model's titles and caps them at 16"
+);
+check(
+  askPayload && askPayload.prompt === askReq.prompt && askPayload.watched[0].id === "tt0816692" &&
+  askPayload.ratings.length === 1 && askPayload.ratings[0].rating === 2 && askPayload.dropped[0].name === "Bad Film" && !("candidates" in askPayload),
+  "/ask passes the prompt and the taste payload to the model"
+);
+env.AI.run = async () => ({ response: "nonsense" });
+check((await ask("key-u1", askReq)).status === 502, "/ask answers 502 when the model's answer is unusable");
+const noAi = env.AI; delete env.AI;
+check((await ask("key-u1", askReq)).status === 503, "/ask answers 503 with no AI configured");
+env.AI = noAi;
+env.AI.run = picksAi;
+
+const syncAfterPicks = await sync("key-u1", { since: 0, entries: [] });
+check(!syncAfterPicks.json.entries.some((e) => e.k.startsWith("picks:")), "/sync never leaks picks:<viewer> cache rows");
 
 console.log(failures.length ? `\n${failures.length} check(s) failed.` : "\nAll checks passed.");
 process.exit(failures.length ? 1 : 0);

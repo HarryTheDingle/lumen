@@ -39,13 +39,15 @@ object PlaybackBus {
         pendingClose = null
     }
 
-    fun closed(positionMs: Long, durationMs: Long, ended: Boolean, error: String?, next: Boolean = false) {
+    /** [mbps]: how fast the stream came (the player's measure while it loaded), 0 if it doesn't know */
+    fun closed(positionMs: Long, durationMs: Long, ended: Boolean, error: String?, next: Boolean = false, mbps: Double = 0.0) {
         val stream = try { JSONObject(activePlayback ?: "{}") } catch (_: Exception) { JSONObject() }
         pendingClose = JSONObject()
             .put("timeMs", positionMs)
             .put("durationMs", durationMs)
             .put("ended", ended)
             .put("next", next)
+            .put("mbps", mbps)
             .put("error", error ?: JSONObject.NULL)
             .put("hash", stream.optString("hash"))
             .put("videoId", stream.optString("videoId"))

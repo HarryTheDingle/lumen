@@ -1,0 +1,268 @@
+import SwiftUI
+
+/**
+ * Discover, by streaming service: For You (what's new on digital, from the Library first, then popular
+ * and genre rows, with genres, franchises and filmmakers between them), or one service's own page, in its colours (new, popular series and films, its genres).
+ * The full catalog browser is at the bottom.
+ */
+struct DiscoverView: View {
+    @Environment(Stremio.self) private var stremio
+    @AppStorage("lumen.discover.platform") private var selected = ""
+    @State private var rows: [Row] = []
+    @State private var loadedFor: String?
+
+    /** A row of Discover: posters, with a date under each for releases */
+    struct Row: Identifiable {
+        var id: String
+        var title: String
+        var items: [Title]
+        var dates: [String: Date] = [:]
+    }
+
+    private var platform: DiscoverFeed.Platform? { DiscoverFeed.platforms.first { $0.id == selected } }
+    private var feed: DiscoverFeed { DiscoverFeed.shared }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 30) {
+                tabs
+                header
+                // (the last tab's rows stay until the new ones are in: a page that emptied and refilled jumped)
+                if loadedFor == nil {
+                    ProgressView().frame(maxWidth: .infinity).padding(60)
+                } else if rows.isEmpty && loadedFor == selected {
+                    ContentUnavailableView("Nothing to show", systemImage: "wifi.exclamationmark", description: Text("Couldn't reach the catalogs. Pull down to try again."))
+                }
+                // (in the season, For You opens with a festive card)
+                if selected.isEmpty && ChristmasSeason.inSeason && loadedFor != nil { FestiveCard() }
+                ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
+                    shelf(row)
+                    // (Genres after the first couple of rows: tiles, as Apple TV's Search has)
+                    if selected.isEmpty && i == min(1, rows.count - 1) { GenresSection() }
+                    // (then franchises, and the people behind the films, each a couple of rows further down)
+                    if selected.isEmpty && i == min(3, rows.count - 1) { FranchisesSection() }
+                    if selected.isEmpty && i == min(5, rows.count - 1) { FilmmakersSection() }
+                }
+                NavigationLink { CatalogBrowserView() } label: {
+                    Label("Browse All Catalogs", systemImage: "square.grid.2x2")
+                        .font(.headline)
+                        .padding(.horizontal, 18).padding(.vertical, 12)
+                }
+                .buttonStyle(.glass)
+                .padding(.horizontal, Dx.gutter)
+            }
+            .padding(.bottom, 40)
+        }
+        .scrollIndicators(.hidden)
+        .background { backdrop.ignoresSafeArea() }
+        .animation(.easeInOut(duration: 0.45), value: selected)
+        .navigationTitle("Discover")
+        .toolbarTitleDisplayMode(.inline)
+        .task(id: selected) { await load() }
+        // (the Library can arrive after For You first loads: its "out on digital" row follows it)
+        .onChange(of: stremio.library.count) { old, new in
+            if selected.isEmpty, old == 0, new > 0 { Task { await load() } }
+        }
+        .refreshable { await load() }
+    }
+
+    // MARK: - The services
+
+    private var tabs: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                chip("For You", id: "", colour: Dx.accent, asset: "LumenIcon")
+                ForEach(DiscoverFeed.platforms) { p in chip(p.name, id: p.id, colour: p.colour, icon: p.icon) }
+            }
+            .padding(.horizontal, Dx.gutter)
+        }
+        .scrollIndicators(.hidden)
+        .padding(.top, 8)
+    }
+
+    private func chip(_ name: String, id: String, colour: Color, icon: URL? = nil, asset: String? = nil) -> some View {
+        let on = selected == id
+        return Button { selected = id } label: {
+            HStack(spacing: 8) {
+                if let icon {
+                    WebImage(url: icon) { $0.resizable().scaledToFill() } placeholder: { _ in colour.opacity(0.4) }
+                        .frame(width: 22, height: 22)
+                        .clipShape(.rect(cornerRadius: 5))
+                } else if let asset {
+                    // (For You: Lumen's own app icon)
+                    Image(asset).resizable().scaledToFill().frame(width: 22, height: 22).clipShape(.rect(cornerRadius: 5))
+                }
+                Text(name)
+            }
+                .font(.subheadline.weight(.semibold))
+                .padding(.leading, icon == nil && asset == nil ? 16 : 8).padding(.trailing, 16).padding(.vertical, 9)
+                .foregroundStyle(on ? (colour.isLight ? Color.black : .white) : .white)
+                .background(on ? colour : Color.white.opacity(0.1), in: .capsule)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /**
+     * The page's heading: the service's own logo, large, with its name (For You: Lumen's colours). The
+     * same height on every tab, so switching doesn't move the page
+     */
+    private var header: some View {
+        HStack(spacing: 16) {
+            Group {
+                if let p = platform {
+                    WebImage(url: p.icon) { $0.resizable().scaledToFill() } placeholder: { _ in p.colour.opacity(0.5) }
+                } else {
+                    Image("LumenIcon").resizable().scaledToFill()
+                }
+            }
+            .frame(width: 72, height: 72)
+            .clipShape(.rect(cornerRadius: 16))
+            .shadow(color: (platform?.colour ?? Dx.accent).opacity(0.45), radius: 16)
+            .id(selected)
+            .transition(.opacity)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(platform?.name ?? "For You").font(.title.bold())
+                Text(platform == nil ? "New on digital, popular and by genre" : "What's on \(platform?.name ?? "")")
+                    .font(.subheadline).foregroundStyle(Dx.muted)
+            }
+            Spacer()
+            if loadedFor != selected { ProgressView().controlSize(.regular) }
+        }
+        .frame(height: 80)
+        .padding(.horizontal, Dx.gutter)
+    }
+
+    /** The page's colours: the service's, fading to black (For You: Lumen's) */
+    private var backdrop: some View {
+        let top = platform?.colour ?? Dx.accent
+        let deep = platform?.deep ?? Color(red: 0.02, green: 0.1, blue: 0.12)
+        return LinearGradient(stops: [
+            .init(color: top.opacity(platform == nil ? 0.18 : 0.42), location: 0),
+            .init(color: deep, location: 0.28),
+            .init(color: .black, location: 0.62),
+        ], startPoint: .top, endPoint: .bottom)
+    }
+
+    // MARK: - Rows
+
+    private func shelf(_ row: Row) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(row.title).font(.title2.bold()).padding(.horizontal, Dx.gutter)
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: 14) {
+                    ForEach(row.items, id: \.id) { t in
+                        NavigationLink(value: Route.title(t.ref)) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                PosterCard(title: t, width: Dx.poster)
+                                if let d = row.dates[t.id] {
+                                    Text(d, format: .dateTime.day().month(.abbreviated))
+                                        .font(.footnote.weight(.medium))
+                                        .foregroundStyle(d > Date() ? Dx.accent : Dx.muted)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .zoomSource(t.id)
+                        .titleMenu(t)
+                    }
+                }
+                .padding(.horizontal, Dx.gutter)
+            }
+            .scrollIndicators(.hidden)
+            .scrollClipDisabled()
+        }
+    }
+
+    // MARK: - Loading
+
+    private func load() async {
+        let wanted = selected
+        let built: [Row]
+        if let p = platform { built = await platformRows(p) } else { built = await forYouRows() }
+        guard wanted == selected else { return }
+        rows = built
+        loadedFor = wanted
+    }
+
+    private func forYouRows() async -> [Row] {
+        if stremio.library.isEmpty { stremio.loadLibrary() }
+        async let releases = feed.digitalYear()
+        async let films = feed.popular("movie")
+        async let series = feed.popular("series")
+        let genres: [(String, String, String)] = [
+            ("movie", "Action", "Action Films"), ("series", "Crime", "Crime Series"), ("movie", "Comedy", "Comedy Films"),
+            ("movie", "Thriller", "Thrillers"), ("series", "Comedy", "Comedy Series"), ("movie", "Sci-Fi", "Sci-Fi Films"),
+            ("series", "Drama", "Drama Series"), ("movie", "Horror", "Horror Films"), ("movie", "Animation", "Animated Films"),
+            ("movie", "Documentary", "Documentaries"),
+        ]
+        var genreRows: [Row] = []
+        await withTaskGroup(of: (Int, [DiscoverFeed.Item]).self) { group in
+            for (i, g) in genres.enumerated() { group.addTask { (i, await DiscoverFeed.shared.popular(g.0, genre: g.1)) } }
+            var found: [(Int, [DiscoverFeed.Item])] = []
+            for await r in group { found.append(r) }
+            for (i, items) in found.sorted(by: { $0.0 < $1.0 }) where items.count >= 4 {
+                genreRows.append(Row(id: "genre-\(i)", title: genres[i].2, items: items.prefix(25).map(\.title)))
+            }
+        }
+
+        let all = await releases
+        let today = Calendar.current.startOfDay(for: Date())
+        let out = all.filter { $0.date <= Date() }
+        let recent = out.filter { $0.date >= today.addingTimeInterval(-42 * 86400) }
+        let coming = all.filter { $0.date > Date() }.sorted { $0.date < $1.date }
+        let library = Set(stremio.library.filter { $0.type == "movie" }.map(\.id))
+        let mine = out.filter { library.contains($0.id) && $0.date >= today.addingTimeInterval(-60 * 86400) }
+        let dates = Dictionary(all.map { ($0.id, $0.date) }, uniquingKeysWith: { a, _ in a })
+        Task { await feed.scheduleAlerts(library: stremio.library, releases: all) }
+
+        var rows: [Row] = []
+        // what this profile watched most points to these (the plugin's recommender)
+        for (i, pick) in stremio.picks.enumerated() {
+            rows.append(Row(id: "pick-\(i)", title: pick.name, items: pick.items))
+        }
+        if !mine.isEmpty { rows.append(Row(id: "mine", title: "From Your Library: Out on Digital", items: mine.map(\.title), dates: dates)) }
+        if !recent.isEmpty { rows.append(Row(id: "digital", title: "New on Digital", items: recent.prefix(30).map(\.title), dates: dates)) }
+        if !coming.isEmpty { rows.append(Row(id: "coming", title: "Coming to Digital", items: coming.prefix(25).map(\.title), dates: dates)) }
+        let f = await films, s = await series
+        if !f.isEmpty { rows.append(Row(id: "films", title: "Popular Films", items: f.prefix(25).map(\.title))) }
+        if !s.isEmpty { rows.append(Row(id: "series", title: "Popular Series", items: s.prefix(25).map(\.title))) }
+        rows += genreRows
+        if out.count > recent.count {
+            rows.append(Row(id: "year", title: "Out on Digital This Year", items: out.prefix(60).map(\.title), dates: dates))
+        }
+        return rows
+    }
+
+    private func platformRows(_ p: DiscoverFeed.Platform) async -> [Row] {
+        async let seriesList = feed.platform(p, "series")
+        async let filmList = feed.platform(p, "movie")
+        let series = await seriesList, films = await filmList
+        let all = series + films
+        var rows: [Row] = []
+        // new on the service: came out in the last four months, newest first
+        let since = Date().addingTimeInterval(-120 * 86400)
+        let new = all.filter { ($0.released ?? .distantPast) >= since && ($0.released ?? .distantFuture) <= Date() }
+            .sorted { ($0.released ?? .distantPast) > ($1.released ?? .distantPast) }
+        if new.count >= 3 { rows.append(Row(id: "new", title: "New on \(p.name)", items: new.prefix(25).map(\.title))) }
+        if !series.isEmpty { rows.append(Row(id: "series", title: "Popular Series", items: series.prefix(30).map(\.title))) }
+        if !films.isEmpty { rows.append(Row(id: "films", title: "Popular Films", items: films.prefix(30).map(\.title))) }
+        // its main genres, as rows
+        var counts: [String: Int] = [:]
+        for item in all { for g in item.genres { counts[g, default: 0] += 1 } }
+        for genre in counts.sorted(by: { $0.value > $1.value }).prefix(6).map(\.key) {
+            let items = all.filter { $0.genres.contains(genre) }
+            if items.count >= 5 { rows.append(Row(id: "genre-\(genre)", title: genre, items: items.prefix(25).map(\.title))) }
+        }
+        return rows
+    }
+}
+
+private extension Color {
+    /** Light enough that text on it should be dark */
+    var isLight: Bool {
+        let c = UIColor(self)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        c.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return 0.299 * r + 0.587 * g + 0.114 * b > 0.6
+    }
+}

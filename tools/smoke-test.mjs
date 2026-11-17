@@ -101,7 +101,7 @@ async function main() {
   listeners.push((msg) => {
     if (msg.method === "Debugger.scriptParsed" && msg.params.length > 200000 && !msg.params.url.startsWith("http")) {
       scriptChecks.push(send("Debugger.getScriptSource", { scriptId: msg.params.scriptId })
-        .then(({ scriptSource }) => { if (scriptSource.includes("@name dx.bi")) pluginScripts.add(msg.params.scriptId); })
+        .then(({ scriptSource }) => { if (scriptSource.includes("@name Lumen")) pluginScripts.add(msg.params.scriptId); })
         .catch(() => {}));
     }
     // Anything that would freeze the page for the remaining checks: report it and carry on
@@ -119,7 +119,7 @@ async function main() {
     if (msg.method === "Runtime.consoleAPICalled") {
       const text = msg.params.args.map((a) => a.value ?? a.description ?? "").join(" ");
       if (text.startsWith("[dx.bi]")) console.log(`    console: ${text.slice(0, 200)}`);
-      if (msg.params.type === "error" && text.includes("dx.bi")) errors.push({ text, console: true });
+      if (msg.params.type === "error" && text.includes("Lumen")) errors.push({ text, console: true });
     }
   });
   await send("Runtime.enable");

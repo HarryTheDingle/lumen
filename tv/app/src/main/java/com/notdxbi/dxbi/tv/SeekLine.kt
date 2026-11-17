@@ -16,6 +16,9 @@ class SeekLine(context: Context, attrs: AttributeSet?) : View(context, attrs) {
         set(value) { field = value.coerceIn(0f, 1f); invalidate() }
     var loaded = 0f
         set(value) { field = value.coerceIn(0f, 1f); invalidate() }
+    /** Where a seek will go, while it's being chosen (else -1): the knob's there instead */
+    var scrub = -1f
+        set(value) { field = value; invalidate() }
 
     override fun onFocusChanged(gainFocus: Boolean, direction: Int, previous: android.graphics.Rect?) {
         super.onFocusChanged(gainFocus, direction, previous)
@@ -33,7 +36,12 @@ class SeekLine(context: Context, attrs: AttributeSet?) : View(context, attrs) {
         bar(end, Color.argb(64, 255, 255, 255))
         bar(end * loaded, Color.argb(96, 255, 255, 255))
         bar(end * played, accent)
-        if (isFocused) {
+        if (scrub >= 0f) {
+            // (the line to the marker, lighter: where it'll go)
+            bar(end * scrub, Color.argb(150, 255, 255, 255))
+            line.color = Color.WHITE
+            canvas.drawCircle((end * scrub).coerceIn(9f * density, end - 9f * density), mid, 9f * density, line)
+        } else if (isFocused) {
             line.color = Color.WHITE
             canvas.drawCircle((end * played).coerceAtLeast(9f * density), mid, 9f * density, line)
         }

@@ -36,7 +36,33 @@ struct WelcomeView: View {
                 if !stremio.ready {
                     Label("Starting Stremio…", systemImage: "hourglass").font(.footnote).foregroundStyle(Dx.faint)
                 }
-                Button("Continue Without an Account") { stremio.guest = true }
+                if !stremio.accounts.isEmpty {
+                    VStack(spacing: 8) {
+                        Text("Saved on this device").font(.footnote.weight(.semibold)).foregroundStyle(Dx.muted)
+                        ForEach(stremio.accounts) { a in
+                            Button { stremio.switchAccount(to: a.id) } label: {
+                                HStack(spacing: 10) {
+                                    Avatar(email: a.email, size: 30)
+                                    Text(a.email).lineLimit(1)
+                                    Spacer()
+                                    Image(systemName: "arrow.right.circle").foregroundStyle(Dx.muted)
+                                }
+                                .padding(12)
+                                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!stremio.ready)
+                        }
+                    }
+                    .padding(.top, 14)
+                }
+                if stremio.addingAccount {
+                    Button("Cancel") { stremio.cancelAddAccount() }.font(.subheadline.weight(.semibold)).padding(.top, 4)
+                }
+                Button("Continue Without an Account") {
+                    stremio.guest = true
+                    stremio.addingAccount = false
+                }
                     .font(.subheadline.weight(.semibold))
                     .padding(.top, 6)
                 Link("Create a Stremio account", destination: URL(string: "https://www.stremio.com/register")!)
@@ -67,31 +93,47 @@ struct WelcomeView: View {
 struct AccountView: View {
     @Environment(Stremio.self) private var stremio
     @Environment(\.dismiss) private var dismiss
+    @State private var picking = false
 
     var body: some View {
         @Bindable var stremio = stremio
         NavigationStack {
             List {
                 Section {
-                    HStack(spacing: 14) {
-                        Avatar(email: stremio.account?.email).scaleEffect(1.6).frame(width: 52, height: 52)
-                        VStack(alignment: .leading) {
-                            Text(stremio.account?.email ?? "Not signed in").font(.headline)
-                            Text(stremio.account?.signedIn == true ? "Stremio account" : "Using dx.bi without an account").font(.footnote).foregroundStyle(Dx.muted)
+                    // who's watching now (their own Continue Watching, watched marks and picks)
+                    Button { picking = true } label: {
+                        HStack(spacing: 14) {
+                            if let v = stremio.viewer { ProfileAvatar(name: v.name, colour: v.colour, size: 52) }
+                            else { Avatar(email: stremio.account?.email).scaleEffect(1.6).frame(width: 52, height: 52) }
+                            VStack(alignment: .leading) {
+                                Text(stremio.viewer?.name ?? stremio.account?.email ?? "Not signed in").font(.headline).foregroundStyle(.white)
+                                Text(stremio.viewers.count > 1 ? "Switch or manage profiles" : "Add a profile for someone else").font(.footnote).foregroundStyle(Dx.muted)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(Dx.faint)
+                        }
+                        .padding(.vertical, 6)
+                    }
+                    NavigationLink { AccountsView() } label: {
+                        HStack(spacing: 12) {
+                            Avatar(email: stremio.account?.email, size: 30)
+                            VStack(alignment: .leading) {
+                                Text(stremio.account?.email ?? "Not signed in")
+                                Text(stremio.account?.signedIn == true ? "Stremio account" : "Using Lumen without an account").font(.footnote).foregroundStyle(Dx.muted)
+                            }
                         }
                     }
-                    .padding(.vertical, 6)
                 }
                 Section {
                     NavigationLink { AddonsView() } label: { Label("Addons", systemImage: "puzzlepiece.extension.fill") }
                     NavigationLink { DownloadsView() } label: { Label("Downloads", systemImage: "arrow.down.circle.fill") }
                     NavigationLink { StatsView() } label: { Label("Your Stats", systemImage: "chart.bar.fill") }
+                    Button { dismiss(); stremio.tuningPending = true } label: { Label("Tune Suggestions", systemImage: "wand.and.stars") }
+                    NavigationLink { QuickRateView() } label: { Label("Rate Movies & Series", systemImage: "star.circle.fill").foregroundStyle(.yellow) }
                     NavigationLink { CustomiseHomeView() } label: { Label("Customise Home", systemImage: "square.stack.3d.up.fill") }
-                    NavigationLink { DxbiSettingsView() } label: { Label("dx.bi Settings", systemImage: "slider.horizontal.3") }
+                    NavigationLink { DxbiSettingsView() } label: { Label("Lumen Settings", systemImage: "slider.horizontal.3") }
                     NavigationLink { PlaybackSettingsView() } label: { Label("Playback", systemImage: "play.rectangle.fill") }
-                }
-                Section {
-                    NavigationLink { ReportView() } label: { Label("Report a Problem", systemImage: "exclamationmark.bubble.fill") }
+                    NavigationLink { NetworksView() } label: { Label("Networks", systemImage: "wifi") }
                 }
                 Section {
                     if stremio.account?.signedIn == true {
@@ -106,9 +148,10 @@ struct AccountView: View {
                         }
                     }
                 } footer: {
-                    Text("dx.bi \(Page.version) · Not affiliated with Stremio.")
+                    Text("Lumen \(Page.version) · Not affiliated with Stremio.")
                 }
             }
+            .fullScreenCover(isPresented: $picking) { ProfilePicker { picking = false } }
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -203,20 +246,38 @@ struct AddonsView: View {
 
 // MARK: - Settings
 
-/** dx.bi settings: the same list the TV shows */
+/** Lumen settings: the same list the TV shows */
 struct DxbiSettingsView: View {
     @Environment(Stremio.self) private var stremio
     @State private var settings: [Setting]?
+    @State private var ratedCount: Int?
 
     /** How Stremio's page looks: the app's own screens don't use these */
     private static let webOnly: Set<String> = [
-        "liteMode", "builtInTheme", "previews", "ratings", "animeTitles", "wideContinue", "librarySort", "trailers",
+        "liteMode", "builtInTheme", "previews", "ratings", "animeTitles", "wideContinue", "librarySort", "trailers", "trailerDelay",
         "whoIsWatching", "addonTools", "posterAccent", "crispPosters", "streamTools", "streamRows", "splash", "introSound",
         "profileSync", "uiSounds", "focusColour", "videoRowsOnly", "newEpisodes", "accent", "tvTorrents",
     ]
 
     var body: some View {
         List {
+            Section("Recommendations & Taste") {
+                NavigationLink {
+                    QuickRateView()
+                } label: {
+                    HStack {
+                        Label("Rate Movies & Series", systemImage: "star.circle.fill")
+                            .foregroundStyle(.yellow)
+                        Spacer()
+                        if let count = ratedCount, count > 0 {
+                            Text("\(count) rated")
+                                .font(.footnote)
+                                .foregroundStyle(Dx.muted)
+                        }
+                    }
+                }
+            }
+
             if let settings {
                 let groups = settings.reduce(into: [String]()) { if !$0.contains($1.group) { $0.append($1.group) } }
                 ForEach(groups, id: \.self) { group in
@@ -228,8 +289,15 @@ struct DxbiSettingsView: View {
                 ProgressView()
             }
         }
-        .navigationTitle("dx.bi Settings")
-        .task { settings = await stremio.settings().filter { !Self.webOnly.contains($0.key) } }
+        .navigationTitle("Lumen Settings")
+        .task {
+            settings = await stremio.settings().filter { !Self.webOnly.contains($0.key) }
+        }
+        .onAppear {
+            Task {
+                ratedCount = (await stremio.allRatings()).count
+            }
+        }
     }
 
     private func save(_ s: Setting, _ json: String) {
@@ -279,11 +347,11 @@ struct PlaybackSettingsView: View {
         List {
             Section {
                 Picker("Play videos in", selection: $stremio.otherApp) {
-                    Text("dx.bi").tag(String?.none)
+                    Text("Lumen").tag(String?.none)
                     ForEach(OtherApp.all) { app in Text(app.name + (app.installed ? "" : " (not installed)")).tag(String?.some(app.id)) }
                 }
             } footer: {
-                Text("dx.bi's player plays almost anything. Another app keeps no watch progress in Stremio.")
+                Text("Lumen's player plays almost anything. Another app keeps no watch progress in Stremio.")
             }
             Section("Languages") {
                 LanguagePicker(title: "Audio", value: settings.string("audioLanguage")) { stremio.updateSettings(["audioLanguage": $0]) }
@@ -299,7 +367,7 @@ struct PlaybackSettingsView: View {
             } header: {
                 Text("Streaming server")
             } footer: {
-                Text("Torrents need Stremio (or dx.bi) running on a computer: put its address here. Debrid streams play without one.")
+                Text("Torrents need Stremio (or Lumen) running on a computer: put its address here. Debrid streams play without one.")
             }
         }
         .navigationTitle("Playback")
@@ -346,7 +414,7 @@ struct CustomiseHomeView: View {
                 .onMove { from, to in keys.move(fromOffsets: from, toOffset: to); save() }
                 .tint(Dx.accent)
             } footer: {
-                Text("Drag to reorder. dx.bi saves this to your profile, so your other devices follow it.")
+                Text("Drag to reorder. Lumen saves this to your profile, so your other devices follow it.")
             }
         }
         .environment(\.editMode, .constant(.active))
