@@ -59,7 +59,8 @@ class Intro(private val activity: MainActivity, private val parent: FrameLayout)
         parent.addView(box, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         overlay = box
 
-        val volume = if (!settings.optBoolean("introSound", true)) 0f
+        // (Lumen's film is silent)
+        val volume = if (BuildConfig.OWN_INTRO || !settings.optBoolean("introSound", true)) 0f
         else when (settings.optString("soundVolume", "subtle")) { "loud" -> 1f; "normal" -> 0.75f; else -> 0.45f }
 
         video.surfaceTextureListener = object : TextureView.SurfaceTextureListener {

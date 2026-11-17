@@ -70,6 +70,8 @@ class MainActivity : AppCompatActivity() {
 
         if (!webViewIsRecentEnough()) return
 
+        LowSpace.relieve(this)
+
         // Debug builds can be inspected from a computer (chrome://inspect)
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) WebView.setWebContentsDebuggingEnabled(true)
         web = WebView(this)
@@ -116,7 +118,12 @@ class MainActivity : AppCompatActivity() {
             override fun getDefaultVideoPoster(): Bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
         }
         web.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView, url: String?) {
+                android.util.Log.i("lumen-boot", "page finished ${android.os.SystemClock.elapsedRealtime() - android.os.Process.getStartElapsedRealtime()} ms after launch")
+            }
+
             override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                android.util.Log.i("lumen-boot", "page started ${android.os.SystemClock.elapsedRealtime() - android.os.Process.getStartElapsedRealtime()} ms after launch")
                 // Older WebViews can't run a script before the page: run it as early as possible instead
                 if (!injectedAtStart && url != null && url.startsWith(STREMIO_ORIGIN)) view.evaluateJavascript(startScript, null)
             }

@@ -2,6 +2,11 @@
 
 Lumen's own history starts here. The history of the dx.bi code it's built on is in [docs/dxbi/CHANGELOG.md](docs/dxbi/CHANGELOG.md).
 
+## 2.30.32
+
+- Fixes "no streams" on a TV that's nearly out of storage. With almost no free space (a Sony at 95% full) Lumen's engine never started, so Play found nothing and updates couldn't install. Lumen now clears its own cache when space is short, and says so if the TV is still too full.
+- The Lumen logo film at the start is silent.
+
 ## 2.30.31
 
 - Just press Play and Match my internet speed are on by default, so Lumen picks the best stream that suits your connection every time. A choice already made in Settings is kept.

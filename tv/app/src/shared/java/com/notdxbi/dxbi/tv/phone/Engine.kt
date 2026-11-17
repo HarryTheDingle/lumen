@@ -72,6 +72,7 @@ class Engine(private val run: (String) -> Unit) {
             }
             "ready" -> {
                 ready.value = true
+                android.util.Log.i("lumen-boot", "engine ready ${android.os.SystemClock.elapsedRealtime() - android.os.Process.getStartElapsedRealtime()} ms after launch")
                 // A page that started again has forgotten what was watched
                 if (watched.isNotEmpty()) send("watch", JSONObject().put("fields", JSONArray(watched.toList())))
             }
