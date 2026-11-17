@@ -20,6 +20,9 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class Engine(private val run: (String) -> Unit) {
 
+    /** Starts the page again (set by the activity that owns it) */
+    @Volatile var restart: (() -> Unit)? = null
+
     class Failure(message: String) : Exception(message)
 
     private val ids = AtomicInteger()
@@ -48,10 +51,28 @@ class Engine(private val run: (String) -> Unit) {
         send(op, args, id)
         return try {
             withTimeout(timeoutMs) { answer.await() }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            // A page that answers nothing twice in a row isn't slow, it's stuck (seen after a whole episode on a Streamer: search and
+            // streams both dead, with Android never ending the page): start it again
+            if (++unanswered >= 2) stuck("$op unanswered")
+            throw e
         } finally {
             pending.remove(id)
         }
     }
+
+    /** The page isn't answering: start it again (not more than once a minute) */
+    fun stuck(why: String) {
+        if (System.currentTimeMillis() - lastRestart < 60_000) return
+        unanswered = 0
+        lastRestart = System.currentTimeMillis()
+        android.util.Log.w("lumen-boot", "engine stuck ($why): restarting the page")
+        ready.value = false
+        restart?.invoke()
+    }
+
+    @Volatile private var unanswered = 0
+    @Volatile private var lastRestart = 0L
 
     /** Fire and forget */
     fun send(op: String, args: JSONObject = JSONObject(), id: Int = 0) {
@@ -61,6 +82,7 @@ class Engine(private val run: (String) -> Unit) {
 
     fun onMessage(json: String) {
         val message = try { JSONObject(json) } catch (_: Exception) { return }
+        if (message.optString("type") in setOf("reply", "ready", "state")) unanswered = 0
         when (message.optString("type")) {
             "reply" -> pending.remove(message.optInt("id"))?.let { answer ->
                 if (message.optBoolean("ok")) answer.complete(message.opt("data").takeUnless { it == JSONObject.NULL })

@@ -75,6 +75,7 @@ class MainActivity : AppCompatActivity() {
         // Debug builds can be inspected from a computer (chrome://inspect)
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) WebView.setWebContentsDebuggingEnabled(true)
         web = WebView(this)
+        LowSpace.page = java.lang.ref.WeakReference(web)
         val root = FrameLayout(this)
         root.addView(web, webSize())
         setContentView(root)
@@ -229,6 +230,18 @@ class MainActivity : AppCompatActivity() {
      * Start the page again in a lighter way: the intro film is the heaviest moment of a start, so it's
      * switched off (it can be switched back on in dx.bi's settings). A second crash soon after says so.
      */
+    /** The page's engine stopped answering without Android ending it: start it again, as after a crash */
+    fun restartPage() {
+        if (!::web.isInitialized || isFinishing) return
+        // (clearing the app's cache by hand is what fixed it on a Streamer: so it's cleared here, with the page started again)
+        try { web.clearCache(true) } catch (_: Exception) {}
+        cacheDir.listFiles()?.forEach { it.deleteRecursively() }
+        // (started again without recoverFromCrash's "keeps stopping" message: this isn't a crash, and can be needed twice in a row)
+        (web.parent as? ViewGroup)?.removeView(web)
+        web.destroy()
+        recreate()
+    }
+
     private fun recoverFromCrash(crashed: Boolean) {
         val state = getSharedPreferences("app", MODE_PRIVATE)
         val now = System.currentTimeMillis()

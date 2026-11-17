@@ -303,10 +303,23 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
                 mark("picked ${pick.quality} ${pick.bitrateText.orEmpty()} from ${pick.addon} (${if (c.sameAsLastTime) "same as last time" else if (c.settled) "all answered" else if (fromTop) "first addon ready" else if (soon) "ready 4K" else "waited 6 s"})" + (c.lowered?.let { " — " + it.note } ?: ""))
                 return starting(pick)
             }
-            if (c != null && c.settled && pick == null) return fail("No streams found", "Your addons may not have this one yet.")
+            if (c != null && c.settled && pick == null) {
+                if (addonsDead(t)) stremio.engine.stuck("every addon failed")
+                return fail("No streams found", "Your addons may not have this one yet.")
+            }
             delay(400)
         }
+        if (addonsDead(t)) stremio.engine.stuck("no addon answered")
         fail("Couldn't find a stream that plays", "Try … → Choose a Stream on the title's page.")
+    }
+
+    /**
+     * No addon gave an answer at all, for a title that every addon should know. The page is up but its requests fail (Search says
+     * "Nothing found" too, seen on a Streamer after a whole episode, put right by clearing the app's cache): the page is started again
+     */
+    private fun addonsDead(t: Title): Boolean {
+        val groups = stremio.details.value?.takeIf { it.metaId == t.id }?.streams.orEmpty()
+        return groups.isEmpty() || groups.all { it.state == Load.Err }
     }
 
     /** 4. The stream chosen: off to the player (the loading screen goes once it's up) */

@@ -930,6 +930,7 @@ class PlayerActivity : AppCompatActivity() {
         // (Lumen starts the next episode itself, as Play does: the page just goes back, as for any close)
         if (extras?.keep(position, ended) != true) PlaybackBus.closed(position, duration, ended, error, next && !toNext, measuredBps / 1_000_000.0)
         if (torrent) TorrentEngine.close()
+        LowSpace.afterPlayback(applicationContext)
         // Back (not the end, not a failure): the player's kept a few minutes, paused, with what it's downloaded, for Play
         // or Resume on the same stream to carry straight on (HeldPlayer)
         val exoNow = player

@@ -300,6 +300,7 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
         android.util.Log.w(TAG, "gave up after ${System.currentTimeMillis() - began}ms: $asked asks, $answers answers, best=${best?.index}")
         // (a stream was found, even if the page then stopped answering: play it, rather than fail with one in hand)
         best?.let { return starting(it, Phone.Target.Player) }
+        if (answers == 0) stremio.engine.stuck("page not answering")
         if (answers == 0) fail("Lumen's page isn't answering", "The phone may be busy. Try again in a moment.")
         else fail("Couldn't find a stream that plays", "Try ⋯ → Choose a Stream on the title's page.")
     }

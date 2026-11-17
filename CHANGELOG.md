@@ -2,6 +2,12 @@
 
 Lumen's own history starts here. The history of the dx.bi code it's built on is in [docs/dxbi/CHANGELOG.md](docs/dxbi/CHANGELOG.md).
 
+## 2.30.33
+
+- Fixes Lumen going wrong after a whole episode on some TVs: Search finding nothing and no stream playing, until the app's cache was cleared by hand. Lumen now clears its page cache whenever a player closes (the episode ends, you back out, or Next up), and if no addon answers at all when you press Play, it clears its cache and starts itself again, so the next Play works.
+- If Lumen's engine stops answering for good, it starts it again by itself.
+- Lumen TV and phone: when the engine hasn't started after a minute, Play starts it again instead of waiting.
+
 ## 2.30.32
 
 - Fixes "no streams" on a TV that's nearly out of storage. With almost no free space (a Sony at 95% full) Lumen's engine never started, so Play found nothing and updates couldn't install. Lumen now clears its own cache when space is short, and says so if the TV is still too full.

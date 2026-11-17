@@ -48,7 +48,7 @@ object Phone {
         if (!PhoneSupport.isPhone(activity)) return
         // Another app playing a stream (VLC, mpv, MX Player…): it says where it got to when it closes
         external = activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { ExternalPlayer.finished(it.data) }
-        val engine = Engine(js).also { engine = it }
+        val engine = Engine(js).also { engine = it; it.restart = { activity.runOnUiThread { activity.restartPage() } } }
         // (where it draws nothing, touches reach the page: how the page shows through when it's needed)
         val screens = ComposeView(activity).apply { setContent { PhoneApp(engine) } }
         root.addView(screens, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
