@@ -20,6 +20,17 @@ object PlaybackBus {
     @Volatile
     var listener: Listener? = null
 
+    private val streamListeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
+
+    fun addStreamsListener(listener: () -> Unit): () -> Unit {
+        streamListeners.add(listener)
+        return { streamListeners.remove(listener) }
+    }
+
+    fun notifyStreamsChanged() {
+        for (l in streamListeners) l()
+    }
+
     /** What the page handed to the player (its route and video included), while it plays */
     @Volatile
     var activePlayback: String? = null

@@ -51,14 +51,25 @@ function best(primary, list, bad, langs) {
   return pick ? pick.file_path : null;
 }
 
-async function bads(env, tt) {
-  const rows = (await env.DB.prepare("SELECT path FROM lumos_artbad WHERE imdb = ?").bind(tt).all()).results || [];
-  return new Set(rows.map((r) => r.path));
+async function knownBads(env, ids) {
+  const out = new Map();
+  for (let i = 0; i < ids.length; i += 50) {
+    const chunk = ids.slice(i, i + 50);
+    const rows = (await env.DB.prepare(
+      `SELECT imdb, path FROM lumos_artbad WHERE imdb IN (${chunk.map(() => "?").join(",")})`
+    ).bind(...chunk).all()).results || [];
+    for (const r of rows) {
+      let set = out.get(r.imdb);
+      if (!set) { set = new Set(); out.set(r.imdb, set); }
+      set.add(r.path);
+    }
+  }
+  return out;
 }
 
 /** Looks one title up and keeps the answer; null when TMDB hasn't got it or its title isn't IMDb's */
-async function lookup(env, tt) {
-  const hit = await findByImdb(env, tt);
+async function lookup(env, tt, bad, writes) {
+  const hit = await findByImdb(env, tt, Array.isArray(writes) ? { writes } : {});
   if (hit === undefined) throw new Error(`TMDB find failed for ${tt}`);
   let row = { poster: "", background: "", logo: "", ok: 0 };
   if (hit) {
@@ -68,7 +79,6 @@ async function lookup(env, tt) {
     if (meta && !sameTitle(meta, tmdbMeta)) {
       console.log("art mismatch", tt, JSON.stringify(meta.name), meta.year, "TMDB:", JSON.stringify(hit.name), hit.year);
     } else {
-      const bad = await bads(env, tt);
       const images = (await tmdbGet(env, `/${hit.kind}/${hit.id}/images?include_image_language=en,null`)) || {};
       row = {
         poster: best(hit.poster || null, images.posters, bad, ["en", null]) || "",
@@ -79,8 +89,10 @@ async function lookup(env, tt) {
       };
     }
   }
-  await env.DB.prepare("INSERT OR REPLACE INTO lumos_titleart (imdb, poster, background, logo, ok, at) VALUES (?, ?, ?, ?, ?, ?)")
-    .bind(tt, row.poster, row.background, row.logo, row.ok, Date.now()).run();
+  const stmt = env.DB.prepare("INSERT OR REPLACE INTO lumos_titleart (imdb, poster, background, logo, ok, at) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(tt, row.poster, row.background, row.logo, row.ok, Date.now());
+  if (Array.isArray(writes)) writes.push(stmt);
+  else await stmt.run();
   return row;
 }
 
@@ -109,14 +121,23 @@ export async function resolveArt(env, ids, budget = NEW) {
   const have = await known(env, want);
   const art = {};
   const pending = [];
+  const toLookup = [];
   const now = Date.now();
   for (const tt of want) {
     const r = have.get(tt);
     if (r && now - r.at < KEEP_MS) { art[tt] = urls(r); continue; }
-    if (!env.LUMOS_TMDB_KEY || budget <= 0) { if (r) art[tt] = urls(r); else pending.push(tt); continue; }
-    budget--;
-    try { art[tt] = urls(await lookup(env, tt)); }
-    catch (e) { if (r) art[tt] = urls(r); else pending.push(tt); console.log("art failed", tt, e.message); }
+    if (!env.LUMOS_TMDB_KEY || toLookup.length >= budget) { if (r) art[tt] = urls(r); else pending.push(tt); continue; }
+    toLookup.push(tt);
+  }
+  if (toLookup.length) {
+    const badMap = await knownBads(env, toLookup);
+    const writes = [];
+    for (const tt of toLookup) {
+      const r = have.get(tt);
+      try { art[tt] = urls(await lookup(env, tt, badMap.get(tt) || new Set(), writes)); }
+      catch (e) { if (r) art[tt] = urls(r); else pending.push(tt); console.log("art failed", tt, e.message); }
+    }
+    if (writes.length) await env.DB.batch(writes);
   }
   return { art, pending };
 }
@@ -125,13 +146,21 @@ export async function resolveArt(env, ids, budget = NEW) {
 export async function wrongArt(env, tt) {
   if (typeof tt !== "string" || !/^tt\d{1,10}$/.test(tt)) return null;
   const r = (await known(env, [tt])).get(tt);
+  const bad = new Set((await knownBads(env, [tt])).get(tt) || []);
+  const writes = [];
   if (r) {
+    const now = Date.now();
     for (const p of [r.poster, r.background, r.logo].filter(Boolean)) {
-      await env.DB.prepare("INSERT OR IGNORE INTO lumos_artbad (imdb, path, at) VALUES (?, ?, ?)").bind(tt, p, Date.now()).run();
+      bad.add(p);
+      writes.push(env.DB.prepare("INSERT OR IGNORE INTO lumos_artbad (imdb, path, at) VALUES (?, ?, ?)").bind(tt, p, now));
     }
   }
   console.log("art reported wrong", tt);
-  return urls(await lookup(env, tt));
+  try {
+    return urls(await lookup(env, tt, bad, writes));
+  } finally {
+    if (writes.length) await env.DB.batch(writes);
+  }
 }
 
 /** The cron, between list remakes: the lists' titles checked ahead, so Home's pictures are ready when it opens */

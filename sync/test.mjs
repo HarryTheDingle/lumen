@@ -1,7 +1,7 @@
 // Checks the Lumos sync Worker without Cloudflare: Node's SQLite stands in for D1, and Stremio's API
 // is answered here (session "key-u1" is account u1).
 //   node sync/test.mjs
-import worker, { convertLibrary } from "./worker.js";
+import worker, { convertLibrary, pruneCaches } from "./worker.js";
 import { d1 } from "./d1-sqlite.mjs";
 
 const library = [
@@ -118,6 +118,37 @@ check(r.status === 200 && r.json.account === dadAccount && r.json.created === fa
 // Unit: conversion edge
 const conv = convertLibrary(library, {}, []);
 check(Object.keys(conv).join() === "main", "no Lumen profiles: everything goes to one profile");
+
+// Sync chunking (> 50 keys in one request)
+const bulkTime = Date.now();
+const bulkEntries = Array.from({ length: 55 }, (_, i) => ({ k: `ratings:p${i}`, t: bulkTime, v: { tt1: 8 } }));
+r = await call("/sync", { since: bulkTime - 1000, entries: bulkEntries }, ipad);
+check(r.status === 200 && env.DB.dump().filter((e) => e.account === account && e.k.startsWith("ratings:p")).length === 55, "sync stores > 50 incoming keys across chunks");
+
+// Cache cleanup (pruneCaches): removes expired rows, keeps fresh rows and permanent lumos_meta keys
+const now = Date.now();
+const day = 86400000;
+await env.DB.batch([
+  env.DB.prepare("INSERT OR REPLACE INTO lumos_meta (k, v) VALUES (?, ?)").bind("find:tt123", JSON.stringify({ kind: "movie", id: 1 })),
+  env.DB.prepare("INSERT OR REPLACE INTO lumos_meta (k, v) VALUES (?, ?)").bind("mdblist:imdbTop250Films", "42"),
+  env.DB.prepare("INSERT OR REPLACE INTO lumos_meta (k, v) VALUES (?, ?)").bind("scores:ttOld", JSON.stringify({ at: now - 20 * day, scores: [] })),
+  env.DB.prepare("INSERT OR REPLACE INTO lumos_meta (k, v) VALUES (?, ?)").bind("scores:ttNew", JSON.stringify({ at: now - day, scores: [] })),
+  env.DB.prepare("INSERT OR REPLACE INTO lumos_meta (k, v) VALUES (?, ?)").bind("recs:movie:1", JSON.stringify({ at: now - 40 * day, results: [] })),
+  env.DB.prepare("INSERT OR REPLACE INTO lumos_meta (k, v) VALUES (?, ?)").bind("recs:movie:2", JSON.stringify({ at: now - 2 * day, results: [] })),
+  env.DB.prepare("INSERT OR REPLACE INTO lumos_titleart (imdb, poster, background, logo, ok, at) VALUES (?, '', '', '', 1, ?)").bind("ttArtOld", now - 70 * day),
+  env.DB.prepare("INSERT OR REPLACE INTO lumos_titleart (imdb, poster, background, logo, ok, at) VALUES (?, '', '', '', 1, ?)").bind("ttArtNew", now - 5 * day),
+  env.DB.prepare("INSERT OR REPLACE INTO lumos_facts (imdb, facts, at) VALUES (?, 'null', ?)").bind("ttFactOld", now - 10 * day),
+  env.DB.prepare("INSERT OR REPLACE INTO lumos_facts (imdb, facts, at) VALUES (?, 'null', ?)").bind("ttFactNew", now - day),
+]);
+await pruneCaches(env, now);
+const metaKeys = new Set(env.DB.dump("lumos_meta").map((x) => x.k));
+const artKeys = new Set(env.DB.dump("lumos_titleart").map((x) => x.imdb));
+const factKeys = new Set(env.DB.dump("lumos_facts").map((x) => x.imdb));
+check(metaKeys.has("find:tt123") && metaKeys.has("mdblist:imdbTop250Films"), "pruneCaches keeps permanent lumos_meta keys");
+check(!metaKeys.has("scores:ttOld") && metaKeys.has("scores:ttNew"), "pruneCaches prunes expired scores and keeps fresh ones");
+check(!metaKeys.has("recs:movie:1") && metaKeys.has("recs:movie:2"), "pruneCaches prunes expired recs and keeps fresh ones");
+check(!artKeys.has("ttArtOld") && artKeys.has("ttArtNew"), "pruneCaches prunes expired lumos_titleart and keeps fresh ones");
+check(!factKeys.has("ttFactOld") && factKeys.has("ttFactNew"), "pruneCaches prunes expired lumos_facts and keeps fresh ones");
 
 console.log(failures.length ? `\n${failures.length} failed` : "\nall passed");
 process.exit(failures.length ? 1 : 0);

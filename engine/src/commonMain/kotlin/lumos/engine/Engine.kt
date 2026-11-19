@@ -42,7 +42,7 @@ class Engine(
         const val STREAMS_MS = 15_000L
 
         fun defaultHttp() = HttpClient {
-            install(HttpTimeout) { connectTimeoutMillis = 6_000; requestTimeoutMillis = 20_000 }
+            install(HttpTimeout) { connectTimeoutMillis = 6_000; socketTimeoutMillis = 35_000; requestTimeoutMillis = 35_000 }
             expectSuccess = false
         }
     }

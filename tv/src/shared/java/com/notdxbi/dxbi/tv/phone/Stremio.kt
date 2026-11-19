@@ -71,7 +71,6 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
     val profileChosen = MutableStateFlow(cache.getLong("x.playerUntil", 0L) > System.currentTimeMillis())
     /** Who's watching? was skipped only because there was one person to be: when the account's other profiles arrive (synced), it's asked after all */
     private var profileAutoChosen = false
-    private var profileWatch: Job? = null
     /** The recommender answered that this person has nothing watched to recommend from (not just that it hasn't answered yet) */
     val noHistory = MutableStateFlow(false)
 
@@ -118,6 +117,44 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
                 if (last != null && sig != last && engine.ready.value) refreshExtras()
                 last = sig
             }
+        }
+        scope.launch {
+            engine.state("viewers").collect { v ->
+                if (v != null) applyViewers(v)
+            }
+        }
+        scope.launch {
+            engine.state("picks").collect { answer ->
+                if (answer != null) applyPicks(answer)
+            }
+        }
+    }
+
+    private fun applyViewers(v: JSONObject) {
+        val list = v.optJSONArray("list").objects().map(::viewerOf)
+        viewers.value = list
+        viewer.value = list.firstOrNull { it.id == v.optString("current") } ?: list.firstOrNull()
+        cache.edit().putString("x.viewers", v.optJSONArray("list").toString()).putString("x.viewer", viewer.value?.id).apply()
+        // (one person to be: nothing to ask, but the account's other profiles may be on their way from another device)
+        if (list.size < 2) {
+            profileChosen.value = true
+            profileAutoChosen = true
+        } else if (profileAutoChosen) {
+            profileAutoChosen = false
+            profileChosen.value = false
+        }
+    }
+
+    private fun applyPicks(answer: JSONObject) {
+        val rows = answer.optJSONArray("rows").objects().map { r ->
+            ListRow(r.optString("name"), r.optJSONArray("items").objects().map(Title::from))
+        }.filter { r -> r.items.isNotEmpty() }
+        // (changed only when there's something new: swapped every time, the rows on Home kept vanishing and coming back)
+        if (rows != picks.value && (rows.isNotEmpty() || !answer.optBoolean("stale"))) picks.value = rows
+        cache.edit().putString("x.picks", answer.optJSONArray("rows").toString()).apply()
+        if (!answer.optBoolean("stale")) {
+            noHistory.value = rows.isEmpty()
+            if (rows.isNotEmpty()) forYou.value = null
         }
     }
 
@@ -172,21 +209,7 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
     fun refreshExtras() {
         extrasJob?.cancel()
         extrasJob = scope.launch {
-            (dx("phone.viewers") as? JSONObject)?.let { v ->
-                val list = v.optJSONArray("list").objects().map(::viewerOf)
-                viewers.value = list
-                viewer.value = list.firstOrNull { it.id == v.optString("current") } ?: list.firstOrNull()
-                cache.edit().putString("x.viewers", v.optJSONArray("list").toString()).putString("x.viewer", viewer.value?.id).apply()
-                // (one person to be: nothing to ask, but the account's other profiles may be on their way from another device)
-                if (list.size < 2) {
-                    profileChosen.value = true
-                    profileAutoChosen = true
-                    watchForProfiles()
-                } else if (profileAutoChosen) {
-                    profileAutoChosen = false
-                    profileChosen.value = false
-                }
-            }
+            (dx("phone.viewers") as? JSONObject)?.let(::applyViewers)
             (dx("phone.layout") as? JSONObject)?.let {
                 layout.value = HomeLayout.from(it)
                 cache.edit().putString("x.layout", it.toString()).apply()
@@ -213,23 +236,8 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
                     cache.edit().putString("x.billboard", it.toString()).apply()
                 }
             }
-            // Top Picks and Because you watched: made on the device, so the first answer can take a few seconds
-            // (a stale one is the last answer while a fresh one is made)
-            var tries = 0
-            while (tries++ < 14) {
-                val answer = dx("phone.picks")
-                if (answer is JSONObject) {
-                    val rows = answer.optJSONArray("rows").objects().map { r -> ListRow(r.optString("name"), r.optJSONArray("items").objects().map(Title::from)) }.filter { r -> r.items.isNotEmpty() }
-                    // (changed only when there's something new: swapped every time, the rows on Home kept vanishing and coming back)
-                    if (rows != picks.value && (rows.isNotEmpty() || !answer.optBoolean("stale"))) picks.value = rows
-                    cache.edit().putString("x.picks", answer.optJSONArray("rows").toString()).apply()
-                    if (!answer.optBoolean("stale")) {
-                        noHistory.value = rows.isEmpty()
-                        break
-                    }
-                }
-                delay(1500)
-            }
+            // Top Picks and Because you watched: Engine pushes updates via state("picks") as they arrive
+            dx("phone.picks")
             if (picks.value.isNotEmpty()) {
                 forYou.value = null
                 return@launch
@@ -438,19 +446,6 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
 
     fun addViewer(name: String, colour: String) = scope.launch { profileAutoChosen = false; dx("viewers.add", name, colour); refreshExtras() }
 
-    /** A new device with one person to be: looks for the account's profiles (the plugin pulls them from the sync) for a minute or so */
-    private fun watchForProfiles() {
-        if (profileWatch?.isActive == true || account.value?.signedIn != true) return
-        profileWatch = scope.launch {
-            repeat(12) {
-                delay(5000)
-                if ((dx("phone.viewers") as? JSONObject)?.optJSONArray("list")?.length().let { (it ?: 0) > 1 }) {
-                    refreshExtras()
-                    return@launch
-                }
-            }
-        }
-    }
     fun editViewer(id: String, name: String, colour: String) = scope.launch {
         dx("viewers.rename", id, name)
         dx("viewers.recolour", id, colour)

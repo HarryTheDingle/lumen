@@ -56,20 +56,36 @@ object LumosSettings {
     )
 
     private val byKey = DEFS.associateBy { it.key }
+    private var cachedRaw: String? = null
+    private var cachedObj: JSONObject? = null
+
+    @Synchronized
+    private fun saved(prefs: SharedPreferences): JSONObject {
+        val raw = prefs.getString("settings", "{}") ?: "{}"
+        if (raw == cachedRaw) cachedObj?.let { return it }
+        val parsed = runCatching { JSONObject(raw) }.getOrDefault(JSONObject())
+        cachedRaw = raw
+        cachedObj = parsed
+        return parsed
+    }
 
     fun value(prefs: SharedPreferences, key: String): Any? {
-        val saved = runCatching { JSONObject(prefs.getString("settings", "{}") ?: "{}") }.getOrDefault(JSONObject())
-        return if (saved.has(key)) saved.opt(key) else byKey[key]?.default
+        val obj = saved(prefs)
+        return if (obj.has(key)) obj.opt(key) else byKey[key]?.default
     }
 
     fun text(prefs: SharedPreferences, key: String) = value(prefs, key)?.toString().orEmpty()
     fun on(prefs: SharedPreferences, key: String) = value(prefs, key) == true
 
+    @Synchronized
     fun save(prefs: SharedPreferences, key: String, value: Any?) {
         if (key !in byKey) return
-        val saved = runCatching { JSONObject(prefs.getString("settings", "{}") ?: "{}") }.getOrDefault(JSONObject())
-        saved.put(key, value ?: JSONObject.NULL)
-        prefs.edit().putString("settings", saved.toString()).apply()
+        val copy = JSONObject(saved(prefs).toString())
+        copy.put(key, value ?: JSONObject.NULL)
+        val raw = copy.toString()
+        cachedRaw = raw
+        cachedObj = copy
+        prefs.edit().putString("settings", raw).apply()
     }
 
     /** As Lumen's page listed them; [addons]: the stream addons' names, for Preferred addon */

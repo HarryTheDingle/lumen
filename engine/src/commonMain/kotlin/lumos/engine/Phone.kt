@@ -167,7 +167,13 @@ class Phone(private val lumos: Lumos) {
     // ---- Kept a little while: a title opened again (or warmed by Home: Launcher.warm) opens with its streams there ----
 
     private val metas = HashMap<String, Pair<Long, Meta?>>()
-    private val warmed = HashMap<String, Pair<Long, List<Stream>>>()
+    private val warmed = LinkedHashMap<String, Pair<Long, List<Stream>>>()
+
+    private fun rememberWarmed(videoId: String, streams: List<Stream>) {
+        warmed.remove(videoId)
+        warmed[videoId] = lumos.clock() to streams
+        while (warmed.size > WARM_CAP) warmed.keys.firstOrNull()?.let(warmed::remove)
+    }
 
     /** A title's details, kept ten minutes (opened again, or warmed ahead) */
     private suspend fun cachedMeta(type: String, id: String): Meta? {
@@ -286,6 +292,14 @@ class Phone(private val lumos: Lumos) {
     var streamsChanged = 0
         private set
 
+    /** Reactive hook fired whenever [streamsChanged] increments */
+    var onStreamsChanged: (() -> Unit)? = null
+
+    private fun touchStreams() {
+        streamsChanged++
+        onStreamsChanged?.invoke()
+    }
+
     private var streamsVideo: String? = null
     private var streamsJob: Job? = null
     private var found = listOf<Stream>()
@@ -323,13 +337,13 @@ class Phone(private val lumos: Lumos) {
         // (fetched ahead while the remote rested on it: there at once)
         val ready = if (again) null else warmed[videoId]?.takeIf { lumos.clock() - it.first < WARM_MS }?.second
         if (ready != null) {
-            streamsChanged++
             found = ready
             addonStates = addons.map { it.base to "Ready" }
             settled = true
             timings = listOf("fetched ahead: ${ready.size}")
             if (lumos.matchSpeed) scope.launch { fitSpeed = runCatching { lumos.speed.get() }.getOrDefault(0.0); networkCap = runCatching { lumos.speed.cap() }.getOrDefault(0) }
             streamsJob = Job().also { it.complete() }
+            touchStreams()
             return
         }
         addonStates = addons.map { it.base to "Loading" }
@@ -347,10 +361,10 @@ class Phone(private val lumos: Lumos) {
                     } else emptyList()
                     lock.withLock {
                         if (streamsVideo != videoId) return@withLock
-                        streamsChanged++
                         found = found + list.orEmpty()
                         addonStates = addonStates.toMutableList().also { it[i] = (m?.name ?: a.base) to if (list == null) "Err" else "Ready" }
                         timings = timings + "${m?.name ?: "addon ${i + 1}"}: ${list?.size ?: "no answer"} in ${began.elapsedNow().inWholeMilliseconds} ms"
+                        touchStreams()
                     }
                 }
             }
@@ -358,9 +372,9 @@ class Phone(private val lumos: Lumos) {
             lock.withLock {
                 if (streamsVideo == videoId) {
                     settled = true
-                    streamsChanged++
                     // (kept, so the page opened again soon has them at once)
-                    warmed[videoId] = lumos.clock() to found
+                    rememberWarmed(videoId, found)
+                    touchStreams()
                 }
             }
         }
@@ -432,7 +446,10 @@ class Phone(private val lumos: Lumos) {
     /** How many of the main addons' streams must fail before a search-based addon's is picked while theirs are left */
     private val LAST_RESORT_AFTER = 3
 
-    private companion object { const val WARM_MS = 5 * 60_000L }
+    private companion object {
+        const val WARM_MS = 5 * 60_000L
+        const val WARM_CAP = 24
+    }
 
     internal data class Pick(val index: Int, val how: String, val lowered: Triple<Int, Int, String>?)
 

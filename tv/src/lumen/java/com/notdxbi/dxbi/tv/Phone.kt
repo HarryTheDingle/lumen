@@ -50,29 +50,54 @@ object Phone {
             } catch (e: Exception) { null }
             fun path(resource: String, kind: String, key: String) =
                 JSONObject().put("resource", resource).put("type", kind).put("id", key).put("extra", org.json.JSONArray())
-            var found: JSONObject? = null
-            var opened = false
-            val began = System.currentTimeMillis()
-            while (System.currentTimeMillis() - began < 14_000) {
-                val c = dx("phone.streams") as? JSONObject
-                if (c != null && c.optString("videoId") == videoId) {
-                    // (the addons answer one by one: the list as it is once there's something in it, and a moment for more)
-                    if ((c.optJSONArray("items")?.length() ?: 0) > 0 && (c.optBoolean("settled") || System.currentTimeMillis() - began > 4_000)) { found = c; break }
-                } else if (!opened) {
-                    opened = true
+            suspend fun pack(c: JSONObject): JSONObject {
+                val groups = (dx("phone.alternatives", 0) as? JSONObject)?.optJSONArray("groups")
+                var all = org.json.JSONArray()
+                if (groups != null) for (i in 0 until groups.length()) {
+                    val g = groups.optJSONObject(i) ?: continue
+                    if (g.optString("title") == "All streams") all = g.optJSONArray("options") ?: all
+                }
+                return JSONObject().put("items", c.optJSONArray("items")).put("all", all)
+            }
+
+            // Single initial fetch
+            var c = dx("phone.streams") as? JSONObject
+            if (c != null && c.optString("videoId") == videoId && (c.optJSONArray("items")?.length() ?: 0) > 0 && c.optBoolean("settled")) {
+                return@launch done(pack(c))
+            }
+
+            // Subscribe to Engine's reactive stream push events instead of polling every 500 ms
+            val updates = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+            val unsubscribe = PlaybackBus.addStreamsListener { updates.trySend(Unit) }
+            try {
+                if (c == null || c.optString("videoId") != videoId) {
                     val args = JSONObject().put("metaPath", path("meta", type, id)).put("streamPath", path("stream", type, videoId)).put("guessStream", false)
                     try { engine.call("load", JSONObject().put("field", "meta_details").put("model", "MetaDetails").put("args", args), 8_000) } catch (_: Exception) {}
                 }
-                kotlinx.coroutines.delay(500)
+                c = dx("phone.streams") as? JSONObject
+                var best = c?.takeIf { it.optString("videoId") == videoId && (it.optJSONArray("items")?.length() ?: 0) > 0 }
+                if (best != null && best.optBoolean("settled")) {
+                    return@launch done(pack(best))
+                }
+                val began = System.currentTimeMillis()
+                while (true) {
+                    val elapsed = System.currentTimeMillis() - began
+                    val waitMs = if (best != null) 4_000L - elapsed else 14_000L - elapsed
+                    if (waitMs <= 0) break
+                    kotlinx.coroutines.withTimeoutOrNull(waitMs) { updates.receive() } ?: break
+                    val next = dx("phone.streams") as? JSONObject
+                    if (next != null && next.optString("videoId") == videoId) {
+                        val hasItems = (next.optJSONArray("items")?.length() ?: 0) > 0
+                        if (hasItems) best = next
+                        if (next.optBoolean("settled")) break
+                    }
+                }
+                val found = best ?: return@launch done(null)
+                done(pack(found))
+            } finally {
+                unsubscribe()
+                updates.close()
             }
-            val c = found ?: return@launch done(null)
-            val groups = (dx("phone.alternatives", 0) as? JSONObject)?.optJSONArray("groups")
-            var all = org.json.JSONArray()
-            if (groups != null) for (i in 0 until groups.length()) {
-                val g = groups.optJSONObject(i) ?: continue
-                if (g.optString("title") == "All streams") all = g.optJSONArray("options") ?: all
-            }
-            done(JSONObject().put("items", c.optJSONArray("items")).put("all", all))
         }
     }
 

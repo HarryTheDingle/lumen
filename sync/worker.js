@@ -103,9 +103,17 @@ export function mergeTitles(a, b) {
 }
 
 async function store(env, account, entries, now) {
-  const stored = await env.DB.prepare("SELECT k, t, v FROM entries WHERE account = ?").bind(account).all();
-  const have = new Map((stored.results || []).map((r) => [r.k, r]));
-  let size = (stored.results || []).reduce((n, r) => n + r.v.length, 0);
+  if (!entries.length) return { tooBig: false, written: new Set() };
+  const keys = [...new Set(entries.map((e) => e.k))];
+  const have = new Map();
+  for (let i = 0; i < keys.length; i += 50) {
+    const chunk = keys.slice(i, i + 50);
+    const stored = await env.DB.prepare(
+      `SELECT k, t, v FROM entries WHERE account = ? AND k IN (${chunk.map(() => "?").join(",")})`
+    ).bind(account, ...chunk).all();
+    for (const r of stored.results || []) have.set(r.k, r);
+  }
+  let delta = 0;
   const writes = [];
   const written = new Set();
   for (let e of entries) {
@@ -122,12 +130,13 @@ async function store(env, account, entries, now) {
       written.add(e.k);
     }
     if (e.v.length > MAX_VALUE) return { tooBig: true, written: new Set() };
-    size += e.v.length - (old ? old.v.length : 0);
+    delta += e.v.length - (old ? old.v.length : 0);
     have.set(e.k, { k: e.k, t: e.t, v: e.v });
     writes.push(e);
   }
-  if (size > MAX_ACCOUNT) return { tooBig: true, written: new Set() };
   if (writes.length) {
+    const total = (await env.DB.prepare("SELECT COALESCE(SUM(LENGTH(v)), 0) AS n FROM entries WHERE account = ?").bind(account).all()).results?.[0]?.n || 0;
+    if (total + delta > MAX_ACCOUNT) return { tooBig: true, written: new Set() };
     const upsert = env.DB.prepare(
       "INSERT INTO entries (account, k, t, v, s) VALUES (?, ?, ?, ?, ?) ON CONFLICT (account, k) DO UPDATE SET t = excluded.t, v = excluded.v, s = excluded.s WHERE excluded.t > entries.t"
     );
@@ -328,6 +337,29 @@ async function handleStremioSignIn(body, env) {
   return reply(200, { token, account: mine, created: mine === account });
 }
 
+// ---- Cache cleanup ----
+
+const DAY = 86400000;
+const PRUNE_SCORES_MS = 14 * DAY; // scores.js TTL is 3d
+const PRUNE_RECS_MS = 30 * DAY;   // picks.js recs TTL is 7d
+const PRUNE_ART_MS = 60 * DAY;    // art.js TTL is 30d
+const PRUNE_FACTS_MS = 7 * DAY;   // labels.js TTL is 2d
+const PRUNE_LOGS_MS = 30 * DAY;
+
+/** Periodic cleanup of expired cache, link, and log rows; never touches permanent lumos_meta keys (find:, mdblist:). */
+export async function pruneCaches(env, now = Date.now()) {
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM lumos_meta WHERE k >= 'scores:' AND k < 'scores;' AND json_valid(v) AND CAST(json_extract(v, '$.at') AS INTEGER) < ?")
+      .bind(now - PRUNE_SCORES_MS),
+    env.DB.prepare("DELETE FROM lumos_meta WHERE k >= 'recs:' AND k < 'recs;' AND json_valid(v) AND CAST(json_extract(v, '$.at') AS INTEGER) < ?")
+      .bind(now - PRUNE_RECS_MS),
+    env.DB.prepare("DELETE FROM lumos_titleart WHERE at < ?").bind(now - PRUNE_ART_MS),
+    env.DB.prepare("DELETE FROM lumos_facts WHERE at < ?").bind(now - PRUNE_FACTS_MS),
+    env.DB.prepare("DELETE FROM lumos_links WHERE expires < ?").bind(now),
+    env.DB.prepare("DELETE FROM lumos_logs WHERE at < ?").bind(now - PRUNE_LOGS_MS),
+  ]);
+}
+
 // ---- Routes ----
 
 export default {
@@ -338,6 +370,7 @@ export default {
       .then(async (r) => {
         console.log("lists", r.join("; ") || "nothing due");
         if (!r.length) console.log("art warmed", await warmArt(env));
+        await pruneCaches(env);
       })
       .catch((e) => console.log("lists failed", e.message)));
   },
@@ -357,93 +390,91 @@ export default {
 };
 
 async function handle(request, env) {
-  {
-    const url = new URL(request.url);
-    if (request.method !== "POST") return reply(405, { error: "POST only" });
-    if (!env.DB) return reply(503, { error: "Sync isn't set up yet." });
+  const url = new URL(request.url);
+  if (request.method !== "POST") return reply(405, { error: "POST only" });
+  if (!env.DB) return reply(503, { error: "Sync isn't set up yet." });
 
-    const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-    if (env.IP_LIMIT && !(await env.IP_LIMIT.limit({ key: ip })).success) return reply(429, { error: "Too many requests: try again in a minute." });
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  if (env.IP_LIMIT && !(await env.IP_LIMIT.limit({ key: ip })).success) return reply(429, { error: "Too many requests: try again in a minute." });
 
-    if (Number(request.headers.get("Content-Length") || 0) > MAX_BODY) return reply(413, { error: "Too much at once." });
-    let body;
-    try {
-      const raw = await request.text();
-      if (raw.length > MAX_BODY) return reply(413, { error: "Too much at once." });
-      body = JSON.parse(raw || "{}") || {};
-    } catch (_) {
-      return reply(400, { error: "Invalid JSON." });
-    }
-    const now = Date.now();
+  if (Number(request.headers.get("Content-Length") || 0) > MAX_BODY) return reply(413, { error: "Too much at once." });
+  let body;
+  try {
+    const raw = await request.text();
+    if (raw.length > MAX_BODY) return reply(413, { error: "Too much at once." });
+    body = JSON.parse(raw || "{}") || {};
+  } catch (_) {
+    return reply(400, { error: "Invalid JSON." });
+  }
+  const now = Date.now();
 
-    // Open routes: making the account, and a new device asking to be let in
-    if (url.pathname === "/account") {
-      if (typeof env.LUMOS_SETUP !== "string" || env.LUMOS_SETUP.length < 8) return reply(403, { error: "Accounts can't be made on this server." });
-      if (!sameText(body.setup, env.LUMOS_SETUP)) return reply(403, { error: "That isn't the setup phrase." });
-      const account = `lumos:${randomHex(12)}`;
-      const token = await newDevice(env, account, deviceName(body.name));
-      return reply(200, { token, account });
-    }
-    if (url.pathname === "/signin/stremio") return handleStremioSignIn(body, env);
-    if (url.pathname === "/link/start") {
-      await env.DB.prepare("DELETE FROM lumos_links WHERE expires < ?").bind(now).run();
-      const poll = randomHex(32);
-      const code = randomCode();
-      await env.DB.prepare("INSERT INTO lumos_links (code, poll, name, account, expires) VALUES (?, ?, ?, NULL, ?)")
-        .bind(code, await sha256(poll), deviceName(body.name), now + LINK_MS).run();
-      return reply(200, { code, poll, expires: now + LINK_MS });
-    }
-    if (url.pathname === "/link/poll") {
-      if (typeof body.poll !== "string" || !/^[0-9a-f]{64}$/.test(body.poll)) return reply(400, { error: "Invalid sign-in." });
-      const hash = await sha256(body.poll);
-      const link = (await env.DB.prepare("SELECT code, name, account, expires FROM lumos_links WHERE poll = ?").bind(hash).all()).results?.[0];
-      if (!link || link.expires < now) return reply(410, { error: "That code has run out: start again." });
-      if (!link.account) return reply(200, { waiting: true });
-      await env.DB.prepare("DELETE FROM lumos_links WHERE code = ?").bind(link.code).run();
-      const token = await newDevice(env, link.account, link.name);
-      return reply(200, { token, account: link.account });
-    }
+  // Open routes: making the account, and a new device asking to be let in
+  if (url.pathname === "/account") {
+    if (typeof env.LUMOS_SETUP !== "string" || env.LUMOS_SETUP.length < 8) return reply(403, { error: "Accounts can't be made on this server." });
+    if (!sameText(body.setup, env.LUMOS_SETUP)) return reply(403, { error: "That isn't the setup phrase." });
+    const account = `lumos:${randomHex(12)}`;
+    const token = await newDevice(env, account, deviceName(body.name));
+    return reply(200, { token, account });
+  }
+  if (url.pathname === "/signin/stremio") return handleStremioSignIn(body, env);
+  if (url.pathname === "/link/start") {
+    await env.DB.prepare("DELETE FROM lumos_links WHERE expires < ?").bind(now).run();
+    const poll = randomHex(32);
+    const code = randomCode();
+    await env.DB.prepare("INSERT INTO lumos_links (code, poll, name, account, expires) VALUES (?, ?, ?, NULL, ?)")
+      .bind(code, await sha256(poll), deviceName(body.name), now + LINK_MS).run();
+    return reply(200, { code, poll, expires: now + LINK_MS });
+  }
+  if (url.pathname === "/link/poll") {
+    if (typeof body.poll !== "string" || !/^[0-9a-f]{64}$/.test(body.poll)) return reply(400, { error: "Invalid sign-in." });
+    const hash = await sha256(body.poll);
+    const link = (await env.DB.prepare("SELECT code, name, account, expires FROM lumos_links WHERE poll = ?").bind(hash).all()).results?.[0];
+    if (!link || link.expires < now) return reply(410, { error: "That code has run out: start again." });
+    if (!link.account) return reply(200, { waiting: true });
+    await env.DB.prepare("DELETE FROM lumos_links WHERE code = ?").bind(link.code).run();
+    const token = await newDevice(env, link.account, link.name);
+    return reply(200, { token, account: link.account });
+  }
 
-    const me = await signedIn(request, env);
-    if (!me) return reply(401, { error: "Sign in to Lumos." });
-    if (env.ACCOUNT_LIMIT && !(await env.ACCOUNT_LIMIT.limit({ key: me.account })).success) return reply(429, { error: "Too many requests: try again in a minute." });
+  const me = await signedIn(request, env);
+  if (!me) return reply(401, { error: "Sign in to Lumos." });
+  if (env.ACCOUNT_LIMIT && !(await env.ACCOUNT_LIMIT.limit({ key: me.account })).success) return reply(429, { error: "Too many requests: try again in a minute." });
 
-    switch (url.pathname) {
-      case "/link/approve": {
-        const code = typeof body.code === "string" ? body.code.toUpperCase().replace(/[^0-9A-Z]/g, "") : "";
-        if (code.length !== 8) return reply(400, { error: "That isn't a sign-in code." });
-        const dashed = `${code.slice(0, 4)}-${code.slice(4)}`;
-        const link = (await env.DB.prepare("SELECT name, account, expires FROM lumos_links WHERE code = ?").bind(dashed).all()).results?.[0];
-        if (!link || link.expires < now || link.account) return reply(404, { error: "No device is waiting with that code." });
-        await env.DB.prepare("UPDATE lumos_links SET account = ? WHERE code = ? AND account IS NULL").bind(me.account, dashed).run();
-        return reply(200, { name: link.name });
-      }
-      case "/devices": {
-        const rows = (await env.DB.prepare("SELECT token, name, created, seen FROM lumos_devices WHERE account = ? ORDER BY seen DESC").bind(me.account).all()).results || [];
-        return reply(200, { devices: rows.map((r) => ({ id: r.token.slice(0, 16), name: r.name, created: r.created, seen: r.seen, current: r.token === me.hash })) });
-      }
-      case "/devices/remove": {
-        const id = typeof body.id === "string" && /^[0-9a-f]{16}$/.test(body.id) ? body.id : "";
-        if (!id) return reply(400, { error: "Which device?" });
-        await env.DB.prepare("DELETE FROM lumos_devices WHERE account = ? AND substr(token, 1, 16) = ?").bind(me.account, id).run();
-        return reply(200, { ok: true });
-      }
-      case "/sync": return handleSync(body, env, me.account);
-      case "/import/stremio": return handleImport(body, env, me.account);
-      case "/lists": return reply(200, { lists: await readLists(env) });
-      case "/art": return reply(200, await resolveArt(env, body.ids));
-      case "/logs": return handleLogs(body, env, me.account, now);
-      case "/scores": return reply(200, await handleScores(body, env));
-      case "/labels": return reply(200, await resolveLabels(env, body.ids, undefined, body.facts === true));
-      case "/picks": { const r = await handlePicks(body, env, me.account, now); return reply(r.status, r.body); }
-      case "/ask": { const r = await handleAsk(body, env, me.account, now); return reply(r.status, r.body); }
-      case "/art/wrong": {
-        const id = typeof body.id === "string" ? body.id : "";
-        if (!/^tt\d{1,10}$/.test(id)) return reply(400, { error: "Which title?" });
-        return reply(200, { art: { [id]: await wrongArt(env, id) } });
-      }
-      default: return reply(404, { error: "not found" });
+  switch (url.pathname) {
+    case "/link/approve": {
+      const code = typeof body.code === "string" ? body.code.toUpperCase().replace(/[^0-9A-Z]/g, "") : "";
+      if (code.length !== 8) return reply(400, { error: "That isn't a sign-in code." });
+      const dashed = `${code.slice(0, 4)}-${code.slice(4)}`;
+      const link = (await env.DB.prepare("SELECT name, account, expires FROM lumos_links WHERE code = ?").bind(dashed).all()).results?.[0];
+      if (!link || link.expires < now || link.account) return reply(404, { error: "No device is waiting with that code." });
+      await env.DB.prepare("UPDATE lumos_links SET account = ? WHERE code = ? AND account IS NULL").bind(me.account, dashed).run();
+      return reply(200, { name: link.name });
     }
+    case "/devices": {
+      const rows = (await env.DB.prepare("SELECT token, name, created, seen FROM lumos_devices WHERE account = ? ORDER BY seen DESC").bind(me.account).all()).results || [];
+      return reply(200, { devices: rows.map((r) => ({ id: r.token.slice(0, 16), name: r.name, created: r.created, seen: r.seen, current: r.token === me.hash })) });
+    }
+    case "/devices/remove": {
+      const id = typeof body.id === "string" && /^[0-9a-f]{16}$/.test(body.id) ? body.id : "";
+      if (!id) return reply(400, { error: "Which device?" });
+      await env.DB.prepare("DELETE FROM lumos_devices WHERE account = ? AND substr(token, 1, 16) = ?").bind(me.account, id).run();
+      return reply(200, { ok: true });
+    }
+    case "/sync": return handleSync(body, env, me.account);
+    case "/import/stremio": return handleImport(body, env, me.account);
+    case "/lists": return reply(200, { lists: await readLists(env) });
+    case "/art": return reply(200, await resolveArt(env, body.ids));
+    case "/logs": return handleLogs(body, env, me.account, now);
+    case "/scores": return reply(200, await handleScores(body, env));
+    case "/labels": return reply(200, await resolveLabels(env, body.ids, undefined, body.facts === true));
+    case "/picks": { const r = await handlePicks(body, env, me.account, now); return reply(r.status, r.body); }
+    case "/ask": { const r = await handleAsk(body, env, me.account, now); return reply(r.status, r.body); }
+    case "/art/wrong": {
+      const id = typeof body.id === "string" ? body.id : "";
+      if (!/^tt\d{1,10}$/.test(id)) return reply(400, { error: "Which title?" });
+      return reply(200, { art: { [id]: await wrongArt(env, id) } });
+    }
+    default: return reply(404, { error: "not found" });
   }
 }
 

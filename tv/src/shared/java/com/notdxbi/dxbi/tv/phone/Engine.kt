@@ -52,7 +52,8 @@ class Engine(context: Context) {
 
     private var details: JSONObject? = null
     private var lastBoard: JSONObject? = null
-    private var streamsPoll: Job? = null
+    private val streamsPending = java.util.concurrent.atomic.AtomicBoolean(false)
+    private var lastLoggedTimings = ""
     private var fromStart: String? = null
     private var lastPickLog = ""
 
@@ -67,6 +68,7 @@ class Engine(context: Context) {
 
     init {
         core.clock = { System.currentTimeMillis() }
+        core.phone.onStreamsChanged = { onStreamsChanged() }
         if (stateFile.exists()) runCatching { core.restore(stateFile.readText()) }
         takeBackPlace()
         val token = prefs.getString("token", null)
@@ -81,6 +83,7 @@ class Engine(context: Context) {
         core.phone.warmSpeed()
         scope.launch {
             tell("ctx", ctx())
+            tell("viewers", obj(core.phone.viewers()))
             ready.value = true
             android.util.Log.i("lumen-boot", "engine ready ${android.os.SystemClock.elapsedRealtime() - android.os.Process.getStartElapsedRealtime()} ms after launch")
             syncNow()
@@ -218,7 +221,9 @@ class Engine(context: Context) {
         } ?: android.util.Log.i("lumos-sync", "Stremio isn't kept in step on this TV")
         runCatching { core.syncNow() }.exceptionOrNull()?.let { e -> android.util.Log.w("lumos-sync", "sync failed: ${e.javaClass.simpleName}") }
         save()
+        tell("viewers", obj(core.phone.viewers()))
         tell("continue_watching_preview", obj(core.phone.continueWatching()))
+        picksAnswer()
     }
 
     /** A title's watched mark or My List change to Stremio too, while it's kept in step (in the background) */
@@ -246,17 +251,25 @@ class Engine(context: Context) {
         val memo = picksMemo[v]
         val hasRatings = (obj(core.value("ratings:$v"))?.length() ?: 0) > 0
         val history = core.watchedIds().isNotEmpty() || core.continueWatching().isNotEmpty() || core.value("taste:$v") != null || hasRatings
-        if (!history && memo == null) return JSONObject().put("rows", JSONArray())
+        if (!history && memo == null) {
+            val empty = JSONObject().put("rows", JSONArray())
+            tell("picks", empty)
+            return empty
+        }
         val fresh = memo != null && now() - memo.first < 30 * 60_000L && !memo.second.optBoolean("partial")
-        // (after the server failed, not again for five minutes: Home asks every second and a half)
+        // (after the server failed, not again for five minutes)
         val resting = now() - picksFailed < 5 * 60_000L
         if (!fresh && !resting && core.signedIn && picksAsking.add(v)) scope.launch {
             try {
                 val answer = JSONObject(core.picks(v))
                 // (a partial answer with fewer rows doesn't replace a whole one)
                 val had = memo?.second?.optJSONArray("rows")?.length() ?: 0
-                if (!answer.optBoolean("partial") || (answer.optJSONArray("rows")?.length() ?: 0) >= had) picksMemo[v] = now() to answer
-                else picksMemo[v] = now() to JSONObject(memo!!.second.toString()).put("partial", true)
+                val stored = if (!answer.optBoolean("partial") || (answer.optJSONArray("rows")?.length() ?: 0) >= had) answer
+                else JSONObject(memo!!.second.toString()).put("partial", true)
+                picksMemo[v] = now() to stored
+                if (v == core.viewer) {
+                    tell("picks", JSONObject().put("rows", stored.optJSONArray("rows") ?: JSONArray()).put("stale", stored.optBoolean("partial")))
+                }
                 android.util.Log.i("lumos-picks", "picks: ${answer.optJSONArray("rows")?.length() ?: 0} rows${if (answer.optBoolean("partial")) ", more to come" else ""}${if (answer.optBoolean("ai")) ", curated" else ""}")
             } catch (e: Exception) {
                 picksFailed = now()
@@ -265,7 +278,9 @@ class Engine(context: Context) {
                 picksAsking.remove(v)
             }
         }
-        return JSONObject().put("rows", memo?.second?.optJSONArray("rows") ?: JSONArray()).put("stale", !fresh)
+        val current = JSONObject().put("rows", memo?.second?.optJSONArray("rows") ?: JSONArray()).put("stale", !fresh)
+        tell("picks", current)
+        return current
     }
 
     private fun save() {
@@ -386,6 +401,7 @@ class Engine(context: Context) {
                         for (j in items.length() - 1 downTo 0) if (items.optJSONObject(j)?.optString("id") == id) items.remove(j)
                     }
                     picksMemo[core.viewer] = at to a
+                    tell("picks", JSONObject().put("rows", a.optJSONArray("rows") ?: JSONArray()).put("stale", a.optBoolean("partial")))
                 }
                 changed()
             }
@@ -433,7 +449,6 @@ class Engine(context: Context) {
                 var video = a.optJSONObject("streamPath")?.text("id") ?: core.phone.guessVideo(type, id)
                 if (video != null) {
                     core.phone.loadStreams(type, video, a.optBoolean("again"))
-                    followStreams()
                 }
                 details = obj(runCatching { core.phone.open(type, id) }.getOrDefault("{}"))
                 tell("meta_details", details)
@@ -441,7 +456,6 @@ class Engine(context: Context) {
                     video = details?.optString("next")?.takeIf { it.isNotEmpty() }
                     if (video != null) {
                         core.phone.loadStreams(type, video, a.optBoolean("again"))
-                        followStreams()
                     }
                 }
             }
@@ -459,26 +473,23 @@ class Engine(context: Context) {
         return null
     }
 
-    /** The title's details again as each addon answers (Lumen's title page waits on them to pick a stream) */
-    private fun followStreams() {
-        streamsPoll?.cancel()
-        streamsPoll = scope.launch {
-            // (the page rebuilt only when the streams have changed: every 350 ms for half a minute, a show's whole details,
-            // every episode, were made and read again for nothing, on a TV short of both)
-            var told = -1
-            repeat(80) {
-                delay(350)
-                val now = core.phone.streamsChanged
-                if (now == told) return@repeat
-                told = now
-                details = obj(core.phone.details())
-                tell("meta_details", details)
-                val groups = details?.optJSONArray("streams") ?: JSONArray()
-                if (groups.length() > 0 && (0 until groups.length()).all { groups.optJSONObject(it)?.optString("state") != "Loading" }) {
-                    android.util.Log.i("lumos-streams", core.phone.timings.joinToString("; "))
-                    return@launch
+    /** Coalesced push update when any addon answers or all streams settle */
+    private fun onStreamsChanged() {
+        if (!streamsPending.compareAndSet(false, true)) return
+        scope.launch {
+            delay(50)
+            streamsPending.set(false)
+            details = obj(core.phone.details())
+            tell("meta_details", details)
+            val groups = details?.optJSONArray("streams") ?: JSONArray()
+            if (groups.length() > 0 && (0 until groups.length()).all { groups.optJSONObject(it)?.optString("state") != "Loading" }) {
+                val timingsLine = core.phone.timings.joinToString("; ")
+                if (timingsLine.isNotEmpty() && timingsLine != lastLoggedTimings) {
+                    lastLoggedTimings = timingsLine
+                    android.util.Log.i("lumos-streams", timingsLine)
                 }
             }
+            com.notdxbi.dxbi.tv.PlaybackBus.notifyStreamsChanged()
         }
     }
 
@@ -489,7 +500,9 @@ class Engine(context: Context) {
             "viewers.select" -> {
                 core.chooseProfile(args.optString(0))
                 save()
+                tell("viewers", obj(core.phone.viewers()))
                 tell("continue_watching_preview", obj(core.phone.continueWatching()))
+                picksAnswer()
                 // (Home's cards carry My List and watched marks: made again for this profile)
                 scope.launch { runCatching { core.phone.board() }.getOrNull()?.let { lastBoard = obj(it); tell("board", lastBoard) } }
                 null
@@ -497,10 +510,10 @@ class Engine(context: Context) {
             "phone.marks" -> JSONObject().put("library", JSONArray(myListTitles().let { l -> (0 until l.length()).map { l.optJSONObject(it).optString("id") } }))
                 .put("watched", JSONArray(core.watchedIds().toList()))
             "phone.myList" -> myListTitles().let { if (it.length() == 0) JSONArray() else JSONArray().put(JSONObject().put("name", "My List").put("items", it)) }
-            "viewers.add" -> { core.addProfile(args.optString(0), args.optString(1), now()); changed(); null }
-            "viewers.rename" -> { core.renameProfile(args.optString(0), args.optString(1), now()); changed(); null }
-            "viewers.recolour" -> { core.recolourProfile(args.optString(0), args.optString(1), now()); changed(); null }
-            "viewers.remove" -> { core.removeProfile(args.optString(0), now()); changed(); null }
+            "viewers.add" -> { core.addProfile(args.optString(0), args.optString(1), now()); tell("viewers", obj(core.phone.viewers())); changed(); null }
+            "viewers.rename" -> { core.renameProfile(args.optString(0), args.optString(1), now()); tell("viewers", obj(core.phone.viewers())); changed(); null }
+            "viewers.recolour" -> { core.recolourProfile(args.optString(0), args.optString(1), now()); tell("viewers", obj(core.phone.viewers())); changed(); null }
+            "viewers.remove" -> { core.removeProfile(args.optString(0), now()); tell("viewers", obj(core.phone.viewers())); changed(); null }
             "phone.taste" -> obj(core.value("taste:" + args.optString(0)))
             "phone.setTaste" -> { args.optJSONObject(1)?.let { core.setValue("taste:" + args.optString(0), it.toString(), now()); changed() }; null }
             "phone.layout" -> obj(core.value("homeLayout:" + core.viewer))
@@ -545,6 +558,7 @@ class Engine(context: Context) {
                     if (score in 1..10) map.put(id, score) else map.remove(id)
                     core.setValue("ratings:${core.viewer}", map.toString(), now())
                     picksMemo.remove(core.viewer)
+                    picksAnswer()
                     changed()
                 }
                 null
