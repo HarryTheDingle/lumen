@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -293,6 +294,7 @@ fun TasteSetup(state: TasteState, who: String?, onDone: suspend (Taste) -> Unit)
                             val list = GENRES.filter { it.cinemeta.isNotEmpty() && it.name != "Anime" }
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(4),
+                                modifier = Modifier.underHeading(),
                                 contentPadding = PaddingValues(horizontal = SIDE, vertical = 36.dp),
                                 horizontalArrangement = Arrangement.spacedBy(28.dp),
                                 verticalArrangement = Arrangement.spacedBy(28.dp),
@@ -315,6 +317,7 @@ fun TasteSetup(state: TasteState, who: String?, onDone: suspend (Taste) -> Unit)
                                     Text("Finding titles you'll know…", fontSize = 17.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = SIDE, vertical = 36.dp))
                                 } else {
                                     LazyVerticalGrid(
+                                        modifier = Modifier.underHeading(),
                                         columns = GridCells.Fixed(5),
                                         contentPadding = PaddingValues(horizontal = SIDE, vertical = 36.dp),
                                         horizontalArrangement = Arrangement.spacedBy(28.dp),
@@ -381,3 +384,18 @@ private fun Chosen(on: Boolean) {
         )
     }
 }
+
+/**
+ * A grid under the step's heading: a gap from it, and its top edge fading, so a row scrolled half under it slips out of
+ * sight softly rather than being cut off against the words
+ */
+private fun Modifier.underHeading(): Modifier = this
+    .padding(top = 14.dp)
+    .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        drawRect(
+            androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.Transparent, (28.dp.toPx() / size.height).coerceIn(0f, 1f) to Color.Black),
+            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+        )
+    }
