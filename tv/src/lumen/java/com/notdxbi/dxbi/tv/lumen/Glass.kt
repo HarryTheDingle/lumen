@@ -100,7 +100,8 @@ fun Modifier.glassEdge(shape: Shape, state: GlassState, tracked: Boolean = true,
             clipRect(bottom = size.height * 0.2f) {
                 drawOutline(
                     outline,
-                    Brush.verticalGradient(0f to white(0.05f + 0.04f * f), 0.2f to Color.Transparent, endY = size.height),
+                    // (scaled by the lift, so it fades right out: the resting card has none, and it vanished at 5% before)
+                    Brush.verticalGradient(0f to white((0.05f + 0.04f * f) * f), 0.2f to Color.Transparent, endY = size.height),
                 )
             }
             // where the light catches it
@@ -115,7 +116,9 @@ fun Modifier.glassEdge(shape: Shape, state: GlassState, tracked: Boolean = true,
                 val spot = Offset(size.width / 2f * (1f + d.x), size.height / 2f * (1f + d.y))
                 drawOutline(
                     outline,
-                    Brush.radialGradient(listOf(white(0.45f + 0.35f * f), Color.Transparent), center = spot, radius = size.width * 0.7f),
+                    // (its brightness goes with the lift all the way to nothing: it stopped at 45% and then went out in one
+                    // step when the card came to rest, which read as the fade dropping to a fifth and cutting off)
+                    Brush.radialGradient(listOf(white((0.45f + 0.35f * f) * f), Color.Transparent), center = spot, radius = size.width * 0.7f),
                     style = spotRim,
                 )
             }
