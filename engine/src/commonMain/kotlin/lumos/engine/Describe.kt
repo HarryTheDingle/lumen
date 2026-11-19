@@ -25,6 +25,11 @@ data class Described(
     val seeds: Int,
     val source: String,
     val langs: List<String>,
+    /**
+     * Not in English: it names its languages and none is English (multi and dual audio count as having it), or its name
+     * is mostly in another script (a Russian or Chinese release). Left out of the list when there's anything else
+     */
+    val foreign: Boolean = false,
 )
 
 object Describe {
@@ -130,7 +135,25 @@ object Describe {
             res = res, hdr = dv || hdrNamed, dv = dv, imax = re("""\bimax\b""").on(all), atmos = re("""\batmos\b""").on(all),
             hdr10plus = re("""\bhdr10(?:\+|[ ._-]?plus)""").on(all), openMatte = re("""\bopen[ ._-]?matte\b""").on(all),
             threeD = re("""\b(?:3d|h?sbs)\b""").on(all), size = size, seeds = seeds, source = source, langs = langs.toList(),
+            foreign = foreignIn(langs, all),
         )
+    }
+
+    private val ENGLISH_ENOUGH = setOf("English", "Multi audio", "Dual audio", NOT_LISTED)
+
+    private fun foreignIn(langs: Set<String>, text: String): Boolean {
+        if (langs.none { it in ENGLISH_ENOUGH }) return true
+        // (written in another script: more of its letters are Cyrillic, Greek, Arabic, Hebrew, Indic, Thai or CJK than Latin)
+        var latin = 0
+        var other = 0
+        for (c in text.codes()) {
+            when {
+                c in 'A'.code..'Z'.code || c in 'a'.code..'z'.code -> latin++
+                c in 0x0370..0x03FF || c in 0x0400..0x052F || c in 0x0590..0x06FF || c in 0x0900..0x0DFF || c in 0x0E00..0x0E7F ||
+                    c in 0x3040..0x30FF || c in 0x3400..0x9FFF || c in 0xAC00..0xD7AF -> other++
+            }
+        }
+        return other >= 4 && other > latin
     }
 
     /** Code points of a string, in common Kotlin (no java.lang.String.codePoints) */

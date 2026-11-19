@@ -458,6 +458,8 @@ class Phone(private val lumos: Lumos) {
             .map { s -> s to Describe.stream(listOfNotNull(s.source, s.name).joinToString("\n"), s.text) }
         // (never cinema recordings; low-res rips only when nothing in HD is there, as for an old show that was only on DVD)
         val keep = all.filter { (_, d) -> !d.sample && d.source != "CAM" }.let { l -> l.filter { !it.second.upscaled }.ifEmpty { l } }
+            // (English ones only, while there are any: Harry's call, a dubbed or foreign-named release isn't what's wanted)
+            .let { l -> l.filter { !it.second.foreign }.ifEmpty { l } }
             .let { l -> if (l.any { it.second.res >= 720 }) l.filter { it.second.res == 0 || it.second.res >= 720 } else l }
         return ranked(keep)
     }
