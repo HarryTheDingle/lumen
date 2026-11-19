@@ -79,7 +79,7 @@ import com.notdxbi.dxbi.tv.phone.episodeLabel
 
 /**
  * A card the remote can choose, the Apple TV way: it lifts towards you when chosen, larger, with a subtle glass rim
- * and a soft white glow behind it.
+ * (no glow: Harry's call).
  */
 @Composable
 fun FocusCard(
@@ -94,13 +94,6 @@ fun FocusCard(
     // (a spring with no bounce, ease-out over about a third of a second: it carries on from where it is when the remote
     // moves on mid-lift, so quick presses never jump)
     val lift by animateFloatAsState(if (focused) 1f else 0f, androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 320f), label = "lift")
-    // the glow behind it: in a little slower than the lift and out slower still, so it blooms and fades rather than
-    // switching (drawn here, a few soft rings: the TV library's Glow is a blurred shadow that snaps, and costs a frame)
-    val glow = animateFloatAsState(
-        if (focused) 1f else 0f,
-        if (focused) tween(360, easing = androidx.compose.animation.core.FastOutSlowInEasing) else tween(480, easing = androidx.compose.animation.core.LinearOutSlowInEasing),
-        label = "glow",
-    )
     // its glass edge (Glass.kt): the light's spot leans the way the remote came, then settles
     val glass = remember { GlassState() }
     androidx.compose.runtime.LaunchedEffect(focused) { if (focused) glass.arrived() }
@@ -118,7 +111,6 @@ fun FocusCard(
                 scaleX = s
                 scaleY = s
             }
-            .softGlow(corner) { glow.value }
             .glassEdge(shape, glass, tracked = focused) { lift }
             // OK as the TV library's cards take it: a click when it's let go, the menu when it's held
             .onKeyEvent { e ->
@@ -152,39 +144,6 @@ private fun androidx.compose.ui.input.key.KeyEvent.isSelect(): Boolean = when (n
     android.view.KeyEvent.KEYCODE_DPAD_CENTER, android.view.KeyEvent.KEYCODE_ENTER, android.view.KeyEvent.KEYCODE_NUMPAD_ENTER, android.view.KeyEvent.KEYCODE_BUTTON_A -> true
     else -> false
 }
-
-/**
- * A soft white light around the card while [amount] is above 0. Baked once for each card size into a blurred picture
- * ([glowPicture]) and drawn as that one picture: drawn as seven blended rounded shapes, as it was, it added about 5 ms of
- * GPU work to every frame on a Mi Box, enough to drop the page from 60 to 30 frames a second while it moved.
- */
-private fun Modifier.softGlow(corner: Dp, amount: () -> Float): Modifier = drawWithCache {
-    val pad = GLOW_REACH.toPx()
-    val picture = glowPicture(size.width.toInt(), size.height.toInt(), corner.toPx(), pad)
-    onDrawBehind {
-        val a = amount()
-        if (a > 0.01f) drawImage(picture, topLeft = androidx.compose.ui.geometry.Offset(-pad, -pad), alpha = a)
-    }
-}
-
-/** How far the glow reaches past the card's edge */
-private val GLOW_REACH = 16.dp
-
-private val glowPictures = java.util.concurrent.ConcurrentHashMap<String, androidx.compose.ui.graphics.ImageBitmap>()
-
-/** A card-sized rounded light, blurred, with [pad] px of room round it for the blur; kept for each size (cards come in few) */
-private fun glowPicture(w: Int, h: Int, corner: Float, pad: Float): androidx.compose.ui.graphics.ImageBitmap =
-    glowPictures.getOrPut("$w:$h:${corner.toInt()}:${pad.toInt()}") {
-        val p = pad.toInt()
-        val bitmap = android.graphics.Bitmap.createBitmap((w + p * 2).coerceAtLeast(1), (h + p * 2).coerceAtLeast(1), android.graphics.Bitmap.Config.ARGB_8888)
-        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.WHITE
-            alpha = 82
-            maskFilter = android.graphics.BlurMaskFilter(pad * 0.55f, android.graphics.BlurMaskFilter.Blur.NORMAL)
-        }
-        android.graphics.Canvas(bitmap).drawRoundRect(pad, pad, pad + w, pad + h, corner, corner, paint)
-        bitmap.asImageBitmap()
-    }
 
 /**
  * How the page moves, as Apple TV's does: a long, soft glide, never a quick snap. A spring that doesn't bounce (it
