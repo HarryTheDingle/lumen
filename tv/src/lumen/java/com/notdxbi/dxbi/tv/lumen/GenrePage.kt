@@ -94,12 +94,16 @@ fun GenreTile(genre: Genre, portrait: Boolean = false, onClick: () -> Unit) {
         Box(Modifier.fillMaxSize()) {
             Picture(genreDrawable(genre.name), Modifier.fillMaxSize())
             if (portrait) Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.7f))))
+            // (one line always: the name steps down in size until it fits, as "Documentary" is wider than a portrait tile)
+            var nameSize by remember(genre.name, portrait) { mutableStateOf(17f) }
             Text(
                 genre.name,
-                fontSize = 17.sp,
+                fontSize = nameSize.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
-                maxLines = if (portrait) 2 else 1,
+                maxLines = 1,
+                softWrap = false,
+                onTextLayout = { if (it.hasVisualOverflow && nameSize > 9f) nameSize -= 0.5f },
                 modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 9.dp, end = 8.dp),
             )
         }

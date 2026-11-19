@@ -167,6 +167,8 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 if (voice.available) MicButton(voice.listening, { if (voice.listening) voice.stop() else voice.start() }, Modifier.focusRequester(mic))
+                // (the box last, so it takes whatever width the mic and Ask AI leave)
+                AskAiButton(onClick = { ai.start(text) })
                 Field(
                     if (voice.listening) "Listening…" else "Movies, shows and more",
                     if (voice.listening) voice.heard else previewing ?: text,
@@ -176,7 +178,6 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
                     leading = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(22.dp)) },
                     downWhenDone = true,
                 )
-                AskAiButton(onClick = { ai.start(text) })
             }
             Row(Modifier.fillMaxSize().padding(top = 18.dp)) {
                 // the letters
