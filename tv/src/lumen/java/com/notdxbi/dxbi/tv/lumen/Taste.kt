@@ -1,6 +1,16 @@
 package com.notdxbi.dxbi.tv.lumen
 
 import android.content.Context
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.EaseOut
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -157,10 +168,23 @@ class TasteState(context: Context, private val feed: DiscoverFeed, private val s
         return out
     }
 
-    /** Candidates for the second step: films and series in the chosen genres, mixed (all popular ones if none) */
+    /**
+     * Candidates for the second step: well-known films and series from every decade, in the chosen genres (TMDB's most
+     * popular and best loved, with good posters), so what's picked tells us something. Without a TMDB key, or if it
+     * doesn't answer, Cinemeta's popular ones in those genres, mixed (all popular ones if none chosen)
+     */
     suspend fun candidates(genreNames: List<String>): List<Title> {
-        val lists = ArrayList<List<Title>>()
         val chosen = genreNames.mapNotNull { n -> GENRES.firstOrNull { it.name == n } }.filter { it.cinemeta.isNotEmpty() }
+        val wanted = chosen.map { it.cinemeta } + chosen.mapNotNull { it.also }
+        // (TMDB's ids for each of our genres: a series has no Romance or Horror of its own, so those add films only)
+        val movieIds = chosen.take(4).map { g -> TMDB_MOVIE[g.name].orEmpty() }.filter { it.isNotEmpty() }
+        val seriesIds = chosen.take(4).map { g -> TMDB_SERIES[g.name].orEmpty() }.filter { it.isNotEmpty() }
+        val tmdb = if (chosen.isNotEmpty() && movieIds.isEmpty() && seriesIds.isEmpty()) emptyList() else runCatching { Tmdb.picks(movieIds, seriesIds, 20) }.getOrDefault(emptyList())
+        if (tmdb.size >= 10) {
+            // (a chosen genre of the title first: "Because you liked" looks up the first, and one they chose says more)
+            return tmdb.map { t -> t.copy(genres = t.genres.sortedByDescending { it in wanted }) }
+        }
+        val lists = ArrayList<List<Title>>()
         if (chosen.isEmpty()) {
             lists.add(feed.popular("movie").map { it.title })
             lists.add(feed.popular("series").map { it.title })
@@ -175,7 +199,18 @@ class TasteState(context: Context, private val feed: DiscoverFeed, private val s
         for (i in 0 until (lists.maxOfOrNull { it.size } ?: 0)) for (l in lists) {
             if (i < l.size && l[i].art != null && l[i].genres.isNotEmpty() && seen.add(l[i].id)) out.add(l[i])
         }
-        return out.take(24)
+        return out.take(20)
+    }
+
+    private companion object {
+        val TMDB_MOVIE = mapOf(
+            "Action" to listOf(28), "Animation" to listOf(16), "Comedy" to listOf(35), "Crime" to listOf(80), "Documentary" to listOf(99),
+            "Drama" to listOf(18), "Family" to listOf(10751), "Romance" to listOf(10749), "Sci-Fi" to listOf(878), "Thriller & Horror" to listOf(53, 27),
+        )
+        val TMDB_SERIES = mapOf(
+            "Action" to listOf(10759), "Animation" to listOf(16), "Comedy" to listOf(35), "Crime" to listOf(80), "Documentary" to listOf(99),
+            "Drama" to listOf(18), "Family" to listOf(10751), "Sci-Fi" to listOf(10765), "Thriller & Horror" to listOf(9648, 80),
+        )
     }
 }
 
@@ -184,6 +219,8 @@ val LocalTaste = staticCompositionLocalOf<TasteState?> { null }
 /**
  * Tune Suggestions, for the remote: the first time a profile opens with nothing watched (and from Settings whenever),
  * two choices: the genres they like, then a few titles they've enjoyed. OK chooses or clears one; Skip and Back leave it.
+ * Everything here moves slowly and softly (about half a second, no snaps): the steps drift across into each other, a
+ * chosen tile settles into its tint and tick, and the progress and buttons come in a moment after the page.
  */
 @Composable
 fun TasteSetup(state: TasteState, who: String?, onDone: suspend (Taste) -> Unit) {
@@ -191,101 +228,156 @@ fun TasteSetup(state: TasteState, who: String?, onDone: suspend (Taste) -> Unit)
     val genres = remember { mutableStateListOf<String>().also { l -> state.current?.let { l.addAll(it.genres) } } }
     val picked = remember { mutableStateListOf<Taste.Seed>().also { l -> state.current?.let { l.addAll(it.titles) } } }
     var candidates by remember { mutableStateOf<List<Title>>(emptyList()) }
+    // (the genres the candidates are for: going Back and forward again with the same ones doesn't fetch them again)
+    var candidatesFor by remember { mutableStateOf<List<String>?>(null) }
     var loading by remember { mutableStateOf(false) }
     var finishing by remember { mutableStateOf<Taste?>(null) }
-    val first = remember { FocusRequester() }
+    // (one for each step: during the cross-fade both steps are on screen, and a requester can only be on one thing)
+    val firstGenre = remember { FocusRequester() }
+    val firstTitle = remember { FocusRequester() }
+    val buttons = remember { FocusRequester() }
     LaunchedEffect(step, candidates.size, loading) {
-        delay(120)
-        runCatching { first.requestFocus() }
+        // (after the steps have crossed over, so focus lands on the new one and not the one leaving)
+        delay(260)
+        if (step == 0) runCatching { firstGenre.requestFocus() }
+        else if (!loading) runCatching { (if (candidates.isNotEmpty()) firstTitle else buttons).requestFocus() }
     }
     LaunchedEffect(finishing) { finishing?.let { onDone(it) } }
+    // (the progress and the buttons arrive a little after the page does)
+    var arrived by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { delay(250); arrived = true }
+    val arrival by animateFloatAsState(if (arrived) 1f else 0f, tween(500, easing = EaseOut), label = "arrival")
 
     fun finish(skip: Boolean) {
         finishing = Taste(genres.toList(), picked.toList(), skipped = skip && genres.isEmpty() && picked.isEmpty())
     }
     fun next() {
         step = 1
-        loading = true
     }
     LaunchedEffect(step) {
         if (step == 1) {
-            candidates = state.candidates(genres.toList())
-            loading = false
+            val asked = genres.toList()
+            if (candidatesFor != asked) {
+                loading = true
+                candidates = state.candidates(asked)
+                candidatesFor = asked
+                // (a pick made for other genres is still theirs: it stays picked even if it isn't offered again)
+                loading = false
+            }
         }
     }
 
     PageWindow(onBack = { if (step == 1) step = 0 else finish(skip = true) }) {
-        Column(Modifier.fillMaxSize().background(Dx.Background).padding(top = 40.dp, bottom = 24.dp)) {
-            Column(Modifier.padding(horizontal = Dx.Gutter), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("${if (who.isNullOrBlank()) "" else "$who · "}${step + 1} of 2", fontSize = 14.sp, color = Dx.Faint)
-                Text(if (step == 0) "What do you like to watch?" else "Pick a few you've enjoyed", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                Text(if (step == 0) "Choose any. You can change this later in Settings." else "Three or more is plenty.", fontSize = 16.sp, color = Dx.Muted)
-            }
-            Spacer(Modifier.height(10.dp))
+        Column(Modifier.fillMaxSize().background(Dx.Background).padding(top = 48.dp, bottom = 32.dp)) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                if (step == 0) {
-                    val list = GENRES.filter { it.cinemeta.isNotEmpty() && it.name != "Anime" }
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(210.dp),
-                        contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 18.dp),
-                        horizontalArrangement = Arrangement.spacedBy(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(18.dp),
-                    ) {
-                        items(list, key = { it.name }) { g ->
-                            val on = g.name in genres
-                            val mod = if (g === list.first()) Modifier.focusRequester(first) else Modifier
-                            FocusCard(onClick = { if (on) genres.remove(g.name) else genres.add(g.name) }, modifier = mod.fillMaxWidth().aspectRatio(16f / 9f)) {
-                                Box(Modifier.fillMaxSize()) {
-                                    Picture(genreDrawable(g.name), Modifier.fillMaxSize())
-                                    Text(g.name, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 9.dp))
-                                    if (on) Tick(Modifier.align(Alignment.TopEnd))
+                AnimatedContent(
+                    targetState = step,
+                    transitionSpec = {
+                        // (forward drifts left, back drifts right: a twelfth of the width, slower in than out so they overlap softly)
+                        val dir = if (targetState > initialState) 1 else -1
+                        (fadeIn(tween(480, delayMillis = 120, easing = EaseOut)) + slideInHorizontally(tween(520, easing = EaseOut)) { dir * it / 12 }) togetherWith
+                            (fadeOut(tween(300, easing = EaseOut)) + slideOutHorizontally(tween(520, easing = EaseOut)) { -dir * it / 12 })
+                    },
+                    label = "step",
+                ) { s ->
+                    Column(Modifier.fillMaxSize()) {
+                        Column(Modifier.padding(horizontal = SIDE).graphicsLayer { alpha = arrival }, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("${if (who.isNullOrBlank()) "" else "$who · "}${s + 1} of 2", fontSize = 14.sp, color = Dx.Faint)
+                            Text(if (s == 0) "What do you like to watch?" else "Which of these have you enjoyed?", fontSize = 32.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Text(
+                                if (s == 0) "Choose a few that appeal. You can change this at any time in Settings." else "Pick any you've loved, and your suggestions will feel more like you.",
+                                fontSize = 17.sp, color = Dx.Muted,
+                            )
+                        }
+                        if (s == 0) {
+                            val list = GENRES.filter { it.cinemeta.isNotEmpty() && it.name != "Anime" }
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(4),
+                                contentPadding = PaddingValues(horizontal = SIDE, vertical = 36.dp),
+                                horizontalArrangement = Arrangement.spacedBy(28.dp),
+                                verticalArrangement = Arrangement.spacedBy(28.dp),
+                            ) {
+                                items(list, key = { it.name }) { g ->
+                                    val on = g.name in genres
+                                    val mod = if (g === list.first()) Modifier.focusRequester(firstGenre) else Modifier
+                                    FocusCard(onClick = { if (on) genres.remove(g.name) else genres.add(g.name) }, modifier = mod.fillMaxWidth().aspectRatio(16f / 9f)) {
+                                        Box(Modifier.fillMaxSize()) {
+                                            Picture(genreDrawable(g.name), Modifier.fillMaxSize())
+                                            Chosen(on)
+                                            Text(g.name, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, modifier = Modifier.align(Alignment.BottomStart).padding(start = 14.dp, bottom = 11.dp))
+                                        }
+                                    }
                                 }
                             }
-                        }
-                    }
-                } else if (loading) {
-                    Text("Finding titles…", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter, vertical = 30.dp))
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(140.dp),
-                        contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 18.dp),
-                        horizontalArrangement = Arrangement.spacedBy(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(18.dp),
-                    ) {
-                        items(candidates, key = { it.id }) { t ->
-                            val on = picked.any { it.id == t.id }
-                            val mod = if (t.id == candidates.first().id) Modifier.focusRequester(first) else Modifier
-                            FocusCard(onClick = { if (on) picked.removeAll { it.id == t.id } else picked.add(Taste.Seed(t)) }, modifier = mod.fillMaxWidth().aspectRatio(2f / 3f)) {
-                                Box(Modifier.fillMaxSize()) {
-                                    Art(t.art, Modifier.fillMaxSize())
-                                    if (on) Tick(Modifier.align(Alignment.TopEnd))
+                        } else {
+                            Crossfade(targetState = loading, animationSpec = tween(400, easing = EaseOut), label = "loading") { busy ->
+                                if (busy) {
+                                    Text("Finding titles you'll know…", fontSize = 17.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = SIDE, vertical = 36.dp))
+                                } else {
+                                    LazyVerticalGrid(
+                                        columns = GridCells.Fixed(5),
+                                        contentPadding = PaddingValues(horizontal = SIDE, vertical = 36.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(28.dp),
+                                        verticalArrangement = Arrangement.spacedBy(28.dp),
+                                    ) {
+                                        items(candidates, key = { it.id }) { t ->
+                                            val on = picked.any { it.id == t.id }
+                                            val mod = if (t.id == candidates.first().id) Modifier.focusRequester(firstTitle) else Modifier
+                                            FocusCard(onClick = { if (on) picked.removeAll { it.id == t.id } else picked.add(Taste.Seed(t)) }, modifier = mod.fillMaxWidth().aspectRatio(2f / 3f)) {
+                                                Box(Modifier.fillMaxSize()) {
+                                                    Art(t.art, Modifier.fillMaxSize())
+                                                    Chosen(on)
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-            Row(Modifier.padding(horizontal = Dx.Gutter), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.padding(horizontal = SIDE).graphicsLayer { alpha = arrival }, horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(
                     onClick = { if (step == 0) finish(skip = true) else step = 0 },
-                    colors = ButtonDefaults.colors(containerColor = Color.White.copy(alpha = 0.12f), contentColor = Color.White, focusedContainerColor = Color.White, focusedContentColor = Color.Black),
-                ) { Text(if (step == 0) "Skip" else "Back", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
-                Button(
+                    colors = ButtonDefaults.colors(containerColor = Color.White.copy(alpha = 0.1f), contentColor = Color.White, focusedContainerColor = Color.White, focusedContentColor = Color.Black),
+                ) { Crossfade(step, animationSpec = tween(300), label = "back") { Text(if (it == 0) "Skip" else "Back", fontSize = 16.sp, fontWeight = FontWeight.Medium) } }
+                // (Continue appears once there's something chosen on the first step, easing in: nothing to press until it means something)
+                val count = if (step == 0) genres.size else picked.size
+                val showContinue = step == 1 || genres.isNotEmpty()
+                val continueAlpha by animateFloatAsState(if (showContinue) 1f else 0f, tween(450, easing = EaseOut), label = "continue")
+                if (continueAlpha > 0.01f) Button(
                     onClick = { if (step == 0) next() else finish(skip = false) },
-                    colors = ButtonDefaults.colors(containerColor = Dx.Accent.copy(alpha = 0.8f), contentColor = Dx.OnAccent, focusedContainerColor = Dx.Accent, focusedContentColor = Dx.OnAccent),
-                ) { Text(if (step == 0) "Next" else "Start Watching", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
-                if (step == 0 && genres.isEmpty()) Text("Skip if you'd rather not", fontSize = 14.sp, color = Dx.Faint)
+                    colors = ButtonDefaults.colors(containerColor = Dx.Accent.copy(alpha = 0.85f), contentColor = Dx.OnAccent, focusedContainerColor = Dx.Accent, focusedContentColor = Dx.OnAccent),
+                    modifier = Modifier.focusRequester(buttons).graphicsLayer { alpha = continueAlpha },
+                ) { Crossfade(step, animationSpec = tween(300), label = "continue label") { Text(if (it == 0) "Continue" else "Start Watching", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) } }
+                Text(
+                    if (count == 0) (if (step == 0) "Or skip if you'd rather not" else "Nothing chosen yet, and that's fine") else "$count chosen",
+                    fontSize = 14.sp, color = Dx.Faint,
+                )
             }
         }
     }
 }
 
+/** Left and right margins of the setup: roomier than the rest of the app, so the choices sit calmly in the middle */
+private val SIDE = 72.dp
+
+/**
+ * A chosen tile's mark: it darkens a little and a white tick settles into the corner, both over about 0.4 s
+ * (animated, so choosing and un-choosing never snap). Nothing is drawn while it isn't chosen.
+ */
 @Composable
-private fun Tick(modifier: Modifier) {
-    Icon(
-        Icons.Filled.CheckCircle,
-        contentDescription = "Chosen",
-        tint = Color.White,
-        modifier = modifier.padding(6.dp).size(22.dp).background(Color.Black, CircleShape),
-    )
+private fun Chosen(on: Boolean) {
+    val amount by animateFloatAsState(if (on) 1f else 0f, tween(400, easing = EaseOut), label = "chosen")
+    if (amount <= 0.001f) return
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f * amount)))
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
+        Icon(
+            Icons.Filled.CheckCircle,
+            contentDescription = "Chosen",
+            tint = Color.White,
+            modifier = Modifier.padding(8.dp).size(26.dp).graphicsLayer { alpha = amount; scaleX = 0.7f + 0.3f * amount; scaleY = 0.7f + 0.3f * amount }.background(Color.Black.copy(alpha = 0.5f), CircleShape),
+        )
+    }
 }
