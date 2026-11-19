@@ -26,8 +26,9 @@ import java.util.concurrent.Executors
  * puts things back as they were.
  *
  * The picture comes from the lightest stream of the same video (720p, the smallest file: the plugin's
- * previewSource, as the iPad's previews), else the stream playing, read separately at the marker once
- * it stops a moment. A file it can't read that way just shows the time.
+ * previewSource, as the iPad's previews), else the stream playing, read separately at the marker as it moves (one read at
+ * a time, the latest place each time, the ones read kept, the next one along read ahead). A file it can't read that way
+ * just shows the time.
  */
 class Scrubber(
     private val activity: PlayerActivity,
@@ -105,11 +106,15 @@ class Scrubber(
             else -> 10_000L
         }
         at = (at + direction * by).coerceIn(0L, length)
+        lastStep = direction * by
         controls().poke()
         paint()
-        // (the picture once the marker stops a moment)
-        handler.removeCallbacks(fetch)
-        handler.postDelayed(fetch, 250)
+        // (the picture: one kept from before at once; else the last one dimmed while this one's read, which starts as soon
+        // as the reader's free, the marker moving or not. It used to wait for the marker to stop, then read, leaving the
+        // last picture up as if it were this one)
+        val kept = frames.get(at)
+        if (kept != null) show(at, kept) else picture.alpha = 0.4f
+        request()
         // (left alone a while: back as it was)
         handler.removeCallbacks(giveUp)
         handler.postDelayed(giveUp, GIVE_UP_MS)
@@ -144,13 +149,14 @@ class Scrubber(
     private fun end() {
         active = false
         wanted = -1L
-        handler.removeCallbacks(fetch)
         handler.removeCallbacks(giveUp)
         handler.removeCallbacks(keepUp)
         line.scrub = -1f
         bubble.visibility = View.GONE
         picture.setImageDrawable(null)
+        picture.alpha = 1f
         picture.visibility = View.GONE
+        lastStep = 0L
         controls().poke()
     }
 
@@ -173,12 +179,21 @@ class Scrubber(
         }
     }
 
-    private val fetch = Runnable {
-        if (!active || !pictures || Build.VERSION.SDK_INT < 27) return@Runnable
-        val target = at
+    /** Pictures read so far, by where (the marker goes back over the same places) */
+    private val frames = android.util.LruCache<Long, Bitmap>(30)
+    /** A read under way (one at a time, on [reader]) */
+    private var busy = false
+    private var lastStep = 0L
+
+    /** Read the picture where the marker is, unless one's kept or a read is under way (when it ends, it asks again) */
+    private fun request() {
+        if (!active || !pictures || Build.VERSION.SDK_INT < 27 || busy) return
+        val target = if (frames.get(at) == null) at
+            // (the marker's picture is there: the next one along, read ahead while it rests)
+            else (at + lastStep).takeIf { lastStep != 0L && it in 0..duration && frames.get(it) == null } ?: return
+        busy = true
         wanted = target
         reader.execute {
-            if (wanted != target) return@execute
             val frame = runCatching {
                 open().getScaledFrameAtTime(target * 1000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, (PICTURE_W * density).toInt(), (PICTURE_W * 9 / 16 * density).toInt())
             }.onFailure {
@@ -186,8 +201,14 @@ class Scrubber(
                 android.util.Log.i("dxbi-player", "no seek pictures: ${it.message}")
                 pictures = false
             }.getOrNull()
-            if (frame != null) handler.post { show(target, frame) }
-            else android.util.Log.i("dxbi-player", "no seek picture at ${target / 1000}s")
+            handler.post {
+                busy = false
+                if (frame != null) {
+                    frames.put(target, frame)
+                    if (target == at) show(target, frame)
+                } else android.util.Log.i("dxbi-player", "no seek picture at ${target / 1000}s")
+                request()
+            }
         }
     }
 
@@ -198,14 +219,16 @@ class Scrubber(
     }
 
     private fun show(target: Long, frame: Bitmap) {
-        if (!active || wanted != target) return
+        if (!active || target != at) return
         picture.setImageBitmap(frame)
+        picture.alpha = 1f
         picture.visibility = View.VISIBLE
         paint()
     }
 
     fun release() {
         handler.removeCallbacksAndMessages(null)
+        frames.evictAll()
         reader.execute { runCatching { retriever?.release() }; retriever = null }
         reader.shutdown()
     }
