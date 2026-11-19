@@ -30,6 +30,8 @@ data class Described(
      * is mostly in another script (a Russian or Chinese release). Left out of the list when there's anything else
      */
     val foreign: Boolean = false,
+    /** A version other than the film as released: "Extended", "Director's Cut", "Encore"... (null: the standard one) */
+    val edition: String? = null,
 )
 
 object Describe {
@@ -136,8 +138,21 @@ object Describe {
             hdr10plus = re("""\bhdr10(?:\+|[ ._-]?plus)""").on(all), openMatte = re("""\bopen[ ._-]?matte\b""").on(all),
             threeD = re("""\b(?:3d|h?sbs)\b""").on(all), size = size, seeds = seeds, source = source, langs = langs.toList(),
             foreign = foreignIn(langs, all),
+            edition = EDITIONS.firstOrNull { (r, _) -> r.on(all) }?.second,
         )
     }
+
+    /** Versions other than the one released (Avengers: Endgame's Encore re-release, Extended cuts...), first match wins */
+    private val EDITIONS = listOf(
+        re("""\bencore\b""") to "Encore",
+        re("""\bdirector'?s[ ._-]?cut\b|\bdc\b(?=.*\b(?:2160p|1080p|720p)\b)""") to "Director's Cut",
+        re("""\bextended(?:[ ._-]?(?:cut|edition|version))?\b""") to "Extended",
+        re("""\b(?:ultimate|special|collector'?s|anniversary)[ ._-]?(?:cut|edition)\b""") to "Special Edition",
+        re("""\bfinal[ ._-]?cut\b""") to "Final Cut",
+        re("""\bredux\b""") to "Redux",
+        re("""\bunrated\b|\buncut\b""") to "Unrated",
+        re("""\bblack[ ._-]?(?:and|&|n)[ ._-]?(?:white|chrome)\b|\bnoir[ ._-]?edition\b|\b(?:logan|batman)[ ._-]?noir\b""") to "Black & White",
+    )
 
     private val ENGLISH_ENOUGH = setOf("English", "Multi audio", "Dual audio", NOT_LISTED)
 

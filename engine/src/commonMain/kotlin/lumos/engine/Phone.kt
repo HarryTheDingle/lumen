@@ -575,6 +575,7 @@ class Phone(private val lumos: Lumos) {
         "IMAX".takeIf { d.imax },
         if (d.dv) "Dolby Vision" else if (d.hdr) "HDR" else null,
         mapOf("Remux" to "Disc quality", "BluRay" to "Blu-ray", "WEB" to "Web", "HDTV" to "TV broadcast", "CAM" to "Cinema recording", "Other" to "Video")[d.source],
+        d.edition,
     ).joinToString(" · ")
     private fun qualityName(r: Int) = when (r) { 2160 -> "4K"; 1440 -> "1440p"; 1080 -> "1080p"; 720 -> "720p"; 0 -> "Unknown"; else -> "SD" }
 
@@ -590,6 +591,7 @@ class Phone(private val lumos: Lumos) {
         put("hdr10plus", d.hdr10plus); put("openMatte", d.openMatte); put("threeD", d.threeD)
         put("size", (s.size?.toDouble() ?: d.size)); put("seeds", d.seeds); put("source", d.source)
         put("langs", JsonArray(d.langs.map(::JsonPrimitive))); put("mbps", round1(mbps(s, d))); put("claimed", 0)
+        d.edition?.let { put("edition", it) }
     }
 
 
@@ -631,7 +633,9 @@ class Phone(private val lumos: Lumos) {
         val rate = if (size(s, d) > 0 && minutes > 0) minOf(10.0, mbps(s, d) / 10) else 0.0
         val source = mapOf("Remux" to 6, "BluRay" to 4, "WEB" to 2, "HDTV" to 1, "CAM" to -10)[d.source] ?: 0
         val imax = if (d.imax && lumos.preferImax) 20 else 0
-        return (if (ready(s, d)) 1e5 else 0.0) + d.res * 10 + range + source + rate + imax - (if (d.lesser) 15000 else 0)
+        // (another version (Extended, Encore...) only where the film as released isn't there at the same quality)
+        val edition = if (d.edition != null) 7 else 0
+        return (if (ready(s, d)) 1e5 else 0.0) + d.res * 10 + range + source + rate + imax - edition - (if (d.lesser) 15000 else 0)
     }
 
     private fun best(list: List<IndexedValue<Pair<Stream, Described>>>, n: Int): List<IndexedValue<Pair<Stream, Described>>> {

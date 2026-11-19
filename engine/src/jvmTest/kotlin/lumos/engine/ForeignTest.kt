@@ -22,3 +22,15 @@ class ForeignTest {
         assertTrue(foreign("蜘蛛侠 全新的一天 2026 1080p"))
     }
 }
+
+/** Versions other than the released one are named (Describe.edition) */
+class EditionTest {
+    private fun edition(text: String) = Describe.stream("Torrentio", text).edition
+
+    @Test fun editionsAreNamed() {
+        kotlin.test.assertEquals("Encore", edition("Avengers.Endgame.2019.Encore.1080p.WEB-DL"))
+        kotlin.test.assertEquals("Extended", edition("The.Hobbit.2012.EXTENDED.2160p.UHD.BluRay"))
+        kotlin.test.assertEquals("Director's Cut", edition("Blade.Runner.Directors.Cut.1080p"))
+        kotlin.test.assertEquals(null, edition("Avengers.Endgame.2019.2160p.WEB-DL.DV"))
+    }
+}
