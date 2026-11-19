@@ -169,9 +169,14 @@ object CheckedArt {
  * a mark that makes the request new, so it loads again
  */
 @Composable
-fun fresh(url: String?): String? {
+fun fresh(url: String?): String? = freshUrl(url)
+
+/** [fresh] outside a screen (the poster prefetch) */
+fun freshUrl(url: String?): String? {
     if (url == null) return null
-    val tt = Regex("""/(tt\d+)/img""").find(url)?.groupValues?.get(1) ?: return url
+    val tt = IMDB_IN_URL.find(url)?.groupValues?.get(1) ?: return url
     val v = CheckedArt.versions[tt] ?: return url
     return "$url#v$v"
 }
+
+private val IMDB_IN_URL = Regex("""/(tt\d+)/img""")

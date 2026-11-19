@@ -152,6 +152,13 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
     val lead = remember(rows) { rows.filter { it.key in LEAD_LISTS } }
     val later = remember(rows) { rows.filter { it.key !in TOP_LISTS && it.key !in LEAD_LISTS } }
     val anyNumbered = remember(rows) { rows.any { it.numbered } }
+    // (the posters of the rows further down, decoded quietly ahead while Home rests, so the first trip down finds them
+    // ready rather than decoding a row's worth while the page moves)
+    val prefetchContext = LocalContext.current
+    LaunchedEffect(rows, myList, allPicks) {
+        delay(2500)
+        PosterPrefetch.ahead(prefetchContext, topLists.map { it.items } + myList.map { it.items } + allPicks.map { it.items } + lead.map { it.items } + later.map { it.items })
+    }
     // The billboard leads with what they're watching (five at most); suggestions only when nothing's in progress
     val described by stremio.described.collectAsState()
     val billboard = remember(continueWatching, described, suggestions) { continueWatching.take(5).map { stremio.filledIn(it.title) }.ifEmpty { suggestions } }

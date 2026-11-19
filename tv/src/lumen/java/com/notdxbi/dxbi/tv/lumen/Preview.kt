@@ -502,3 +502,23 @@ fun TrailerLoading(backdrop: String?, started: Boolean, failed: Boolean = false,
         }
     }
 }
+
+/**
+ * Posters decoded ahead into the picture memory, at the size a row's cards ask for, a few from each row: Home's rows
+ * further down are ready before the remote gets there (decoding is on [ImageThreads]' low-priority threads)
+ */
+object PosterPrefetch {
+    private val asked = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+
+    fun ahead(context: android.content.Context, rows: List<List<Title>>, perRow: Int = 7, maxRows: Int = 12) {
+        val loader = coil3.SingletonImageLoader.get(context)
+        val density = context.resources.displayMetrics.density
+        val w = (Dx.Poster.value * density).toInt()
+        val h = (Dx.Poster.value * 1.5f * density).toInt()
+        for (row in rows.filter { it.isNotEmpty() }.take(maxRows)) for (t in row.take(perRow)) {
+            val url = freshUrl(t.art) ?: continue
+            if (!asked.add(url)) continue
+            loader.enqueue(coil3.request.ImageRequest.Builder(context).data(url).size(w, h).build())
+        }
+    }
+}

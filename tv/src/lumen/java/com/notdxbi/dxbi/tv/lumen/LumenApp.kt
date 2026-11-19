@@ -1,5 +1,6 @@
 package com.notdxbi.dxbi.tv.lumen
 
+import kotlinx.coroutines.asCoroutineDispatcher
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.tv.material3.Surface
@@ -93,6 +94,9 @@ fun LumenApp(engine: Engine) {
             .build()
         coil3.ImageLoader.Builder(ctx)
             .crossfade(450)
+            // (posters decoded on two low-priority threads: decoding a row's worth at once on the normal ones took the cores
+            // the page needed to move, the hitch on the first trip down Home)
+            .decoderCoroutineContext(ImageThreads.dispatcher)
             // (metahub's pictures swapped for checked TMDB ones as they load: CheckedArt.kt)
             .components {
                 add(CheckedArt.Swap)
@@ -390,5 +394,15 @@ fun Field(
                 )
             }
         }
+    }
+}
+
+/** Two background-priority threads for decoding pictures: the screen's own work always goes first */
+object ImageThreads {
+    val dispatcher: kotlinx.coroutines.CoroutineDispatcher by lazy {
+        val count = java.util.concurrent.atomic.AtomicInteger()
+        java.util.concurrent.Executors.newFixedThreadPool(2) { r ->
+            Thread({ android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); r.run() }, "lumen-images-${count.incrementAndGet()}")
+        }.asCoroutineDispatcher()
     }
 }

@@ -54,6 +54,8 @@ import androidx.compose.ui.platform.LocalDensity
 import coil3.toBitmap
 import coil3.request.allowHardware
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -151,22 +153,38 @@ private fun androidx.compose.ui.input.key.KeyEvent.isSelect(): Boolean = when (n
     else -> false
 }
 
-/** A soft white light around the card while [amount] is above 0: rings widening and fading, read while drawing (no recomposition) */
-private fun Modifier.softGlow(corner: Dp, amount: () -> Float): Modifier = drawBehind {
-    val a = amount()
-    if (a <= 0.01f) return@drawBehind
-    val step = 2.dp.toPx()
-    val r = corner.toPx()
-    for (i in 1..7) {
-        val grow = step * i
-        drawRoundRect(
-            Color.White.copy(alpha = 0.045f * a * (1f - i / 8f)),
-            topLeft = androidx.compose.ui.geometry.Offset(-grow, -grow),
-            size = androidx.compose.ui.geometry.Size(size.width + grow * 2, size.height + grow * 2),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(r + grow),
-        )
+/**
+ * A soft white light around the card while [amount] is above 0. Baked once for each card size into a blurred picture
+ * ([glowPicture]) and drawn as that one picture: drawn as seven blended rounded shapes, as it was, it added about 5 ms of
+ * GPU work to every frame on a Mi Box, enough to drop the page from 60 to 30 frames a second while it moved.
+ */
+private fun Modifier.softGlow(corner: Dp, amount: () -> Float): Modifier = drawWithCache {
+    val pad = GLOW_REACH.toPx()
+    val picture = glowPicture(size.width.toInt(), size.height.toInt(), corner.toPx(), pad)
+    onDrawBehind {
+        val a = amount()
+        if (a > 0.01f) drawImage(picture, topLeft = androidx.compose.ui.geometry.Offset(-pad, -pad), alpha = a)
     }
 }
+
+/** How far the glow reaches past the card's edge */
+private val GLOW_REACH = 16.dp
+
+private val glowPictures = java.util.concurrent.ConcurrentHashMap<String, androidx.compose.ui.graphics.ImageBitmap>()
+
+/** A card-sized rounded light, blurred, with [pad] px of room round it for the blur; kept for each size (cards come in few) */
+private fun glowPicture(w: Int, h: Int, corner: Float, pad: Float): androidx.compose.ui.graphics.ImageBitmap =
+    glowPictures.getOrPut("$w:$h:${corner.toInt()}:${pad.toInt()}") {
+        val p = pad.toInt()
+        val bitmap = android.graphics.Bitmap.createBitmap((w + p * 2).coerceAtLeast(1), (h + p * 2).coerceAtLeast(1), android.graphics.Bitmap.Config.ARGB_8888)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE
+            alpha = 82
+            maskFilter = android.graphics.BlurMaskFilter(pad * 0.55f, android.graphics.BlurMaskFilter.Blur.NORMAL)
+        }
+        android.graphics.Canvas(bitmap).drawRoundRect(pad, pad, pad + w, pad + h, corner, corner, paint)
+        bitmap.asImageBitmap()
+    }
 
 /**
  * How the page moves, as Apple TV's does: a long, soft glide, never a quick snap. A spring that doesn't bounce (it
@@ -546,8 +564,9 @@ fun Shelf(title: String, modifier: Modifier = Modifier, content: LazyListScope.(
         ShelfTitle(title) { rowFocused.value }
         CompositionLocalProvider(LocalBringIntoViewSpec provides rowScrolling) {
             LazyRow(
-                // (back into the row, the remote lands on the card it was last on, as Apple TV's rows do, not whichever is nearest)
-                modifier = @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.keepsSideways().focusRestorer(),
+                // (up or down into the row, the remote lands on the card in the same column it came from: the rows' cards line
+                // up in columns (rememberRowScrolling), Harry's grid; it doesn't jump back to the card it was last on there)
+                modifier = Modifier.keepsSideways(),
                 // (room around the cards for them to grow when chosen without overlapping row titles)
                 contentPadding = PaddingValues(start = Dx.Gutter, end = Dx.Gutter, top = 20.dp, bottom = 26.dp),
                 horizontalArrangement = Arrangement.spacedBy(18.dp),
