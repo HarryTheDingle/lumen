@@ -388,7 +388,7 @@ class Phone(private val lumos: Lumos) {
         shown = list
         val choice = pick(list)
         lastPick = choice?.index ?: -1
-        return buildJsonObject {
+        val head = buildJsonObject {
             put("justPlay", lumos.justPressPlay)
             put("settled", settled)
             video?.let { put("videoId", it) }
@@ -396,9 +396,19 @@ class Phone(private val lumos: Lumos) {
             put("how", choice?.how ?: "best")
             put("speed", round1(fitSpeed))
             choice?.lowered?.let { (from, to, why) -> putJsonObject("lowered") { put("from", from); put("to", to); put("why", why) } }
-            putJsonArray("items") { list.forEach { (s, d) -> add(option(s, d)) } }
         }.toString()
+        // (the items written once for each list, and the whole answer handed back as the same string while nothing's
+        // changed: each item's link carries its addon's whole address, so the answer can be half a megabyte, and Play's
+        // warm-up asking again and again filled a Sony's memory with copies until it crashed)
+        val items = itemsMemo?.takeIf { it.first === list }?.second
+            ?: buildJsonArray { list.forEach { (s, d) -> add(option(s, d)) } }.toString().also { itemsMemo = list to it }
+        streamsMemo?.let { (h, i, answer) -> if (h == head && i === items) return answer }
+        val answer = head.dropLast(1) + (if (head.length > 2) "," else "") + "\"items\":" + items + "}"
+        streamsMemo = Triple(head, items, answer)
+        return answer
     }
+    private var itemsMemo: Pair<List<Pair<Stream, Described>>, String>? = null
+    private var streamsMemo: Triple<String, String, String>? = null
 
     /** The stream at [index] of [streams], ready for the player: its link (TorBox's for a torrent), headers and label */
     @Throws(Exception::class)

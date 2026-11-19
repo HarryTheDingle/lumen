@@ -118,7 +118,8 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
             val dd = d ?: return@launch
             val video = nextVideo(dd)?.id
             if (video != null && dd.videoId != video) stremio.open(t.type, t.id, video)
-            for (i in 0 until 40) {
+            // (once a second, for up to 12: each look at the list costs, and it was three times a second)
+            for (i in 0 until 12) {
                 if (title != null) return@launch
                 val c = stremio.streams()
                 val pick = c?.picked
@@ -127,7 +128,7 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
                     c.videoId?.let { stremio.prefetchSkips(t.type, t.id, it) }
                     return@launch
                 }
-                delay(300)
+                delay(1000)
             }
         }
     }

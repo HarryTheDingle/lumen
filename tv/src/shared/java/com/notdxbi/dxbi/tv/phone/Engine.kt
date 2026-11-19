@@ -481,6 +481,13 @@ class Engine(context: Context) {
         return null
     }
 
+    /** The stream list read once for each answer: the engine hands back the same string while nothing has changed */
+    private var lastStreams: Pair<String, JSONObject?>? = null
+    private fun streamsAnswer(raw: String): JSONObject? {
+        lastStreams?.let { (text, parsed) -> if (text === raw) return parsed }
+        return obj(raw).also { lastStreams = raw to it }
+    }
+
     /** Coalesced push update when any addon answers or all streams settle */
     private fun onStreamsChanged() {
         if (!streamsPending.compareAndSet(false, true)) return
@@ -571,7 +578,7 @@ class Engine(context: Context) {
                 }
                 null
             }
-            "phone.streams" -> obj(core.phone.streams())?.also { c ->
+            "phone.streams" -> streamsAnswer(core.phone.streams())?.also { c ->
                 if (c.optBoolean("settled")) {
                     val p = c.optJSONArray("items")?.optJSONObject(c.optInt("pick", -1))
                     val line = "pick ${p?.optString("label")} ${p?.optDouble("mbps")} Mbps from ${p?.optString("addon")} (${c.optString("how")}), speed ${c.optDouble("speed")} Mbps, lowered ${c.optJSONObject("lowered")}"
