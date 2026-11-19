@@ -127,13 +127,29 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
     val listMarks by stremio.listMarks.collectAsState()
     // a Continue Watching card held down: its menu
     var held by remember { mutableStateOf<Title?>(null) }
+    // the card the remote goes to once a removed one has gone, and each card's requester
+    var stayOn by remember { mutableStateOf<String?>(null) }
+    val continueFocus = remember { HashMap<String, FocusRequester>() }
+    LaunchedEffect(continueWatching) {
+        val id = stayOn ?: return@LaunchedEffect
+        if (continueWatching.none { it.title.id == id }) return@LaunchedEffect
+        stayOn = null
+        repeat(10) { if (runCatching { continueFocus[id]?.requestFocus() }.isSuccess) return@LaunchedEffect; delay(30) }
+    }
     held?.let { t ->
         ActionMenu(
             t.name,
             listOf(
                 Action("Play", Icons.Filled.PlayArrow) { onPlay(t) },
                 Action("Go to ${if (t.type == "movie") "Film" else "Show"}", Icons.Outlined.Info) { onOpen(t) },
-                Action("Remove from Continue Watching", Icons.Filled.Close) { stremio.removeFromContinue(t.id) },
+                Action("Remove from Continue Watching", Icons.Filled.Close) {
+                    // (the remote stays in the row, on the card that takes its place, else the one before: it went up to
+                    // the billboard when its card went)
+                    val ids = continueWatching.map { it.title.id }
+                    val at = ids.indexOf(t.id)
+                    stayOn = ids.getOrNull(at + 1) ?: ids.getOrNull(at - 1)
+                    stremio.removeFromContinue(t.id)
+                },
             ),
             onDismiss = { held = null },
         )
@@ -268,10 +284,14 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
             // further down. Addon catalogs (only when the lists can't be had) keep their place at the end.
             if (continueWatching.isNotEmpty()) {
                 item(key = "continue") {
-                    Shelf("Continue Watching") {
+                    // (wider gaps than other rows: these cards are wide, and grow by more when chosen, so they'd touch)
+                    Shelf("Continue Watching", spacing = 40.dp) {
                         items(continueWatching, key = { it.title.id }) { item ->
                             // (held: Apple TV's Up Next menu, with Remove from the row)
-                            PreviewContinueCard(item, onClick = { onOpen(item.title) }, onLongClick = { held = item.title })
+                            PreviewContinueCard(
+                                item, onClick = { onOpen(item.title) }, onLongClick = { held = item.title },
+                                modifier = Modifier.focusRequester(continueFocus.getOrPut(item.title.id) { FocusRequester() }),
+                            )
                         }
                     }
                 }

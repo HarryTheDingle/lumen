@@ -420,6 +420,8 @@ private object RowOwnsScrolling : androidx.compose.foundation.relocation.BringIn
 private class RowFocusRef {
     var coords: androidx.compose.ui.layout.LayoutCoordinates? = null
     var had: Boolean = false
+    /** Moved into before it had been placed: centred as soon as it is */
+    var waiting: Boolean = false
 }
 
 /** A row of the page: when the remote moves into it the page glides to put it in the middle (once, however it moves along it) */
@@ -429,9 +431,18 @@ fun Modifier.centredWhenFocused(): Modifier {
     val scroller = LocalPageScroller.current ?: return this
     val ref = remember { RowFocusRef() }
     return this
-        .onGloballyPositioned { ref.coords = it }
+        .onGloballyPositioned {
+            ref.coords = it
+            if (ref.waiting && it.isAttached) { ref.waiting = false; scroller.centre(it) }
+        }
         .onFocusChanged {
-            if (it.hasFocus && !ref.had) ref.coords?.let(scroller::centre)
+            // (pressed quickly, the remote can land in a row only just made, not yet placed: the page waited for nothing
+            // and stayed where it was while the remote went on down out of sight. Now it's centred the moment it's placed)
+            if (it.hasFocus && !ref.had) {
+                val c = ref.coords
+                if (c != null && c.isAttached) scroller.centre(c) else ref.waiting = true
+            }
+            if (!it.hasFocus) ref.waiting = false
             ref.had = it.hasFocus
         }
         .bringIntoViewResponder(RowOwnsScrolling)
@@ -512,10 +523,10 @@ fun Modifier.keepsSideways(left: Boolean = false): Modifier = focusProperties {
 /** A titled row of cards that scrolls sideways as the remote moves along it */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun Shelf(title: String, modifier: Modifier = Modifier, content: LazyListScope.() -> Unit) {
+fun Shelf(title: String, modifier: Modifier = Modifier, spacing: Dp = 18.dp, content: LazyListScope.() -> Unit) {
     // (the row the remote is in has its name bright; the others' are softer, as on Apple TV)
     val rowFocused = remember { mutableStateOf(false) }
-    val rowScrolling = rememberRowScrolling(Dx.Gutter, 18.dp)
+    val rowScrolling = rememberRowScrolling(Dx.Gutter, spacing)
     Column(
         modifier.fillMaxWidth().centredWhenFocused().onFocusChanged { rowFocused.value = it.hasFocus },
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -528,7 +539,7 @@ fun Shelf(title: String, modifier: Modifier = Modifier, content: LazyListScope.(
                 modifier = Modifier.keepsSideways(),
                 // (room around the cards for them to grow when chosen without overlapping row titles)
                 contentPadding = PaddingValues(start = Dx.Gutter, end = Dx.Gutter, top = 20.dp, bottom = 26.dp),
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                horizontalArrangement = Arrangement.spacedBy(spacing),
                 content = content,
             )
         }

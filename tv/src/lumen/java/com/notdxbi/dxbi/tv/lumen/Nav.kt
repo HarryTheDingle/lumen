@@ -158,6 +158,33 @@ val LocalCovered = compositionLocalOf { false }
 /** True for the top page while it fades out on Back */
 val LocalLeaving = compositionLocalOf { false }
 
+/** The app's Nav, for a page's window to open the menu from (hold Back) */
+val LocalNav = androidx.compose.runtime.staticCompositionLocalOf<Nav?> { null }
+
+/**
+ * Back held down opens the menu, from anywhere (a page's window too): the press that's let go then does nothing more.
+ * A quick press is Back as ever.
+ */
+@Composable
+fun Modifier.holdBackForMenu(): Modifier {
+    val nav = LocalNav.current ?: return this
+    var held by remember { mutableStateOf(false) }
+    return this.onPreviewKeyEvent { e ->
+        if (e.key != androidx.compose.ui.input.key.Key.Back) return@onPreviewKeyEvent false
+        when (e.type) {
+            androidx.compose.ui.input.key.KeyEventType.KeyDown -> {
+                val n = e.nativeKeyEvent
+                if (n.repeatCount > 0 || n.isLongPress) {
+                    if (!held) { held = true; if (!nav.menuOpen) nav.menuOpen = true }
+                    true
+                } else false
+            }
+            androidx.compose.ui.input.key.KeyEventType.KeyUp -> if (held) { held = false; true } else false
+            else -> false
+        }
+    }
+}
+
 /**
  * The page's own window, filling the screen, fading in and out. [home]: where the remote goes when it
  * has nowhere in the page (as it's back from the player, which leaves it nowhere)
@@ -214,7 +241,9 @@ fun PageWindow(
             }
         }
         LaunchedEffect(leaving) {
-            if (leaving) rise.animateTo(0f, tween(300, easing = soft))
+            // (a little longer than it came in, easing right out, so it's gone before the window is: it was taken away
+            // after a fixed 300 ms while the fade, started a frame or two late, still had a sliver to go, a pop at the end)
+            if (leaving) rise.animateTo(0f, tween(380, easing = androidx.compose.animation.core.CubicBezierEasing(0.4f, 0f, 0.2f, 1f)))
         }
         if (solid && window != null) {
             val backing = remember { android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK) }
@@ -231,7 +260,7 @@ fun PageWindow(
                 val sc = (1.03f - 0.03f * r) * (1f - 0.03f * recede)
                 scaleX = sc
                 scaleY = sc
-            }.onFocusChanged { hasFocus = it.hasFocus }) { content() }
+            }.onFocusChanged { hasFocus = it.hasFocus }.holdBackForMenu()) { content() }
     }
 }
 
@@ -308,13 +337,24 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
             nav.menuOpen = false
         }
     }
-    // Back with the menu open leaves Lumen, as the Apple TV app does (Back on a page's top is what opened it)
+    // Back with the menu open leaves Lumen, as the Apple TV app does (Back on a page's top is what opened it), once asked
     val activity = androidx.compose.ui.platform.LocalContext.current.let { c ->
         var x: android.content.Context? = c
         while (x is android.content.ContextWrapper && x !is android.app.Activity) x = x.baseContext
         x as? android.app.Activity
     }
-    PageWindow(onBack = { activity?.finish() ?: close() }, windowAnimation = false, fadeIn = false) {
+    // (Back once more, within a few seconds, to leave: a first Back here says so, rather than leaving at once)
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var backAt by remember { mutableStateOf(0L) }
+    PageWindow(onBack = {
+        val now = System.currentTimeMillis()
+        if (activity == null) close()
+        else if (now - backAt < 2500) activity.finish()
+        else {
+            backAt = now
+            android.widget.Toast.makeText(context, "Press Back again to leave ${com.notdxbi.dxbi.tv.BuildConfig.APP_NAME}", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }, windowAnimation = false, fadeIn = false) {
         FocusOnOpen(chosen)
         Box(
             Modifier
@@ -366,6 +406,9 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
                     val shape = RoundedCornerShape(50)
                     Surface(
                         onClick = {
+                            // (opened over a page, by holding Back: the pages go too, so the screen chosen is what shows)
+                            nav.pages.clear()
+                            nav.leaving = false
                             nav.tab = t
                             close()
                         },

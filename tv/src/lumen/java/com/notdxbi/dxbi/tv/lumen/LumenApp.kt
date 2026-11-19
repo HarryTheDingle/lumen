@@ -196,10 +196,11 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
 
     CompositionLocalProvider(LocalCardActions provides cardActions, LocalLauncher provides launcher, LocalTaste provides taste, LocalDiscoverFeed provides feed) {
     // (noted, so the corner opens the menu only when the remote moves onto it)
+    CompositionLocalProvider(LocalNav provides nav) {
     Box(Modifier.fillMaxSize().onPreviewKeyEvent {
         if (it.type == KeyEventType.KeyDown && (it.key == Key.DirectionUp || it.key == Key.DirectionLeft)) nav.movedAt = System.currentTimeMillis()
         false
-    }) {
+    }.holdBackForMenu()) {
     // a new screen's content comes up a moment after the menu closes, as Apple TV's pages do
     key(nav.tab) {
         val rise = remember { androidx.compose.animation.core.Animatable(0f) }
@@ -230,7 +231,8 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
     // Back: the top page fades out, then goes (the effect restarts if Back is pressed again, which finishes it at once)
     LaunchedEffect(nav.leaving) {
         if (nav.leaving) {
-            delay(300)
+            // (after the page's fade has run its course: PageWindow fades it over 380 ms)
+            delay(460)
             nav.finishBack()
         }
     }
@@ -264,6 +266,7 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
 
     // over everything while a title's starting
     if (launcher.title != null) LoadingScreen(launcher)
+    }
     }
 }
 

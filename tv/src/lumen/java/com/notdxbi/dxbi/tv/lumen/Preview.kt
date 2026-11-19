@@ -181,7 +181,7 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
  * Continue Watching: wide art with the name in plain type and how far they got. OK opens the title's page.
  */
 @Composable
-fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 270.dp, onLongClick: (() -> Unit)? = null) {
+fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 270.dp, onLongClick: (() -> Unit)? = null, modifier: Modifier = Modifier) {
     val title = item.title
     val height = width * 0.64f
     var focused by remember { mutableStateOf(false) }
@@ -192,7 +192,7 @@ fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 270.dp,
         onClick = onClick,
         corner = 16.dp,
         onLongClick = onLongClick,
-        modifier = Modifier
+        modifier = modifier
             .width(width)
             .height(height)
             .onFocusChanged { focused = it.isFocused || it.hasFocus },
