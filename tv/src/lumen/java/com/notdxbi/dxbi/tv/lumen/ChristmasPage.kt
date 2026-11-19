@@ -41,7 +41,8 @@ fun ChristmasPage(feed: DiscoverFeed, nav: Nav) {
     var data by remember { mutableStateOf<Christmas?>(null) }
     var done by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        data = feed.christmas()
+        // (each row shows as it comes in; a second visit is the kept page, at once)
+        feed.christmasRows { data = it }
         done = true
     }
     val first = remember { FocusRequester() }
@@ -85,7 +86,8 @@ fun ChristmasPage(feed: DiscoverFeed, nav: Nav) {
                     }
                 }
                 data?.rows?.forEachIndexed { i, row ->
-                    item(key = "row-$i") {
+                    // (keyed by name: a row arriving above the others mustn't make them all look new)
+                    item(key = "row-${row.name}") {
                         Shelf(row.name, if (i == 0) Modifier.focusRequester(first) else Modifier) {
                             items(row.items.distinctBy { it.id }, key = { it.id }) { t -> PreviewPosterCard(t, onClick = { nav.open(t) }) }
                         }

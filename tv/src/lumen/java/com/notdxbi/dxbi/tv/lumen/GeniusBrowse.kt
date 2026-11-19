@@ -306,6 +306,9 @@ fun ChainPage(nav: Nav, stremio: Stremio, firstName: String, firstRow: List<Titl
     LaunchedEffect(firstRow, firstName) {
         hover = null
         emptyFor = null
+        // (a filter changing sends the first row back to null while the new one loads: the rows stay in place, as skeletons,
+        // so the page's frame doesn't collapse and jump; only an answer, full or empty, replaces them)
+        if (firstRow == null && rows.isNotEmpty()) return@LaunchedEffect
         rows = if (firstRow.isNullOrEmpty()) emptyList() else listOf(ChainRow(null, firstName, firstRow))
     }
     // hovering a title immediately reloads the row under it as "More like" it (moving on cancels the in-flight load)
@@ -315,8 +318,10 @@ fun ChainPage(nav: Nav, stremio: Stremio, firstName: String, firstRow: List<Titl
         val (i, t) = hover ?: return@LaunchedEffect
         if (rows.getOrNull(i + 1)?.forId == t.id) return@LaunchedEffect
         if (emptyFor == (i to t.id)) emptyFor = null
-        // (only a row that's new shows a skeleton: a row being swapped stays up until the new one's in)
+        // (a new row's slot shows its skeleton at once; a row being swapped keeps its frame and only its posters give way to
+        // skeleton shapes, and only if the load takes a moment, so moving quickly along a row doesn't flash them)
         if (rows.size <= i + 1) pending = i + 1
+        val late = if (rows.size > i + 1) launch { delay(220); pending = i + 1 } else null
         try {
             // (Lumos's engine has no Related, so the feed makes them; the engine's is the fallback)
             val found = (feed?.related(t.type, t.id, t.genres) ?: emptyList()).ifEmpty { runCatching { stremio.related(t.type, t.id, t.genres) }.getOrDefault(emptyList()) }
@@ -332,6 +337,7 @@ fun ChainPage(nav: Nav, stremio: Stremio, firstName: String, firstRow: List<Titl
             }
             rows = rows.take(i + 1) + ChainRow(t.id, "More like ${t.name}", list)
         } finally {
+            late?.cancel()
             // (cancelled by moving on, or done: the skeleton goes either way)
             if (pending == i + 1) pending = null
         }
@@ -366,34 +372,25 @@ fun ChainPage(nav: Nav, stremio: Stremio, firstName: String, firstRow: List<Titl
                     val totalSlots = if (rows.isEmpty()) 1 else rows.size + if (pending == rows.size) 1 else 0
                     for (i in 0 until totalSlots) {
                         key(i) {
-                            val slotPhase = when {
-                                i < rows.size -> 2
-                                i == 0 && firstRow != null -> 1
-                                else -> 0
-                            }
-                            Crossfade(
-                                targetState = slotPhase,
-                                animationSpec = tween(260),
-                                modifier = Modifier.padding(bottom = 8.dp).onGloballyPositioned { tops[i] = it.positionInParent().y },
-                                label = "chain-slot-$i",
-                            ) { phase ->
-                                when (phase) {
-                                    0 -> LoadingShelf(if (i == 0) firstName else null)
-                                    1 -> Text("Nothing to show here", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter, vertical = 24.dp))
-                                    else -> rows.getOrNull(i)?.let { r ->
-                                        ChainRowView(
-                                            r, if (i == 0) first else null,
-                                            modifier = Modifier,
-                                            onTitle = { hover = i to it },
-                                            onEnter = { show(i) },
-                                            onOpen = { nav.open(it) },
-                                            canGoDown = {
-                                                val cur = hover
-                                                if (cur == null || cur.first != i) true
-                                                else rows.getOrNull(i + 1)?.forId == cur.second.id || emptyFor == (i to cur.second.id)
-                                            },
-                                        )
-                                    }
+                            // (the slot keeps one frame whatever it's doing: the row's title line and its card places stay, and
+                            // only the posters swap for skeleton shapes while it loads, so nothing jumps or collapses)
+                            Box(Modifier.padding(bottom = 8.dp).onGloballyPositioned { tops[i] = it.positionInParent().y }) {
+                                if (rows.isEmpty() && i == 0 && firstRow != null) {
+                                    Text("Nothing to show here", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter, vertical = 24.dp))
+                                } else {
+                                    ChainRowView(
+                                        rows.getOrNull(i), if (i == 0) firstName else null, if (i == 0) first else null,
+                                        loading = i >= rows.size || pending == i || (firstRow == null && rows.isNotEmpty()),
+                                        modifier = Modifier,
+                                        onTitle = { hover = i to it },
+                                        onEnter = { show(i) },
+                                        onOpen = { nav.open(it) },
+                                        canGoDown = {
+                                            val cur = hover
+                                            if (cur == null || cur.first != i) true
+                                            else rows.getOrNull(i + 1)?.forId == cur.second.id || emptyFor == (i to cur.second.id)
+                                        },
+                                    )
                                 }
                             }
                         }
@@ -411,11 +408,17 @@ fun ChainPage(nav: Nav, stremio: Stremio, firstName: String, firstRow: List<Titl
     }
 }
 
-/** A row of the chain: its name (bright while the remote's in it) over its posters; the remote lands back where it was */
+/**
+ * A row of the chain: its name (bright while the remote's in it) over its posters; the remote lands back where it was.
+ * While [loading] the frame stays (title line, card places) and the posters fade out for skeleton card shapes in the
+ * same places; the new posters then fade in over them. A null [row] is a slot still waiting for its first answer.
+ */
 @Composable
 private fun ChainRowView(
-    row: ChainRow,
+    row: ChainRow?,
+    placeholderName: String?,
     firstCard: FocusRequester?,
+    loading: Boolean,
     modifier: Modifier,
     onTitle: (Title) -> Unit,
     onEnter: () -> Unit,
@@ -424,6 +427,7 @@ private fun ChainRowView(
 ) {
     val inRow = remember { mutableStateOf(false) }
     val rowScrolling = rememberRowScrolling(Dx.Gutter, 18.dp)
+    val cardsAlpha by animateFloatAsState(if (loading || row == null) 0f else 1f, tween(260), label = "chain-cards")
     Column(
         modifier.fillMaxWidth()
             .onFocusChanged {
@@ -436,30 +440,46 @@ private fun ChainRowView(
             },
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        ChainRowHeading(row.name) { inRow.value }
-        Crossfade(targetState = row, animationSpec = tween(260), label = "chain-row-cards") { shownRow ->
-            val rowKey = shownRow.key
-            CompositionLocalProvider(LocalBringIntoViewSpec provides rowScrolling) {
-                LazyRow(
-                    contentPadding = PaddingValues(start = Dx.Gutter, end = Dx.Gutter, top = 20.dp, bottom = 26.dp),
+        val name = row?.name ?: placeholderName
+        if (name != null) ChainRowHeading(name) { inRow.value }
+        // (no name yet: a skeleton bar where it'll be, as LoadingShelf has)
+        else Box(Modifier.padding(horizontal = Dx.Gutter, vertical = 4.dp).size(180.dp, 18.dp).skeleton(shape = RoundedCornerShape(6.dp)))
+        Box {
+            // (the skeleton cards sit under the posters, in the same places, and show through as the posters fade)
+            if (cardsAlpha < 1f) {
+                Row(
+                    Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 20.dp, bottom = 26.dp).graphicsLayer { alpha = 1f - cardsAlpha },
                     horizontalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
-                    itemsIndexed(shownRow.titles, key = { _, t -> t.id }) { i, t ->
-                        val shouldStagger = i <= 8
-                        val entranceAlpha = remember(rowKey, t.id) { Animatable(if (shouldStagger) 0f else 1f) }
-                        if (shouldStagger) {
-                            LaunchedEffect(rowKey, t.id) {
-                                delay(i * 45L)
-                                entranceAlpha.animateTo(1f, tween(240))
+                    repeat(8) { Box(Modifier.size(Dx.Poster, Dx.Poster * 1.5f).skeleton(shape = RoundedCornerShape(12.dp))) }
+                }
+            }
+            // (while it loads the old posters, once faded, aren't kept: nothing unseen can take the remote)
+            if (row != null && (!loading || cardsAlpha > 0f)) {
+                val rowKey = row.key
+                CompositionLocalProvider(LocalBringIntoViewSpec provides rowScrolling) {
+                    LazyRow(
+                        modifier = Modifier.graphicsLayer { alpha = cardsAlpha },
+                        contentPadding = PaddingValues(start = Dx.Gutter, end = Dx.Gutter, top = 20.dp, bottom = 26.dp),
+                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                    ) {
+                        itemsIndexed(row.titles, key = { _, t -> t.id }) { i, t ->
+                            val shouldStagger = i <= 8
+                            val entranceAlpha = remember(rowKey, t.id) { Animatable(if (shouldStagger) 0f else 1f) }
+                            if (shouldStagger) {
+                                LaunchedEffect(rowKey, t.id) {
+                                    delay(i * 45L)
+                                    entranceAlpha.animateTo(1f, tween(240))
+                                }
                             }
-                        }
-                        Box(
-                            Modifier
-                                .graphicsLayer { alpha = entranceAlpha.value }
-                                .onFocusChanged { if (it.hasFocus) onTitle(t) }
-                                .then(if (i == 0 && firstCard != null) Modifier.focusRequester(firstCard) else Modifier),
-                        ) {
-                            PreviewPosterCard(t, onClick = { onOpen(t) })
+                            Box(
+                                Modifier
+                                    .graphicsLayer { alpha = entranceAlpha.value }
+                                    .onFocusChanged { if (it.hasFocus) onTitle(t) }
+                                    .then(if (i == 0 && firstCard != null) Modifier.focusRequester(firstCard) else Modifier),
+                            ) {
+                                PreviewPosterCard(t, onClick = { onOpen(t) })
+                            }
                         }
                     }
                 }
