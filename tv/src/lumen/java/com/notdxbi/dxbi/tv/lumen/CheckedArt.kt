@@ -158,7 +158,10 @@ object CheckedArt {
     object Swap : Interceptor {
         override suspend fun intercept(chain: Interceptor.Chain): ImageResult {
             val data = chain.request.data as? String ?: return chain.proceed()
-            val to = resolve(data) ?: return chain.proceed()
+            // (the billboard's, marked #big: the checked picture at its original size, which fills a 1080p screen)
+            val big = data.endsWith(BIG)
+            val to = resolve(data.removeSuffix(BIG))?.let { if (big) it.replace("/t/p/w1280/", "/t/p/original/") else it }
+                ?: return if (big) chain.withRequest(chain.request.newBuilder().data(data.removeSuffix(BIG)).memoryCacheKey(data).build()).proceed() else chain.proceed()
             return chain.withRequest(chain.request.newBuilder().data(to).memoryCacheKey(data).build()).proceed()
         }
     }
@@ -180,3 +183,6 @@ fun freshUrl(url: String?): String? {
 }
 
 private val IMDB_IN_URL = Regex("""/(tt\d+)/img""")
+
+/** A picture asked for at its biggest (the billboard's): see [CheckedArt.Swap] */
+const val BIG = "#big"

@@ -642,9 +642,18 @@ private class PageScrollingSpec(private val list: androidx.compose.foundation.la
             if (jumping != target || now - jumpedAt > 1500) { jumping = target; jumpedAt = now; scroller.toItem(target) }
             return 0f
         }
+        // (along a row, the page stays still: the same section at the same height is a move sideways. A chosen card is
+        // taller than the rest (lifted, its strip under it), so near the foot of the screen the rule below took Related
+        // down a little as the remote moved along it)
+        val lastSame = target == lastTarget && kotlin.math.abs(offset - lastOffset) < containerSize * 0.02f
+        lastTarget = target
+        lastOffset = offset
+        if (lastSame) return 0f
         scroller.move(wanted(offset, size, containerSize), containerSize)
         return 0f
     }
+    private var lastTarget = -1
+    private var lastOffset = 0f
 
     private fun wanted(offset: Float, size: Float, containerSize: Float): Float {
         // (the section is the one the chosen thing is in, by where it is: the remote's section is noted only after Compose

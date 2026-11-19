@@ -515,7 +515,7 @@ private fun Billboard(
                     // (no grey card under the picture, as Art has: it covers the screen, so that was one more screen of
                     // painting in every frame for nothing; a TV's graphics are short of exactly that)
                     coil3.compose.AsyncImage(
-                        model = fresh(t.backdrop), contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        model = billboardSize(fresh(t.backdrop)), contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                         modifier = Modifier.fillMaxSize().alpha(artAlpha),
                     )
                     Box(Modifier.fillMaxSize().background(LeftShade))
@@ -666,3 +666,13 @@ fun settle(distance: Float, containerSize: Float): Float = if (kotlin.math.abs(d
 private val BillboardEase = androidx.compose.animation.core.CubicBezierEasing(0.22f, 0.0f, 0.12f, 1f)
 private val LeftShade = Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.7f), 0.45f to Color.Black.copy(alpha = 0.2f), 0.7f to Color.Transparent)
 private val TopShade = Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.3f), 0.18f to Color.Transparent)
+
+/**
+ * The billboard's picture at the size of the screen: a TMDB backdrop at its original size (1920 wide or more) rather than
+ * the 1280 the rows use, which looked soft filling a 1080p TV. (It's decoded at the screen's size, so no more memory)
+ */
+private fun billboardSize(url: String?): String? = url?.let {
+    if ("image.tmdb.org/t/p/w1280/" in it) it.replace("image.tmdb.org/t/p/w1280/", "image.tmdb.org/t/p/original/")
+    // (a Cinemeta picture: swapped for the checked TMDB one as it loads, at its biggest)
+    else if (it.contains("metahub.space") && !it.endsWith(BIG)) it + BIG else it
+}
