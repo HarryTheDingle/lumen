@@ -1,6 +1,7 @@
 package com.notdxbi.dxbi.tv.lumen
 
 import com.notdxbi.dxbi.tv.BuildConfig
+import com.notdxbi.dxbi.tv.phone.Title
 import com.notdxbi.dxbi.tv.phone.objects
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -155,5 +156,69 @@ object Tmdb {
         return out.put("known", arr(titles.take(10)))
             .put("films", arr(titles.filter { it.optString("type") == "movie" }))
             .put("shows", arr(titles.filter { it.optString("type") != "movie" }))
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Onboarding's picks
+
+    /** TMDB's genre ids as the names Cinemeta uses (what a chosen title's genres are kept as, so "more like it" finds its catalog) */
+    private val GENRE_NAMES = mapOf(
+        28 to "Action", 12 to "Adventure", 16 to "Animation", 35 to "Comedy", 80 to "Crime", 99 to "Documentary", 18 to "Drama",
+        10751 to "Family", 14 to "Fantasy", 36 to "History", 27 to "Horror", 9648 to "Mystery", 10749 to "Romance", 878 to "Sci-Fi",
+        53 to "Thriller", 10752 to "War", 37 to "Western", 10759 to "Action", 10765 to "Sci-Fi", 10768 to "War",
+    )
+
+    private val picksCache = ConcurrentHashMap<String, List<Title>>()
+
+    /**
+     * Well-known titles for "pick a few you've enjoyed": for each genre asked (TMDB's ids, films or series) the most
+     * popular and the best loved of those with plenty of votes (so they're recognisable, and from every decade, not only
+     * this year's), taking turns between genres, films and series so no one kind crowds the rest. Each comes with its
+     * IMDb id (Lumos's ids) and TMDB's own poster; empty without a key or the network, when the caller falls back.
+     * [movieGenres] and [seriesGenres] are one list per chosen genre (TMDB lets a list of ids stand for "any of these").
+     */
+    suspend fun picks(movieGenres: List<List<Int>>, seriesGenres: List<List<Int>>, limit: Int = 20): List<Title> {
+        if (BuildConfig.TMDB_KEY.isBlank()) return emptyList()
+        val cacheKey = "m$movieGenres s$seriesGenres $limit"
+        picksCache[cacheKey]?.let { return it }
+        class Raw(val tmdb: Int, val kind: String, val o: JSONObject)
+        val lists = coroutineScope {
+            val jobs = ArrayList<kotlinx.coroutines.Deferred<List<Raw>>>()
+            for ((kind, groups) in listOf("movie" to movieGenres, "tv" to seriesGenres)) {
+                // (no genre chosen at all: one list of each kind with no filter)
+                for (g in groups.ifEmpty { listOf(emptyList()) }) {
+                    // (a series needs fewer votes than a film to be as well known)
+                    val votes = if (kind == "movie") 3000 else 1200
+                    val genre = if (g.isEmpty()) "" else "&with_genres=" + g.joinToString("|")
+                    for ((sort, extra) in listOf("popularity.desc" to "&vote_count.gte=$votes", "vote_average.desc" to "&vote_count.gte=${votes * 2}&vote_average.gte=7.4")) {
+                        for (page in 1..2) jobs.add(async {
+                            get("/discover/$kind", "&sort_by=$sort&include_adult=false&page=$page$genre$extra")
+                                ?.optJSONArray("results").objects()
+                                .filter { it.str("poster_path") != null }
+                                .map { Raw(it.optInt("id"), kind, it) }
+                        })
+                    }
+                }
+            }
+            jobs.awaitAll()
+        }
+        // (turns across every list, a film then a series from each genre; the most popular and best loved of one genre alternate)
+        val seen = HashSet<Int>()
+        val pool = ArrayList<Raw>()
+        for (i in 0 until (lists.maxOfOrNull { it.size } ?: 0)) for (l in lists) if (i < l.size && seen.add(l[i].tmdb * 2 + if (l[i].kind == "movie") 0 else 1)) pool.add(l[i])
+        val titles = coroutineScope {
+            pool.take(limit + limit / 2).map { r ->
+                async {
+                    val imdb = get("/${r.kind}/${r.tmdb}/external_ids")?.str("imdb_id")?.takeIf { it.startsWith("tt") } ?: return@async null
+                    val date = r.o.str("release_date") ?: r.o.str("first_air_date")
+                    // (their genres, the chosen ones come first only by chance of TMDB's order: the first is what "Because you liked" looks up)
+                    val genres = r.o.optJSONArray("genre_ids")?.let { a -> (0 until a.length()).mapNotNull { GENRE_NAMES[a.optInt(it)] } }.orEmpty().distinct()
+                    Title(id = imdb, type = if (r.kind == "movie") "movie" else "series", name = r.o.str("title") ?: r.o.str("name") ?: return@async null, poster = face(r.o.str("poster_path")), year = date?.take(4), genres = genres)
+                }
+            }.awaitAll().filterNotNull()
+        }
+        val out = titles.distinctBy { it.id }.take(limit)
+        if (out.size >= 8) picksCache[cacheKey] = out
+        return out
     }
 }
