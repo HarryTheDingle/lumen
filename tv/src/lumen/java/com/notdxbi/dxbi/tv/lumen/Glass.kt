@@ -3,9 +3,6 @@ package com.notdxbi.dxbi.tv.lumen
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.spring
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -31,9 +28,9 @@ import androidx.compose.ui.unit.toSize
  * Everything that moves is read while drawing, so scrolling only redraws the rim: nothing is laid out or built again.
  */
 class GlassState {
-    /** The card's middle and the screen's size, in px (Unspecified until it's been placed) */
-    var centre by mutableStateOf(Offset.Unspecified)
-    var screen by mutableStateOf(Size.Zero)
+    /** The card's middle and the screen's size, in px (plain fields so scrolling never invalidates unfocused cards) */
+    var centre: Offset = Offset.Unspecified
+    var screen: Size = Size.Zero
     val drift = Animatable(Offset.Zero, Offset.VectorConverter)
 
     /** Chosen: lean the spot the way the remote came from the last chosen card, then settle back */
@@ -62,24 +59,44 @@ fun Modifier.glassEdge(shape: Shape, state: GlassState, focus: () -> Float): Mod
     .onGloballyPositioned { c ->
         val p = c.positionInRoot()
         state.centre = Offset(p.x + c.size.width / 2f, p.y + c.size.height / 2f)
-        state.screen = c.findRootCoordinates().size.toSize()
+        if (state.screen == Size.Zero) state.screen = c.findRootCoordinates().size.toSize()
     }
     .drawWithCache {
         val outline = shape.createOutline(size, layoutDirection, this)
         val w = 1.dp.toPx()
         val rim = Stroke(w)
         val spotRim = Stroke(w * 1.5f)
+        val restRimBrush = Brush.verticalGradient(
+            0f to white(0.22f),
+            0.45f to white(0.07f),
+            1f to white(0.03f),
+            endY = size.height,
+        )
+        val restSheenBrush = Brush.verticalGradient(0f to white(0.05f), 0.2f to Color.Transparent, endY = size.height)
         onDrawWithContent {
             drawContent()
             val f = focus().coerceIn(0f, 1f)
+            if (f <= 0f) {
+                drawOutline(outline, restRimBrush, style = rim)
+                drawOutline(outline, restSheenBrush)
+                return@onDrawWithContent
+            }
             // the rim: lighter at the top, almost gone at the foot
             drawOutline(
                 outline,
-                Brush.verticalGradient(0f to white(0.22f + 0.18f * f), 0.45f to white(0.07f + 0.08f * f), 1f to white(0.03f + 0.04f * f), endY = size.height),
+                Brush.verticalGradient(
+                    0f to white(0.22f + 0.18f * f),
+                    0.45f to white(0.07f + 0.08f * f),
+                    1f to white(0.03f + 0.04f * f),
+                    endY = size.height,
+                ),
                 style = rim,
             )
             // a faint sheen just inside the top, as on a pane of glass
-            drawOutline(outline, Brush.verticalGradient(0f to white(0.05f + 0.04f * f), 0.2f to Color.Transparent, endY = size.height))
+            drawOutline(
+                outline,
+                Brush.verticalGradient(0f to white(0.05f + 0.04f * f), 0.2f to Color.Transparent, endY = size.height),
+            )
             // where the light catches it
             val screen = state.screen
             val c = state.centre

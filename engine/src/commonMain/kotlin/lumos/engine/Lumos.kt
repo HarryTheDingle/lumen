@@ -273,8 +273,19 @@ class Lumos(syncServer: String) {
     }
 
     fun setWatched(id: String, on: Boolean, now: Long) {
-        put("watched:$viewer", JsonObject(titles("watched:$viewer") + (id to buildJsonObject { put("at", now); put("on", on) })), now)
-        if (on) progress()[id]?.let { put("progress:$viewer", JsonObject(progress() - id), now) }
+        if (on) {
+            put("watched:$viewer", JsonObject(titles("watched:$viewer") + (id to buildJsonObject { put("at", now); put("on", on) })), now)
+            progress()[id]?.let { put("progress:$viewer", JsonObject(progress() - id), now) }
+            return
+        }
+        // Unwatched is a clean slate (Harry's call): the mark goes, a show's episode marks go with it, and the place is
+        // put back to 0 (kept as a removal, as Continue Watching's ✕ does, so other devices forget it too)
+        val off = buildJsonObject { put("at", now); put("on", false) }
+        val episodes = if (id.count { it == ':' } == 0) titles("watched:$viewer").keys.filter { it.startsWith("$id:") } else emptyList()
+        put("watched:$viewer", JsonObject(titles("watched:$viewer") + (listOf(id) + episodes).associateWith { off }), now)
+        val show = id.substringBefore(':')
+        val place = progress()[show]?.obj()?.let(::resume)
+        if (place != null && (show == id || place.video == id)) forget(show, now)
     }
 
 

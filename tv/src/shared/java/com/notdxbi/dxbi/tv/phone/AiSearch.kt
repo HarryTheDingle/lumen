@@ -97,18 +97,7 @@ class AiSearch(private val context: Context, private val stremio: Stremio, priva
         })
     }
 
-    /**
-     * The recogniser to use: the box's own voice search (Google TV's) when there is one. The default some boxes name is
-     * a text-to-speech package that can't listen, which left Ask AI with "not connected"
-     */
-    private fun recognitionService(): ComponentName? {
-        val found = context.packageManager.queryIntentServices(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).setAction("android.speech.RecognitionService"), 0)
-            .mapNotNull { it.serviceInfo }
-        val best = found.firstOrNull { it.packageName.contains("katniss") }
-            ?: found.firstOrNull { it.packageName == "com.google.android.googlequicksearchbox" }
-            ?: found.firstOrNull { !it.packageName.contains("tts") }
-        return best?.let { ComponentName(it.packageName, it.name) }
-    }
+    private fun recognitionService(): ComponentName? = recogniserFor(context)
 
     /** Looks for the prompt (spoken or typed) */
     fun ask(text: String) {
@@ -146,4 +135,76 @@ fun rememberAiSearch(stremio: Stremio): AiSearch {
     ai.askPermission = { launcher.launch(Manifest.permission.RECORD_AUDIO) }
     DisposableEffect(ai) { onDispose { ai.close() } }
     return ai
+}
+
+/**
+ * The recogniser to use: the box's own voice search (Google TV's) when there is one. The default some boxes name is
+ * a text-to-speech package that can't listen, which left Ask AI with "not connected"
+ */
+internal fun recogniserFor(context: Context): ComponentName? {
+    val found = context.packageManager.queryIntentServices(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).setAction("android.speech.RecognitionService"), 0)
+        .mapNotNull { it.serviceInfo }
+    val best = found.firstOrNull { it.packageName.contains("katniss") }
+        ?: found.firstOrNull { it.packageName == "com.google.android.googlequicksearchbox" }
+        ?: found.firstOrNull { !it.packageName.contains("tts") }
+    return best?.let { ComponentName(it.packageName, it.name) }
+}
+
+/**
+ * Search's microphone: what's said goes into the search box, as typing would (the remote's own mic button opens the
+ * box's assistant instead, which leaves the app). [listening] while it hears; [heard] what it's heard so far.
+ */
+class VoiceTyping(private val context: Context, private val onHeard: (String) -> Unit) {
+    var listening by mutableStateOf(false); private set
+    var heard by mutableStateOf(""); private set
+    internal var askPermission: (() -> Unit)? = null
+    private var recogniser: SpeechRecognizer? = null
+
+    val available get() = SpeechRecognizer.isRecognitionAvailable(context)
+
+    fun start() {
+        if (!available) return
+        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { askPermission?.invoke(); return }
+        stop()
+        heard = ""; listening = true
+        val r = recogniserFor(context)?.let { SpeechRecognizer.createSpeechRecognizer(context, it) } ?: SpeechRecognizer.createSpeechRecognizer(context)
+        recogniser = r
+        r.setRecognitionListener(object : RecognitionListener {
+            override fun onPartialResults(b: Bundle?) { b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.let { heard = it } }
+            override fun onResults(b: Bundle?) {
+                val said = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty().trim()
+                stop()
+                if (said.isNotEmpty()) onHeard(said)
+            }
+            override fun onError(error: Int) { stop() }
+            override fun onReadyForSpeech(p: Bundle?) {}
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(v: Float) {}
+            override fun onBufferReceived(b: ByteArray?) {}
+            override fun onEndOfSpeech() {}
+            override fun onEvent(t: Int, p: Bundle?) {}
+        })
+        r.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_WEB_SEARCH)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        })
+    }
+
+    fun stop() {
+        recogniser?.run { runCatching { cancel() }; runCatching { destroy() } }
+        recogniser = null
+        listening = false
+    }
+}
+
+@Composable
+fun rememberVoiceTyping(onHeard: (String) -> Unit): VoiceTyping {
+    val context = LocalContext.current
+    val latest = androidx.compose.runtime.rememberUpdatedState(onHeard)
+    val voice = remember { VoiceTyping(context) { latest.value(it) } }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) voice.start() }
+    voice.askPermission = { launcher.launch(Manifest.permission.RECORD_AUDIO) }
+    DisposableEffect(voice) { onDispose { voice.stop() } }
+    return voice
 }

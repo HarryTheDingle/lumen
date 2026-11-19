@@ -177,6 +177,10 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
             watched = stremio.watchedIds,
             genres = { t -> stremio.genres(t.type, t.id) },
             turnedDown = stremio.turnedDown,
+            setWatched = { t, on ->
+                stremio.setWatched(t, on)
+                Toast.makeText(context, if (on) "Marked as watched" else "Marked as unwatched", Toast.LENGTH_SHORT).show()
+            },
             notInterested = { t ->
                 stremio.notInterested(t)
                 Toast.makeText(context, "${t.name} won't be suggested again", Toast.LENGTH_SHORT).show()
@@ -279,8 +283,11 @@ fun Field(
     /** Set true to open the keyboard without OK being pressed (Search, as it opens) */
     open: Boolean = false,
     leading: (@Composable () -> Unit)? = null,
+    /** The keyboard's Done (or Search) goes on down to what's below, as Search's results, with the keyboard put away */
+    downWhenDone: Boolean = false,
 ) {
     var editing by remember { mutableStateOf(false) }
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     LaunchedEffect(open) { if (open) editing = true }
     val box = remember { FocusRequester() }
     val input = remember { FocusRequester() }
@@ -293,6 +300,7 @@ fun Field(
     var boxFocused by remember { mutableStateOf(false) }
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     fun done(then: androidx.compose.ui.focus.FocusDirection? = null) {
+        keyboard?.hide()
         editing = false
         refocus = then
         refocusAsked = true
@@ -332,7 +340,7 @@ fun Field(
             textStyle = TextStyle(color = Color.White, fontSize = 18.sp),
             cursorBrush = SolidColor(Color.White),
             keyboardOptions = KeyboardOptions(keyboardType = type, imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { done() }),
+            keyboardActions = KeyboardActions(onDone = { done(if (downWhenDone) androidx.compose.ui.focus.FocusDirection.Down else null) }),
             visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
             modifier = modifier
                 .fillMaxWidth()

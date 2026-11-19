@@ -308,8 +308,14 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
     }
 
     fun setWatched(watched: Boolean) = scope.launch {
-        details.value?.metaId?.let { id -> watchedIds.value = if (watched) watchedIds.value + id else watchedIds.value - id }
+        details.value?.metaId?.let { id -> watchedIds.value = if (watched) watchedIds.value + id else watchedIds.value.filterNot { it == id || it.startsWith("$id:") }.toSet() }
         ask("watched", JSONObject().put("value", watched))
+    }
+
+    /** A card's title watched or not, from its hold menu (not the open page); unwatched also puts it back to the start */
+    fun setWatched(title: Title, watched: Boolean) = scope.launch {
+        watchedIds.value = if (watched) watchedIds.value + title.id else watchedIds.value.filterNot { it == title.id || it.startsWith("${title.id}:") }.toSet()
+        ask("watched", JSONObject().put("id", title.id).put("type", title.type).put("name", title.name).put("poster", title.poster ?: JSONObject.NULL).put("value", watched))
     }
 
     /** One video of the open title watched or not (a film: its own id); [upTo]: and the episodes before it in its season */

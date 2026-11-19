@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.res.painterResource
@@ -34,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -128,6 +130,7 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
     ) {
         val pageListState = androidx.compose.foundation.lazy.rememberLazyListState()
         val pageScope = androidx.compose.runtime.rememberCoroutineScope()
+        val pageScroller = remember(pageListState) { PageScroller(pageListState, pageScope) }
         val forYou = selected.isEmpty()
         // The page's items in order, as the column below lays them out: what a section shortcut scrolls to
         val keys = buildList {
@@ -141,30 +144,38 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
             }
             if (forYou && rows.isEmpty()) { add("genres"); add("franchises") }
         }
-        // a requester for each row a shortcut can go to
+        // a requester for each row a shortcut can go to, plus which section currently holds focus
         val landing = remember { HashMap<String, FocusRequester>() }
         fun landingFor(key: String) = landing.getOrPut(key) { FocusRequester() }
+        var focusedSection by remember { mutableStateOf<String?>(null) }
+        fun Modifier.trackSection(key: String): Modifier = this
+            .focusRequester(landingFor(key))
+            .onFocusChanged {
+                if (it.hasFocus) focusedSection = key
+                else if (focusedSection == key) focusedSection = null
+            }
+        var jumpJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
         fun goTo(key: String) {
             val i = keys.indexOf(key)
             if (i < 0) return
-            pageScope.launch {
-                pageListState.glideTo(i)
-                repeat(20) {
-                    if (runCatching { landingFor(key).requestFocus() }.isSuccess) return@launch
-                    kotlinx.coroutines.delay(30)
-                }
+            jumpJob?.cancel()
+            jumpJob = pageScope.launch {
+                pageScroller.jumpTo(i, centre = true, onVisible = {
+                    runCatching { landingFor(key).requestFocus() }
+                    focusedSection == key
+                })
             }
         }
         // Back, down the page: to the top and the services first (then, from there, Home)
         val chosenPill = remember { FocusRequester() }
         val scrolled by remember { androidx.compose.runtime.derivedStateOf { pageListState.firstVisibleItemIndex > 1 } }
         androidx.activity.compose.BackHandler(enabled = scrolled && nav.pages.isEmpty() && !nav.menuOpen) {
-            pageScope.launch {
-                pageListState.glideTo(0)
-                runCatching { chosenPill.requestFocus() }
+            jumpJob?.cancel()
+            jumpJob = pageScope.launch {
+                pageScroller.jumpTo(0, onVisible = { runCatching { chosenPill.requestFocus() }.isSuccess })
             }
         }
-        PageColumn(state = pageListState) {
+        PageColumn(state = pageListState, scroller = pageScroller) {
                 item(key = "top") { ScreenTag(nav) }
                 item(key = "services") {
                     // (each service its icon until the remote's on it: the whole row fits across the screen)
@@ -191,7 +202,8 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
                         if (rows.any { it.id == "series" }) add("Popular Series" to "row-series")
                         add("Franchises" to "franchises")
                     }
-                    CompositionLocalProvider(LocalBringIntoViewSpec provides RowScrolling) {
+                    val pillScrolling = rememberRowScrolling(Dx.Gutter, 8.dp)
+                    CompositionLocalProvider(LocalBringIntoViewSpec provides pillScrolling) {
                         LazyRow(contentPadding = PaddingValues(start = Dx.Gutter, end = Dx.Gutter, top = 4.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             item { Text("Jump to", fontSize = 14.sp, color = Dx.Muted, modifier = Modifier.padding(end = 4.dp)) }
                             items(sections, key = { it.second }) { (label, key) -> Pill(label, selected = false, onClick = { goTo(key) }) }
@@ -207,7 +219,7 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
                 }
                 rows.forEachIndexed { i, row ->
                     item(key = "row-${row.id}") {
-                        Shelf(row.title, Modifier.animateItem(fadeInSpec = tween(420), placementSpec = null, fadeOutSpec = tween(200)).focusRequester(landingFor("row-${row.id}"))) {
+                        Shelf(row.title, Modifier.animateItem(fadeInSpec = tween(420), placementSpec = null, fadeOutSpec = tween(200)).trackSection("row-${row.id}")) {
                             items(row.items, key = { it.id }) { t ->
                                 val date = row.dates[t.id]
                                 if (date != null) DatedPoster(t, date) { nav.open(t) } else PreviewPosterCard(t, onClick = { nav.open(t) })
@@ -215,11 +227,11 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
                         }
                     }
                     // the Genres row, after the digital rows (For You only)
-                    if (forYou && i == minOf(1, rows.lastIndex)) genresItem(nav, inSeason, hasKitsu, Modifier.focusRequester(landingFor("genres")))
+                    if (forYou && i == minOf(1, rows.lastIndex)) genresItem(nav, inSeason, hasKitsu, Modifier.trackSection("genres"))
                     // (then the Franchises row, after the popular ones, as on the iPad)
-                    if (forYou && i == minOf(3, rows.lastIndex)) franchisesItem(stremio, nav, Modifier.focusRequester(landingFor("franchises")))
+                    if (forYou && i == minOf(3, rows.lastIndex)) franchisesItem(stremio, nav, Modifier.trackSection("franchises"))
                 }
-                if (forYou && rows.isEmpty()) { genresItem(nav, inSeason, hasKitsu, Modifier.focusRequester(landingFor("genres"))); franchisesItem(stremio, nav, Modifier.focusRequester(landingFor("franchises"))) }
+                if (forYou && rows.isEmpty()) { genresItem(nav, inSeason, hasKitsu, Modifier.trackSection("genres")); franchisesItem(stremio, nav, Modifier.trackSection("franchises")) }
         }
     }
 }
@@ -232,6 +244,21 @@ internal fun LazyListScope.genresItem(nav: Nav, inSeason: Boolean, hasKitsu: Boo
         Shelf("Genres", modifier) {
             items(list, key = { it.name }) { g ->
                 GenreTile(g) { nav.push(if (g.name == "Christmas") Page.Christmas else Page.Genre(g.name)) }
+            }
+        }
+    }
+}
+
+/** Search's genres, with nothing typed: portrait tiles in rows down the page */
+internal fun LazyListScope.genresGrid(nav: Nav, inSeason: Boolean, perRow: Int) {
+    val list = GENRES.filter { it.name != "Anime" }.let { all -> if (inSeason) all.sortedBy { it.name != "Christmas" } else all }
+    list.chunked(perRow).forEachIndexed { i, line ->
+        item(key = "genres-$i") {
+            Row(
+                Modifier.fillMaxWidth().centredWhenFocused().padding(horizontal = Dx.Gutter, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                line.forEach { g -> GenreTile(g, portrait = true) { nav.push(if (g.name == "Christmas") Page.Christmas else Page.Genre(g.name)) } }
             }
         }
     }

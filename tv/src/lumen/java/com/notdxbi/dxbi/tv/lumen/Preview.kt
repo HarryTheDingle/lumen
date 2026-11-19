@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -39,6 +40,8 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.HideImage
 import androidx.compose.material.icons.outlined.ThumbDown
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.runtime.collectAsState
@@ -55,6 +58,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.onFocusChanged
@@ -91,6 +95,8 @@ class CardActions(
     val notInterested: ((Title) -> Unit)? = null,
     /** Titles turned down here: their cards stay where they are, dimmed, until the row's made again */
     val turnedDown: StateFlow<Set<String>> = kotlinx.coroutines.flow.MutableStateFlow(emptySet()),
+    /** Mark a title watched, or unwatched (which also puts it back to the start) */
+    val setWatched: ((Title, Boolean) -> Unit)? = null,
 )
 
 val LocalCardActions = staticCompositionLocalOf<CardActions?> { null }
@@ -104,6 +110,7 @@ fun TitleHoldMenu(title: Title, onOpen: () -> Unit, onDismiss: () -> Unit) {
     val actions = LocalCardActions.current ?: return onDismiss()
     val marks by actions.listMarks.collectAsState()
     val inList = marks[title.id] ?: title.inLibrary
+    val seen = actions.watched.collectAsState().value.contains(title.id) || (title.watched && title.type == "movie")
     val context = androidx.compose.ui.platform.LocalContext.current
     ActionMenu(
         title.name,
@@ -112,6 +119,10 @@ fun TitleHoldMenu(title: Title, onOpen: () -> Unit, onDismiss: () -> Unit) {
             Action("Go to ${if (title.type == "movie") "Film" else "Show"}", Icons.Outlined.Info) { onOpen() },
             if (inList) Action("Remove from Library", Icons.Filled.Check) { actions.setInList(title, false) }
             else Action("Add to Library", Icons.Filled.Add) { actions.setInList(title, true) },
+            actions.setWatched?.let { set ->
+                if (seen) Action("Mark as Unwatched", Icons.Outlined.VisibilityOff) { set(title, false) }
+                else Action("Mark as Watched", Icons.Outlined.Visibility) { set(title, true) }
+            },
             // (a picture that isn't this title's: never used for it again, on every device, and the next best loads)
             if (!Regex("""tt\d+""").matches(title.id)) null
             else Action("Wrong Picture", Icons.Outlined.HideImage) { CheckedArt.report(context, title.id, title.name) },
@@ -128,8 +139,9 @@ fun TitleHoldMenu(title: Title, onOpen: () -> Unit, onDismiss: () -> Unit) {
 private val genreMemory = ConcurrentHashMap<String, List<String>>()
 
 /**
- * A poster card: when the remote is on it, it grows down into the caption strip under the poster with
- * what it is ("Movie · Drama"). Hold OK for Play, Library, and Not Interested.
+ * A poster card: constant measured size (`width` x `width * 1.5f`) so focus never triggers relayout in rows or pages;
+ * when the remote is on it, a subtle caption strip ("Movie · Drama") fades in over the bottom of the poster via graphicsLayer.
+ * Hold OK for Play, Library, and Not Interested.
  */
 @Composable
 fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, width: Dp = Dx.Poster) {
@@ -138,11 +150,8 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
     var focused by remember { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
     if (held) TitleHoldMenu(title, onOpen = onClick, onDismiss = { held = false })
-    // Apple TV's: the poster the remote is on grows down into the room kept under every poster, the strip a smear of
-    // the poster's own colours with what it is ("Movie · Drama") in it. The room is there in every row, so nothing moves.
-    val grow by animateFloatAsState(if (focused) 1f else 0f, tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "grow")
-    // (a show's own flag in a row counts one episode seen; the library's list counts a show only watched as a whole)
-    // what it is for the caption under it: "Movie · Drama", the genre looked up once it's chosen if its row had none
+    val growAnim = animateFloatAsState(if (focused) 1f else 0f, tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "grow")
+    // what it is for the caption: "Movie · Drama", the genre looked up once it's chosen if its row had none
     var genres by remember(title.id) { mutableStateOf(title.genres.ifEmpty { genreMemory[title.id].orEmpty() }) }
     LaunchedEffect(focused) {
         if (!focused || genres.isNotEmpty() || actions == null) return@LaunchedEffect
@@ -150,23 +159,21 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
         delay(150)
         genres = actions.genres(title).also { genreMemory[title.id] = it }
     }
-    Column(Modifier.height(height + CAPTION_ROOM)) {
-        FocusCard(
-            onLongClick = { held = true },
-            onClick = onClick,
-            modifier = Modifier
-                .width(width)
-                .height(height + CAPTION_ROOM * grow)
-                .onFocusChanged { focused = it.isFocused || it.hasFocus },
-        ) {
-            PosterFace(
-                title = title,
-                rank = rank,
-                width = width,
-                grow = { grow },
-                caption = listOfNotNull(typeName(title.type), genres.firstOrNull()).joinToString(" · "),
-            )
-        }
+    val caption = remember(title.type, genres) { listOfNotNull(typeName(title.type), genres.firstOrNull()).joinToString(" · ") }
+    FocusCard(
+        onLongClick = { held = true },
+        onClick = onClick,
+        modifier = Modifier
+            .size(width, height)
+            .onFocusChanged { focused = it.isFocused || it.hasFocus },
+    ) {
+        PosterFace(
+            title = title,
+            rank = rank,
+            width = width,
+            grow = { growAnim.value },
+            caption = caption,
+        )
     }
 }
 
@@ -371,12 +378,10 @@ private fun trailerScript(start: Double, whole: Boolean = false): String {
     """.trimIndent()
 }
 
-/** The room kept under every poster, which the one the remote is on grows down into */
-val CAPTION_ROOM = 30.dp
-
 /**
  * The shared poster face (art, fallback title, badge/tag, watched mark, turned-down dimming, and optional
- * growing caption strip) used by both [PosterCard] and [PreviewPosterCard].
+ * focus caption strip rendered inside the poster's fixed bounds via graphicsLayer) used by both [PosterCard]
+ * and [PreviewPosterCard].
  */
 @Composable
 fun PosterFace(
@@ -387,57 +392,63 @@ fun PosterFace(
     grow: () -> Float = { 0f },
     caption: String? = null,
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
     val actions = LocalCardActions.current
     val watched = actions?.watched?.collectAsState()?.value?.contains(title.id) == true || (title.watched && title.type == "movie")
     val dimmed = actions?.turnedDown?.collectAsState()?.value?.contains(title.id) == true
     Box(Modifier.fillMaxSize()) {
-        // the strip under the poster: the poster's own foot carried on, blurred, darkening (only the chosen card has it, so
-        // the blur is one small one at a time; TVs before Android 12 can't blur, and get a tiny copy stretched instead)
-        val grown = caption != null && grow() > 0f
-        if (grown) {
-            val canBlur = android.os.Build.VERSION.SDK_INT >= 31
-            val art = fresh(title.art)
-            val smear = remember(art, canBlur) {
-                art?.let { coil3.request.ImageRequest.Builder(context).data(it).apply { if (!canBlur) size(8, 12) }.build() }
-            }
-            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(CAPTION_ROOM + 56.dp).graphicsLayer { alpha = grow() }) {
-                if (smear != null) coil3.compose.AsyncImage(
-                    model = smear, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                    alignment = Alignment.BottomCenter,
-                    modifier = Modifier.fillMaxSize().then(if (canBlur) Modifier.blur(14.dp, androidx.compose.ui.draw.BlurredEdgeTreatment.Rectangle) else Modifier),
-                )
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, 0.45f to Color.Black.copy(alpha = 0.2f), 1f to Color.Black.copy(alpha = 0.55f))))
+        // (no poster, or one that won't load: its name instead of a blank grey card, as search results had)
+        var noArt by remember(title.art) { mutableStateOf(title.art == null) }
+        Art(title.art, Modifier.fillMaxSize(), onError = { noArt = true })
+        if (hasNameOnPoster(title) || noArt) PosterName(title, width)
+        // (no numbers on the Top 10: Harry's call; the row's order says it)
+        CardLabel(title.id, width, inTopTen = rank != null)
+        // (turned down: dimmed with a thumb, in place, so the remote doesn't lose its card)
+        if (dimmed) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.62f)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.ThumbDown, contentDescription = "Not interested", tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(34.dp))
             }
         }
-        // (the poster's foot fades into the strip, so there's no edge between them)
-        val posterMod = if (fill) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(width * 1.5f)
-        Box(posterMod.then(if (grown) Modifier.fadeFoot(grow) else Modifier)) {
-            // (no poster, or one that won't load: its name instead of a blank grey card, as search results had)
-            var noArt by remember(title.art) { mutableStateOf(title.art == null) }
-            Art(title.art, Modifier.fillMaxSize(), onError = { noArt = true })
-            if (hasNameOnPoster(title) || noArt) PosterName(title, width)
-            // (no numbers on the Top 10: Harry's call; the row's order says it)
-            CardLabel(title.id, width, inTopTen = rank != null)
-            // (the ✓ in the corner at the foot: the label has the top)
-            if (watched) WatchedMark(Modifier.align(Alignment.BottomEnd).padding(6.dp))
-            // (turned down: dimmed with a thumb, in place, so the remote doesn't lose its card)
-            if (dimmed) {
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.62f)), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Outlined.ThumbDown, contentDescription = "Not interested", tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(34.dp))
-                }
-            }
-        }
-        // what it is, in the strip (a moment after it opens)
+        // caption scrim + text inside the bottom of the poster, driven strictly by graphicsLayer (no relayout)
         if (caption != null) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .graphicsLayer {
+                        val g = grow()
+                        alpha = g
+                        translationY = (1f - g) * 8.dp.toPx()
+                    }
+                    .background(
+                        Brush.verticalGradient(
+                            0f to Color.Transparent,
+                            0.45f to Color.Black.copy(alpha = 0.55f),
+                            1f to Color.Black.copy(alpha = 0.88f),
+                        ),
+                    ),
+            )
             Text(
                 caption,
                 // (small enough for "TV Show · Comedy" across a poster)
-                fontSize = 11.sp, letterSpacing = (-0.1).sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 7.dp, vertical = 7.dp)
-                    .graphicsLayer { alpha = ((grow() - 0.5f) * 2f).coerceIn(0f, 1f) },
+                fontSize = 11.sp,
+                letterSpacing = (-0.1).sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 8.dp, end = if (watched) 32.dp else 8.dp, bottom = 7.dp)
+                    .graphicsLayer {
+                        val g = grow()
+                        alpha = ((g - 0.25f) / 0.75f).coerceIn(0f, 1f)
+                        translationY = (1f - g) * 6.dp.toPx()
+                    },
             )
         }
+        // (the ✓ in the corner at the foot: the label has the top)
+        if (watched) WatchedMark(Modifier.align(Alignment.BottomEnd).padding(6.dp))
     }
 }
 
@@ -451,15 +462,6 @@ fun WatchedMark(modifier: Modifier = Modifier, size: Dp = 22.dp) {
         Icon(Icons.Filled.Check, contentDescription = "Watched", tint = Color.White, modifier = Modifier.size(size * 0.62f))
     }
 }
-
-/** The bottom fifth of what's drawn fading away as [amount] goes to 1 (a grown poster's foot into its blurred strip) */
-private fun Modifier.fadeFoot(amount: () -> Float): Modifier = this
-    .graphicsLayer(compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen)
-    .drawWithContent {
-        drawContent()
-        val a = amount()
-        drawRect(Brush.verticalGradient(0.78f to Color.Black, 1f to Color.Black.copy(alpha = 1f - a)), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
-    }
 
 /**
  * What a trailer shows while it loads: the title's backdrop, dimmed and drifting in very slowly, with

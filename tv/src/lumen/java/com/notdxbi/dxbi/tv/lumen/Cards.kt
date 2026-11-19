@@ -1,6 +1,5 @@
 package com.notdxbi.dxbi.tv.lumen
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -36,12 +35,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.relocation.bringIntoViewResponder
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.platform.LocalDensity
 import coil3.toBitmap
 import coil3.request.allowHardware
 import androidx.compose.ui.draw.drawBehind
@@ -67,8 +72,8 @@ import com.notdxbi.dxbi.tv.phone.Title
 import com.notdxbi.dxbi.tv.phone.episodeLabel
 
 /**
- * A card the remote can choose, the Apple TV way: it lifts towards you when chosen, larger, and its glass rim brightens.
- * (No glow or shadow around it: on black there's nothing for either to fall on, and Harry doesn't want the glow.)
+ * A card the remote can choose, the Apple TV way: it lifts towards you when chosen, larger, with a subtle glass rim
+ * and a soft white glow behind it.
  */
 @Composable
 fun FocusCard(
@@ -83,6 +88,13 @@ fun FocusCard(
     // (a spring with no bounce, ease-out over about a third of a second: it carries on from where it is when the remote
     // moves on mid-lift, so quick presses never jump)
     val lift by animateFloatAsState(if (focused) 1f else 0f, androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 320f), label = "lift")
+    // the glow behind it: in a little slower than the lift and out slower still, so it blooms and fades rather than
+    // switching (drawn here, a few soft rings: the TV library's Glow is a blurred shadow that snaps, and costs a frame)
+    val glow = animateFloatAsState(
+        if (focused) 1f else 0f,
+        if (focused) tween(360, easing = androidx.compose.animation.core.FastOutSlowInEasing) else tween(480, easing = androidx.compose.animation.core.LinearOutSlowInEasing),
+        label = "glow",
+    )
     // its glass edge (Glass.kt): the light's spot leans the way the remote came, then settles
     val glass = remember { GlassState() }
     androidx.compose.runtime.LaunchedEffect(focused) { if (focused) glass.arrived() }
@@ -90,21 +102,39 @@ fun FocusCard(
         onClick = onClick,
         onLongClick = onLongClick,
         modifier = modifier
+            .zIndex(if (focused) 1f else 0f)
             .onFocusChanged { focused = it.isFocused || it.hasFocus }
             .graphicsLayer {
-                val s = 1f + 0.1f * lift
+                val s = 1f + 0.13f * lift
                 scaleX = s
                 scaleY = s
             }
+            .softGlow(corner) { glow.value }
             .glassEdge(shape, glass) { lift },
         shape = CardDefaults.shape(shape),
         colors = CardDefaults.colors(containerColor = Dx.Raised, focusedContainerColor = Dx.Raised),
         scale = CardDefaults.scale(focusedScale = 1f),
-        // (the edge is the glass rim's, brighter when chosen)
         border = CardDefaults.border(border = Border.None, focusedBorder = Border.None),
         glow = CardDefaults.glow(focusedGlow = Glow.None),
     ) {
         content()
+    }
+}
+
+/** A soft white light around the card while [amount] is above 0: rings widening and fading, read while drawing (no recomposition) */
+private fun Modifier.softGlow(corner: Dp, amount: () -> Float): Modifier = drawBehind {
+    val a = amount()
+    if (a <= 0.01f) return@drawBehind
+    val step = 2.dp.toPx()
+    val r = corner.toPx()
+    for (i in 1..7) {
+        val grow = step * i
+        drawRoundRect(
+            Color.White.copy(alpha = 0.045f * a * (1f - i / 8f)),
+            topLeft = androidx.compose.ui.geometry.Offset(-grow, -grow),
+            size = androidx.compose.ui.geometry.Size(size.width + grow * 2, size.height + grow * 2),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(r + grow),
+        )
     }
 }
 
@@ -133,38 +163,82 @@ fun glide(distance: Float, viewport: Float): androidx.compose.animation.core.Ani
  * plain ease of its own; this is the same move as every other on the page. An item off screen is glided towards by an
  * estimate (rows are about alike), then the rest of the way.
  */
-suspend fun androidx.compose.foundation.lazy.LazyListState.glideTo(index: Int, before: Float = 0f) {
+suspend fun androidx.compose.foundation.lazy.LazyListState.glideTo(index: Int, before: Float = 0f, centre: Boolean = false) {
     val viewport = layoutInfo.viewportSize.height.toFloat().coerceAtLeast(1f)
-    repeat(3) {
+    repeat(8) {
         val info = layoutInfo
         val item = info.visibleItemsInfo.firstOrNull { it.index == index }
-        val distance = if (item != null) item.offset - before
-        else {
+        val distance = if (item != null) {
+            val target = if (centre) ((viewport - item.size) / 2f).coerceAtLeast(0f) else before
+            item.offset - target
+        } else {
             val seen = info.visibleItemsInfo
             val per = if (seen.isEmpty()) viewport * 0.4f else seen.sumOf { it.size }.toFloat() / seen.size + info.mainAxisItemSpacing
             val first = seen.firstOrNull()
-            (index - firstVisibleItemIndex) * per - (first?.offset?.let { -it } ?: 0) - before
+            val target = if (centre) viewport * 0.25f else before
+            (index - firstVisibleItemIndex) * per - (first?.offset?.let { -it } ?: 0) - target
         }
         if (kotlin.math.abs(distance) < 1f) return
-        animateScrollBy(distance, glide(distance, viewport))
-        if (item != null) return
+        val moved = animateScrollBy(distance, glide(distance, viewport))
+        if (item != null || kotlin.math.abs(moved) < 1f) return
+    }
+    if (layoutInfo.visibleItemsInfo.none { it.index == index }) {
+        val target = if (centre) (viewport * 0.25f).toInt() else before.toInt()
+        animateScrollToItem(index, -target.coerceAtLeast(0))
     }
 }
 
 /** Sideways along a row: a little quicker, the same softness */
 val RowGlide: androidx.compose.animation.core.AnimationSpec<Float> = androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 230f)
 
-/** A row moves only when the remote goes past its edge, just enough for the next card and a little of the one after */
+/**
+ * Column-aligned horizontal row scrolling: cards stay snapped to the shelf's left gutter and full column stride
+ * so vertical columns stay aligned across stacked shelves with no mid-card stops.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun rememberRowScrolling(gutter: Dp = Dx.Gutter, spacing: Dp = 18.dp): BringIntoViewSpec {
+    val density = LocalDensity.current
+    val gutterPx = with(density) { gutter.toPx() }
+    val spacingPx = with(density) { spacing.toPx() }
+    return remember(gutterPx, spacingPx) {
+        object : BringIntoViewSpec {
+            override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> get() = RowGlide
+            override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+                if (size <= 0f || containerSize <= 0f) return 0f
+                val stride = size + spacingPx
+                val usable = (containerSize - 2f * gutterPx).coerceAtLeast(size)
+                val cols = ((usable + spacingPx) / stride).toInt().coerceAtLeast(1)
+                val lastColOffset = gutterPx + (cols - 1) * stride
+                val dist = when {
+                    offset < gutterPx - 1f -> offset - gutterPx
+                    offset > lastColOffset + 1f -> offset - lastColOffset
+                    else -> 0f
+                }
+                return if (kotlin.math.abs(dist) < 1f) 0f else dist
+            }
+        }
+    }
+}
+
+/** Fallback column-aligned horizontal scrolling when density isn't supplied (assumes 5% gutter) */
 @OptIn(ExperimentalFoundationApi::class)
 val RowScrolling = object : BringIntoViewSpec {
     override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> get() = RowGlide
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-        val margin = containerSize * 0.06f
-        return when {
-            offset < margin -> offset - margin
-            offset + size > containerSize - margin -> offset + size - containerSize + margin
+        if (size <= 0f || containerSize <= 0f) return 0f
+        val gutter = containerSize * 0.05f
+        val spacing = containerSize * 0.01875f
+        val stride = size + spacing
+        val usable = (containerSize - 2f * gutter).coerceAtLeast(size)
+        val cols = ((usable + spacing) / stride).toInt().coerceAtLeast(1)
+        val lastColOffset = gutter + (cols - 1) * stride
+        val dist = when {
+            offset < gutter - 1f -> offset - gutter
+            offset > lastColOffset + 1f -> offset - lastColOffset
             else -> 0f
         }
+        return if (kotlin.math.abs(dist) < 1f) 0f else dist
     }
 }
 
@@ -183,6 +257,102 @@ class PageScroller(val list: androidx.compose.foundation.lazy.LazyListState, pri
     private var goal = 0f
     private var done = 0f
     private var gen = 0
+    var jumping = false
+        private set
+
+    /** True while PageScroller owns an active vertical glide or jump (suppresses competing BringIntoViewSpec scrolls) */
+    val isBusy: Boolean
+        get() = jumping || job?.isActive == true
+
+    fun cancel() {
+        job?.cancel()
+        job = null
+        gen++
+    }
+
+    suspend fun jumpTo(index: Int, centre: Boolean = false, durationMs: Int = 220, onVisible: (() -> Boolean)? = null) {
+        cancel()
+        jumping = true
+        try {
+            val viewport = list.layoutInfo.viewportSize.height.toFloat().coerceAtLeast(1f)
+            val targetOffset = if (centre) -(viewport * 0.28f).toInt() else 0
+            var focused = false
+            val item = list.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+            if (item != null) {
+                val target = if (centre) ((viewport - item.size) / 2f).coerceAtLeast(0f) else 0f
+                val delta = item.offset - target
+                if (onVisible != null) focused = onVisible()
+                if (kotlin.math.abs(delta) >= 1f) {
+                    list.animateScrollBy(delta, tween(durationMs, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+                }
+            } else {
+                coroutineScope {
+                    val watcher = if (onVisible != null) {
+                        launch {
+                            androidx.compose.runtime.snapshotFlow {
+                                list.layoutInfo.visibleItemsInfo.any { it.index == index }
+                            }.first { it }
+                            repeat(12) {
+                                if (onVisible()) {
+                                    focused = true
+                                    return@launch
+                                }
+                                kotlinx.coroutines.delay(16)
+                            }
+                        }
+                    } else null
+                    try {
+                        if (durationMs > 220) {
+                            val spec = tween<Float>(durationMs, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                            var pass = 0
+                            while (pass < 4) {
+                                pass++
+                                val info = list.layoutInfo
+                                val visible = info.visibleItemsInfo.firstOrNull { it.index == index }
+                                val delta = if (visible != null) {
+                                    val target = if (centre) ((viewport - visible.size) / 2f).coerceAtLeast(0f) else 0f
+                                    visible.offset - target
+                                } else {
+                                    val seen = info.visibleItemsInfo
+                                    val per = if (seen.isEmpty()) viewport * 0.4f else seen.sumOf { it.size }.toFloat() / seen.size + info.mainAxisItemSpacing
+                                    val first = seen.firstOrNull()
+                                    val target = if (centre) viewport * 0.25f else 0f
+                                    val extra = if (index == 0 && list.firstVisibleItemIndex > 0) (viewport * 0.8f - per).coerceAtLeast(0f) else 0f
+                                    (index - list.firstVisibleItemIndex) * per - extra - (first?.offset?.let { -it } ?: 0) - target
+                                }
+                                if (kotlin.math.abs(delta) < 1f) break
+                                val passSpec = if (pass == 1) spec else tween(160, easing = androidx.compose.animation.core.LinearOutSlowInEasing)
+                                val moved = list.animateScrollBy(delta, passSpec)
+                                if (visible != null || kotlin.math.abs(moved) < 1f) break
+                            }
+                            val finalItem = list.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+                            if (finalItem == null) {
+                                list.animateScrollToItem(index, targetOffset)
+                            } else {
+                                val target = if (centre) ((viewport - finalItem.size) / 2f).coerceAtLeast(0f) else 0f
+                                val rem = finalItem.offset - target
+                                if (kotlin.math.abs(rem) >= 1f) {
+                                    list.animateScrollBy(rem, tween(160, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
+                                }
+                            }
+                        } else {
+                            list.animateScrollToItem(index, targetOffset)
+                        }
+                    } finally {
+                        watcher?.cancel()
+                    }
+                }
+            }
+            if (!focused && onVisible != null) {
+                for (attempt in 0 until 15) {
+                    if (onVisible()) break
+                    kotlinx.coroutines.delay(16)
+                }
+            }
+        } finally {
+            jumping = false
+        }
+    }
 
     /**
      * The page's one way of moving: [delta] px in the glide that suits its length, replacing whatever else was moving it
@@ -216,6 +386,7 @@ class PageScroller(val list: androidx.compose.foundation.lazy.LazyListState, pri
     }
 
     fun centre(row: androidx.compose.ui.layout.LayoutCoordinates) {
+        if (jumping) return
         val vp = viewport ?: return
         if (!row.isAttached || !vp.isAttached) return
         val top = vp.localPositionOf(row, androidx.compose.ui.geometry.Offset.Zero).y
@@ -225,6 +396,7 @@ class PageScroller(val list: androidx.compose.foundation.lazy.LazyListState, pri
     }
 
     fun toTop() {
+        if (jumping) return
         scope.launch { job?.cancel(); list.glideTo(0) }
     }
 }
@@ -238,18 +410,22 @@ private object RowOwnsScrolling : androidx.compose.foundation.relocation.BringIn
     override suspend fun bringChildIntoView(localRect: () -> androidx.compose.ui.geometry.Rect?) {}
 }
 
+private class RowFocusRef {
+    var coords: androidx.compose.ui.layout.LayoutCoordinates? = null
+    var had: Boolean = false
+}
+
 /** A row of the page: when the remote moves into it the page glides to put it in the middle (once, however it moves along it) */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Modifier.centredWhenFocused(): Modifier {
     val scroller = LocalPageScroller.current ?: return this
-    var coords by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
-    var had by remember { mutableStateOf(false) }
+    val ref = remember { RowFocusRef() }
     return this
-        .onGloballyPositioned { coords = it }
+        .onGloballyPositioned { ref.coords = it }
         .onFocusChanged {
-            if (it.hasFocus && !had) coords?.let(scroller::centre)
-            had = it.hasFocus
+            if (it.hasFocus && !ref.had) ref.coords?.let(scroller::centre)
+            ref.had = it.hasFocus
         }
         .bringIntoViewResponder(RowOwnsScrolling)
 }
@@ -275,8 +451,19 @@ fun PageColumn(
 ) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val pageScroller = scroller ?: remember(state) { PageScroller(state, scope) }
+    val effectiveSpec = remember(pageScroller, bringIntoViewSpec) {
+        object : BringIntoViewSpec {
+            override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float>
+                get() = bringIntoViewSpec.scrollAnimationSpec
+
+            // (only while a jump (a shortcut, Back to the top) owns the page: an ordinary glide is the spec's own move, and
+            // it must keep being asked, or a second press mid-glide was dropped and the page jumped when it caught up)
+            override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
+                if (pageScroller.jumping) 0f else bringIntoViewSpec.calculateScrollDistance(offset, size, containerSize)
+        }
+    }
     CompositionLocalProvider(
-        LocalBringIntoViewSpec provides bringIntoViewSpec,
+        LocalBringIntoViewSpec provides effectiveSpec,
         LocalPageScroller provides pageScroller,
     ) {
         androidx.compose.foundation.lazy.LazyColumn(
@@ -289,30 +476,50 @@ fun PageColumn(
     }
 }
 
+/** Shelf heading isolated in its own scope so row focus changes never recompose the LazyRow below */
+@Composable
+private fun ShelfTitle(title: String, focused: () -> Boolean) {
+    val titleAlpha = animateFloatAsState(if (focused()) 1f else 0.6f, tween(320), label = "row-title")
+    Text(
+        title,
+        fontSize = 20.sp,
+        fontWeight = FontWeight.Bold,
+        color = Color.White,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.padding(horizontal = Dx.Gutter).graphicsLayer { alpha = titleAlpha.value },
+    )
+}
+
+/**
+ * A row the remote can't fall out of sideways: past its last card (or, with [left], its first) nothing happens, as on
+ * Apple TV. Without it Compose looked for the nearest thing that way anywhere on the page, so Right on a title's only
+ * trailer jumped down to About at the foot of the page.
+ */
+fun Modifier.keepsSideways(left: Boolean = false): Modifier = focusProperties {
+    onExit = {
+        if (requestedFocusDirection == androidx.compose.ui.focus.FocusDirection.Right || (left && requestedFocusDirection == androidx.compose.ui.focus.FocusDirection.Left)) cancelFocusChange()
+    }
+}.focusGroup()
+
 /** A titled row of cards that scrolls sideways as the remote moves along it */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Shelf(title: String, modifier: Modifier = Modifier, content: LazyListScope.() -> Unit) {
     // (the row the remote is in has its name bright; the others' are softer, as on Apple TV)
-    var rowFocused by remember { mutableStateOf(false) }
-    val titleAlpha by animateFloatAsState(if (rowFocused) 1f else 0.6f, tween(320), label = "row-title")
-    Column(modifier.fillMaxWidth().centredWhenFocused().onFocusChanged { rowFocused = it.hasFocus }) {
-        Text(
-            title,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.White.copy(alpha = titleAlpha),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = Dx.Gutter),
-        )
-        Spacer(Modifier.height(10.dp))
-        CompositionLocalProvider(LocalBringIntoViewSpec provides RowScrolling) {
+    val rowFocused = remember { mutableStateOf(false) }
+    val rowScrolling = rememberRowScrolling(Dx.Gutter, 18.dp)
+    Column(
+        modifier.fillMaxWidth().centredWhenFocused().onFocusChanged { rowFocused.value = it.hasFocus },
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        ShelfTitle(title) { rowFocused.value }
+        CompositionLocalProvider(LocalBringIntoViewSpec provides rowScrolling) {
             LazyRow(
                 // (back into the row, the remote lands on the card it was last on, as Apple TV's rows do, not whichever is nearest)
-                modifier = @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.focusRestorer(),
-                // (room around the cards for them to grow and glow when chosen)
-                contentPadding = PaddingValues(start = Dx.Gutter, end = Dx.Gutter, top = 14.dp, bottom = 0.dp),
+                modifier = @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.keepsSideways().focusRestorer(),
+                // (room around the cards for them to grow when chosen without overlapping row titles)
+                contentPadding = PaddingValues(start = Dx.Gutter, end = Dx.Gutter, top = 20.dp, bottom = 26.dp),
                 horizontalArrangement = Arrangement.spacedBy(18.dp),
                 content = content,
             )
@@ -380,12 +587,11 @@ fun AiringCard(item: Airing, onClick: () -> Unit, width: Dp = 300.dp) {
 /** A row still loading: skeleton cards where its posters will be, laid out as the row will be so nothing moves when it comes */
 @Composable
 fun LoadingShelf(title: String?) {
-    Column(Modifier.fillMaxWidth()) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         // (no name yet: a skeleton bar where it'll be)
         if (title != null) Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Dx.Faint, maxLines = 1, modifier = Modifier.padding(horizontal = Dx.Gutter))
         else Box(Modifier.padding(horizontal = Dx.Gutter, vertical = 4.dp).size(180.dp, 18.dp).skeleton(shape = RoundedCornerShape(6.dp)))
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 14.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+        Row(Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 20.dp, bottom = 26.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             repeat(8) { Box(Modifier.size(Dx.Poster, Dx.Poster * 1.5f).skeleton(shape = RoundedCornerShape(12.dp))) }
         }
     }

@@ -371,9 +371,17 @@ class Engine(context: Context) {
             }
             "watched" -> {
                 val id = args.text("id") ?: details?.optJSONObject("meta")?.text("id") ?: return null
-                core.setWatched(id, args.optBoolean("value"), now())
+                val on = args.optBoolean("value")
+                // (unwatched also puts the place back to 0: Stremio rewinds it too, so Lumen elsewhere starts it again)
+                val had = if (on) null else core.continueWatching().firstOrNull { it.id == id }
+                core.setWatched(id, on, now())
                 changed()
-                details?.optJSONObject("meta")?.takeIf { it.optString("id") == id }?.let { tellStremioMark(it, watched = args.optBoolean("value"), inList = null) }
+                val meta = details?.optJSONObject("meta")?.takeIf { it.optString("id") == id }
+                    ?: args.text("type")?.let { JSONObject().put("id", id).put("type", it).put("name", args.optString("name")).put("poster", args.text("poster") ?: JSONObject.NULL) }
+                meta?.let { tellStremioMark(it, watched = on, inList = null) }
+                if (had != null && core.keepsStremio) scope.launch {
+                    runCatching { core.tellStremioRemoved(had.id, had.type, had.name, had.poster, now()) }
+                }
             }
             "videoWatched" -> {
                 // (up to here: the episode and all before it; the one marked alone otherwise)

@@ -147,7 +147,11 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
     val life by lifecycle.currentStateFlow.collectAsState()
     val trailerAllowed = nav.pages.isEmpty() && launcher?.title == null && life.isAtLeast(Lifecycle.State.RESUMED)
 
-    val rows = allRows.filter { it.type !in LEFT_OUT }
+    val rows = remember(allRows) { allRows.filter { it.type !in LEFT_OUT } }
+    val topLists = remember(rows) { rows.filter { it.key in TOP_LISTS } }
+    val lead = remember(rows) { rows.filter { it.key in LEAD_LISTS } }
+    val later = remember(rows) { rows.filter { it.key !in TOP_LISTS && it.key !in LEAD_LISTS } }
+    val anyNumbered = remember(rows) { rows.any { it.numbered } }
     // The billboard leads with what they're watching (five at most); suggestions only when nothing's in progress
     val described by stremio.described.collectAsState()
     val billboard = remember(continueWatching, described, suggestions) { continueWatching.take(5).map { stremio.filledIn(it.title) }.ifEmpty { suggestions } }
@@ -179,8 +183,7 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
     BackHandler(enabled = !nav.menuOpen) {
         if (list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 0) {
             scope.launch {
-                list.glideTo(0)
-                runCatching { top.requestFocus() }
+                pageScroller.jumpTo(0, durationMs = 520, onVisible = { runCatching { top.requestFocus() }.isSuccess })
             }
         } else {
             nav.menuOpen = true
@@ -256,10 +259,6 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
             // Lumos's own lists (the sync server's) go in among Lumen's rows, as streaming apps lay Home out: Top 10 straight
             // after what you're watching, what's new and trending before Genius Browse, the services and the all-time lists
             // further down. Addon catalogs (only when the lists can't be had) keep their place at the end.
-            val topLists = rows.filter { it.key in TOP_LISTS }
-            val lead = rows.filter { it.key in LEAD_LISTS }
-            val later = rows.filter { it.key !in TOP_LISTS && it.key !in LEAD_LISTS }
-            val anyNumbered = rows.any { it.numbered }
             if (continueWatching.isNotEmpty()) {
                 item(key = "continue") {
                     Shelf("Continue Watching") {
@@ -326,7 +325,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.listRows(rows: List<R
     rows.forEach { row ->
         if (row.state == Load.Loading || (row.state == Load.Ready && row.items.isNotEmpty())) item(key = "row-${row.key}") {
             val rank = if (anyNumbered) row.numbered else row.index == 0
-            Box(Modifier.animateItem(fadeInSpec = tween(420), placementSpec = androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>(dampingRatio = 1f, stiffness = 200f), fadeOutSpec = tween(250))) {
+            Box(Modifier.animateItem(fadeInSpec = tween(420), placementSpec = null, fadeOutSpec = tween(250))) {
                 ShelfSwap(row.state == Load.Loading, row.heading) {
                     CompositionLocalProvider(LocalRowSays provides rowSays(row.key)) { TitleShelf(row.heading, row.items, onOpen, rank = rank) }
                 }
@@ -609,19 +608,14 @@ private fun Dots(count: Int, index: Int, counting: Boolean) {
 private const val BILLBOARD_TURN_MS = 8000
 
 /**
- * Home's scrolling, as Apple TV's: whatever the remote moves to sits in the middle of the screen (the row's name above
- * it, the next row's coming up below), so the page moves a row at a time and always shows the same shape. On the
- * billboard it doesn't move (its own focus handler brings the page back to the top).
+ * Home's vertical scrolling is owned exclusively by [PageScroller] (`Billboard` calls `toTop()`, every `Shelf` calls
+ * `centre()` via `centredWhenFocused()`). Returning `0f` here prevents Compose's built-in BringIntoViewSpec from
+ * firing a competing vertical scroll on the first frame of a row change.
  */
 @OptIn(ExperimentalFoundationApi::class)
 class HomeScrolling(private val list: androidx.compose.foundation.lazy.LazyListState, private val onBillboard: () -> Boolean) : BringIntoViewSpec {
     override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> get() = PageGlide
-    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-        // back up on the billboard: the page glides down to the top in this one move (not a second one after it)
-        if (onBillboard()) return 0f
-        if (size <= 0f) return 0f
-        return settle(offset + size / 2f - containerSize / 2f, containerSize)
-    }
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = 0f
 }
 
 /**

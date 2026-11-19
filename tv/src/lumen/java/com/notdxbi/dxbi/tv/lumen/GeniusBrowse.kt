@@ -27,6 +27,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.BringIntoViewSpec
@@ -50,11 +52,15 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
@@ -258,7 +264,9 @@ private fun DropdownPill(label: String, options: List<String>, chosen: Int, onCh
 }
 
 /** One row of the chain: whose "More like" it is (null for the first), its name, its titles */
-data class ChainRow(val forId: String?, val name: String, val titles: List<Title>)
+data class ChainRow(val forId: String?, val name: String, val titles: List<Title>) {
+    val key: String get() = "${forId.orEmpty()}:$name:${titles.firstOrNull()?.id.orEmpty()}"
+}
 
 /** The page never scrolls to chase a card: the chain moves it a row at a time itself */
 private object NoPageChase : BringIntoViewSpec {
@@ -276,19 +284,19 @@ fun ChainPage(nav: Nav, stremio: Stremio, firstName: String, firstRow: List<Titl
     var rows by remember { mutableStateOf<List<ChainRow>>(emptyList()) }
     // the title the remote's on, and which row it's in
     var hover by remember { mutableStateOf<Pair<Int, Title>?>(null) }
+    var emptyFor by remember { mutableStateOf<Pair<Int, String>?>(null) }
     LaunchedEffect(firstRow, firstName) {
         hover = null
+        emptyFor = null
         rows = if (firstRow.isNullOrEmpty()) emptyList() else listOf(ChainRow(null, firstName, firstRow))
     }
-    // a moment after the remote rests on a title, the row under its row becomes "More like" it (moving on cancels the load
-    // in flight; the old row stays up until the new one's in, so nothing flickers)
-    // the row being made under row [pending - 1] (a skeleton row shows meanwhile; null when none is)
+    // hovering a title immediately reloads the row under it as "More like" it (moving on cancels the in-flight load)
     var pending by remember { mutableStateOf<Int?>(null) }
     val feed = LocalDiscoverFeed.current
     LaunchedEffect(hover) {
         val (i, t) = hover ?: return@LaunchedEffect
         if (rows.getOrNull(i + 1)?.forId == t.id) return@LaunchedEffect
-        delay(if (rows.size > i + 1) 350 else 150)
+        if (emptyFor == (i to t.id)) emptyFor = null
         // (only a row that's new shows a skeleton: a row being swapped stays up until the new one's in)
         if (rows.size <= i + 1) pending = i + 1
         try {
@@ -300,7 +308,10 @@ fun ChainPage(nav: Nav, stremio: Stremio, firstName: String, firstRow: List<Titl
             val seen = rows.take(i + 1).flatMap { r -> r.titles.map { it.id } }.toSet()
             val fresh = found.filter { it.id !in seen }
             val list = (if (fresh.size >= 6) fresh else fresh + found.filter { it.id in seen }.take(8 - fresh.size)).take(20)
-            if (list.isEmpty()) return@LaunchedEffect
+            if (list.isEmpty()) {
+                emptyFor = i to t.id
+                return@LaunchedEffect
+            }
             rows = rows.take(i + 1) + ChainRow(t.id, "More like ${t.name}", list)
         } finally {
             // (cancelled by moving on, or done: the skeleton goes either way)
@@ -334,24 +345,41 @@ fun ChainPage(nav: Nav, stremio: Stremio, firstName: String, firstRow: List<Titl
             CompositionLocalProvider(LocalBringIntoViewSpec provides NoPageChase) {
                 Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
                     if (header != null) header() else Spacer(Modifier.height(topGap))
-                    if (rows.isEmpty()) {
-                        if (firstRow == null) LoadingShelf(firstName)
-                        else Text("Nothing to show here", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter, vertical = 24.dp))
-                    }
-                    rows.forEachIndexed { i, r ->
-                        key(i, r.forId, r.titles.firstOrNull()?.id) {
-                            ChainRowView(
-                                r, if (i == 0) first else null,
+                    val totalSlots = if (rows.isEmpty()) 1 else rows.size + if (pending == rows.size) 1 else 0
+                    for (i in 0 until totalSlots) {
+                        key(i) {
+                            val slotPhase = when {
+                                i < rows.size -> 2
+                                i == 0 && firstRow != null -> 1
+                                else -> 0
+                            }
+                            Crossfade(
+                                targetState = slotPhase,
+                                animationSpec = tween(260),
                                 modifier = Modifier.padding(bottom = 8.dp).onGloballyPositioned { tops[i] = it.positionInParent().y },
-                                onTitle = { hover = i to it }, onEnter = { show(i) }, onOpen = { nav.open(it) },
-                            )
+                                label = "chain-slot-$i",
+                            ) { phase ->
+                                when (phase) {
+                                    0 -> LoadingShelf(if (i == 0) firstName else null)
+                                    1 -> Text("Nothing to show here", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter, vertical = 24.dp))
+                                    else -> rows.getOrNull(i)?.let { r ->
+                                        ChainRowView(
+                                            r, if (i == 0) first else null,
+                                            modifier = Modifier,
+                                            onTitle = { hover = i to it },
+                                            onEnter = { show(i) },
+                                            onOpen = { nav.open(it) },
+                                            canGoDown = {
+                                                val cur = hover
+                                                if (cur == null || cur.first != i) true
+                                                else rows.getOrNull(i + 1)?.forId == cur.second.id || emptyFor == (i to cur.second.id)
+                                            },
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
-                    // a new "More like" row on its way: its skeleton, fading in and out (the same height, so nothing moves)
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = pending == rows.size && rows.isNotEmpty(),
-                        enter = androidx.compose.animation.fadeIn(tween(320)), exit = androidx.compose.animation.fadeOut(tween(200)),
-                    ) { LoadingShelf(null) }
                     // (room under the last row so it can come up to the top)
                     Spacer(Modifier.height(LocalConfiguration.current.screenHeightDp.dp))
                 }
@@ -367,32 +395,78 @@ fun ChainPage(nav: Nav, stremio: Stremio, firstName: String, firstRow: List<Titl
 
 /** A row of the chain: its name (bright while the remote's in it) over its posters; the remote lands back where it was */
 @Composable
-private fun ChainRowView(row: ChainRow, firstCard: FocusRequester?, modifier: Modifier, onTitle: (Title) -> Unit, onEnter: () -> Unit, onOpen: (Title) -> Unit) {
-    var inRow by remember { mutableStateOf(false) }
-    val titleAlpha by animateFloatAsState(if (inRow) 1f else 0.6f, tween(320), label = "chain-title")
+private fun ChainRowView(
+    row: ChainRow,
+    firstCard: FocusRequester?,
+    modifier: Modifier,
+    onTitle: (Title) -> Unit,
+    onEnter: () -> Unit,
+    onOpen: (Title) -> Unit,
+    canGoDown: () -> Boolean,
+) {
+    val inRow = remember { mutableStateOf(false) }
+    val rowScrolling = rememberRowScrolling(Dx.Gutter, 18.dp)
     Column(
-        modifier.fillMaxWidth().onFocusChanged {
-            if (it.hasFocus && !inRow) onEnter()
-            inRow = it.hasFocus
-        },
+        modifier.fillMaxWidth()
+            .onFocusChanged {
+                if (it.hasFocus && !inRow.value) onEnter()
+                inRow.value = it.hasFocus
+            }
+            .onPreviewKeyEvent {
+                if (it.key == Key.DirectionDown && it.type == KeyEventType.KeyDown && !canGoDown()) true
+                else false
+            },
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(
-            row.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = titleAlpha), maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = Dx.Gutter),
-        )
-        Spacer(Modifier.height(10.dp))
-        CompositionLocalProvider(LocalBringIntoViewSpec provides RowScrolling) {
-            LazyRow(
-                modifier = Modifier.focusRestorer(),
-                contentPadding = PaddingValues(start = Dx.Gutter, end = Dx.Gutter, top = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
-            ) {
-                itemsIndexed(row.titles, key = { _, t -> t.id }) { i, t ->
-                    Box(Modifier.onFocusChanged { if (it.hasFocus) onTitle(t) }.then(if (i == 0 && firstCard != null) Modifier.focusRequester(firstCard) else Modifier)) {
-                        PreviewPosterCard(t, onClick = { onOpen(t) })
+        ChainRowHeading(row.name) { inRow.value }
+        Crossfade(targetState = row, animationSpec = tween(260), label = "chain-row-cards") { shownRow ->
+            val rowKey = shownRow.key
+            CompositionLocalProvider(LocalBringIntoViewSpec provides rowScrolling) {
+                LazyRow(
+                    contentPadding = PaddingValues(start = Dx.Gutter, end = Dx.Gutter, top = 20.dp, bottom = 26.dp),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                ) {
+                    itemsIndexed(shownRow.titles, key = { _, t -> t.id }) { i, t ->
+                        val shouldStagger = i <= 8
+                        val entranceAlpha = remember(rowKey, t.id) { Animatable(if (shouldStagger) 0f else 1f) }
+                        if (shouldStagger) {
+                            LaunchedEffect(rowKey, t.id) {
+                                delay(i * 45L)
+                                entranceAlpha.animateTo(1f, tween(240))
+                            }
+                        }
+                        Box(
+                            Modifier
+                                .graphicsLayer { alpha = entranceAlpha.value }
+                                .onFocusChanged { if (it.hasFocus) onTitle(t) }
+                                .then(if (i == 0 && firstCard != null) Modifier.focusRequester(firstCard) else Modifier),
+                        ) {
+                            PreviewPosterCard(t, onClick = { onOpen(t) })
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+/** Isolated chain row heading so focus alpha and "More like ..." title crossfades never recompose the card row */
+@Composable
+private fun ChainRowHeading(title: String, focused: () -> Boolean) {
+    val titleAlpha = animateFloatAsState(if (focused()) 1f else 0.6f, tween(320), label = "chain-title")
+    Crossfade(
+        targetState = title,
+        animationSpec = tween(220),
+        modifier = Modifier.padding(horizontal = Dx.Gutter).graphicsLayer { alpha = titleAlpha.value },
+        label = "chain-row-title",
+    ) { heading ->
+        Text(
+            heading,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

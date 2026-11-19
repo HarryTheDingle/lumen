@@ -86,17 +86,20 @@ fun genreDrawable(name: String): Int = when (name) {
 
 /** A genre as a wide picture in its own colour, its name bottom-left */
 @Composable
-fun GenreTile(genre: Genre, onClick: () -> Unit) {
-    val width = (LocalConfiguration.current.screenWidthDp * 0.2f).dp
-    FocusCard(onClick = onClick, corner = 12.dp, modifier = Modifier.size(width, width * 0.5625f)) {
+fun GenreTile(genre: Genre, portrait: Boolean = false, onClick: () -> Unit) {
+    val wide = (LocalConfiguration.current.screenWidthDp * 0.2f).dp
+    // (portrait in Search, as posters: the narrower space beside the letters takes more of them)
+    val size = if (portrait) androidx.compose.ui.unit.DpSize(Dx.Poster, Dx.Poster * 1.5f) else androidx.compose.ui.unit.DpSize(wide, wide * 0.5625f)
+    FocusCard(onClick = onClick, corner = 12.dp, modifier = Modifier.size(size)) {
         Box(Modifier.fillMaxSize()) {
             Image(painterResource(genreDrawable(genre.name)), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            if (portrait) Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.7f))))
             Text(
                 genre.name,
                 fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
-                maxLines = 1,
+                maxLines = if (portrait) 2 else 1,
                 modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 9.dp, end = 8.dp),
             )
         }

@@ -65,7 +65,7 @@ object Franchises {
     fun find(context: Context, id: String) = all(context).firstOrNull { it.id == id }
 }
 
-/** How far through a franchise this profile is, from the films of it in their library that are marked watched */
+/** How far through a franchise this profile is, from the films of it they've watched */
 private fun note(f: Franchise, watched: Set<String>): String? {
     if (f.films.isEmpty()) return null
     val seen = f.films.count { it.id in watched }
@@ -81,8 +81,7 @@ internal fun androidx.compose.foundation.lazy.LazyListScope.franchisesItem(strem
     item(key = "franchises") {
         val context = LocalContext.current
         val list = remember { Franchises.all(context) }
-        val library by stremio.library.collectAsState()
-        val watched = remember(library) { library.filter { it.watched }.map { it.id }.toSet() }
+        val watched by stremio.watchedIds.collectAsState()
         if (list.isNotEmpty()) {
             Shelf("Franchises", modifier) {
                 items(list, key = { it.id }) { f -> FranchiseCard(f, note(f, watched)) { nav.push(Page.Franchise(f.id, f.name)) } }
@@ -112,8 +111,8 @@ private fun FranchiseCard(f: Franchise, note: String?, onClick: () -> Unit) {
 fun FranchisePage(stremio: Stremio, nav: Nav, id: String, name: String) {
     val context = LocalContext.current
     val franchise = remember(id) { Franchises.find(context, id) }
-    val library by stremio.library.collectAsState()
-    val watched = remember(library) { library.filter { it.watched }.map { it.id }.toSet() }
+    // (every film this profile has marked or finished, in the Library or not: the Library only knew the ones saved there)
+    val watched by stremio.watchedIds.collectAsState()
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(150)
@@ -125,7 +124,7 @@ fun FranchisePage(stremio: Stremio, nav: Nav, id: String, name: String) {
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.35f), 0.38f to Dx.Background.copy(alpha = 0.94f), 0.5f to Dx.Background)))
             PageColumn(
                 contentPadding = PaddingValues(top = 48.dp, bottom = pageBottomPad()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                     item(key = "title") {
                         Column(Modifier.padding(horizontal = Dx.Gutter, vertical = 40.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

@@ -3,6 +3,7 @@ package com.notdxbi.dxbi.tv.lumen
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
@@ -23,12 +24,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -136,8 +140,22 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
             ai.close()
         }
     }
-    // Search chosen from the menu: the remote starts on the letters
-    LaunchedEffect(Unit) { delay(300); if (nav.query.isEmpty()) runCatching { firstLetter.requestFocus() } }
+    // the microphone: what's said goes in the box, as if typed (voice is how most search on a TV)
+    // (spoken: once its results are in, the remote goes to the first of them and the letters slide away)
+    var spoken by remember { mutableStateOf(false) }
+    val firstResult = remember { FocusRequester() }
+    val voice = com.notdxbi.dxbi.tv.phone.rememberVoiceTyping { said -> previewing = null; ai.close(); text = said; spoken = true }
+    LaunchedEffect(spoken, shown) {
+        if (!spoken || shown.isEmpty()) return@LaunchedEffect
+        delay(120)
+        if (runCatching { firstResult.requestFocus() }.isSuccess) spoken = false
+    }
+    val mic = remember { FocusRequester() }
+    // Search chosen from the menu: the remote starts on the microphone (the letters when the box can't listen)
+    LaunchedEffect(Unit) {
+        delay(300)
+        if (nav.query.isEmpty()) runCatching { if (voice.available) mic.requestFocus() else firstLetter.requestFocus() }
+    }
 
     Box(Modifier.fillMaxSize().background(Dx.Background)) {
         Column(Modifier.fillMaxSize()) {
@@ -148,11 +166,15 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
+                if (voice.available) MicButton(voice.listening, { if (voice.listening) voice.stop() else voice.start() }, Modifier.focusRequester(mic))
                 Field(
-                    "Movies, shows and more", previewing ?: text, { previewing = null; ai.close(); text = it }, KeyboardType.Text,
+                    if (voice.listening) "Listening…" else "Movies, shows and more",
+                    if (voice.listening) voice.heard else previewing ?: text,
+                    { previewing = null; ai.close(); text = it }, KeyboardType.Text,
                     Modifier.weight(1f).focusRequester(searchBox),
                     shape = RoundedCornerShape(50),
                     leading = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(22.dp)) },
+                    downWhenDone = true,
                 )
                 AskAiButton(onClick = { ai.start(text) })
             }
@@ -186,12 +208,14 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
                     if (ai.active) {
                         AiSearchPanel(ai, onRetry = { ai.retry() })
                     } else if (asked.length < 2 && text.trim().length < 2) {
-                        CompositionLocalProvider(LocalBringIntoViewSpec provides CentredScrolling) {
-                            LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
+                        // (as many across as fit beside the letters; the page moves a row at a time)
+                        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+                            val perRow = ((maxWidth - Dx.Gutter * 2 + 18.dp) / (Dx.Poster + 18.dp)).toInt().coerceAtLeast(3)
+                            PageColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
                                 item(key = "hint") {
                                     Text("Browse", fontSize = 15.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter, vertical = 4.dp))
                                 }
-                                genresItem(nav, inChristmasSeason(), hasKitsu = false)
+                                genresGrid(nav, inChristmasSeason(), perRow)
                             }
                         }
                     } else {
@@ -199,11 +223,39 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
                             typed = text.trim(), suggestions = suggestions, previewing = previewing,
                             onPreview = { previewing = it }, onChoose = { previewing = null; text = it },
                             tabs = tabs, tab = tab.coerceIn(0, (tabs.size - 1).coerceAtLeast(0)), onTab = { tab = it },
-                            titles = shown, loading = loading, onOpen = { nav.open(it) },
+                            titles = shown, loading = loading, onOpen = { nav.open(it) }, firstResult = firstResult,
                         )
                     }
                 }
             }
+        }
+    }
+}
+
+/** Search's microphone: a round frosted button, white when the remote's on it; a soft pulse while it's listening */
+@Composable
+private fun MicButton(listening: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "mic")
+    val glow by pulse.animateFloat(
+        0.25f, 0.6f,
+        androidx.compose.animation.core.infiniteRepeatable(tween(700), androidx.compose.animation.core.RepeatMode.Reverse),
+        label = "mic-glow",
+    )
+    Surface(
+        onClick = onClick,
+        modifier = modifier.size(52.dp),
+        shape = ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.CircleShape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (listening) Color.White.copy(alpha = glow) else Glass.Fill,
+            contentColor = Color.White,
+            focusedContainerColor = Color.White,
+            focusedContentColor = Color.Black,
+        ),
+        border = ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Glass.Edge), shape = androidx.compose.foundation.shape.CircleShape)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(Icons.Filled.Mic, contentDescription = if (listening) "Stop listening" else "Search by voice", modifier = Modifier.size(24.dp))
         }
     }
 }
@@ -283,22 +335,31 @@ private fun Found(
     titles: List<Title>,
     loading: Boolean,
     onOpen: (Title) -> Unit,
+    firstResult: FocusRequester = remember { FocusRequester() },
 ) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         CompositionLocalProvider(LocalBringIntoViewSpec provides RowScrolling) {
             // suggestions: resting on one shows its results; moving off them goes back to what was typed
             if (suggestions.isNotEmpty()) {
+                // (up into them: the first, what was typed, not whichever sits above; its results don't change under the remote)
+                val firstSuggestion = remember { FocusRequester() }
                 LazyRow(
-                    Modifier.focusRestorer().onFocusChanged { if (!it.hasFocus) onPreview(null) },
+                    Modifier.focusProperties { enter = { firstSuggestion } }.focusGroup().onFocusChanged { if (!it.hasFocus) onPreview(null) },
                     contentPadding = PaddingValues(horizontal = Dx.Gutter),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    items(suggestions, key = { it }) { s -> Suggestion(s, typed, onFocus = { onPreview(s) }, onClick = { onChoose(s) }) }
+                    itemsIndexed(suggestions, key = { _, it -> it }) { i, s -> Suggestion(s, typed, onFocus = { onPreview(s) }, onClick = { onChoose(s) }, modifier = if (i == 0) Modifier.focusRequester(firstSuggestion) else Modifier) }
                 }
             }
             // the tabs: the one the remote's on is chosen
-            Row(Modifier.padding(horizontal = Dx.Gutter).focusRestorer(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                tabs.forEachIndexed { i, name -> TabPill(name, i == tab, onFocus = { onTab(i) }) }
+            // (into the tabs from above or below: the one that's chosen, never the one that happens to be nearest, which
+            // switched the results)
+            val tabFocus = remember(tabs.size) { List(tabs.size) { FocusRequester() } }
+            Row(
+                Modifier.padding(horizontal = Dx.Gutter).focusProperties { enter = { tabFocus.getOrNull(tab) ?: FocusRequester.Default } }.focusGroup(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                tabs.forEachIndexed { i, name -> TabPill(name, i == tab, onFocus = { onTab(i) }, modifier = Modifier.focusRequester(tabFocus[i])) }
             }
             if (titles.isEmpty()) {
                 Text(if (loading) "Searching…" else "Nothing found for \"${previewing ?: typed}\".", fontSize = 15.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter))
@@ -310,7 +371,7 @@ private fun Found(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    gridItems(titles.take(45), key = { it.id }) { t -> ResultTile(t) { onOpen(t) } }
+                    gridItemsIndexed(titles.take(45), key = { _, t -> t.id }) { i, t -> ResultTile(t, if (i == 0) Modifier.focusRequester(firstResult) else Modifier) { onOpen(t) } }
                 }
             }
         }
@@ -319,12 +380,12 @@ private fun Found(
 
 /** A suggestion: a small frosted pill, the letters typed bright and the rest softer; white when the remote's on it */
 @Composable
-private fun Suggestion(text: String, typed: String, onFocus: () -> Unit, onClick: () -> Unit) {
+private fun Suggestion(text: String, typed: String, onFocus: () -> Unit, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(50)
     var focused by remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
-        modifier = Modifier.onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocus() },
+        modifier = modifier.onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocus() },
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(containerColor = Glass.Fill, contentColor = Color.White, focusedContainerColor = Color.White, focusedContentColor = Color.Black),
         border = ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Glass.Edge), shape = shape)),
@@ -349,11 +410,11 @@ private fun Suggestion(text: String, typed: String, onFocus: () -> Unit, onClick
 
 /** A tab: plain type, a white pill when it's the one shown */
 @Composable
-private fun TabPill(name: String, chosen: Boolean, onFocus: () -> Unit) {
+private fun TabPill(name: String, chosen: Boolean, onFocus: () -> Unit, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(50)
     Surface(
         onClick = {},
-        modifier = Modifier.onFocusChanged { if (it.isFocused) onFocus() },
+        modifier = modifier.onFocusChanged { if (it.isFocused) onFocus() },
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (chosen) Color.White.copy(alpha = 0.2f) else Color.Transparent,
@@ -369,13 +430,20 @@ private fun TabPill(name: String, chosen: Boolean, onFocus: () -> Unit) {
 
 /** A result: a frosted tile with the poster small on the left, the name and "TV Show · Thriller · 2026" */
 @Composable
-private fun ResultTile(t: Title, onClick: () -> Unit) {
+private fun ResultTile(t: Title, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val shape = RoundedCornerShape(14.dp)
     Surface(
         onClick = onClick,
-        modifier = Modifier.width(300.dp).height(92.dp),
+        modifier = modifier.width(300.dp).height(92.dp),
         shape = ClickableSurfaceDefaults.shape(shape),
-        colors = ClickableSurfaceDefaults.colors(containerColor = Color.White.copy(alpha = 0.1f), contentColor = Color.White, focusedContainerColor = Color.White.copy(alpha = 0.26f), focusedContentColor = Color.White),
+        colors = ClickableSurfaceDefaults.colors(containerColor = Color.White.copy(alpha = 0.1f), contentColor = Color.White, focusedContainerColor = Color.White.copy(alpha = 0.3f), focusedContentColor = Color.White),
+        border = ClickableSurfaceDefaults.border(
+            border = androidx.tv.material3.Border.None,
+            focusedBorder = androidx.tv.material3.Border.None,
+        ),
+        glow = ClickableSurfaceDefaults.glow(
+            focusedGlow = androidx.tv.material3.Glow(Color.White.copy(alpha = 0.22f), 10.dp),
+        ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
     ) {
         Row(Modifier.fillMaxSize().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {

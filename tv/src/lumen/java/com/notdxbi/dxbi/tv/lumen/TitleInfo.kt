@@ -247,9 +247,9 @@ fun PlayButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier
             label = "play",
         ) { shown ->
             if (shown == null) {
-                androidx.compose.foundation.layout.Box(Modifier.widthIn(min = 96.dp).height(24.dp), contentAlignment = androidx.compose.ui.Alignment.Center) { Turning(Modifier.size(20.dp)) }
+                androidx.compose.foundation.layout.Box(Modifier.widthIn(min = 96.dp).height(PLAY_CONTENT_HEIGHT), contentAlignment = androidx.compose.ui.Alignment.Center) { Turning(Modifier.size(20.dp)) }
             } else {
-                androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                androidx.compose.foundation.layout.Row(Modifier.height(PLAY_CONTENT_HEIGHT), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     Icon(shown.second, contentDescription = null, modifier = Modifier.size(22.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(shown.first, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
@@ -258,6 +258,9 @@ fun PlayButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier
         }
     }
 }
+
+/** Play's inside, turning or not: one height, so the button never grows while the streams come in */
+private val PLAY_CONTENT_HEIGHT = 22.dp
 
 /** A thin ring turning, in the text's colour (black on the chosen button, white otherwise) */
 @Composable

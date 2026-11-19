@@ -71,6 +71,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -854,7 +855,7 @@ private fun SeasonsRow(
             contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 18.dp),
             horizontalArrangement = Arrangement.spacedBy(18.dp),
             // (back into the seasons: the one it was on, else the one open)
-            modifier = @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.focusRestorer { landing }.onPreviewKeyEvent {
+            modifier = @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.keepsSideways(left = true).focusRestorer { landing }.onPreviewKeyEvent {
                 if (it.key == Key.DirectionDown) {
                     if (it.type == KeyEventType.KeyDown) onDown()
                     true
@@ -932,7 +933,7 @@ private fun Episodes(
         TitleLogo(title, maxHeight = 46.dp, maxWidth = 320.dp, textSize = 30.sp, centred = true, modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
         if (seasons.size > 1) {
             LazyRow(
-                Modifier.onPreviewKeyEvent {
+                Modifier.keepsSideways(left = true).onPreviewKeyEvent {
                     if (it.key != Key.DirectionDown || aimId == null) return@onPreviewKeyEvent false
                     if (it.type == KeyEventType.KeyDown) runCatching { aim.requestFocus() }.isSuccess else true
                 },
@@ -955,7 +956,7 @@ private fun Episodes(
             // (back up into the episodes: the one the remote was last on, else the one they're on; it landed on whichever was
             // nearest the card it came from, often one half off the screen)
             // (not while a season chosen from the tabs is waiting to be landed on: the row going back to where it was won over it)
-            modifier = if (aimId != null) Modifier else @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.focusRestorer { landing },
+            modifier = Modifier.keepsSideways(left = true).then(if (aimId != null) Modifier else @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.focusRestorer { landing }),
             contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 18.dp),
             horizontalArrangement = Arrangement.spacedBy(18.dp),
         ) {
@@ -982,7 +983,10 @@ private fun Episodes(
 
 @Composable
 private fun EpisodeCard(v: Video, fallbackArt: String?, isCurrent: Boolean, blur: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier = Modifier, width: Dp = 250.dp, showSeason: Boolean = false) {
-    Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // (Apple TV's: the words sit on the page; the frosted box behind them comes up only on the episode the remote's on)
+    var chosen by remember { mutableStateOf(false) }
+    val boxAlpha = animateFloatAsState(if (chosen) 1f else 0f, tween(if (chosen) 300 else 420), label = "episode-box")
+    Column(Modifier.width(width).onFocusChanged { chosen = it.hasFocus }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         FocusCard(onClick = onClick, onLongClick = onLongClick, modifier = modifier.width(width).height(width * 0.64f)) {
             Box(Modifier.fillMaxSize()) {
                 // (Blur unwatched episodes: hidden until it's watched or started; TVs before Android 12 can't
@@ -1012,7 +1016,12 @@ private fun EpisodeCard(v: Video, fallbackArt: String?, isCurrent: Boolean, blur
         }
         // Apple TV's: EPISODE 4, its name, the story and the day it came out
         Column(
-            Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth()
+                .drawBehind {
+                    val a = boxAlpha.value
+                    if (a > 0f) drawRoundRect(Color.White.copy(alpha = 0.1f * a), cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx()))
+                }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             v.episode?.let { Text(if (showSeason && v.season != null && v.season != 0) "S${v.season} · EPISODE $it" else "EPISODE $it", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = if (isCurrent) Color.White else Dx.Muted) }
@@ -1038,7 +1047,7 @@ private fun CastRow(d: Details, photos: List<JSONObject>?, onPerson: (name: Stri
     Column(Modifier.fillMaxWidth().centredWhenFocused()) {
         Text("Cast & Crew", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = Dx.Gutter))
         Spacer(Modifier.height(10.dp))
-        LazyRow(contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+        LazyRow(Modifier.keepsSideways(left = true), contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
             items(people) { (name, role, photo, id) -> Person(name!!, role, photo) { onPerson(name, id, photo) } }
         }
     }
