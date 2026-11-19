@@ -193,7 +193,7 @@ async function imdbIds(env, get, keys) {
 function parseJsonAnswer(raw) {
   if (!raw) return null;
   if (typeof raw === "object") {
-    if (Array.isArray(raw.ranked) || Array.isArray(raw.additions)) return raw;
+    if (Array.isArray(raw.ranked) || Array.isArray(raw.additions) || Array.isArray(raw.titles)) return raw;
     if (raw.response) return parseJsonAnswer(raw.response);
     return null;
   }
@@ -365,7 +365,7 @@ export async function handlePicks(body, env, account, now) {
   if (ranked.length >= 6) rows.push({ name: "Top Picks for You", items: ranked.slice(0, 20).map(title) });
   const used = new Set(ranked.slice(0, 6).map((c) => c.tt));
   for (const s of seeds) {
-    if (rows.length >= 4) break;
+    if (rows.length >= 6) break;
     const list = ranked.filter((c) => c.seeds.includes(s.id));
     const fresh = list.filter((c) => !used.has(c.tt));
     const pick = (fresh.length >= 6 ? fresh : list).slice(0, 14);
@@ -379,4 +379,74 @@ export async function handlePicks(body, env, account, now) {
   if (!partial || !kept || (kept.rows || []).length <= rows.length) await metaPut(env, cacheKey, { sig, at: now, ai, rows, partial });
   const shown = partial && kept && (kept.rows || []).length > rows.length ? kept.rows : rows;
   return { status: 200, body: { rows: shown, ai, at: now, used: budget.used, partial } };
+}
+
+export async function handleAsk(body, env, account, now) {
+  const viewer = typeof body.viewer === "string" && /^[a-zA-Z0-9_-]{1,40}$/.test(body.viewer) ? body.viewer : null;
+  const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+  if (!viewer || prompt.length < 3 || prompt.length > 500) return { status: 400, body: { error: "Invalid search request." } };
+  if (!env.GEMINI_API_KEY && !(env.AI && typeof env.AI.run === "function")) {
+    return { status: 503, body: { error: "AI search isn't configured." } };
+  }
+
+  const data = await load(env, account, viewer);
+  const all = seedsOf(data, now);
+  const watched = all.slice(0, 10).map((s) => ({
+    id: s.id,
+    type: s.type === "series" ? "series" : "movie",
+    name: s.name || data.progress?.[s.id]?.name || "",
+    weight: Math.round(s.weight * 100) / 100,
+  }));
+  const ratings = Object.entries(data.ratings || {}).filter(([, r]) => Number(r) >= 1 && Number(r) <= 10).slice(0, 20)
+    .map(([id, r]) => ({ id, rating: Number(r), name: (data.progress?.[id]?.name) || all.find((s) => s.id === id)?.name || "" }))
+    .filter((r) => r.name);
+  const dropped = [
+    ...hiddenOf(data).map((h) => ({ id: h.id, type: h.type === "series" ? "series" : "movie", name: String(h.name || "").slice(0, 120) })),
+    ...Object.keys(data.cwDismissed || {}).map((id) => ({ id, name: (data.progress?.[id]?.name) || "" })),
+  ].filter((d) => d.name).slice(0, 12);
+
+  const system =
+    "You find films and series for one viewer from a PROMPT they typed. Return ONLY strict JSON of the shape {\"titles\":[{\"type\":\"movie\"|\"series\",\"name\":\"exact original IMDb title\",\"year\":2014}]}. " +
+    "Give up to 16 titles that best match the PROMPT (its theme, setting, era, tone, people): the prompt decides what is included. " +
+    "The input JSON has \"prompt\", \"watched\" (their taste; a higher \"weight\" says more), \"ratings\" (their scores out of 10: 8 to 10 love, 1 to 4 dislike) and \"dropped\" (titles they gave up on or hid). " +
+    "Their taste only decides the ORDER among genuine matches and what to leave out: nothing resembling \"dropped\" or rated 1 to 4. Do not leave out titles they merely watched, but put ones they have not seen first. " +
+    "If the prompt names a film or series (\"like X\"), do not return X itself. If the prompt asks for films only or series only, respect it. " +
+    "Each needs \"type\", the exact original release \"name\" as IMDb lists it, and the 4-digit release \"year\". Never invent a title.";
+
+  const budget = { used: 0 };
+  const parsed = await askModel(env, system, JSON.stringify({ prompt, watched, ratings, dropped }), budget);
+  if (!parsed || !Array.isArray(parsed.titles)) return { status: 502, body: { error: "AI returned an invalid response." } };
+
+  const get = tmdb(env, budget);
+  const hiddenIds = new Set(hiddenOf(data).map((h) => h.id));
+  const disliked = new Set(Object.entries(data.ratings || {}).filter(([, r]) => Number(r) >= 1 && Number(r) <= 4).map(([id]) => id));
+  const seen = new Set();
+  const resolved = [];
+
+  for (const a of parsed.titles.slice(0, 16)) {
+    if (budget.used > BUDGET - 2 || !a || typeof a.name !== "string" || !a.name.trim() || (a.type !== "movie" && a.type !== "series")) continue;
+    const kind = a.type === "series" ? "tv" : "movie";
+    const yr = Number(a.year) || 0;
+    const s = await get(`/search/${kind}?query=${encodeURIComponent(a.name.trim().slice(0, 100))}${yr ? `&${kind === "tv" ? "first_air_date_year" : "year"}=${yr}` : ""}`);
+    const x = s && (s.results || [])[0];
+    if (!x || x.adult) continue;
+    const k = `${kind}:${x.id}`;
+    const tt = (await imdbIds(env, get, [k])).get(k);
+    if (!tt || hiddenIds.has(tt) || disliked.has(tt) || seen.has(tt)) continue;
+    seen.add(tt);
+    resolved.push({ tt, kind, name: x.title || x.name || a.name.trim(), year: Number(String(x.release_date || x.first_air_date || "").slice(0, 4)) || yr });
+  }
+
+  return {
+    status: 200,
+    body: {
+      titles: resolved.map((c) => ({
+        id: c.tt,
+        type: c.kind === "tv" ? "series" : "movie",
+        name: c.name,
+        year: c.year ? String(c.year) : null,
+        ...art(c.tt),
+      })),
+    },
+  };
 }

@@ -135,6 +135,10 @@ class Sync(private val server: String, private val http: HttpClient, var session
     @Throws(Exception::class)
     suspend fun picks(viewer: String): String = call("/picks", buildJsonObject { put("viewer", viewer) }, signed = true).toString()
 
+    /** AI search for a profile (sync/picks.js): {titles: [{id, type, name, poster}]} */
+    @Throws(Exception::class)
+    suspend fun ask(viewer: String, prompt: String): String = call("/ask", buildJsonObject { put("viewer", viewer); put("prompt", prompt) }, signed = true).toString()
+
     /** Once: Lumen's profiles and Stremio's watch history, from a Stremio session key */
     @Throws(Exception::class)
     suspend fun importStremio(stremioAuthKey: String): Int =

@@ -327,35 +327,6 @@ data class Details(
     }
 }
 
-/** Something Discover can switch to: a type or a catalog, with the link that loads it */
-data class Pickable(val name: String, val selected: Boolean, val link: String?)
-
-data class Discover(
-    val request: JSONObject?, val types: List<Pickable>, val catalogs: List<Pickable>, val genres: List<String>,
-    val state: Load, val items: List<Title>, val nextPage: Boolean,
-) {
-    val genre: String? get() = request?.optJSONObject("path")?.optJSONArray("extra")?.let { extra ->
-        (0 until extra.length()).mapNotNull { extra.optJSONArray(it) }.firstOrNull { it.optString(0) == "genre" }?.optString(1)
-    }
-
-    companion object {
-        fun from(o: JSONObject?) = o?.let {
-            Discover(
-                it.optJSONObject("request"),
-                it.optJSONArray("types").objects().map { t -> Pickable(t.optString("type"), t.optBoolean("selected"), t.text("link")) },
-                it.optJSONArray("catalogs").objects().map { c ->
-                    val addon = c.optString("addon")
-                    Pickable(if (addon.isNotEmpty() && addon != "Cinemeta") "${c.optString("name")} · $addon" else c.optString("name"), c.optBoolean("selected"), c.text("link"))
-                },
-                it.optJSONArray("genres").strings(),
-                load(it),
-                it.optJSONArray("items").objects().map(Title::from),
-                it.optBoolean("nextPage"),
-            )
-        }
-    }
-}
-
 data class Account(val signedIn: Boolean, val email: String?, val avatar: String?, val addons: List<String>) {
     companion object {
         fun from(o: JSONObject?) = o?.let {

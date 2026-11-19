@@ -96,7 +96,6 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
 
     val details: StateFlow<Details?> = engine.state("meta_details").map(Details::from).stateIn(scope, SharingStarted.Eagerly, null)
     val search: StateFlow<List<Row>> = engine.state("search").map { Row.list(it).orEmpty() }.stateIn(scope, SharingStarted.Eagerly, emptyList())
-    val discover: StateFlow<Discover?> = engine.state("discover").map(Discover::from).stateIn(scope, SharingStarted.Eagerly, null)
 
     init {
         // Every time the page (re)starts: Home's rows, then dx.bi's pieces
@@ -321,26 +320,8 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
 
     fun removeFromContinue(id: String) = scope.launch { ask("dismiss", JSONObject().put("id", id)) }
 
-    private var christmasKept: Pair<Long, Christmas>? = null
-
-    /**
-     * Christmas at Home: the plugin looks up ~50 titles, so the first call takes a few seconds; the answer is
-     * kept for an hour (null when it couldn't be had)
-     */
     /** The Calendar's episodes: every dated episode of the Library's shows, last month to three months ahead (null: couldn't ask) */
     suspend fun calendar(): List<CalendarEpisode>? = (dx("phone.calendar") as? JSONArray)?.objects()?.map(CalendarEpisode::from)
-
-    suspend fun christmas(): Christmas? {
-        christmasKept?.let { (at, c) -> if (System.currentTimeMillis() - at < 3_600_000L) return c }
-        val o = dx("phone.christmas") as? JSONObject ?: return christmasKept?.second
-        val c = Christmas(
-            daysToChristmas = o.optInt("daysToChristmas"),
-            inSeason = o.optBoolean("inSeason"),
-            rows = o.optJSONArray("rows").objects().map { r -> ListRow(r.optString("name"), r.optJSONArray("items").objects().map(Title::from)) }.filter { it.items.isNotEmpty() },
-        )
-        christmasKept = System.currentTimeMillis() to c
-        return c
-    }
 
     /** An anime's TV seasons in order (the plugin asks Kitsu: a few seconds the first time; none when it has one season or can't tell) */
     suspend fun animeSeasons(id: String): List<AnimeSeason> {
@@ -406,43 +387,12 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Search and See All
+    // Search
 
     fun search(query: String) = scope.launch {
         val extra = JSONArray().put(JSONArray().put("search").put(query))
         ask("load", JSONObject().put("field", "search").put("model", "CatalogsWithExtra").put("args", JSONObject().put("extra", extra)))
         ask("loadRange", JSONObject().put("field", "search").put("start", 0).put("end", 20))
-    }
-
-    /** A Discover link (a row's See All: #/discover/<addon>/<type>/<catalog>?genre=…) */
-    fun discover(link: String) {
-        val m = Regex("""#/discover/([^/]+)/([^/]+)/([^/?]+)(?:\?(.*))?""").find(link) ?: return
-        val (base, type, catalog, query) = m.destructured
-        val extra = JSONArray()
-        query.split('&').filter { it.contains('=') }.forEach { pair ->
-            val (k, v) = pair.split('=', limit = 2)
-            extra.put(JSONArray().put(android.net.Uri.decode(k)).put(android.net.Uri.decode(v)))
-        }
-        discover(android.net.Uri.decode(base), android.net.Uri.decode(type), android.net.Uri.decode(catalog), extra)
-    }
-
-    fun discover(base: String, type: String, catalog: String, extra: JSONArray = JSONArray()) = scope.launch {
-        val request = JSONObject().put("base", base).put("path", JSONObject().put("resource", "catalog").put("type", type).put("id", catalog).put("extra", extra))
-        ask("load", JSONObject().put("field", "discover").put("model", "CatalogWithFilters").put("args", JSONObject().put("request", request)))
-    }
-
-    /** The same catalog with another genre (null: all) */
-    fun discoverGenre(genre: String?) {
-        val request = discover.value?.request ?: return
-        val path = request.optJSONObject("path") ?: return
-        val extra = JSONArray()
-        path.optJSONArray("extra")?.let { old -> (0 until old.length()).mapNotNull { old.optJSONArray(it) }.filter { it.optString(0) != "genre" }.forEach { extra.put(it) } }
-        if (genre != null) extra.put(JSONArray().put("genre").put(genre))
-        discover(request.optString("base"), path.optString("type"), path.optString("id"), extra)
-    }
-
-    fun discoverMore() = scope.launch {
-        ask("dispatch", JSONObject().put("field", "discover").put("action", JSONObject().put("action", "CatalogWithFilters").put("args", JSONObject().put("action", "LoadNextPage"))))
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -601,13 +551,6 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
     suspend fun aiSearch(prompt: String): List<Title>? =
         (engine.runCatching { call("dx", JSONObject().put("method", "phone.aiSearch").put("args", JSONArray().put(prompt)), 40_000) }.getOrNull() as? JSONArray)
             ?.objects()?.map(Title::from)
-
-    /** The catalog browser's first catalog (films, if there are any), unless one's already open */
-    fun discoverStart() {
-        if (discover.value?.request != null) return
-        val rows = allRows.value
-        (rows.firstOrNull { it.type == "movie" }?.discover ?: rows.firstOrNull()?.discover)?.let { discover(it) }
-    }
 
     /** A title's scores and reviews (dx.bi's Reviews: MDBList, Wikidata, Wikipedia, TMDB with the keys set) */
     // (Lumos: from the sync server's MDBList scores; Lumen's page answered phone.reviews, which nothing answers now)

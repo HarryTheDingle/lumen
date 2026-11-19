@@ -141,6 +141,10 @@ class Lumos(syncServer: String) {
     @Throws(Exception::class)
     suspend fun picks(viewer: String): String = sync.picks(viewer)
 
+    /** AI search for a profile, from the sync server (see [Sync.ask]) */
+    @Throws(Exception::class)
+    suspend fun ask(viewer: String, prompt: String): String = sync.ask(viewer, prompt)
+
     /** Sends a problem report (see [Sync.sendLogs]); its reference */
     @Throws(Exception::class)
     suspend fun sendLogs(gz: String, device: String, version: String, note: String?, crash: Boolean): String = sync.sendLogs(gz, device, version, note, crash)

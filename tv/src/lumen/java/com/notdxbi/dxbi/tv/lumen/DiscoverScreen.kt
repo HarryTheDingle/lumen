@@ -11,40 +11,27 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.res.painterResource
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.GridView
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -54,14 +41,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.Button
-import androidx.tv.material3.ButtonDefaults
-import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import androidx.compose.foundation.lazy.LazyListScope
 import kotlinx.coroutines.launch
-import com.notdxbi.dxbi.tv.phone.Load
+import com.notdxbi.dxbi.tv.phone.ListRow
 import com.notdxbi.dxbi.tv.phone.Stremio
 import com.notdxbi.dxbi.tv.phone.Title
 import kotlinx.coroutines.async
@@ -92,31 +76,40 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("lumen", Context.MODE_PRIVATE) }
     var selected by remember { mutableStateOf(prefs.getString("discover.platform", "") ?: "") }
-    var rows by remember { mutableStateOf(built[selected].orEmpty()) }
-    var loadedFor by remember { mutableStateOf(if (built.containsKey(selected)) selected else null) }
     val library by stremio.library.collectAsState()
+    val picks by stremio.picks.collectAsState()
+    val watchedIds by stremio.watchedIds.collectAsState()
+    val viewer by stremio.viewer.collectAsState()
+    val tasteState = LocalTaste.current
+    val cacheKey = if (selected.isEmpty()) "forYou:${viewer?.id.orEmpty()}" else selected
+    var rows by remember { mutableStateOf(built[cacheKey].orEmpty()) }
+    var loadedFor by remember { mutableStateOf(if (built.containsKey(cacheKey)) selected else null) }
     val platform = DiscoverFeed.platforms.firstOrNull { it.id == selected }
 
-    LaunchedEffect(Unit) { if (library.isEmpty()) stremio.loadLibrary(null) }
+    LaunchedEffect(Unit) {
+        if (library.isEmpty()) stremio.loadLibrary(null)
+        if (picks.isEmpty()) stremio.refreshExtras()
+    }
 
-    // whether it's Christmas season (kept, so the row doesn't jump about when it opens again), and the installed
-    // addons: Anime has a tile only with the Kitsu addon, as without it Stremio can't play an anime title
-    var inSeason by remember { mutableStateOf(prefs.getBoolean("discover.christmas", false)) }
+    // whether it's Christmas season, and the installed addons: Anime has a tile only with the Kitsu addon,
+    // as without it Stremio can't play an anime title
+    val inSeason = remember { feed.christmasInSeason() }
     val addons by stremio.installedAddons.collectAsState()
     LaunchedEffect(Unit) { stremio.loadAddons() }
     val hasKitsu = addons.any { it.id.contains("kitsu", ignoreCase = true) || it.transportUrl.contains("kitsu", ignoreCase = true) }
-    LaunchedEffect(Unit) {
-        val c = stremio.christmas() ?: return@LaunchedEffect
-        inSeason = c.inSeason
-        prefs.edit().putBoolean("discover.christmas", c.inSeason).apply()
-    }
-    // (For You again once the Library's in: its "out on digital" row follows it.) The last tab's rows
-    // stay until the new ones are in: a page that emptied and refilled would jump.
-    // (For You: what's new and coming on digital, then popular. Top Picks and Because you watched are Home's, the genre rows
-    // are the Genres tiles', and the Library's films out on digital are the Calendar's: none of them twice)
-    LaunchedEffect(selected) {
-        val made = if (platform != null) platformRows(feed, platform) else forYouRows(feed)
-        built[selected] = made
+    // The last tab's rows stay until the new ones are in: a page that emptied and refilled would jump.
+    LaunchedEffect(
+        selected,
+        if (selected.isEmpty()) picks else null,
+        if (selected.isEmpty()) viewer?.id else null,
+        if (selected.isEmpty()) watchedIds else null,
+    ) {
+        val made = if (platform != null) {
+            built[cacheKey] ?: platformRows(feed, platform)
+        } else {
+            forYouRows(feed, stremio, picks, watchedIds, viewer?.id, tasteState?.current?.genres.orEmpty())
+        }
+        built[cacheKey] = made
         rows = made
         loadedFor = selected
     }
@@ -143,14 +136,13 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
         val keys = buildList {
             add("top"); add("services")
             if (forYou) add("sections")
-            if (loadedFor == null) add("loading") else if (rows.isEmpty() && loadedFor == selected) add("empty")
+            if (loadedFor == null) repeat(3) { add("loading-$it") } else if (rows.isEmpty() && loadedFor == selected) add("empty")
             rows.forEachIndexed { i, row ->
                 add("row-${row.id}")
                 if (forYou && i == minOf(1, rows.lastIndex)) add("genres")
                 if (forYou && i == minOf(3, rows.lastIndex)) add("franchises")
             }
             if (forYou && rows.isEmpty()) { add("genres"); add("franchises") }
-            add("browse")
         }
         // a requester for each row a shortcut can go to
         val landing = remember { HashMap<String, FocusRequester>() }
@@ -195,18 +187,18 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
                 // For You: what's on the page, each a press away (so the Genres, Franchises and digital rows are found)
                 if (forYou) item(key = "sections") {
                     val sections = buildList {
+                        rows.firstOrNull { it.id.startsWith("pick-") }?.let { add("Top Picks" to "row-${it.id}") }
+                        add("Genres" to "genres")
                         if (rows.any { it.id == "digital" }) add("New on Digital" to "row-digital")
                         if (rows.any { it.id == "coming" }) add("Coming Soon" to "row-coming")
-                        add("Genres" to "genres")
                         if (rows.any { it.id == "films" }) add("Popular Films" to "row-films")
                         if (rows.any { it.id == "series" }) add("Popular Series" to "row-series")
                         add("Franchises" to "franchises")
-                        add("All Catalogs" to "browse")
                     }
                     CompositionLocalProvider(LocalBringIntoViewSpec provides RowScrolling) {
                         LazyRow(contentPadding = PaddingValues(start = Dx.Gutter, end = Dx.Gutter, top = 4.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             item { Text("Jump to", fontSize = 14.sp, color = Dx.Muted, modifier = Modifier.padding(end = 4.dp)) }
-                            items(sections, key = { it.second }) { (label, key) -> Pill(label, selected = false, onClick = { if (key == "browse") nav.push(Page.Catalogs) else goTo(key) }) }
+                            items(sections, key = { it.second }) { (label, key) -> Pill(label, selected = false, onClick = { goTo(key) }) }
                         }
                     }
                 }
@@ -232,22 +224,6 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
                     if (forYou && i == minOf(3, rows.lastIndex)) franchisesItem(stremio, nav, Modifier.focusRequester(landingFor("franchises")))
                 }
                 if (forYou && rows.isEmpty()) { genresItem(nav, inSeason, hasKitsu, Modifier.focusRequester(landingFor("genres"))); franchisesItem(stremio, nav, Modifier.focusRequester(landingFor("franchises"))) }
-                item(key = "browse") {
-                    Button(
-                        onClick = { nav.push(Page.Catalogs) },
-                        modifier = Modifier.padding(horizontal = Dx.Gutter),
-                        colors = ButtonDefaults.colors(
-                            containerColor = Color.White.copy(alpha = 0.14f),
-                            contentColor = Color.White,
-                            focusedContainerColor = Color.White,
-                            focusedContentColor = Color.Black,
-                        ),
-                    ) {
-                        Icon(Icons.Filled.GridView, contentDescription = null, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Browse All Catalogs", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
             }
         }
     }
@@ -284,25 +260,67 @@ private fun DatedPoster(t: Title, date: Long, onClick: () -> Unit) {
 // ---------------------------------------------------------------------------------------------
 // Loading
 
-private suspend fun forYouRows(feed: DiscoverFeed): List<FeedRow> = coroutineScope {
+private suspend fun forYouRows(
+    feed: DiscoverFeed,
+    stremio: Stremio,
+    picks: List<ListRow>,
+    watchedIds: Set<String>,
+    viewerId: String?,
+    fallbackTasteGenres: List<String>,
+): List<FeedRow> = coroutineScope {
     val releases = async { feed.digitalYear() }
     val films = async { feed.popular("movie") }
     val series = async { feed.popular("series") }
+
+    val pickRows = picks.mapNotNull { row ->
+        val items = row.items.filter { it.id !in watchedIds }.distinctBy { it.id }
+        if (items.isNotEmpty()) row.name to items else null
+    }.mapIndexed { idx, (name, items) ->
+        FeedRow("pick-$idx", name, items)
+    }
+
+    val tasteGenreRows = if (pickRows.size < 2) {
+        val genres = (viewerId?.let { id ->
+            runCatching { stremio.taste(id) }.getOrNull()?.let { Taste.fromJson(it.toString()) }?.genres
+        }.orEmpty().ifEmpty { fallbackTasteGenres }).take(2)
+        genres.mapIndexed { idx, g ->
+            async {
+                val cinemeta = GENRES.firstOrNull { it.name == g }?.cinemeta?.takeIf { it.isNotEmpty() } ?: g
+                val m = async { feed.popular("movie", cinemeta) }
+                val s = async { feed.popular("series", cinemeta) }
+                val movies = m.await().map { it.title }
+                val shows = s.await().map { it.title }
+                val seen = HashSet<String>(watchedIds)
+                val combined = ArrayList<Title>()
+                val max = maxOf(movies.size, shows.size)
+                for (i in 0 until max) {
+                    if (i < movies.size && seen.add(movies[i].id)) combined.add(movies[i])
+                    if (i < shows.size && seen.add(shows[i].id)) combined.add(shows[i])
+                }
+                if (combined.isNotEmpty()) FeedRow("taste-$idx", "Because you like $g", combined.take(25)) else null
+            }
+        }.awaitAll().filterNotNull()
+    } else {
+        emptyList()
+    }
+
     val all = releases.await()
     val now = System.currentTimeMillis()
     val today = Calendar.getInstance().apply {
         set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
     }.timeInMillis
     val out = all.filter { it.date <= now }
-    val recent = out.filter { it.date >= today - 42 * DAY }
+    val recent = out.filter { it.date >= today - 42 * DAY && it.id !in watchedIds }
     val coming = all.filter { it.date > now }.sortedBy { it.date }
     val dates = all.reversed().associate { it.id to it.date }
 
     buildList {
+        addAll(pickRows)
+        addAll(tasteGenreRows)
         if (recent.isNotEmpty()) add(FeedRow("digital", "New on Digital", recent.take(30).map { it.title }, dates))
         if (coming.isNotEmpty()) add(FeedRow("coming", "Coming Soon to Digital", coming.take(25).map { it.title }, dates))
-        val f = films.await()
-        val s = series.await()
+        val f = films.await().filter { it.title.id !in watchedIds }
+        val s = series.await().filter { it.title.id !in watchedIds }
         if (f.isNotEmpty()) add(FeedRow("films", "Popular Films", f.take(25).map { it.title }))
         if (s.isNotEmpty()) add(FeedRow("series", "Popular Series", s.take(25).map { it.title }))
     }
@@ -326,94 +344,6 @@ private suspend fun platformRows(feed: DiscoverFeed, p: DiscoverFeed.Platform): 
         counts.entries.sortedByDescending { it.value }.take(6).forEach { (genre, _) ->
             val items = all.filter { genre in it.title.genres }
             if (items.size >= 5) add(FeedRow("genre-$genre", genre, items.take(25).map { it.title }))
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// Every catalog
-
-/** Stremio's catalogs, one at a time: its kind, catalog and genre to choose, then a grid of posters */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable
-fun CatalogBrowser(stremio: Stremio, nav: Nav) {
-    val discover by stremio.discover.collectAsState()
-    val allRows by stremio.allRows.collectAsState()
-    LaunchedEffect(allRows.size) { stremio.discoverStart() }
-    val first = remember { FocusRequester() }
-    var asked by remember { mutableIntStateOf(-1) }
-
-    PageWindow(onBack = { nav.back() }, home = first) {
-        val d = discover
-        FocusOnOpen(first, d != null)
-        // (the grid scrolls as the rest of Lumen does: the row the remote's on glides to the middle, once, no bouncing)
-        Box(Modifier.fillMaxSize().background(Dx.Background)) {
-            CompositionLocalProvider(LocalBringIntoViewSpec provides CentredScrolling) {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(Dx.Poster + 14.dp),
-                contentPadding = PaddingValues(start = Dx.Gutter, end = Dx.Gutter, top = 30.dp, bottom = 48.dp),
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
-            ) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Text("All Catalogs", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                }
-                if (d == null) {
-                    items(12) { LoadingPoster() }
-                    return@LazyVerticalGrid
-                }
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    // (the choice rows scroll sideways by the rows' own rule)
-                    CompositionLocalProvider(LocalBringIntoViewSpec provides RowScrolling) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        val types = d.types.filter { it.name !in LEFT_OUT }
-                        if (types.size > 1) {
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(types) { t ->
-                                    Pill(
-                                        when (t.name) { "movie" -> "Movies"; "series" -> "TV Shows"; else -> typeName(t.name) },
-                                        selected = t.selected,
-                                        onClick = { t.link?.let(stremio::discover) },
-                                        modifier = if (t == types.first()) Modifier.focusRequester(first) else Modifier,
-                                    )
-                                }
-                            }
-                        }
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(d.catalogs) { c ->
-                                Pill(
-                                    c.name,
-                                    selected = c.selected,
-                                    onClick = { c.link?.let(stremio::discover) },
-                                    modifier = if (types.size <= 1 && c == d.catalogs.first()) Modifier.focusRequester(first) else Modifier,
-                                )
-                            }
-                        }
-                        if (d.genres.isNotEmpty()) {
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                item { Pill("All Genres", selected = d.genre == null, onClick = { stremio.discoverGenre(null) }) }
-                                items(d.genres) { g -> Pill(g, selected = d.genre == g, onClick = { stremio.discoverGenre(g) }) }
-                            }
-                        }
-                    }
-                    }
-                }
-                itemsIndexed(d.items, key = { i, t -> "$i-${t.id}" }) { i, t ->
-                    PosterCard(t, onClick = { nav.open(t) }, fill = true)
-                    // the next page, as the remote nears the end
-                    if (i >= d.items.size - 8 && d.nextPage) {
-                        LaunchedEffect(d.items.size) {
-                            if (asked != d.items.size) {
-                                asked = d.items.size
-                                stremio.discoverMore()
-                            }
-                        }
-                    }
-                }
-                if (d.state == Load.Loading) items(if (d.items.isEmpty()) 12 else 6) { LoadingPoster() }
-                if (d.state == Load.Err) item(span = { GridItemSpan(maxLineSpan) }) { Text("This catalog has nothing for that choice.", fontSize = 15.sp, color = Dx.Muted) }
-            }
-            }
         }
     }
 }

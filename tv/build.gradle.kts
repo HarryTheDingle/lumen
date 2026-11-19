@@ -44,9 +44,6 @@ android {
         buildConfigField("boolean", "IMMERSIVE", "true")
         buildConfigField("boolean", "PHONE_UI", "false")
         buildConfigField("String", "APK_NAME", "\"lumos-tv.apk\"")
-        // (Lumen's logo film: off until Lumos has its own)
-        buildConfigField("boolean", "INTRO", "false")
-        buildConfigField("boolean", "OWN_INTRO", "false")
     }
 
     signingConfigs {

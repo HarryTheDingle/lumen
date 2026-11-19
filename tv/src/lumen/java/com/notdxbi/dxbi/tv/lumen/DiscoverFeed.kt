@@ -4,6 +4,8 @@ import java.util.Date
 import android.text.Html
 import android.util.Base64
 import androidx.compose.ui.graphics.Color
+import com.notdxbi.dxbi.tv.phone.Christmas
+import com.notdxbi.dxbi.tv.phone.ListRow
 import com.notdxbi.dxbi.tv.phone.Title
 import com.notdxbi.dxbi.tv.phone.objects
 import kotlinx.coroutines.Dispatchers
@@ -82,8 +84,84 @@ class DiscoverFeed(cacheDir: File) {
         private const val ADDON = "https://7a82163c306e-stremio-netflix-catalog-addon.baby-beamup.club"
         private const val CINEMETA = "https://v3-cinemeta.strem.io"
         private val WATCHABLE = setOf("movie", "series", "anime")
+        private val NON_ALNUM = Regex("[^a-z0-9]+")
         private const val HOUR = 3_600_000L
         private const val DAY = 24 * HOUR
+
+        private data class CuratedList(val name: String, val type: String, val titles: List<Pair<String, Int?>>)
+
+        private val CHRISTMAS_LISTS = listOf(
+            CuratedList(
+                "Christmas Classics",
+                "movie",
+                listOf(
+                    "Elf" to 2003,
+                    "Home Alone" to 1990,
+                    "Home Alone 2: Lost in New York" to 1992,
+                    "Love Actually" to 2003,
+                    "Die Hard" to 1988,
+                    "National Lampoon's Christmas Vacation" to 1989,
+                    "Miracle on 34th Street" to 1994,
+                    "It's a Wonderful Life" to 1946,
+                    "White Christmas" to 1954,
+                    "A Christmas Story" to 1983,
+                    "Scrooged" to 1988,
+                    "The Santa Clause" to 1994,
+                ),
+            ),
+            CuratedList(
+                "Family & Animated",
+                "movie",
+                listOf(
+                    "The Polar Express" to 2004,
+                    "Klaus" to 2019,
+                    "How the Grinch Stole Christmas" to 2000,
+                    "The Grinch" to 2018,
+                    "Arthur Christmas" to 2011,
+                    "The Muppet Christmas Carol" to 1992,
+                    "The Nightmare Before Christmas" to 1993,
+                    "Fred Claus" to 2007,
+                    "Rise of the Guardians" to 2012,
+                    "Nativity!" to 2009,
+                    "A Charlie Brown Christmas" to 1965,
+                ),
+            ),
+            CuratedList(
+                "Romance & Comedy",
+                "movie",
+                listOf(
+                    "The Holiday" to 2006,
+                    "Last Christmas" to 2019,
+                    "Four Christmases" to 2008,
+                    "Bad Santa" to 2003,
+                    "Deck the Halls" to 2006,
+                    "The Family Stone" to 2005,
+                    "Christmas with the Kranks" to 2004,
+                    "Jingle All the Way" to 1996,
+                    "Love Hard" to 2021,
+                    "Single All the Way" to 2021,
+                    "Spirited" to 2022,
+                    "Violent Night" to 2022,
+                    "Red One" to 2024,
+                ),
+            ),
+            CuratedList(
+                "Series for Christmas",
+                "series",
+                listOf(
+                    "Friends" to null,
+                    "The Office" to 2005,
+                    "Modern Family" to null,
+                    "Doctor Who" to null,
+                    "Brooklyn Nine-Nine" to null,
+                    "Parks and Recreation" to null,
+                    "Gilmore Girls" to null,
+                    "The Simpsons" to null,
+                    "Community" to null,
+                    "How I Met Your Mother" to null,
+                ),
+            ),
+        )
     }
 
     private val folder = File(cacheDir, "discover").apply { mkdirs() }
@@ -357,6 +435,133 @@ class DiscoverFeed(cacheDir: File) {
         val all = (1..minOf(month + 1, 12)).map { m -> async { digital(year, m) } }.awaitAll().flatten()
         val seen = mutableSetOf<String>()
         all.sortedByDescending { it.date }.filter { seen.add(it.id) }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Christmas at Home
+
+    /** Nov 15 through Dec 26 inclusive */
+    fun christmasInSeason(now: Calendar = Calendar.getInstance()): Boolean {
+        val m = now.get(Calendar.MONTH)
+        val d = now.get(Calendar.DAY_OF_MONTH)
+        return (m == Calendar.NOVEMBER && d >= 15) || (m == Calendar.DECEMBER && d <= 26)
+    }
+
+    private fun daysToChristmas(now: Calendar = Calendar.getInstance()): Int {
+        val today = Calendar.getInstance().apply {
+            timeInMillis = now.timeInMillis
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }
+        val target = Calendar.getInstance().apply {
+            set(today.get(Calendar.YEAR), Calendar.DECEMBER, 25, 0, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+            if (timeInMillis < today.timeInMillis) add(Calendar.YEAR, 1)
+        }
+        return maxOf(0, kotlin.math.ceil((target.timeInMillis - today.timeInMillis) / 86_400_000.0).toInt())
+    }
+
+    private fun normTitle(s: String): String = s.lowercase(Locale.US).replace(NON_ALNUM, "")
+
+    private fun cinemetaTitle(m: JSONObject, type: String): Title {
+        val id = m.optString("imdb_id").ifEmpty { m.optString("id") }
+        val genres = (m.optJSONArray("genres") ?: m.optJSONArray("genre"))?.let { a ->
+            (0 until a.length()).mapNotNull { a.optString(it).takeIf { g -> g.isNotEmpty() } }.take(3)
+        }.orEmpty()
+        return Title(
+            id = id,
+            type = type,
+            name = m.optString("name"),
+            poster = m.optString("poster").takeIf { it.isNotEmpty() && it != "null" },
+            background = m.optString("background").takeIf { it.isNotEmpty() && it != "null" },
+            description = m.optString("description").takeIf { it.isNotEmpty() && it != "null" },
+            year = m.optString("releaseInfo").takeIf { it.isNotEmpty() && it != "null" },
+            genres = genres,
+            imdb = m.optString("imdbRating").takeIf { it.isNotEmpty() && it != "null" },
+        )
+    }
+
+    private suspend fun findCinemeta(type: String, name: String, year: Int?): Title? = withContext(Dispatchers.IO) {
+        val q = URLEncoder.encode(name, "UTF-8").replace("+", "%20")
+        val body = fetch("$CINEMETA/catalog/$type/top/search=$q.json") ?: return@withContext null
+        val metas = runCatching { JSONObject(body).optJSONArray("metas").objects() }.getOrDefault(emptyList())
+        val want = normTitle(name)
+        val same = metas.filter { normTitle(it.optString("name")) == want }
+        val hit = (year?.let { y -> same.firstOrNull { it.optString("releaseInfo").startsWith(y.toString()) } }) ?: same.firstOrNull() ?: return@withContext null
+        cinemetaTitle(hit, type).takeIf { it.id.isNotEmpty() }
+    }
+
+    private suspend fun moreChristmas(skip: Set<String>): List<Title> = coroutineScope {
+        val key = com.notdxbi.dxbi.tv.BuildConfig.TMDB_KEY.trim()
+        if (key.isEmpty()) return@coroutineScope emptyList()
+        val kwBody = withContext(Dispatchers.IO) { fetch("https://api.themoviedb.org/3/search/keyword?query=christmas&page=1&api_key=$key") }
+        val kwId = kwBody?.let {
+            runCatching {
+                JSONObject(it).optJSONArray("results").objects().firstOrNull { k -> k.optString("name").equals("christmas", ignoreCase = true) }?.optInt("id")
+            }.getOrNull()
+        } ?: 207317
+        val discBody = withContext(Dispatchers.IO) {
+            fetch("https://api.themoviedb.org/3/discover/movie?with_keywords=$kwId&sort_by=popularity.desc&vote_count.gte=150&include_adult=false&language=en-US&page=1&api_key=$key")
+        } ?: return@coroutineScope emptyList()
+        val picks = runCatching { JSONObject(discBody).optJSONArray("results").objects() }.getOrDefault(emptyList()).take(24)
+        picks.map { m ->
+            async(Dispatchers.IO) {
+                val ext = fetch("https://api.themoviedb.org/3/movie/${m.optInt("id")}/external_ids?api_key=$key") ?: return@async null
+                val tt = runCatching { JSONObject(ext).optString("imdb_id") }.getOrDefault("").takeIf { it.startsWith("tt") } ?: return@async null
+                if (tt in skip) return@async null
+                Title(
+                    id = tt,
+                    type = "movie",
+                    name = m.optString("title").ifEmpty { m.optString("name") },
+                    poster = "https://images.metahub.space/poster/medium/$tt/img",
+                    background = "https://images.metahub.space/background/medium/$tt/img",
+                    description = m.optString("overview").takeIf { it.isNotEmpty() },
+                    year = m.optString("release_date").take(4).takeIf { it.isNotEmpty() },
+                )
+            }
+        }.awaitAll().filterNotNull().distinctBy { it.id }
+    }
+
+    /** Christmas at Home: curated rows (cached 24 hours on disk), plus TMDB "More Christmas" when a key is configured */
+    suspend fun christmas(): Christmas? = withContext(Dispatchers.IO) {
+        val now = Calendar.getInstance()
+        val inSeason = christmasInSeason(now)
+        val days = daysToChristmas(now)
+        load("christmas-rows", DAY)?.let { saved ->
+            val cachedRows = runCatching {
+                JSONArray(saved).objects().map { r ->
+                    ListRow(r.optString("name"), r.optJSONArray("items").objects().map(Title::from))
+                }.filter { it.items.isNotEmpty() }
+            }.getOrDefault(emptyList())
+            if (cachedRows.isNotEmpty()) return@withContext Christmas(daysToChristmas = days, inSeason = inSeason, rows = cachedRows)
+        }
+        val rows = coroutineScope {
+            CHRISTMAS_LISTS.map { list ->
+                async {
+                    val items = list.titles.map { (name, year) ->
+                        async { findCinemeta(list.type, name, year) }
+                    }.awaitAll().filterNotNull()
+                    ListRow(list.name, items)
+                }
+            }.awaitAll()
+        }.toMutableList()
+        val have = rows.flatMap { r -> r.items.map { it.id } }.toSet()
+        val more = runCatching { moreChristmas(have) }.getOrDefault(emptyList())
+        if (more.isNotEmpty()) rows.add(minOf(3, rows.size), ListRow("More Christmas", more))
+        val nonEmpty = rows.filter { it.items.isNotEmpty() }
+        if (nonEmpty.isEmpty()) return@withContext null
+        val serialized = JSONArray(nonEmpty.map { r ->
+            JSONObject().put("name", r.name).put("items", JSONArray(r.items.map { t ->
+                JSONObject().put("id", t.id).put("type", t.type).put("name", t.name)
+                    .put("poster", t.poster ?: JSONObject.NULL)
+                    .put("background", t.background ?: JSONObject.NULL)
+                    .put("description", t.description ?: JSONObject.NULL)
+                    .put("year", t.year ?: JSONObject.NULL)
+                    .put("imdb", t.imdb ?: JSONObject.NULL)
+                    .put("genres", JSONArray(t.genres))
+            }))
+        }).toString()
+        save("christmas-rows", serialized)
+        Christmas(daysToChristmas = days, inSeason = inSeason, rows = nonEmpty)
     }
 
     // ---------------------------------------------------------------------------------------------

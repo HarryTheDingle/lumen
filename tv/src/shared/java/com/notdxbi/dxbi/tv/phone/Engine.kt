@@ -455,7 +455,6 @@ class Engine(context: Context) {
             "installed_addons" -> tell("installed_addons", JSONObject().put("items", JSONArray(addons.map {
                 JSONObject().put("transportUrl", it).put("id", it).put("name", android.net.Uri.parse(it).host ?: it).put("installed", true)
             })))
-            "discover" -> tell("discover", JSONObject().put("state", "Err").put("items", JSONArray()))
         }
         return null
     }
@@ -507,6 +506,12 @@ class Engine(context: Context) {
             "phone.layout" -> obj(core.value("homeLayout:" + core.viewer))
             "homeLayout.save" -> { args.optJSONObject(0)?.let { core.setValue("homeLayout:" + core.viewer, it.toString(), now()); changed() }; null }
             "phone.picks" -> picksAnswer()
+            "phone.aiSearch" -> {
+                val q = args.optString(0).trim()
+                if (q.length < 3) return JSONArray()
+                if (!core.signedIn) return null
+                runCatching { JSONObject(core.ask(core.viewer, q)).optJSONArray("titles") }.getOrNull()
+            }
             "phone.billboard" -> {
                 // (Lumen's billboard came from its picks: until they're ported, the first row's titles with art)
                 val rows = lastBoard?.optJSONArray("catalogs") ?: JSONArray()

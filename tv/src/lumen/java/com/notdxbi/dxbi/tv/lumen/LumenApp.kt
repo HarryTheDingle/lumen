@@ -234,11 +234,10 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
             ) {
                 when (page) {
                     is Page.Details -> TitlePage(stremio, nav, page.title, page.play)
-                    Page.Catalogs -> CatalogBrowser(stremio, nav)
                     is Page.Person -> PersonPage(stremio, nav, page)
                     Page.Networks -> PageWindow(onBack = { nav.back() }) { NetworksScreen(stremio) }
                     is Page.Genre -> GenrePage(nav, feed, page.name)
-                    Page.Christmas -> ChristmasPage(stremio, nav)
+                    Page.Christmas -> ChristmasPage(feed, nav)
                     is Page.Genius -> GeniusPage(nav, feed, stremio, page.mood)
                     is Page.Chain -> ChainPage(nav, stremio, page.name, page.titles)
                     is Page.Franchise -> FranchisePage(stremio, nav, page.id, page.name)

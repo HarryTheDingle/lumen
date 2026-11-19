@@ -21,7 +21,6 @@ class MainActivity : AppCompatActivity() {
 
     private var lastBack = 0L
     private var playbackListener: PlaybackBus.Listener? = null
-    private var intro: Intro? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,7 +35,6 @@ class MainActivity : AppCompatActivity() {
         root.setBackgroundColor(getColor(R.color.background))
         setContentView(root)
         Phone.attach(this, root) {}
-        if (savedInstanceState == null && BuildConfig.INTRO) intro = Intro(this, root).also { it.start() }
         // (a newer Lumos offered once a little after starting, when there is one)
         root.postDelayed({ if (!isFinishing) Updates.checkApp(this) }, 8000)
 
@@ -86,11 +84,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        // Any key skips the intro
-        intro?.takeIf { it.showing }?.let {
-            if (event.action == KeyEvent.ACTION_UP) it.skip()
-            return true
-        }
         if (event.keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) return true
         return super.dispatchKeyEvent(event)
     }

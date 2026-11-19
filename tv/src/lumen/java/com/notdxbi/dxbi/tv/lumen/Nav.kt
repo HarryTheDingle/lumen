@@ -82,7 +82,6 @@ enum class Tab(val label: String, val icon: ImageVector) {
 /** A page over the tabs */
 sealed interface Page {
     data class Details(val title: Title, val play: Boolean = false) : Page
-    data object Catalogs : Page
     /** Someone from a cast: TMDB's id for them, their name and photo (shown while it loads) */
     data class Person(val id: String, val name: String, val photo: String?) : Page
     /** Who's watching? and the accounts */

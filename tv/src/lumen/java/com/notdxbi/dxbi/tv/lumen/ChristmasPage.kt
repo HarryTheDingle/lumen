@@ -30,19 +30,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import com.notdxbi.dxbi.tv.phone.Christmas
-import com.notdxbi.dxbi.tv.phone.Stremio
 
 /**
  * Christmas at Home: a red wash fading to black (a little green at the foot), the days to go, then the
- * plugin's rows as they come (the first ask can take several seconds, so the header shows at once). No snow:
+ * curated rows as they come (the first ask can take several seconds, so the header shows at once). No snow:
  * this TV is slow.
  */
 @Composable
-fun ChristmasPage(stremio: Stremio, nav: Nav) {
+fun ChristmasPage(feed: DiscoverFeed, nav: Nav) {
     var data by remember { mutableStateOf<Christmas?>(null) }
     var done by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        data = stremio.christmas()
+        data = feed.christmas()
         done = true
     }
     val first = remember { FocusRequester() }

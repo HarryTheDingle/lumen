@@ -19,7 +19,7 @@
 
 import { readLists, refreshLists } from "./lists.js";
 import { resolveArt, warmArt, wrongArt } from "./art.js";
-import { handlePicks } from "./picks.js";
+import { handlePicks, handleAsk } from "./picks.js";
 import { resolveLabels } from "./labels.js";
 import { handleScores } from "./scores.js";
 
@@ -436,6 +436,7 @@ async function handle(request, env) {
       case "/scores": return reply(200, await handleScores(body, env));
       case "/labels": return reply(200, await resolveLabels(env, body.ids, undefined, body.facts === true));
       case "/picks": { const r = await handlePicks(body, env, me.account, now); return reply(r.status, r.body); }
+      case "/ask": { const r = await handleAsk(body, env, me.account, now); return reply(r.status, r.body); }
       case "/art/wrong": {
         const id = typeof body.id === "string" ? body.id : "";
         if (!/^tt\d{1,10}$/.test(id)) return reply(400, { error: "Which title?" });

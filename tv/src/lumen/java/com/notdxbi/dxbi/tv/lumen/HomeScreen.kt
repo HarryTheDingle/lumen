@@ -116,7 +116,8 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
     val suggestions by stremio.billboard.collectAsState()
     val myList by stremio.myList.collectAsState()
     val forYou by stremio.forYou.collectAsState()
-    val picks by stremio.picks.collectAsState()
+    val allPicks by stremio.picks.collectAsState()
+    val picks = remember(allPicks) { allPicks.take(4) }
     val tasteRows = LocalTaste.current?.rows.orEmpty()
     val airing by stremio.airing.collectAsState()
     val allRows by stremio.rows.collectAsState()
