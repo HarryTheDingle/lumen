@@ -2,6 +2,7 @@
 // is answered here (session "key-u1" is account u1).
 //   node sync/test.mjs
 import worker, { convertLibrary, pruneCaches } from "./worker.js";
+import { seedsOf, becauseOrder, becauseRows, likeness } from "./picks.js";
 import { d1 } from "./d1-sqlite.mjs";
 
 const library = [
@@ -149,6 +150,32 @@ check(!metaKeys.has("scores:ttOld") && metaKeys.has("scores:ttNew"), "pruneCache
 check(!metaKeys.has("recs:movie:1") && metaKeys.has("recs:movie:2"), "pruneCaches prunes expired recs and keeps fresh ones");
 check(!artKeys.has("ttArtOld") && artKeys.has("ttArtNew"), "pruneCaches prunes expired lumos_titleart and keeps fresh ones");
 check(!factKeys.has("ttFactOld") && factKeys.has("ttFactNew"), "pruneCaches prunes expired lumos_facts and keeps fresh ones");
+
+// Picks: Because rows are varied, and the Library counts as taste
+{
+  const mk = (id, weight, genres, year) => ({ id, weight, genres, year, how: "watched", name: id });
+  const seeds = [mk("ttGlad", 3, [28, 18, 12], 2000), mk("ttOdy", 2.9, [28, 18, 12], 2026), mk("ttSit", 2.5, [35], 2010), mk("ttDoc", 2.4, [53, 9648], 2015), mk("ttCar", 2.2, [16, 10751], 2019)];
+  check(likeness(seeds[0], seeds[1]) > likeness(seeds[0], seeds[2]), "picks: two epics are more alike than an epic and a sitcom");
+  for (const day of [20400, 20401, 20402, 20403]) {
+    const o = becauseOrder(seeds, day).map((s) => s.id);
+    const g = o.indexOf("ttGlad"), y = o.indexOf("ttOdy");
+    check(Math.abs(g - y) > 1, `picks: Gladiator and The Odyssey aren't next to each other (day ${day}: ${o.join(" ")})`);
+  }
+  check(new Set([20400, 20401, 20402, 20403, 20404, 20405].map((d) => becauseOrder(seeds, d).map((s) => s.id).join())).size > 1, "picks: the order changes from day to day");
+  check(becauseOrder(seeds, 20400).map((s) => s.id).join() === becauseOrder(seeds, 20400).map((s) => s.id).join(), "picks: and is the same all day");
+  // every candidate points to every seed, as TMDB's lists overlap
+  const ranked = Array.from({ length: 40 }, (_, i) => ({ tt: `ttC${i}`, seeds: seeds.map((s) => s.id) }));
+  const rows = becauseRows(seeds, ranked, 20400, ranked.slice(0, 10).map((c) => c.tt));
+  const all = rows.flatMap((r) => r.items.map((c) => c.tt));
+  check(rows.length >= 2 && all.length === new Set(all).size, "picks: no title is in more than one Because row");
+  check(!all.some((id) => Number(id.slice(3)) < 10), "picks: Top Picks' first ten aren't repeated in a Because row");
+  const now = Date.now();
+  const data = { watched: { tt111: { on: true, at: now } }, myList: { tt222: { on: true, at: now, type: "movie", name: "Saved One" }, tt333: { on: false, at: now } } };
+  const sd = seedsOf(data, now);
+  const w = sd.find((s) => s.id === "tt111"), sv = sd.find((s) => s.id === "tt222");
+  check(sv && sv.how === "saved" && sv.name === "Saved One" && w.weight > sv.weight, "picks: a saved title is a lighter seed than a watched one");
+  check(!sd.some((s) => s.id === "tt333"), "picks: a title taken out of the Library isn't a seed");
+}
 
 console.log(failures.length ? `\n${failures.length} failed` : "\nall passed");
 process.exit(failures.length ? 1 : 0);
