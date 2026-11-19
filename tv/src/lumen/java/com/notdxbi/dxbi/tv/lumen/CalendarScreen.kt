@@ -68,8 +68,12 @@ private data class Entry(val day: Long, val time: Long, val title: Title, val na
 fun CalendarScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("lumen", Context.MODE_PRIVATE) }
-    val library by stremio.library.collectAsState()
-    LaunchedEffect(Unit) { if (library.isEmpty()) stremio.loadLibrary(null) }
+    val stored by stremio.library.collectAsState()
+    val marks by stremio.listMarks.collectAsState()
+    // (what was just taken out of the Library on a title page counts at once, before Stremio's own list catches up)
+    val library = remember(stored, marks) { stored.filter { marks[it.id] != false } }
+    // (always load again on arrival: the list kept from last time still has titles removed, or lacks ones added, since)
+    LaunchedEffect(Unit) { stremio.loadLibrary(null) }
     var everything by remember { mutableStateOf(prefs.getBoolean("calendar.everything", false)) }
     // the month shown: 0 this one, -1 last month, up to 2 ahead
     var monthShift by remember { mutableIntStateOf(0) }
