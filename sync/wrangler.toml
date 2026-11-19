@@ -1,0 +1,39 @@
+name = "lumos-sync"
+# The Cloudflare account that has lumen-sync (ellih2010), whichever account Wrangler is signed in to by default
+account_id = "6dcb1eafe4e89ffac758e53b059d9611"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+# The same database as lumen-sync (Lumen's profiles can be brought across); schema.sql only adds tables
+[[d1_databases]]
+binding = "DB"
+database_name = "lumen-sync"
+database_id = "699eb714-9784-4d0d-aa18-0cc9455dc887"
+
+[[ratelimits]]
+name = "IP_LIMIT"
+namespace_id = "2201"
+simple = { limit = 60, period = 60 }
+
+[[ratelimits]]
+name = "ACCOUNT_LIMIT"
+namespace_id = "2202"
+simple = { limit = 60, period = 60 }
+
+# Secret (npx wrangler secret put LUMOS_SETUP): the phrase that lets the first device make an account.
+# Without it set, no accounts can be made.
+
+# Lumos's own Home lists (lists.js): remade a little at a time, every 15 minutes
+[triggers]
+crons = ["*/15 * * * *"]
+
+# Secrets for the lists: npx wrangler secret put LUMOS_TMDB_KEY, npx wrangler secret put MDBLIST_KEY
+
+# Lumos TV's updates (sync/release-tv.sh): /update/tv/release.json and /update/tv/lumos-tv.apk, served as they are
+[assets]
+directory = "./public"
+
+# Top Picks' curation (picks.js): Cloudflare's own AI, as Lumen's Worker uses
+[ai]
+binding = "AI"

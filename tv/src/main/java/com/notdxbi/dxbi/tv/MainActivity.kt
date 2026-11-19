@@ -1,0 +1,144 @@
+package com.notdxbi.dxbi.tv
+
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
+import android.view.KeyEvent
+import android.view.WindowManager
+import android.widget.FrameLayout
+import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+
+/**
+ * Lumos TV: Lumen TV's own screens (Phone.attach puts them up), worked by the Lumos engine. Lumen TV's MainActivity
+ * hosted Stremio's web page under them; Lumos has none, so this is only the screens' window. Streams play in
+ * [PlayerActivity], which tells the engine where it got to (PlaybackBus).
+ */
+class MainActivity : AppCompatActivity() {
+
+    private var lastBack = 0L
+    private var playbackListener: PlaybackBus.Listener? = null
+    private var intro: Intro? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // (the app's own log, kept for a problem report)
+        LogKeeper.start(this)
+        leaveLumen2Behind()
+        if (BuildConfig.IMMERSIVE) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        hideSystemBars()
+        LowSpace.relieve(this)
+
+        val root = FrameLayout(this)
+        root.setBackgroundColor(getColor(R.color.background))
+        setContentView(root)
+        Phone.attach(this, root) {}
+        if (savedInstanceState == null && BuildConfig.INTRO) intro = Intro(this, root).also { it.start() }
+        // (a newer Lumos offered once a little after starting, when there is one)
+        root.postDelayed({ if (!isFinishing) Updates.checkApp(this) }, 8000)
+
+        playbackListener = object : PlaybackBus.Listener {
+            override fun onProgress(positionMs: Long, durationMs: Long, paused: Boolean) = Phone.progress(positionMs, durationMs, paused)
+            override fun onPartyTick(positionMs: Long, durationMs: Long, paused: Boolean, buffering: Boolean, rate: Float) {}
+            override fun onPartyLeave() {}
+            override fun onClosed() {
+                val close = PlaybackBus.takePendingClose()?.let { runCatching { org.json.JSONObject(it) }.getOrNull() } ?: return
+                Phone.closed(close.optLong("timeMs"), close.optLong("durationMs"))
+            }
+        }
+        PlaybackBus.listener = playbackListener
+
+        // (Lumen's screens handle Back first, with their own handlers; on Home, Back twice leaves)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val now = System.currentTimeMillis()
+                if (now - lastBack < 2500) finish()
+                else {
+                    lastBack = now
+                    Toast.makeText(this@MainActivity, "Press Back again to leave ${BuildConfig.APP_NAME}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        })
+    }
+
+    /**
+     * Once, the first time it starts: what Lumen 2 left behind when this installed over it. Its hidden Stremio page's
+     * storage (often hundreds of MB, on TVs short of room), its caches, and its cached screens (another account's rows
+     * and profiles, from Stremio). Nothing of this app's own is lost: it has nothing yet on the first start
+     */
+    private fun leaveLumen2Behind() {
+        val marks = getSharedPreferences("lumen3", MODE_PRIVATE)
+        if (marks.getBoolean("moved", false)) return
+        runCatching {
+            java.io.File(applicationInfo.dataDir, "app_webview").deleteRecursively()
+            cacheDir.listFiles()?.forEach { it.deleteRecursively() }
+            getSharedPreferences("phone-cache", MODE_PRIVATE).edit().clear().commit()
+        }
+        marks.edit().putBoolean("moved", true).apply()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        window.decorView.postDelayed({ getSharedPreferences("phone-cache", MODE_PRIVATE).edit().remove("x.playerUntil").apply() }, 4000)
+        hideSystemBars()
+        Updates.onResume(this)
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Any key skips the intro
+        intro?.takeIf { it.showing }?.let {
+            if (event.action == KeyEvent.ACTION_UP) it.skip()
+            return true
+        }
+        if (event.keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    /** A stream for the player (from the engine) */
+    fun play(json: String) {
+        PlaybackBus.started(json)
+        // (the TV may close this screen while the player has it: coming back mustn't ask who's watching again)
+        getSharedPreferences("phone-cache", MODE_PRIVATE).edit().putLong("x.playerUntil", System.currentTimeMillis() + 12 * 3600_000L).apply()
+        startActivity(Intent(this, PlayerActivity::class.java).putExtra(PlayerActivity.EXTRA_STREAM, json))
+    }
+
+    fun openExternal(url: String) {
+        val uri = Uri.parse(url)
+        if (uri.host?.endsWith("youtube.com") == true || uri.host == "youtu.be") {
+            for (pkg in listOf("com.google.android.youtube.tv", "com.amazon.firetv.youtube", "com.google.android.youtube")) {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, uri).setPackage(pkg))
+                    return
+                } catch (_: Exception) { /* not on this TV: the next one */ }
+            }
+        }
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, uri))
+        } catch (_: Exception) {
+            Toast.makeText(this, "No app on this TV can open that link", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** Whether there's a screen to show yet (what the intro waits for): Lumen's screens are up at once */
+    fun pageReady(answer: (Boolean) -> Unit) = answer(true)
+
+    /** (Lumen TV ran scripts in its page; there's no page) */
+    fun js(code: String) {}
+
+    private fun hideSystemBars() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+    }
+
+    override fun onDestroy() {
+        if (PlaybackBus.listener === playbackListener) PlaybackBus.listener = null
+        super.onDestroy()
+    }
+}

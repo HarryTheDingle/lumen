@@ -1,0 +1,14 @@
+.gradle/
+build/
+.kotlin/
+local.properties
+*.keystore
+keystore.properties
+.DS_Store
+xcuserdata/
+Lumos.xcodeproj/
+scratch-standins/
+reports/
+*.jks
+.wrangler/
+node_modules/

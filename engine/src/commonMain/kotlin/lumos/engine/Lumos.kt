@@ -1,0 +1,455 @@
+package lumos.engine
+
+import kotlinx.coroutines.flow.toList
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.add
+
+/** What came across from Stremio; [stremioKey] is kept (Keychain) to keep Stremio in step while Lumen's in use */
+data class Imported(val titles: Int, val addons: List<String>, val stremioKey: String)
+
+/** One of the people watching (Lumen's viewers, synced) */
+data class Profile(val id: String, val name: String, val colour: String?, val kids: Boolean)
+
+/** A Home row */
+data class Row(val id: String, val title: String, val items: List<MetaPreview>)
+
+/** Somewhere to carry on watching */
+data class Resume(
+    val id: String,
+    val type: String,
+    val video: String,
+    val name: String,
+    val poster: String?,
+    val position: Double,
+    val duration: Double,
+    val at: Long,
+) {
+    val fraction: Double get() = if (duration > 0) (position / duration).coerceIn(0.0, 1.0) else 0.0
+}
+
+/** A stream as the list shows it, ranked */
+data class Choice(val stream: Stream, val quality: String, val sizeText: String?, val ready: Boolean, val label: String)
+
+/**
+ * The whole app below the screens, as Swift (and Kotlin) sees it: simple calls that answer lists.
+ * The app keeps [state] on disk between launches and gives it back with [restore].
+ */
+class Lumos(syncServer: String) {
+    internal val http = Engine.defaultHttp()
+    internal var engine = Engine(emptyList(), null, http)
+    val sync = Sync(syncServer, http)
+
+    /** The time now, in ms since 1970 (the app sets it: common Kotlin has no wall clock here) */
+    var clock: () -> Long = { 0L }
+
+    /** Match my internet speed (Lumen's quickPlaySpeed, on by default) and what each network is known to do */
+    var matchSpeed = true
+    internal val speed = Speed(http) { clock() }
+
+    /** Synced values by key, with when each changed, and what changed here since the last sync */
+    internal val values = mutableMapOf<String, Entry>()
+    private val dirty = mutableSetOf<String>()
+    private var since = 0L
+
+    val signedIn: Boolean get() = sync.session != null
+    var viewer: String = "main"
+
+    fun configure(addonUrls: List<String>, torBoxKey: String?) {
+        engine = Engine(addonUrls, torBoxKey, http)
+    }
+
+    fun useSession(token: String, account: String) { sync.session = Session(token, account) }
+
+    // ---- Profiles ----
+
+    fun profiles(): List<Profile> = values["viewers"]?.v?.obj()?.get("list").arr().mapNotNull { it.obj() }.mapNotNull { v ->
+        Profile(v.str("id") ?: return@mapNotNull null, v.str("name") ?: "Viewer", v.str("colour"), v.bool("kids") == true || v.int("kidsAge") != null)
+    }
+
+    fun chooseProfile(id: String) { viewer = id; viewerChosen = true }
+
+    // Adding, renaming, recolouring and removing people (Lumen's viewers.add/rename/recolour/remove), synced
+    private fun viewersNow(): JsonObject = values["viewers"]?.v?.obj()
+        ?: buildJsonObject { putJsonArray("list") { add(buildJsonObject { put("id", "main"); put("name", "Me"); put("colour", "#2f80ff") }) }; put("current", "main") }
+
+    private fun saveViewers(list: List<JsonObject>, removed: List<String>, now: Long) {
+        val old = viewersNow()
+        put("viewers", buildJsonObject {
+            put("list", JsonArray(list))
+            put("current", old.str("current") ?: "main")
+            put("removed", JsonArray(removed.takeLast(50).map(::JsonPrimitive)))
+        }, now)
+    }
+
+    private fun viewerList() = viewersNow()["list"].arr().mapNotNull { it.obj() }
+    private fun removedViewers() = viewersNow().strings("removed")
+
+    /** A new person ([colour] one of Lumen's, as #rrggbb); their id */
+    fun addProfile(name: String, colour: String, now: Long): String {
+        val id = "v" + now.toString(36)
+        saveViewers(viewerList() + buildJsonObject { put("id", id); put("name", name.trim().take(20)); put("colour", colour) }, removedViewers(), now)
+        return id
+    }
+
+    fun renameProfile(id: String, name: String, now: Long) {
+        if (name.isBlank()) return
+        saveViewers(viewerList().map { if (it.str("id") == id) JsonObject(it + ("name" to JsonPrimitive(name.trim().take(20)))) else it }, removedViewers(), now)
+    }
+
+    fun recolourProfile(id: String, colour: String, now: Long) {
+        saveViewers(viewerList().map { if (it.str("id") == id) JsonObject(it + ("colour" to JsonPrimitive(colour))) else it }, removedViewers(), now)
+    }
+
+    /** Takes a person off (never the last one); kept in "removed" so another device doesn't bring them back */
+    fun removeProfile(id: String, now: Long) {
+        val list = viewerList()
+        if (list.size < 2 || list.none { it.str("id") == id }) return
+        saveViewers(list.filter { it.str("id") != id }, removedViewers() + id, now)
+        if (viewer == id) viewer = list.first { it.str("id") != id }.str("id") ?: "main"
+    }
+    private var viewerChosen = false
+
+    // ---- Signing in ----
+
+    @Throws(Exception::class)
+    suspend fun createAccount(setup: String, deviceName: String): Session = sync.createAccount(setup, deviceName)
+    @Throws(Exception::class)
+    suspend fun startSignIn(deviceName: String): PendingSignIn = sync.startSignIn(deviceName)
+    /** Signs in with a Stremio session key (see [Sync.signInWithStremio]) */
+    @Throws(Exception::class)
+    suspend fun signInWithStremio(key: String, deviceName: String): Session = sync.signInWithStremio(key, deviceName)
+    @Throws(Exception::class)
+    suspend fun pollSignIn(pending: PendingSignIn): Session? = sync.poll(pending)
+    @Throws(Exception::class)
+    suspend fun approveSignIn(code: String): String = sync.approve(code)
+    /** Once: Lumen's profiles and Stremio's history into Lumos, and the account's stream addons (for the app to keep) */
+    @Throws(Exception::class)
+    suspend fun importStremio(email: String, password: String): Imported = importStremio(sync.stremioLogin(email, password))
+
+    /** The same, with a Stremio session key already had (Stremio's link code, finished on a phone: the TV's way) */
+    @Throws(Exception::class)
+    suspend fun importStremio(key: String): Imported {
+        val addons = runCatching { sync.stremioStreamAddons(key) }.getOrDefault(emptyList())
+        val titles = if (signedIn) sync.importStremio(key).also { syncNow() } else 0
+        useStremio(key)
+        return Imported(titles, addons, key)
+    }
+
+    /** Top Picks for a profile, from the sync server (see [Sync.picks]) */
+    @Throws(Exception::class)
+    suspend fun picks(viewer: String): String = sync.picks(viewer)
+
+    /** Sends a problem report (see [Sync.sendLogs]); its reference */
+    @Throws(Exception::class)
+    suspend fun sendLogs(gz: String, device: String, version: String, note: String?, crash: Boolean): String = sync.sendLogs(gz, device, version, note, crash)
+
+    // ---- Keeping Stremio in step (while Lumen's still used) ----
+
+    private var stremio: StremioBridge? = null
+    private var lastPull = 0L
+
+    fun useStremio(authKey: String?) { stremio = authKey?.takeIf { it.isNotBlank() }?.let { StremioBridge(it, http) } }
+    val keepsStremio: Boolean get() = stremio != null
+
+    /** Tells Stremio where this title got to (when the player closes); false when it couldn't */
+    @Throws(Exception::class)
+    suspend fun tellStremio(id: String, type: String, video: String, name: String, poster: String?, position: Double, duration: Double, now: Long): Boolean {
+        val bridge = stremio ?: return false
+        // (Stremio's library is the main profile's, as in Lumen: the others' watching stays in Lumos)
+        if (viewer != "main") return false
+        val finished = duration > 0 && position / duration >= 0.92
+        return runCatching { bridge.progress(id, type, name, poster, video, position, duration, now, finished) }.isSuccess
+    }
+
+    /** A whole title marked watched, or put in or taken out of My List, told to Stremio (main profile only, as [tellStremio]) */
+    @Throws(Exception::class)
+    suspend fun tellStremioMark(id: String, type: String, name: String, poster: String?, watched: Boolean?, inList: Boolean?, now: Long): Boolean {
+        val bridge = stremio ?: return false
+        if (viewer != "main" || !Regex("""^tt\d+$""").matches(id)) return false
+        return runCatching {
+            watched?.let { bridge.watched(id, type, name, poster, it, now) }
+            inList?.let { bridge.library(id, type, name, poster, it, now) }
+        }.isSuccess
+    }
+
+    /** Continue Watching's Remove, told to Stremio too (main profile only) */
+    @Throws(Exception::class)
+    suspend fun tellStremioRemoved(id: String, type: String, name: String, poster: String?, now: Long): Boolean {
+        val bridge = stremio ?: return false
+        if (viewer != "main" || !Regex("""^tt\d+$""").matches(id)) return false
+        return runCatching { bridge.rewind(id, type, name, poster, now) }.isSuccess
+    }
+
+    /**
+     * What was watched in Lumen since: Stremio's history merged into Lumos again, title by title (at most
+     * every 10 minutes). False when nothing was asked
+     */
+    @Throws(Exception::class)
+    suspend fun pullFromStremio(now: Long, key: String): Boolean {
+        if (!signedIn || stremio == null || now - lastPull < 10 * 60_000) return false
+        lastPull = now
+        runCatching { sync.importStremio(key) }.getOrElse { return false }
+        return syncNow()
+    }
+
+    // ---- Browsing ----
+
+    @Throws(Exception::class)
+    suspend fun home(): List<Row> = engine.home().map { (c, items) -> Row("${c.type}/${c.id}", rowTitle(c), items) }
+
+    @Throws(Exception::class)
+    suspend fun meta(type: String, id: String): Meta? = engine.meta(type, id)
+
+    @Throws(Exception::class)
+    suspend fun search(query: String): List<MetaPreview> {
+        val out = mutableListOf<MetaPreview>()
+        for ((a, m) in engine.manifests()) for (c in m.catalogs) if ("search" in c.extras) {
+            runCatching { a.catalog(c.type, c.id, mapOf("search" to query)) }.getOrNull()?.let { out += it }
+        }
+        return out.distinctBy { it.id }
+    }
+
+    // ---- Streams ----
+
+    /** Every source's streams for a movie or an episode (`tt…:1:2`), best first */
+    @Throws(Exception::class)
+    suspend fun streams(type: String, id: String): List<Choice> = rank(engine.streams(type, id).toList().flatten())
+
+    /** A link the player can open, or null when it can't be played now */
+    @Throws(Exception::class)
+    suspend fun playable(choice: Choice, videoId: String): String? {
+        val s = choice.stream
+        if (s.url != null) return s.url
+        val parts = videoId.split(":")
+        return engine.torBox?.resolve(s, parts.getOrNull(1)?.toIntOrNull(), parts.getOrNull(2)?.toIntOrNull())
+    }
+
+    // ---- Progress ----
+
+    /**
+     * Part-way through, or a show's next episode not started yet ("Up Next": Lumen and Stremio keep a show that way once an
+     * episode's finished, the next one at 0). A place forgotten (Continue Watching's ✕) is the show's own id at 0: left out
+     */
+    fun continueWatching(): List<Resume> = progress().mapNotNull { (id, v) -> v.obj()?.let(::resume)?.copy(id = id) }
+        .filter { (it.position > 0 && it.fraction < 0.92) || upNext(it) }.sortedByDescending { it.at }
+
+    private fun upNext(r: Resume) = r.type == "series" && r.position <= 0 && r.video.startsWith("${r.id}:") && r.video.count { it == ':' } == 2 &&
+        titles("watched:$viewer")[r.video]?.obj()?.bool("on") != true
+
+    /** When this profile's place in [id] was last changed (whatever state it's in), null if it has none */
+    fun placeAt(id: String): Long? = progress()[id]?.obj()?.long("at")
+
+    /** Where a show's place is (its video id), whatever state it's in */
+    internal fun placeVideo(id: String): String? = progress()[id]?.obj()?.str("video")
+
+    /** A show moved on to [video], not started yet: Continue Watching's "Up Next" */
+    internal fun setUpNext(id: String, video: String, name: String, poster: String?, now: Long) {
+        val entry = buildJsonObject {
+            put("at", now); put("type", "series"); put("video", video); put("name", name); poster?.let { put("poster", it) }
+            put("position", 0); put("duration", 0)
+        }
+        put("progress:$viewer", JsonObject(progress() + (id to entry)), now)
+    }
+
+    fun resumePoint(id: String, video: String): Double? = progress()[id]?.obj()?.let(::resume)?.takeIf { it.video == video && it.fraction < 0.92 }?.position
+
+    fun saveProgress(id: String, type: String, video: String, name: String, poster: String?, position: Double, duration: Double, now: Long) {
+        val entry = buildJsonObject {
+            put("at", now); put("type", type); put("video", video); put("name", name); poster?.let { put("poster", it) }
+            put("position", position.toLong()); put("duration", duration.toLong())
+        }
+        put("progress:$viewer", JsonObject(progress() + (id to entry)), now)
+        // (finished: that film, or that episode, is watched; a show isn't watched because one episode is)
+        if (duration > 0 && position / duration >= 0.92) {
+            put("watched:$viewer", JsonObject(titles("watched:$viewer") + (video to buildJsonObject { put("at", now); put("on", true) })), now)
+        }
+    }
+
+    /** Sends what changed here and takes in what changed elsewhere; false when it couldn't reach the server */
+    @Throws(Exception::class)
+    suspend fun syncNow(): Boolean {
+        if (!signedIn) return false
+        val changes = dirty.mapNotNull { values[it] }
+        val (now, entries) = runCatching { sync.sync(since, changes) }.getOrElse { return false }
+        dirty.removeAll(changes.map { it.k }.toSet())
+        for (e in entries) {
+            val mine = values[e.k]
+            values[e.k] = if (e.k.substringBefore(':') in MERGED && mine != null) {
+                Entry(e.k, maxOf(e.t, mine.t), mergeTitles(mine.v.obj() ?: JsonObject(emptyMap()), e.v.obj() ?: JsonObject(emptyMap())))
+            } else if (mine == null || e.t >= mine.t) e else mine
+        }
+        since = now
+        if (!viewerChosen) profiles().firstOrNull()?.let { if (profiles().none { p -> p.id == viewer }) viewer = it.id }
+        return true
+    }
+
+    // ---- What Lumen's screens ask about a title ----
+
+    val phone = Phone(this)
+
+    /** Where this profile left [id] (null: not started, or finished) */
+    fun resumeOf(id: String): Resume? = progress()[id]?.obj()?.let(::resume)?.copy(id = id)?.takeIf { it.position > 0 && it.fraction < 0.92 }
+
+    /** This profile's watched titles and episodes */
+    fun watchedIds(): Set<String> = titles("watched:$viewer").filterValues { it.obj()?.bool("on") != false }.keys
+
+    internal fun myListEntries(): List<Pair<String, JsonObject>> = titles("myList:$viewer").mapNotNull { (id, e) -> e.obj()?.takeIf { it.bool("on") != false }?.let { id to it } }
+        .sortedByDescending { it.second.long("at") ?: 0 }
+
+    fun inMyList(id: String): Boolean = titles("myList:$viewer")[id]?.obj()?.bool("on") == true
+
+    fun setInMyList(id: String, type: String, name: String, poster: String?, on: Boolean, now: Long) {
+        val e = buildJsonObject { put("at", now); put("on", on); put("type", type); put("name", name); poster?.let { put("poster", it) } }
+        put("myList:$viewer", JsonObject(titles("myList:$viewer") + (id to e)), now)
+    }
+
+    fun setWatched(id: String, on: Boolean, now: Long) {
+        put("watched:$viewer", JsonObject(titles("watched:$viewer") + (id to buildJsonObject { put("at", now); put("on", on) })), now)
+        if (on) progress()[id]?.let { put("progress:$viewer", JsonObject(progress() - id), now) }
+    }
+
+
+    /** Several watched at once (one save, and so one sync, rather than one for each) */
+    fun setWatchedAll(ids: Collection<String>, on: Boolean, now: Long) {
+        if (ids.isEmpty()) return
+        val marks = ids.associateWith { buildJsonObject { put("at", now); put("on", on) } as kotlinx.serialization.json.JsonElement }
+        put("watched:$viewer", JsonObject(titles("watched:$viewer") + marks), now)
+        if (on) progress().keys.filter { it in ids }.let { gone -> if (gone.isNotEmpty()) put("progress:$viewer", JsonObject(progress() - gone.toSet()), now) }
+    }
+
+    /** Continue Watching's ✕: the place is forgotten (kept as a removal, so other devices forget it too) */
+    fun forget(id: String, now: Long) {
+        if (progress()[id] == null) return
+        put("progress:$viewer", JsonObject(progress() + (id to buildJsonObject { put("at", now); put("video", id); put("position", 0); put("duration", 0) })), now)
+    }
+
+    /** Just press Play (Lumen's quickPlay setting) and its quality cap (0: any, else 2160/1080/720) */
+    var justPressPlay = true
+    /** Prefer IMAX: an IMAX version at the same quality wins the pick */
+    var preferImax = false
+    /** Preferred addon (part of its name): picked from whenever it has a stream that suits; "" none */
+    var preferredAddon = ""
+    /** If a stream chosen by hand for a title is gone: false, play the next best; true, show the list */
+    var fallbackAsk = false
+    var qualityCap = 0
+
+    /** The stream chosen for each title, to choose again (Remember my stream choice: for each series) */
+    private val choices = mutableMapOf<String, String>()
+    fun rememberChoice(metaId: String, memory: String) { choices[metaId] = memory }
+    fun rememberedChoice(metaId: String): String? = choices[metaId]
+
+    // ---- Kept between launches ----
+
+    fun state(): String = buildJsonObject {
+        put("since", since)
+        put("viewer", viewer)
+        put("viewerChosen", viewerChosen)
+        put("choices", JsonObject(choices.mapValues { JsonPrimitive(it.value) }))
+        // (choices kept since 2026-11-17 are ones made by hand; before, every stream played was kept, pinning titles)
+        put("choicesByHand", true)
+        put("dirty", kotlinx.serialization.json.JsonArray(dirty.map(::JsonPrimitive)))
+        put("values", JsonObject(values.mapValues { (_, e) -> buildJsonObject { put("t", e.t); put("v", e.v) } }))
+        put("networks", speed.state())
+    }.toString()
+
+    fun restore(saved: String) {
+        val o = runCatching { json.parseToJsonElement(saved).jsonObject }.getOrNull() ?: return
+        since = o.long("since") ?: 0
+        viewer = o.str("viewer") ?: viewer
+        viewerChosen = o.bool("viewerChosen") == true
+        if (o.bool("choicesByHand") == true) o["choices"].obj()?.forEach { (k, v) -> (v as? JsonPrimitive)?.content?.let { choices[k] = it } }
+        dirty += o.strings("dirty")
+        o["values"].obj()?.forEach { (k, e) -> e.obj()?.let { values[k] = Entry(k, it.long("t") ?: 0, it["v"] ?: kotlinx.serialization.json.JsonNull) } }
+        speed.restore(o["networks"].obj())
+    }
+
+    // ----
+
+    /** A synced value as JSON text (Lumen's own keys: taste:<viewer>, homeLayout:<viewer>, ratings:<viewer>…), null if none */
+    fun value(key: String): String? = values[key]?.v?.takeIf { it !is kotlinx.serialization.json.JsonNull }?.toString()
+
+    /** Sets a synced value (JSON text of an object) */
+    fun setValue(key: String, jsonText: String, now: Long) {
+        val v = runCatching { json.parseToJsonElement(jsonText).jsonObject }.getOrNull() ?: return
+        put(key, v, now)
+    }
+
+    private fun put(k: String, v: JsonObject, now: Long) { values[k] = Entry(k, now, v); dirty += k }
+    private fun titles(k: String): Map<String, kotlinx.serialization.json.JsonElement> = values[k]?.v?.obj() ?: emptyMap()
+    private fun progress() = titles("progress:$viewer")
+
+    private fun resume(o: JsonObject): Resume? {
+        val video = o.str("video") ?: return null
+        return Resume(
+            id = video.substringBefore(':'),
+            type = o.str("type") ?: "movie",
+            video = video,
+            name = o.str("name") ?: "",
+            poster = o.str("poster"),
+            position = o.double("position") ?: 0.0,
+            duration = o.double("duration") ?: 0.0,
+            at = o.long("at") ?: 0,
+        )
+    }
+
+    private fun rowTitle(c: Catalog): String {
+        val kind = when (c.type) { "movie" -> "Films"; "series" -> "Series"; else -> c.type.replaceFirstChar(Char::uppercase) }
+        return when (c.id) { "top" -> "Popular $kind"; "year" -> "New $kind"; "imdbRating" -> "Top-rated $kind"; else -> "${c.name} · $kind" }
+    }
+
+    companion object {
+        private val MERGED = setOf("progress", "watched", "myList")
+
+        /** Best first: ready to play at once, then picture quality, then size */
+        fun rank(streams: List<Stream>): List<Choice> = streams.map { s ->
+            val text = s.text
+            val quality = when {
+                Regex("""(?i)\b(2160p|4k|uhd)\b""").containsMatchIn(text) -> "4K"
+                Regex("""(?i)\b1080p\b""").containsMatchIn(text) -> "1080p"
+                Regex("""(?i)\b720p\b""").containsMatchIn(text) -> "720p"
+                Regex("""(?i)\b(480p|sd)\b""").containsMatchIn(text) -> "SD"
+                else -> ""
+            }
+            val ready = s.url != null || s.cached == true
+            val size = s.size ?: sizeIn(text)
+            val label = (s.filename ?: s.title ?: s.name ?: "").lineSequence().firstOrNull()?.take(120) ?: ""
+            Choice(s, quality, size?.let(::sizeText), ready, label)
+        }.filter { it.stream.externalUrl == null }
+            .sortedWith(compareByDescending<Choice> { it.ready }.thenByDescending { QUALITY.indexOf(it.quality) }.thenByDescending { it.stream.size ?: sizeIn(it.stream.text) ?: 0 })
+
+        private val QUALITY = listOf("", "SD", "720p", "1080p", "4K")
+
+        /** What a choice is remembered by: its addon, quality and binge group ("same release, next episode") */
+        fun memory(c: Choice): String = listOf(c.stream.source, c.quality, c.stream.bingeGroup ?: "").joinToString("|")
+
+        /**
+         * Just press Play: the stream to start without asking. The remembered one when it's there (the
+         * same binge group, else the same addon and quality), else the best ready one at or under
+         * [maxQuality] ("4K", "1080p", "720p", or "" for any). Null: show the list.
+         */
+        fun pick(choices: List<Choice>, remembered: String?, maxQuality: String): Choice? {
+            val ready = choices.filter { it.ready }
+            if (remembered != null) {
+                val (source, quality, group) = (remembered.split("|") + listOf("", "", "")).take(3)
+                if (group.isNotEmpty()) ready.firstOrNull { it.stream.bingeGroup == group }?.let { return it }
+                ready.firstOrNull { it.stream.source == source && it.quality == quality }?.let { return it }
+            }
+            val cap = QUALITY.indexOf(maxQuality).takeIf { it > 0 } ?: QUALITY.size
+            return ready.firstOrNull { QUALITY.indexOf(it.quality) <= cap } ?: ready.firstOrNull()
+        }
+
+        private fun sizeIn(text: String): Long? {
+            val m = Regex("""(?i)(\d+(?:[.,]\d+)?)\s*(GB|MB)\b""").find(text) ?: return null
+            val n = m.groupValues[1].replace(',', '.').toDoubleOrNull() ?: return null
+            return (n * if (m.groupValues[2].uppercase() == "GB") 1_073_741_824 else 1_048_576).toLong()
+        }
+
+        private fun sizeText(bytes: Long): String = if (bytes >= 1_073_741_824) "${(bytes / 107_374_182.4).toLong() / 10.0} GB" else "${bytes / 1_048_576} MB"
+    }
+}

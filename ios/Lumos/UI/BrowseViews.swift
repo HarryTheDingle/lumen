@@ -1,0 +1,277 @@
+import SwiftUI
+
+/** Posters in a grid that fits the screen */
+struct PosterGrid: View {
+    @Environment(Stremio.self) private var stremio
+    var items: [Title]
+    var onEnd: (() -> Void)?
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: Dx.pad ? 150 : 108, maximum: Dx.pad ? 210 : 170), spacing: Dx.pad ? 18 : 12)], spacing: Dx.pad ? 22 : 14) {
+            ForEach(items) { title in
+                NavigationLink(value: Route.title(title.ref)) {
+                    Color.clear
+                        .aspectRatio(2 / 3, contentMode: .fit)
+                        .overlay { PosterArt(title: title) }
+                        .clipShape(.rect(cornerRadius: 14))
+                        .overlay(alignment: .topTrailing) {
+                            if stremio.isWatched(title) {
+                                Image(systemName: "checkmark.circle.fill").symbolRenderingMode(.palette).foregroundStyle(.black, .white).padding(6)
+                            }
+                        }
+                        .zoomSource(title.id)
+                }
+                .buttonStyle(.plain)
+                .titleMenu(title)
+                .onAppear { if title.id == items.last?.id { onEnd?() } }
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+}
+
+// MARK: - Search
+
+struct SearchView: View {
+    @Environment(Stremio.self) private var stremio
+    @State private var query = ""
+    @State private var searched = ""
+    @AppStorage("recentSearches") private var recentText = ""
+    // Ask AI: a described wish instead of a name
+    @State private var ai = AISearchModel()
+    @State private var askOpen = false
+
+    private var recent: [String] { recentText.split(separator: "\n").map(String.init) }
+
+    var body: some View {
+        ScrollView {
+            if ai.on {
+                AIResultsView(model: ai) { askOpen = true }
+            } else if searched.isEmpty {
+                VStack(alignment: .leading, spacing: 14) {
+                    if !recent.isEmpty {
+                        HStack {
+                            Text("Recent Searches").font(.title3.bold())
+                            Spacer()
+                            Button("Clear") { recentText = "" }.font(.subheadline)
+                        }
+                        ForEach(recent, id: \.self) { r in
+                            Button { query = r; run() } label: {
+                                Label(r, systemImage: "clock.arrow.circlepath").frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
+                .padding(.horizontal, Dx.gutter)
+                // (nothing typed: the genres, as Apple TV's Search page has them)
+                GenresSection().padding(.top, recent.isEmpty ? 14 : 24).padding(.bottom, 20)
+            } else {
+                LazyVStack(alignment: .leading, spacing: 28) {
+                    let rows = stremio.search.filter { !$0.items.isEmpty }
+                    ForEach(rows) { row in
+                        let heading = heading(row, among: rows)
+                        Shelf(title: heading, see: row.discover.map { .browse(link: $0, name: heading) }) {
+                            ForEach(row.items) { title in
+                                NavigationLink(value: Route.title(title.ref)) {
+                                    PosterCard(title: title, width: Dx.pad ? 160 : Dx.poster).zoomSource(title.id)
+                                }
+                                .buttonStyle(.plain)
+                                .titleMenu(title)
+                            }
+                        }
+                    }
+                    if rows.isEmpty {
+                        if stremio.search.contains(where: { $0.state == .loading }) || stremio.search.isEmpty {
+                            ProgressView().frame(maxWidth: .infinity).padding(40)
+                        } else {
+                            ContentUnavailableView.search(text: searched)
+                        }
+                    }
+                }
+            }
+        }
+        // (room at the foot inside the scrolling, not under it: the list was cut off short of the screen's edge)
+        .contentMargins(.bottom, 30, for: .scrollContent)
+        .screenBackground()
+        .navigationTitle("Search")
+        .searchable(text: $query, prompt: "Films, shows, people")
+        .onSubmit(of: .search, run)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                // (plain white, as the rest of the app: no accent colour)
+                Button { askOpen = true } label: { Image(systemName: "sparkles").foregroundStyle(.white) }
+                    .accessibilityLabel("Ask AI")
+            }
+        }
+        .sheet(isPresented: $askOpen) {
+            AskAISheet(initial: ai.prompt) { ai.find($0, stremio: stremio) }
+        }
+        // a name tapped on a title's page
+        .onChange(of: stremio.pendingSearch, initial: true) { _, q in
+            guard let q else { return }
+            stremio.pendingSearch = nil
+            query = q
+            run()
+        }
+        .onChange(of: query) { _, q in if q.isEmpty { searched = "" } }
+        .task(id: query) {
+            // as they type, after a moment's pause
+            let q = query.trimmingCharacters(in: .whitespaces)
+            guard q.count >= 3 else { return }
+            try? await Task.sleep(for: .milliseconds(600))
+            if !Task.isCancelled, q != searched { searched = q; stremio.search(q) }
+        }
+    }
+
+    /** "Films", "TV Shows": what the row holds, and whose it is when two addons found the same kind */
+    private func heading(_ row: Row, among rows: [Row]) -> String {
+        let kind = row.type == "movie" ? "Films" : row.type == "series" ? "TV Shows" : typeName(row.type)
+        return rows.filter { $0.type == row.type }.count > 1 && !row.addon.isEmpty ? "\(kind) · \(row.addon)" : kind
+    }
+
+    private func run() {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return }
+        searched = q
+        stremio.search(q)
+        recentText = ([q] + recent.filter { $0 != q }).prefix(8).joined(separator: "\n")
+    }
+}
+
+// MARK: - Discover
+
+/** Every catalog the addons have, by type, catalog and genre (Discover's "Browse All Catalogs") */
+struct CatalogBrowserView: View {
+    @Environment(Stremio.self) private var stremio
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if let d = stremio.discover {
+                    pickers(d)
+                    PosterGrid(items: d.items) { if d.nextPage { stremio.discoverMore() } }
+                    if d.state == .loading { ProgressView().frame(maxWidth: .infinity).padding() }
+                    if d.state == .failed { ContentUnavailableView("Nothing here", systemImage: "square.grid.2x2", description: Text("This catalog has nothing for that choice.")) }
+                } else {
+                    ProgressView().frame(maxWidth: .infinity).padding(60)
+                }
+            }
+            .padding(.bottom, 30)
+        }
+        .screenBackground()
+        .navigationTitle("All Catalogs")
+        .onAppear { stremio.discoverStart() }
+        .onChange(of: stremio.allRows.count) { stremio.discoverStart() }
+    }
+
+    private func pickers(_ d: Discover) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if d.types.count > 1 {
+                Picker("Type", selection: Binding(get: { d.types.first(where: \.selected)?.link ?? "" }, set: { stremio.discover(link: $0) })) {
+                    ForEach(d.types) { t in Text(t.name == "movie" ? "Movies" : t.name == "series" ? "TV Shows" : typeName(t.name)).tag(t.link ?? "") }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+            }
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    Menu {
+                        ForEach(d.catalogs) { c in
+                            Button { if let l = c.link { stremio.discover(link: l) } } label: {
+                                if c.selected { Label(c.name, systemImage: "checkmark") } else { Text(c.name) }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(d.catalogs.first(where: \.selected)?.name ?? "Catalog")
+                            Image(systemName: "chevron.down").font(.caption.weight(.bold))
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                    }
+                    if !d.genres.isEmpty {
+                        genre(nil, on: d.genre == nil)
+                        ForEach(d.genres, id: \.self) { g in genre(g, on: d.genre == g) }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 2)
+            }
+            .scrollIndicators(.hidden)
+        }
+    }
+
+    private func genre(_ g: String?, on: Bool) -> some View {
+        Button { stremio.discoverGenre(g) } label: {
+            Text(g ?? "All")
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .foregroundStyle(on ? .black : .white)
+                .background(on ? AnyShapeStyle(.white) : AnyShapeStyle(.clear), in: .capsule)
+                .glassEffect(on ? .identity : .regular.interactive(), in: .capsule)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/** A row's See All */
+struct BrowseView: View {
+    @Environment(Stremio.self) private var stremio
+    var link: String
+    var name: String
+
+    var body: some View {
+        ScrollView {
+            if let d = stremio.discover {
+                PosterGrid(items: d.items) { if d.nextPage { stremio.discoverMore() } }
+                if d.state == .loading { ProgressView().padding() }
+            }
+        }
+        .contentMargins(.bottom, 30, for: .scrollContent)
+        .screenBackground()
+        .navigationTitle(name)
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { stremio.discover(link: link) }
+    }
+}
+
+// MARK: - Library
+
+/** What's saved to their Stremio library (synced with their other devices) */
+struct LibraryView: View {
+    @Environment(Stremio.self) private var stremio
+    @State private var type: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                Picker("Type", selection: $type) {
+                    Text("All").tag(String?.none)
+                    Text("Movies").tag(String?.some("movie"))
+                    Text("TV Shows").tag(String?.some("series"))
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                if stremio.library.isEmpty {
+                    ContentUnavailableView("Your Library Is Empty", systemImage: "rectangle.stack", description: Text("Tap + on a title to keep it here."))
+                } else {
+                    PosterGrid(items: stremio.library) { stremio.libraryMore() }
+                }
+            }
+            .padding(.bottom, 30)
+        }
+        .screenBackground()
+        .navigationTitle("Library")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { DownloadsView() } label: { Image(systemName: "arrow.down.circle") }
+                    .accessibilityLabel("Downloads")
+            }
+        }
+        .onAppear { stremio.loadLibrary(type) }
+        .onChange(of: type) { _, t in stremio.loadLibrary(t) }
+    }
+}

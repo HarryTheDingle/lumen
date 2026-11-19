@@ -1,0 +1,81 @@
+# Lumos for iPhone (and iPad). XcodeGen makes the Xcode project from this: `xcodegen` here, or ./deploy.sh.
+# The engine (../engine, Kotlin) is built first into LumosEngine.xcframework.
+name: Lumos
+options:
+  bundleIdPrefix: com.harrythedingle
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+    TARGETED_DEVICE_FAMILY: "1,2"
+packages:
+  # mpv with an AVFoundation output (the same build Lumen uses)
+  MPVKit:
+    url: https://github.com/streamyfin/MPVKit.git
+    exactVersion: 0.41.0-av5
+targets:
+  Lumos:
+    type: application
+    platform: iOS
+    sources:
+      - path: Lumos
+      - path: Fonts/bebas_neue.ttf
+        buildPhase: resources
+    dependencies:
+      - package: MPVKit
+        product: MPVKit-GPL
+      - framework: ../engine/build/XCFrameworks/debug/LumosEngine.xcframework
+        embed: false
+    info:
+      path: Lumos/Info.plist
+      properties:
+        CFBundleDisplayName: Lumos
+        # Lumen's TMDB key (cast photos, person pages): deploy.sh passes it from Lumen's tv/keystore.properties
+        LumenTmdbKey: $(LUMEN_TMDB_KEY)
+        DxbiUpdateRepo: ""
+        UIAppFonts:
+          - bebas_neue.ttf
+        NSSpeechRecognitionUsageDescription: Lumos turns your voice into text so you can describe what you want to watch.
+        NSMicrophoneUsageDescription: Lumos listens while you describe what you want to watch.
+        LSApplicationQueriesSchemes:
+          - infuse
+          - vlc-x-callback
+          - vlc
+          - outplayer
+          - senplayer
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen:
+          UIColorName: ""
+          UIImageRespectsSafeAreaInsets: false
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIBackgroundModes:
+          - audio
+        UIUserInterfaceStyle: Dark
+        ITSAppUsesNonExemptEncryption: false
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.harrythedingle.lumos
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGN_IDENTITY: ""
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        OTHER_LDFLAGS: "$(inherited) -lsqlite3"
+        # (the engine is built for Apple-silicon simulators only)
+        "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64

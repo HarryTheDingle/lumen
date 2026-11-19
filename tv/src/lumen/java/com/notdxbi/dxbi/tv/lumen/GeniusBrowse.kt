@@ -1,0 +1,398 @@
+@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+package com.notdxbi.dxbi.tv.lumen
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.Icon
+import androidx.tv.material3.Surface
+import androidx.tv.material3.Text
+import com.notdxbi.dxbi.tv.phone.Stremio
+import com.notdxbi.dxbi.tv.phone.Title
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+/**
+ * Apple TV's Genius Browse. Home keeps one row of moods ("Mind-Bending Mysteries", "Charming Romcoms"), each a soft colour
+ * tile; choosing one opens a page of its own: the mood's titles, and under them an endless chain of "More like <title>"
+ * rows (see [ChainPage]). The page's header chooses TV Shows & Movies / TV Shows / Movies and a genre. Each mood is a
+ * Cinemeta genre's popular and best-rated titles that are also of one of its other genres (no TMDB key needed).
+ */
+data class Mood(val name: String, val genre: String, val with: Set<String>, val top: Color, val bottom: Color, val shows: Boolean = true, val films: Boolean = true)
+
+val MOODS = listOf(
+    Mood("Secrets, Lies & Spies", "Thriller", setOf("Action", "Crime", "Mystery"), Color(0xFF8E2DE2), Color(0xFF3A1C71)),
+    Mood("Mind-Bending Mysteries", "Mystery", setOf("Sci-Fi", "Thriller", "Fantasy"), Color(0xFF4A3AFF), Color(0xFF1B1464)),
+    Mood("Charming Romcoms", "Romance", setOf("Comedy"), Color(0xFF13C2B3), Color(0xFF0B5E6B)),
+    Mood("Good for a Night In", "Comedy", setOf("Drama", "Romance"), Color(0xFF2BD96B), Color(0xFF0B6B3A)),
+    Mood("Gripping Crime", "Crime", setOf("Thriller", "Action"), Color(0xFF3A6BFF), Color(0xFF0F1F66)),
+    Mood("Epic Adventures", "Adventure", setOf("Fantasy", "Action"), Color(0xFF1FA2FF), Color(0xFF0B3B66)),
+    Mood("Into the Future", "Sci-Fi", setOf("Drama", "Action", "Thriller"), Color(0xFF6A5CFF), Color(0xFF16124A)),
+    Mood("Things That Go Bump", "Horror", setOf("Mystery", "Thriller", "Fantasy"), Color(0xFFE2335E), Color(0xFF4A0F24)),
+    Mood("Family Movie Night", "Family", setOf("Comedy", "Adventure", "Animation"), Color(0xFFFFA62B), Color(0xFF8A3B0B), shows = false),
+    Mood("True Stories", "Biography", setOf("Drama", "History", "Sport"), Color(0xFFB8A15A), Color(0xFF3D3415)),
+    Mood("Laugh-Out-Loud Shows", "Comedy", emptySet(), Color(0xFFFFD43B), Color(0xFF8A6A0B), films = false),
+    Mood("War & Heroes", "War", setOf("Drama", "History", "Action"), Color(0xFF7A8B5A), Color(0xFF232B14)),
+)
+
+val KINDS = listOf("TV Shows & Movies", "TV Shows", "Movies")
+
+/** The genres the second dropdown offers (Cinemeta's own names) */
+val GENIUS_GENRES = listOf("Action", "Adventure", "Animation", "Comedy", "Crime", "Documentary", "Drama", "Family", "Fantasy", "History", "Horror", "Mystery", "Romance", "Sci-Fi", "Thriller", "War")
+
+/** Shows and films taken in turn, as Apple TV's rows mix them */
+private fun weave(lists: List<List<Title>>): List<Title> {
+    val out = ArrayList<Title>()
+    for (i in 0 until (lists.maxOfOrNull { it.size } ?: 0)) lists.forEach { l -> l.getOrNull(i)?.let(out::add) }
+    return out.distinctBy { it.id }
+}
+
+/** A mood's titles: its genre's popular and best rated, films and shows taken in turn, those also of one of its other genres */
+suspend fun moodTitles(feed: DiscoverFeed, mood: Mood, kind: Int): List<Title> = coroutineScope {
+    // (a kind chosen in the header wins over what the mood usually is)
+    val types = when (kind) {
+        1 -> listOf("series")
+        2 -> listOf("movie")
+        else -> listOfNotNull("series".takeIf { mood.shows }, "movie".takeIf { mood.films })
+    }
+    val lists = types.map { type ->
+        async {
+            val all = (feed.popular(type, mood.genre) + feed.topRated(type, mood.genre)).map { it.title }.distinctBy { it.id }
+            all.filter { t -> mood.with.isEmpty() || t.genres.any { it in mood.with } }
+        }
+    }.awaitAll()
+    weave(lists).take(30)
+}
+
+/** The mood's titles of one genre; when that leaves few, the genre's own popular and best rated make it up */
+suspend fun moodTitles(feed: DiscoverFeed, mood: Mood, kind: Int, genre: String?): List<Title> = coroutineScope {
+    val base = moodTitles(feed, mood, kind)
+    if (genre == null) return@coroutineScope base
+    val hit = base.filter { genre in it.genres }
+    if (hit.size >= 12) return@coroutineScope hit
+    val types = when (kind) { 1 -> listOf("series"); 2 -> listOf("movie"); else -> listOf("series", "movie") }
+    val own = types.map { type -> async { (feed.popular(type, genre) + feed.topRated(type, genre)).map { it.title }.distinctBy { it.id } } }.awaitAll()
+    (hit + weave(own)).distinctBy { it.id }.take(30)
+}
+
+/** Home's Genius Browse row: a tile for each mood, which opens the page */
+fun androidx.compose.foundation.lazy.LazyListScope.geniusBrowse(feed: DiscoverFeed?, nav: Nav) {
+    if (feed == null) return
+    item(key = "genius") {
+        Shelf("Genius Browse") {
+            items(MOODS, key = { it.name }) { m -> MoodTile(m) { nav.push(Page.Genius(m.name)) } }
+        }
+    }
+}
+
+/** A mood's tile: a poster's shape, its colours soft and glowing, its name low on the left */
+@Composable
+private fun MoodTile(mood: Mood, onClick: () -> Unit) {
+    FocusCard(onClick = onClick, modifier = Modifier.width(Dx.Poster).height(Dx.Poster * 1.5f)) {
+        Box(
+            Modifier.fillMaxSize()
+                .background(Brush.linearGradient(listOf(mood.top, mood.bottom)))
+                .background(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.28f), Color.Transparent))),
+        ) {
+            Text(
+                mood.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White, lineHeight = 17.sp, maxLines = 3,
+                modifier = Modifier.align(Alignment.BottomStart).padding(10.dp),
+            )
+        }
+    }
+}
+
+/** A mood's own page: its titles over the chain, and the kind and genre to choose from in the header */
+@Composable
+fun GeniusPage(nav: Nav, feed: DiscoverFeed, stremio: Stremio, moodName: String) {
+    val mood = MOODS.firstOrNull { it.name == moodName } ?: return
+    var kind by remember { mutableIntStateOf(0) }
+    var genre by remember { mutableStateOf<String?>(null) }
+    var titles by remember { mutableStateOf<List<Title>?>(null) }
+    LaunchedEffect(kind, genre) {
+        titles = null
+        titles = moodTitles(feed, mood, kind, genre)
+    }
+    ChainPage(nav, stremio, mood.name, titles, tint = mood.top, header = { GeniusHeader(kind, { kind = it }, genre, { genre = it }) })
+}
+
+/** "Genius Browse" over the two pills */
+@Composable
+private fun GeniusHeader(kind: Int, onKind: (Int) -> Unit, genre: String?, onGenre: (String?) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(top = 26.dp, bottom = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("Genius Browse", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            DropdownPill(KINDS[kind], KINDS, kind) { onKind(it) }
+            DropdownPill(genre ?: "All Genres", listOf("All Genres") + GENIUS_GENRES, if (genre == null) 0 else GENIUS_GENRES.indexOf(genre) + 1) { onGenre(if (it == 0) null else GENIUS_GENRES[it - 1]) }
+        }
+    }
+}
+
+/** A frosted pill that opens a small list under it: OK chooses (a tick on what's chosen), Back closes */
+@Composable
+private fun DropdownPill(label: String, options: List<String>, chosen: Int, onChoose: (Int) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    var bounds by remember { mutableStateOf(Rect.Zero) }
+    val shape = RoundedCornerShape(50)
+    Surface(
+        onClick = { open = true },
+        modifier = Modifier.onGloballyPositioned { bounds = it.boundsInWindow() },
+        shape = ClickableSurfaceDefaults.shape(shape),
+        colors = ClickableSurfaceDefaults.colors(containerColor = Glass.Fill, contentColor = Color.White, focusedContainerColor = Color.White, focusedContentColor = Color.Black),
+        border = ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Glass.Edge), shape = shape)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+    ) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Spacer(Modifier.width(6.dp))
+            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(16.dp))
+        }
+    }
+    if (open) {
+        val close = { open = false }
+        val list = rememberLazyListState(initialFirstVisibleItemIndex = (chosen - 2).coerceAtLeast(0))
+        val landing = remember { FocusRequester() }
+        PageWindow(onBack = close, fadeIn = false) {
+            FocusOnOpen(landing)
+            val dp = androidx.compose.ui.platform.LocalDensity.current.density
+            Box(Modifier.fillMaxSize()) {
+                val panel = RoundedCornerShape(18.dp)
+                LazyColumn(
+                    state = list,
+                    modifier = Modifier
+                        .offset { IntOffset(bounds.left.toInt(), (bounds.bottom + 10 * dp).toInt()) }
+                        .width(250.dp).heightIn(max = 330.dp)
+                        .background(Color(0xFF1C1C1E).copy(alpha = 0.94f), panel)
+                        .border(BorderStroke(1.dp, Glass.Edge), panel),
+                    contentPadding = PaddingValues(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    itemsIndexed(options) { i, name ->
+                        val row = RoundedCornerShape(12.dp)
+                        Surface(
+                            onClick = { onChoose(i); close() },
+                            modifier = Modifier.fillMaxWidth().then(if (i == chosen) Modifier.focusRequester(landing) else Modifier),
+                            shape = ClickableSurfaceDefaults.shape(row),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = if (i == chosen) Glass.Fill else Color.Transparent, contentColor = Color.White,
+                                focusedContainerColor = Color.White, focusedContentColor = Color.Black,
+                            ),
+                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+                        ) {
+                            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(name, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, modifier = Modifier.weight(1f))
+                                if (i == chosen) Icon(Icons.Filled.Check, contentDescription = "Chosen", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** One row of the chain: whose "More like" it is (null for the first), its name, its titles */
+data class ChainRow(val forId: String?, val name: String, val titles: List<Title>)
+
+/** The page never scrolls to chase a card: the chain moves it a row at a time itself */
+private object NoPageChase : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = 0f
+}
+
+/**
+ * Apple TV's endless chain, as a page: the first row ([firstRow], called [firstName]; null while it loads), under it
+ * "More like <the title the remote's on>". Moving along a row swaps everything under it; Down makes the row below the
+ * top one (two full rows always show) and a new "More like" opens beneath it, for as long as the remote keeps going.
+ * Up walks back. [header] (above the first row) shows when the page is at its top.
+ */
+@Composable
+fun ChainPage(nav: Nav, stremio: Stremio, firstName: String, firstRow: List<Title>?, tint: Color? = null, header: (@Composable () -> Unit)? = null) {
+    var rows by remember { mutableStateOf<List<ChainRow>>(emptyList()) }
+    // the title the remote's on, and which row it's in
+    var hover by remember { mutableStateOf<Pair<Int, Title>?>(null) }
+    LaunchedEffect(firstRow, firstName) {
+        hover = null
+        rows = if (firstRow.isNullOrEmpty()) emptyList() else listOf(ChainRow(null, firstName, firstRow))
+    }
+    // a moment after the remote rests on a title, the row under its row becomes "More like" it (moving on cancels the load
+    // in flight; the old row stays up until the new one's in, so nothing flickers)
+    // the row being made under row [pending - 1] (a skeleton row shows meanwhile; null when none is)
+    var pending by remember { mutableStateOf<Int?>(null) }
+    val feed = LocalDiscoverFeed.current
+    LaunchedEffect(hover) {
+        val (i, t) = hover ?: return@LaunchedEffect
+        if (rows.getOrNull(i + 1)?.forId == t.id) return@LaunchedEffect
+        delay(if (rows.size > i + 1) 350 else 150)
+        // (only a row that's new shows a skeleton: a row being swapped stays up until the new one's in)
+        if (rows.size <= i + 1) pending = i + 1
+        try {
+            // (Lumos's engine has no Related, so the feed makes them; the engine's is the fallback)
+            val found = (feed?.related(t.type, t.id, t.genres) ?: emptyList()).ifEmpty { runCatching { stremio.related(t.type, t.id, t.genres) }.getOrDefault(emptyList()) }
+                .filter { it.id != t.id }.distinctBy { it.id }
+            if (rows.size <= i) return@LaunchedEffect
+            // (what the rows above already show is left out when there's enough besides; a few repeats make up a short row)
+            val seen = rows.take(i + 1).flatMap { r -> r.titles.map { it.id } }.toSet()
+            val fresh = found.filter { it.id !in seen }
+            val list = (if (fresh.size >= 6) fresh else fresh + found.filter { it.id in seen }.take(8 - fresh.size)).take(20)
+            if (list.isEmpty()) return@LaunchedEffect
+            rows = rows.take(i + 1) + ChainRow(t.id, "More like ${t.name}", list)
+        } finally {
+            // (cancelled by moving on, or done: the skeleton goes either way)
+            if (pending == i + 1) pending = null
+        }
+    }
+
+    val first = remember { FocusRequester() }
+    var landed by remember { mutableStateOf(false) }
+    LaunchedEffect(rows.isNotEmpty()) {
+        // (the remote goes onto the first poster once, not again when a filter reloads it)
+        if (rows.isEmpty() || landed) return@LaunchedEffect
+        delay(120)
+        if (runCatching { first.requestFocus() }.isSuccess) landed = true
+    }
+
+    PageWindow(onBack = { nav.back() }, home = first) {
+        Box(Modifier.fillMaxSize().background(Dx.Background)) {
+            val scroll = rememberScrollState()
+            // (the mood's colour at the top goes as the page moves up from it)
+            if (tint != null) Box(Modifier.fillMaxSize().graphicsLayer { alpha = (1f - scroll.value / 300f).coerceIn(0f, 1f) }.background(Brush.verticalGradient(0f to tint.copy(alpha = 0.3f), 0.4f to Color.Transparent)))
+            val scope = rememberCoroutineScope()
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            val tops = remember { HashMap<Int, Float>() }
+            // where a row sits when it's the top one (the first row, with no header above it, sits there too)
+            val topGap = 32.dp
+            fun show(i: Int) {
+                val target = if (i == 0) 0f else (tops[i] ?: return) - with(density) { topGap.toPx() }
+                scope.launch { val to = target.toInt().coerceAtLeast(0); scroll.animateScrollTo(to, glide((to - scroll.value).toFloat(), scroll.viewportSize.toFloat())) }
+            }
+            CompositionLocalProvider(LocalBringIntoViewSpec provides NoPageChase) {
+                Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
+                    if (header != null) header() else Spacer(Modifier.height(topGap))
+                    if (rows.isEmpty()) {
+                        if (firstRow == null) LoadingShelf(firstName)
+                        else Text("Nothing to show here", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter, vertical = 24.dp))
+                    }
+                    rows.forEachIndexed { i, r ->
+                        key(i, r.forId, r.titles.firstOrNull()?.id) {
+                            ChainRowView(
+                                r, if (i == 0) first else null,
+                                modifier = Modifier.padding(bottom = 8.dp).onGloballyPositioned { tops[i] = it.positionInParent().y },
+                                onTitle = { hover = i to it }, onEnter = { show(i) }, onOpen = { nav.open(it) },
+                            )
+                        }
+                    }
+                    // a new "More like" row on its way: its skeleton, fading in and out (the same height, so nothing moves)
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = pending == rows.size && rows.isNotEmpty(),
+                        enter = androidx.compose.animation.fadeIn(tween(320)), exit = androidx.compose.animation.fadeOut(tween(200)),
+                    ) { LoadingShelf(null) }
+                    // (room under the last row so it can come up to the top)
+                    Spacer(Modifier.height(LocalConfiguration.current.screenHeightDp.dp))
+                }
+            }
+            // once the first row has gone up: a black fade over what peeks of the row before, and a small chevron
+            val away = with(density) { (scroll.value / (topGap.toPx() * 2f)).coerceIn(0f, 1f) }
+            Box(Modifier.fillMaxWidth().height(topGap).alpha(away).background(Brush.verticalGradient(0f to Color.Black, 0.7f to Color.Black, 1f to Color.Transparent))) {
+                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp).size(22.dp))
+            }
+        }
+    }
+}
+
+/** A row of the chain: its name (bright while the remote's in it) over its posters; the remote lands back where it was */
+@Composable
+private fun ChainRowView(row: ChainRow, firstCard: FocusRequester?, modifier: Modifier, onTitle: (Title) -> Unit, onEnter: () -> Unit, onOpen: (Title) -> Unit) {
+    var inRow by remember { mutableStateOf(false) }
+    val titleAlpha by animateFloatAsState(if (inRow) 1f else 0.6f, tween(320), label = "chain-title")
+    Column(
+        modifier.fillMaxWidth().onFocusChanged {
+            if (it.hasFocus && !inRow) onEnter()
+            inRow = it.hasFocus
+        },
+    ) {
+        Text(
+            row.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = titleAlpha), maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = Dx.Gutter),
+        )
+        Spacer(Modifier.height(10.dp))
+        CompositionLocalProvider(LocalBringIntoViewSpec provides RowScrolling) {
+            LazyRow(
+                modifier = Modifier.focusRestorer(),
+                contentPadding = PaddingValues(start = Dx.Gutter, end = Dx.Gutter, top = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                itemsIndexed(row.titles, key = { _, t -> t.id }) { i, t ->
+                    Box(Modifier.onFocusChanged { if (it.hasFocus) onTitle(t) }.then(if (i == 0 && firstCard != null) Modifier.focusRequester(firstCard) else Modifier)) {
+                        PreviewPosterCard(t, onClick = { onOpen(t) })
+                    }
+                }
+            }
+        }
+    }
+}
