@@ -82,11 +82,7 @@ fun PersonPage(stremio: Stremio, nav: Nav, page: Page.Person) {
             if (known != null) BlurredArt(known.backdrop, Modifier.fillMaxSize(), dim = 0.55f)
             // (the page moves as every other does: the row the remote goes into glides to the middle in one move; with
             // Compose's own scrolling it chased the card as it lifted and settled in two steps)
-            val pageListState = androidx.compose.foundation.lazy.rememberLazyListState()
-            val pageScope = androidx.compose.runtime.rememberCoroutineScope()
-            val pageScroller = remember { PageScroller(pageListState, pageScope) }
-            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides CentredScrolling, LocalPageScroller provides pageScroller) {
-            LazyColumn(state = pageListState, modifier = Modifier.onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(top = 56.dp, bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(26.dp)) {
+            PageColumn(contentPadding = PaddingValues(top = 56.dp, bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(26.dp)) {
                 item(key = "header") {
                     Row(Modifier.fillMaxWidth().padding(horizontal = Dx.Gutter), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
                         val photo = p?.text("photo") ?: page.photo
@@ -161,7 +157,6 @@ fun PersonPage(stremio: Stremio, nav: Nav, page: Page.Person) {
                     }
                 }
             }
-            }
         }
     }
 }
@@ -170,8 +165,8 @@ fun PersonPage(stremio: Stremio, nav: Nav, page: Page.Person) {
 private fun facts(p: JSONObject?): List<String> {
     p ?: return emptyList()
     fun day(iso: String?): String? {
-        val date = iso?.let { runCatching { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(it) }.getOrNull() } ?: return null
-        return java.text.SimpleDateFormat("d MMMM yyyy", java.util.Locale.getDefault()).format(date)
+        val date = iso?.let(com.notdxbi.dxbi.tv.phone.Dates::parseLocalDay) ?: return null
+        return com.notdxbi.dxbi.tv.phone.Dates.formatLongDay(date)
     }
     val out = mutableListOf<String>()
     p.text("department")?.let { out += if (it == "Acting") "Actor" else it }

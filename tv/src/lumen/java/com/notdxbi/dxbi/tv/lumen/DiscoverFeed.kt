@@ -1,10 +1,10 @@
 package com.notdxbi.dxbi.tv.lumen
 
-import java.util.Date
 import android.text.Html
 import android.util.Base64
 import androidx.compose.ui.graphics.Color
 import com.notdxbi.dxbi.tv.phone.Christmas
+import com.notdxbi.dxbi.tv.phone.Dates
 import com.notdxbi.dxbi.tv.phone.ListRow
 import com.notdxbi.dxbi.tv.phone.Title
 import com.notdxbi.dxbi.tv.phone.objects
@@ -19,10 +19,8 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
-import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
-import java.util.TimeZone
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -192,14 +190,13 @@ class DiscoverFeed(cacheDir: File) {
          * and what the streams list says about it; null once it's out (or too old to be worth saying)
          */
         fun notice(now: Long = System.currentTimeMillis()): Pair<String, String>? {
-            val day = SimpleDateFormat("d MMM", Locale.getDefault())
             if (digital != null && digital <= now) return null
             val cam = "Not on digital yet: streams now are likely cinema recordings (CAM)"
             return when {
-                digital != null && cinema != null && cinema <= now -> "In Cinemas · Digital ${day.format(Date(digital))}" to cam
-                digital != null -> "Digital ${day.format(Date(digital))}" to cam
+                digital != null && cinema != null && cinema <= now -> "In Cinemas · Digital ${Dates.formatShortDay(digital)}" to cam
+                digital != null -> "Digital ${Dates.formatShortDay(digital)}" to cam
                 cinema == null -> null
-                cinema > now -> "Not Released · Cinemas ${day.format(Date(cinema))}" to "Not out yet: any streams are likely fakes or trailers"
+                cinema > now -> "Not Released · Cinemas ${Dates.formatShortDay(cinema)}" to "Not out yet: any streams are likely fakes or trailers"
                 now - cinema < 150 * DAY -> "In Cinemas" to cam
                 else -> null
             }
@@ -213,9 +210,7 @@ class DiscoverFeed(cacheDir: File) {
         // TMDB's dates (the UK's first) from the sync server, the same the cards' labels go by: Cinemeta's is America's
         // cinema date, which had Madden "not out" for a week after it came out here, Play hidden over real WEB-DLs
         Labels.facts(id)?.takeIf { it.optString("kind") == "movie" }?.let { f ->
-            fun day(k: String) = f.optString(k).takeIf { it.length >= 10 && it != "null" }?.let {
-                runCatching { SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.parse(it)?.time }.getOrNull()
-            }
+            fun day(k: String) = f.optString(k).takeIf { it.length >= 10 && it != "null" }?.let(Dates::parseUtcDay)
             val digital = listOfNotNull(day("digital"), day("physical")).minOrNull()
             val cinema = day("cinema") ?: day("release")
             if (cinema != null || digital != null) return ReleaseDates(cinema, digital)
@@ -230,7 +225,7 @@ class DiscoverFeed(cacheDir: File) {
             val text = load(key, DAY) ?: fetch("$CINEMETA/meta/movie/$id.json")?.also { save(key, it) }
             runCatching {
                 val released = JSONObject(text ?: "").optJSONObject("meta")?.optString("released").orEmpty()
-                SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.parse(released)?.time
+                Dates.parseUtcIso(released)
             }.getOrNull()
         }
         val index = digitalIndex?.takeIf { System.currentTimeMillis() - it.first < 6 * HOUR }?.second ?: run {
@@ -252,11 +247,10 @@ class DiscoverFeed(cacheDir: File) {
         val key = "episodes-$id"
         val text = load(key, DAY) ?: fetch("$CINEMETA/meta/series/$id.json")?.also { save(key, it) } ?: return@withContext emptyList()
         runCatching {
-            val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
             JSONObject(text).optJSONObject("meta")?.optJSONArray("videos").objects().mapNotNull { v ->
                 val s = v.optInt("season")
                 val released = v.optString("released").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-                val t = runCatching { iso.parse(released)?.time }.getOrNull() ?: return@mapNotNull null
+                val t = Dates.parseUtcIso(released) ?: return@mapNotNull null
                 if (s > 0) Episode(s, v.optInt("episode"), t) else null
             }
         }.getOrDefault(emptyList())
@@ -307,8 +301,8 @@ class DiscoverFeed(cacheDir: File) {
         val cacheKey = "related-$kind-$imdb"
         val kindPath = if (kind == "movie") "movie" else "tv"
         val body = load(cacheKey, 7 * DAY) ?: run {
-            val found = fetch("https://api.themoviedb.org/3/find/$imdb?api_key=$key&external_source=imdb_id") ?: return@coroutineScope emptyList()
-            val tmdbId = JSONObject(found).optJSONArray(if (kind == "movie") "movie_results" else "tv_results").objects().firstOrNull()?.optInt("id") ?: return@coroutineScope emptyList()
+            val (foundKind, tmdbId) = Tmdb.find(imdb) ?: return@coroutineScope emptyList()
+            if (foundKind != kindPath) return@coroutineScope emptyList()
             val recs = fetch("https://api.themoviedb.org/3/$kindPath/$tmdbId/recommendations?api_key=$key") ?: return@coroutineScope emptyList()
             val results = JSONObject(recs).optJSONArray("results").objects().take(18)
             // (a recommendation comes with TMDB's id: Lumos's ids are IMDb's, so each is looked up)
@@ -333,11 +327,10 @@ class DiscoverFeed(cacheDir: File) {
     private suspend fun catalog(url: String, keep: Long, max: Int = Int.MAX_VALUE): List<Item> = withContext(Dispatchers.IO) {
         memory[url]?.let { (at, items) -> if (System.currentTimeMillis() - at < keep) return@withContext items }
         val body = load(url, keep) ?: fetch(url)?.also { save(url, it) } ?: return@withContext memory[url]?.second.orEmpty()
-        val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
         val items = runCatching { JSONObject(body).optJSONArray("metas").objects() }.getOrDefault(emptyList())
             .filter { it.optString("type") in WATCHABLE }
             .take(max)
-            .map { meta -> Item(Title.from(meta), meta.optString("released").takeIf { it.isNotEmpty() }?.let { runCatching { iso.parse(it)?.time }.getOrNull() }) }
+            .map { meta -> Item(Title.from(meta), meta.optString("released").takeIf { it.isNotEmpty() }?.let(Dates::parseUtcIso)) }
         memory[url] = System.currentTimeMillis() to items
         items
     }
@@ -393,7 +386,7 @@ class DiscoverFeed(cacheDir: File) {
         load(key, if (past) 7 * DAY else DAY)?.let { saved ->
             return@withContext runCatching { JSONArray(saved).objects().map { Release(it.optString("id"), it.optString("name"), it.optLong("date")) } }.getOrDefault(emptyList())
         }
-        val name = SimpleDateFormat("MMMM", Locale.US).format(Calendar.getInstance().apply { set(year, month - 1, 1) }.time).lowercase()
+        val name = Dates.formatUsMonth(Calendar.getInstance().apply { set(year, month - 1, 1) }.time).lowercase()
         val html = fetch("https://www.dvdsreleasedates.com/digital-releases/$year/$month/digital-hd-releases-$name-$year") ?: return@withContext emptyList()
         val releases = parseDigital(html)
         if (releases.isNotEmpty()) {
@@ -404,7 +397,6 @@ class DiscoverFeed(cacheDir: File) {
 
     /** The site's page: dates as headings ("Tuesday November 3, 2026"), then each film with its IMDb link */
     private fun parseDigital(html: String): List<Release> {
-        val dateFormat = SimpleDateFormat("EEEE MMMM d, yyyy", Locale.US)
         val token = Regex(
             """class='reldate[^']*'>(?:<a[^>]*></a>)?([A-Za-z]+ [A-Za-z]+ \d{1,2}, \d{4})|<a style='color:#000;' href='/movies/\d+/[^']*'>([^<]+)</a>.{0,400}?title/(tt\d+)/""",
             RegexOption.DOT_MATCHES_ALL,
@@ -415,7 +407,7 @@ class DiscoverFeed(cacheDir: File) {
         for (m in token.findAll(html)) {
             val day = m.groups[1]?.value
             if (day != null) {
-                date = runCatching { dateFormat.parse(day)?.time }.getOrNull()
+                date = Dates.parseUsFullDate(day)
                 continue
             }
             val name = m.groups[2]?.value ?: continue

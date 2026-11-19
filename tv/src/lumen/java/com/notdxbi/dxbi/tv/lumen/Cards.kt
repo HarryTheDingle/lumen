@@ -64,6 +64,7 @@ import androidx.tv.material3.Text
 import com.notdxbi.dxbi.tv.phone.Airing
 import com.notdxbi.dxbi.tv.phone.Continue
 import com.notdxbi.dxbi.tv.phone.Title
+import com.notdxbi.dxbi.tv.phone.episodeLabel
 
 /**
  * A card the remote can choose, the Apple TV way: it lifts towards you when chosen, larger, and its glass rim brightens.
@@ -257,6 +258,37 @@ fun Modifier.centredWhenFocused(): Modifier {
 @Composable
 fun pageBottomPad(): androidx.compose.ui.unit.Dp = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.5f).dp
 
+/**
+ * A vertical page of rows with [PageScroller] and [BringIntoViewSpec] wired up in one place.
+ * Pass [scroller] when the screen also drives the scroller directly (e.g. Home's billboard or TitlePage).
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun PageColumn(
+    state: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
+    modifier: Modifier = Modifier,
+    scroller: PageScroller? = null,
+    bringIntoViewSpec: BringIntoViewSpec = CentredScrolling,
+    contentPadding: PaddingValues = PaddingValues(bottom = pageBottomPad()),
+    verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(16.dp),
+    content: LazyListScope.() -> Unit,
+) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val pageScroller = scroller ?: remember(state) { PageScroller(state, scope) }
+    CompositionLocalProvider(
+        LocalBringIntoViewSpec provides bringIntoViewSpec,
+        LocalPageScroller provides pageScroller,
+    ) {
+        androidx.compose.foundation.lazy.LazyColumn(
+            state = state,
+            modifier = modifier.onGloballyPositioned { pageScroller.viewport = it },
+            contentPadding = contentPadding,
+            verticalArrangement = verticalArrangement,
+            content = content,
+        )
+    }
+}
+
 /** A titled row of cards that scrolls sideways as the remote moves along it */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -298,22 +330,7 @@ fun PosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, width: Dp =
     var held by remember { mutableStateOf(false) }
     if (held) TitleHoldMenu(title, onOpen = onClick, onDismiss = { held = false })
     FocusCard(onClick = onClick, onLongClick = { held = true }, modifier = if (fill) Modifier.fillMaxWidth().aspectRatio(2f / 3f) else Modifier.size(width, width * 1.5f)) {
-        Box(Modifier.fillMaxSize()) {
-            // (no poster, or one that won't load: its name instead of a blank grey card, as search results had)
-            var noArt by remember(title.art) { mutableStateOf(title.art == null) }
-            Art(title.art, Modifier.fillMaxSize(), onError = { noArt = true })
-            if (hasNameOnPoster(title) || noArt) PosterName(title, width)
-            // (no numbers on the Top 10: Harry's call; the row's order says it)
-            CardLabel(title.id, width, inTopTen = rank != null)
-            if (title.watched) {
-                Icon(
-                    Icons.Filled.CheckCircle,
-                    contentDescription = "Watched",
-                    tint = Color.White,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp).size(20.dp).background(Color.Black, CircleShape),
-                )
-            }
-        }
+        PosterFace(title = title, rank = rank, width = width, fill = fill)
     }
 }
 
@@ -350,7 +367,7 @@ fun AiringCard(item: Airing, onClick: () -> Unit, width: Dp = 300.dp) {
                 )
                 Text(item.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
-                    "S${item.season}, E${item.episode}${if (item.more > 0) " +${item.more}" else ""} · ${item.whenText}",
+                    "${episodeLabel(item.season, item.episode)}${if (item.more > 0) " +${item.more}" else ""} · ${item.whenText}",
                     fontSize = 12.sp,
                     color = Dx.Muted,
                     maxLines = 1,

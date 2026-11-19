@@ -11,20 +11,14 @@
 // Kept 12 hours per profile (sooner when what they watched changes). Outside requests are counted: a Worker has 50, and
 // TMDB's answers are kept (recommendations a week, IMDb ids for good), so later runs need far fewer.
 
-import { art } from "./lists.js";
+import { GENRES, art, buildTitle, findByImdb, tmdbGet } from "./tmdb.js";
 
-const TMDB = "https://api.themoviedb.org/3";
 const KEEP_MS = 12 * 3600e3;
 const RECS_MS = 7 * 86400e3;
 const BUDGET = 44;
 const CF_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const SKIPPED_GENRES = new Set([10767, 10763, 10764, 99]); // talk shows, news, reality, documentaries
-// TMDB's genre ids by name (films' and series')
-const GENRE = {
-  28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family",
-  14: "Fantasy", 36: "History", 27: "Horror", 10402: "Music", 9648: "Mystery", 10749: "Romance", 878: "Sci-Fi", 53: "Thriller",
-  10752: "War", 37: "Western", 10759: "Action", 10762: "Kids", 10765: "Sci-Fi", 10766: "Soap", 10768: "War",
-};
+const GENRE = { ...GENRES, 10759: "Action", 10765: "Sci-Fi", 10768: "War" };
 
 // ---- the sums (as Lumen's recoMath) ----
 
@@ -118,36 +112,13 @@ export function score(c, prof, year) {
 
 // ---- TMDB, counted and kept ----
 
-function tmdb(env, budget) {
-  const key = encodeURIComponent(env.LUMOS_TMDB_KEY || "");
-  return async (path) => {
-    if (!key || budget.used >= BUDGET) return null;
-    budget.used++;
-    const r = await fetch(`${TMDB}${path}${path.includes("?") ? "&" : "?"}api_key=${key}&language=en-GB`, { signal: AbortSignal.timeout(8000) }).catch(() => null);
-    return r && r.ok ? r.json().catch(() => null) : null;
-  };
-}
+const tmdb = (env, budget) => (path) => tmdbGet(env, path, { language: "en-GB", budget });
 
 const metaGet = async (env, k) => {
   const v = (await env.DB.prepare("SELECT v FROM lumos_meta WHERE k = ?").bind(k).all()).results?.[0]?.v;
   try { return v ? JSON.parse(v) : null; } catch (_) { return null; }
 };
 const metaPut = (env, k, v) => env.DB.prepare("INSERT OR REPLACE INTO lumos_meta (k, v) VALUES (?, ?)").bind(k, JSON.stringify(v)).run();
-
-/** An IMDb id's TMDB entry: {kind, id, name, genres, year} (kept for good), null when TMDB hasn't it */
-async function found(env, get, tt) {
-  const kept = await metaGet(env, `find:${tt}`);
-  if (kept) return kept.id ? kept : null;
-  const j = await get(`/find/${tt}?external_source=imdb_id`);
-  if (!j) return null;
-  const m = (j.movie_results || [])[0];
-  const t = (j.tv_results || [])[0];
-  const x = m || t;
-  const out = x ? { kind: m ? "movie" : "tv", id: x.id, name: x.title || x.name || "", genres: x.genre_ids || [], year: Number(String(x.release_date || x.first_air_date || "").slice(0, 4)) || 0 } : { id: 0 };
-  await metaPut(env, `find:${tt}`, out);
-  if (x) await env.DB.prepare("INSERT OR REPLACE INTO lumos_ids (tmdb, imdb, at) VALUES (?, ?, ?)").bind(`${out.kind}:${out.id}`, tt, Date.now()).run().catch(() => {});
-  return x ? out : null;
-}
 
 /** TMDB's recommendations for one title (kept a week) */
 async function recommendations(env, get, kind, id, now) {
@@ -247,11 +218,10 @@ function prompt(prefer) {
 
 /** A candidate as a Lumos title */
 function title(c) {
-  return {
-    id: c.tt, type: c.kind === "tv" ? "series" : "movie", name: c.name, year: c.year ? String(c.year) : null,
-    description: c.overview || null, genres: c.genres.map((g) => GENRE[g]).filter(Boolean).slice(0, 3), rating: c.rating ? Math.round(c.rating * 10) / 10 : null,
-    ...art(c.tt),
-  };
+  return buildTitle({
+    id: c.tt, type: c.kind === "tv" ? "series" : "movie", name: c.name, year: c.year,
+    description: c.overview, genres: c.genres, rating: c.rating,
+  }, GENRE);
 }
 
 export async function handlePicks(body, env, account, now) {
@@ -269,7 +239,7 @@ export async function handlePicks(body, env, account, now) {
   const kept = await metaGet(env, cacheKey);
   if (kept && kept.sig === sig && !kept.partial && now - kept.at < KEEP_MS && !body.again) return { status: 200, body: { rows: kept.rows, ai: kept.ai, at: kept.at } };
 
-  const budget = { used: 0 };
+  const budget = { used: 0, max: BUDGET };
   const get = tmdb(env, budget);
   if (!env.LUMOS_TMDB_KEY) return { status: 503, body: { error: "Suggestions aren't set up on the server." } };
 
@@ -278,7 +248,7 @@ export async function handlePicks(body, env, account, now) {
   const taken = { movie: 0, series: 0 };
   for (const s of all) {
     if (seeds.length >= n) break;
-    const f = await found(env, get, s.id);
+    const f = await findByImdb(env, s.id, { language: "en-GB", budget });
     if (!f) continue;
     const kind = f.kind === "tv" ? "series" : "movie";
     if (taken[kind] >= want[kind] && all.length > n) continue;
@@ -413,7 +383,7 @@ export async function handleAsk(body, env, account, now) {
     "If the prompt names a film or series (\"like X\"), do not return X itself. If the prompt asks for films only or series only, respect it. " +
     "Each needs \"type\", the exact original release \"name\" as IMDb lists it, and the 4-digit release \"year\". Never invent a title.";
 
-  const budget = { used: 0 };
+  const budget = { used: 0, max: BUDGET };
   const parsed = await askModel(env, system, JSON.stringify({ prompt, watched, ratings, dropped }), budget);
   if (!parsed || !Array.isArray(parsed.titles)) return { status: 502, body: { error: "AI returned an invalid response." } };
 

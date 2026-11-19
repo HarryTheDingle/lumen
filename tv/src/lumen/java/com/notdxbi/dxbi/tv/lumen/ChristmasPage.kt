@@ -66,11 +66,7 @@ fun ChristmasPage(feed: DiscoverFeed, nav: Nav) {
             )
             // (the page scrolls as Home's, Discover's and a genre's do: one glide to put the row in the middle. Without it
             // the rows' own scrolling and the page's fought, and every move bounced)
-            val pageListState = androidx.compose.foundation.lazy.rememberLazyListState()
-            val pageScope = androidx.compose.runtime.rememberCoroutineScope()
-            val pageScroller = remember { PageScroller(pageListState, pageScope) }
-            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides CentredScrolling, LocalPageScroller provides pageScroller) {
-            LazyColumn(state = pageListState, modifier = Modifier.onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(top = 48.dp, bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+            PageColumn(contentPadding = PaddingValues(top = 48.dp, bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(24.dp)) {
                 item(key = "title") {
                     Column(Modifier.padding(horizontal = Dx.Gutter), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Christmas at Home", fontSize = 44.sp, fontWeight = FontWeight.Bold, color = Color.White)
@@ -95,7 +91,6 @@ fun ChristmasPage(feed: DiscoverFeed, nav: Nav) {
                         }
                     }
                 }
-            }
             }
         }
     }

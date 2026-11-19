@@ -53,6 +53,7 @@ import com.notdxbi.dxbi.tv.phone.Reviews
 import com.notdxbi.dxbi.tv.phone.StreamOption
 import com.notdxbi.dxbi.tv.phone.Title
 import com.notdxbi.dxbi.tv.phone.Video
+import com.notdxbi.dxbi.tv.phone.episodeLabel
 
 /**
  * The words and buttons over the art, the Apple TV way, left-aligned: the same block on Home's
@@ -133,7 +134,7 @@ private fun kindLine(t: Title) =
 /** "S4, E3 · The Bear Hug:" */
 private fun episodeLead(v: Video): String? {
     if (v.season == null || v.episode == null) return null
-    return "S${v.season}, E${v.episode} · ${v.title}:"
+    return "${episodeLabel(v.season, v.episode, v.title)}:"
 }
 
 /** Two or three lines of it, bold lead first; MORE (when it doesn't all fit) opens the whole text */

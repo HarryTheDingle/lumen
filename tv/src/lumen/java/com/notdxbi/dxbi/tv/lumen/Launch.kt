@@ -273,7 +273,7 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
             return
         }
         d.videos.firstOrNull { it.id == (video ?: d.videoId) }?.let { v ->
-            if (v.season != null && v.episode != null) episode = "S${v.season}, E${v.episode}" + (if (v.title.isNotEmpty()) " · ${v.title}" else "")
+            if (v.season != null && v.episode != null) episode = com.notdxbi.dxbi.tv.phone.episodeLabel(v.season, v.episode, v.title)
         }
 
         // 2. The connection (only when Match my internet speed is on: the plugin measures it first)

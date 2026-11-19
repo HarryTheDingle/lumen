@@ -257,15 +257,6 @@ fun Avatar(email: String?, size: Dp = 36.dp) {
     }
 }
 
-/** "S1, E3" from Stremio's video id (tt0000:1:3) */
-fun episodeLabel(videoId: String?): String? {
-    val parts = videoId?.split(':') ?: return null
-    if (parts.size < 3) return null
-    val s = parts[parts.size - 2].toIntOrNull() ?: return null
-    val e = parts[parts.size - 1].toIntOrNull() ?: return null
-    return "S$s, E$e"
-}
-
 fun typeName(type: String) = when (type) {
     "movie" -> "Movie"
     "series" -> "TV Show"

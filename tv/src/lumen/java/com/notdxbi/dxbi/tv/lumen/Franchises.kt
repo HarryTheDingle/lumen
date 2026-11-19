@@ -123,16 +123,10 @@ fun FranchisePage(stremio: Stremio, nav: Nav, id: String, name: String) {
         Box(Modifier.fillMaxSize().background(Dx.Background)) {
             if (franchise != null) Art(franchise.picture, Modifier.fillMaxSize().background(Color.Black))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.35f), 0.38f to Dx.Background.copy(alpha = 0.94f), 0.5f to Dx.Background)))
-            val state = rememberLazyListState()
-            val scope = rememberCoroutineScope()
-            val scroller = remember { PageScroller(state, scope) }
-            CompositionLocalProvider(LocalBringIntoViewSpec provides CentredScrolling, LocalPageScroller provides scroller) {
-                LazyColumn(
-                    state = state,
-                    modifier = Modifier.onGloballyPositioned { scroller.viewport = it },
-                    contentPadding = PaddingValues(top = 48.dp, bottom = pageBottomPad()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
+            PageColumn(
+                contentPadding = PaddingValues(top = 48.dp, bottom = pageBottomPad()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                     item(key = "title") {
                         Column(Modifier.padding(horizontal = Dx.Gutter, vertical = 40.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(name, fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Color.White)
@@ -156,7 +150,6 @@ fun FranchisePage(stremio: Stremio, nav: Nav, id: String, name: String) {
                             }
                         }
                     }
-                }
             }
         }
     }

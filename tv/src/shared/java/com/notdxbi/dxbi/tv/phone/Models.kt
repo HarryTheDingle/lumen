@@ -17,6 +17,19 @@ fun unescaped(s: String): String = s.replace("&apos;", "'").replace("&#39;", "'"
 /** A string that's really there: null for missing, JSON null and "" */
 fun JSONObject.text(key: String): String? = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
 
+/** "S1, E3" (with optional " · Title" and custom separator such as " " or " · ") */
+fun episodeLabel(season: Int, episode: Int, title: String? = null, sep: String = ", "): String =
+    "S$season${sep}E$episode" + (title?.takeIf { it.isNotEmpty() }?.let { " · $it" } ?: "")
+
+/** "S1, E3" from Stremio's video id (tt0000:1:3) */
+fun episodeLabel(videoId: String?): String? {
+    val parts = videoId?.split(':') ?: return null
+    if (parts.size < 3) return null
+    val s = parts[parts.size - 2].toIntOrNull() ?: return null
+    val e = parts[parts.size - 1].toIntOrNull() ?: return null
+    return episodeLabel(s, e)
+}
+
 data class Title(
     val id: String,
     val type: String,
@@ -296,7 +309,7 @@ data class Details(
 
     /** A random released episode for Shuffle (specials and unreleased skipped; not the one last played, unless it's the only one) */
     fun shuffled(): Video? {
-        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        val today = Dates.formatLocalDay()
         val out = videos.filter { (it.season ?: 0) > 0 && !it.upcoming && (it.released.isNullOrEmpty() || it.released.take(10) <= today) }
         return out.filter { it.id != resumeVideoId }.randomOrNull() ?: out.randomOrNull()
     }

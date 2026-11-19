@@ -10,18 +10,13 @@
 // metahub's). Each answer looks up at most NEW titles (three requests each: a Worker gets 50); the rest come back in
 // [pending], for the device to ask again.
 
-const TMDB = "https://api.themoviedb.org/3";
+import { findByImdb, getJson, tmdbGet } from "./tmdb.js";
+
 const IMG = "https://image.tmdb.org/t/p";
 const CINEMETA = "https://v3-cinemeta.strem.io/meta";
 const NEW = 14;
 const MAX_IDS = 60;
 const KEEP_MS = 30 * 86400000;
-
-async function getJson(url) {
-  const r = await fetch(url, { headers: { "User-Agent": "Lumos/1.0" } });
-  if (!r.ok) throw new Error(`${new URL(url).host} answered ${r.status}`);
-  return r.json();
-}
 
 /** "The Lord of the Rings: The Two Towers" → "lord of rings two towers" (for telling titles apart, not for showing) */
 export function plain(name) {
@@ -63,25 +58,22 @@ async function bads(env, tt) {
 
 /** Looks one title up and keeps the answer; null when TMDB hasn't got it or its title isn't IMDb's */
 async function lookup(env, tt) {
-  const key = encodeURIComponent(env.LUMOS_TMDB_KEY);
-  const found = await getJson(`${TMDB}/find/${tt}?external_source=imdb_id&api_key=${key}`);
-  const movie = (found.movie_results || [])[0];
-  const show = (found.tv_results || [])[0];
-  const hit = movie || show;
+  const hit = await findByImdb(env, tt);
+  if (hit === undefined) throw new Error(`TMDB find failed for ${tt}`);
   let row = { poster: "", background: "", logo: "", ok: 0 };
   if (hit) {
-    const kind = movie ? "movie" : "tv";
-    const imdb = await getJson(`${CINEMETA}/${movie ? "movie" : "series"}/${tt}.json`).then((j) => j.meta || null).catch(() => null);
+    const imdb = await getJson(`${CINEMETA}/${hit.kind === "movie" ? "movie" : "series"}/${tt}.json`).then((j) => (j && j.meta) || null);
     const meta = imdb ? { name: imdb.name, year: imdb.year || imdb.releaseInfo } : null;
-    if (meta && !sameTitle(meta, hit)) {
-      console.log("art mismatch", tt, JSON.stringify(meta.name), meta.year, "TMDB:", JSON.stringify(hit.title || hit.name), hit.release_date || hit.first_air_date);
+    const tmdbMeta = { name: hit.name, original_name: hit.originalName, release_date: hit.year ? String(hit.year) : "" };
+    if (meta && !sameTitle(meta, tmdbMeta)) {
+      console.log("art mismatch", tt, JSON.stringify(meta.name), meta.year, "TMDB:", JSON.stringify(hit.name), hit.year);
     } else {
       const bad = await bads(env, tt);
-      const images = await getJson(`${TMDB}/${kind}/${hit.id}/images?include_image_language=en,null&api_key=${key}`).catch(() => ({}));
+      const images = (await tmdbGet(env, `/${hit.kind}/${hit.id}/images?include_image_language=en,null`)) || {};
       row = {
-        poster: best(hit.poster_path, images.posters, bad, ["en", null]) || "",
+        poster: best(hit.poster || null, images.posters, bad, ["en", null]) || "",
         // (a backdrop with no words on it first: the billboard and title pages put the logo over it)
-        background: best(null, images.backdrops, bad, [null, "en"]) || best(hit.backdrop_path, [], bad, []) || "",
+        background: best(null, images.backdrops, bad, [null, "en"]) || best(hit.backdrop || null, [], bad, []) || "",
         logo: best(null, images.logos, bad, ["en"]) || "",
         ok: 1,
       };

@@ -175,11 +175,7 @@ fun GenrePage(nav: Nav, feed: DiscoverFeed, name: String) {
         val tint = GENRES.firstOrNull { it.name == name }?.tint ?: Color(0xFF444444)
         Box(Modifier.fillMaxSize().background(Dx.Background).background(Brush.verticalGradient(0f to tint.copy(alpha = 0.3f), 0.4f to Dx.Background))) {
             // (the page scrolls as Home and Discover do: without it every move bounced, and again as a card opened)
-            val pageListState = androidx.compose.foundation.lazy.rememberLazyListState()
-        val pageScope = androidx.compose.runtime.rememberCoroutineScope()
-        val pageScroller = remember { PageScroller(pageListState, pageScope) }
-        CompositionLocalProvider(LocalBringIntoViewSpec provides CentredScrolling, LocalPageScroller provides pageScroller) {
-            LazyColumn(state = pageListState, modifier = Modifier.onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(top = 48.dp, bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            PageColumn(contentPadding = PaddingValues(top = 48.dp, bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 item(key = "title") {
                     Text(name, fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = Dx.Gutter))
                 }
@@ -197,7 +193,6 @@ fun GenrePage(nav: Nav, feed: DiscoverFeed, name: String) {
                         }
                     }
                 }
-            }
             }
         }
     }

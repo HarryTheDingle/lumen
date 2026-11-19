@@ -29,9 +29,6 @@ data class Resume(
     val fraction: Double get() = if (duration > 0) (position / duration).coerceIn(0.0, 1.0) else 0.0
 }
 
-/** A stream as the list shows it, ranked */
-data class Choice(val stream: Stream, val quality: String, val sizeText: String?, val ready: Boolean, val label: String)
-
 /**
  * The whole app below the screens, as Swift (and Kotlin) sees it: simple calls that answer lists.
  * The app keeps [state] on disk between launches and gives it back with [restore].
@@ -163,7 +160,7 @@ class Lumos(syncServer: String) {
         val bridge = stremio ?: return false
         // (Stremio's library is the main profile's, as in Lumen: the others' watching stays in Lumos)
         if (viewer != "main") return false
-        val finished = duration > 0 && position / duration >= 0.92
+        val finished = duration > 0 && position / duration >= FINISHED
         return runCatching { bridge.progress(id, type, name, poster, video, position, duration, now, finished) }.isSuccess
     }
 
@@ -205,7 +202,7 @@ class Lumos(syncServer: String) {
      * episode's finished, the next one at 0). A place forgotten (Continue Watching's ✕) is the show's own id at 0: left out
      */
     fun continueWatching(): List<Resume> = progress().mapNotNull { (id, v) -> v.obj()?.let(::resume)?.copy(id = id) }
-        .filter { (it.position > 0 && it.fraction < 0.92) || upNext(it) }.sortedByDescending { it.at }
+        .filter { (it.position > 0 && it.fraction < FINISHED) || upNext(it) }.sortedByDescending { it.at }
 
     private fun upNext(r: Resume) = r.type == "series" && r.position <= 0 && r.video.startsWith("${r.id}:") && r.video.count { it == ':' } == 2 &&
         titles("watched:$viewer")[r.video]?.obj()?.bool("on") != true
@@ -232,7 +229,7 @@ class Lumos(syncServer: String) {
         }
         put("progress:$viewer", JsonObject(progress() + (id to entry)), now)
         // (finished: that film, or that episode, is watched; a show isn't watched because one episode is)
-        if (duration > 0 && position / duration >= 0.92) {
+        if (duration > 0 && position / duration >= FINISHED) {
             put("watched:$viewer", JsonObject(titles("watched:$viewer") + (video to buildJsonObject { put("at", now); put("on", true) })), now)
         }
     }
@@ -260,7 +257,7 @@ class Lumos(syncServer: String) {
     val phone = Phone(this)
 
     /** Where this profile left [id] (null: not started, or finished) */
-    fun resumeOf(id: String): Resume? = progress()[id]?.obj()?.let(::resume)?.copy(id = id)?.takeIf { it.position > 0 && it.fraction < 0.92 }
+    fun resumeOf(id: String): Resume? = progress()[id]?.obj()?.let(::resume)?.copy(id = id)?.takeIf { it.position > 0 && it.fraction < FINISHED }
 
     /** This profile's watched titles and episodes */
     fun watchedIds(): Set<String> = titles("watched:$viewer").filterValues { it.obj()?.bool("on") != false }.keys
@@ -365,49 +362,7 @@ class Lumos(syncServer: String) {
     }
 
     companion object {
+        const val FINISHED = 0.92
         private val MERGED = setOf("progress", "watched", "myList")
-
-        /** Best first: ready to play at once, then picture quality, then size */
-        fun rank(streams: List<Stream>): List<Choice> = streams.map { s ->
-            val text = s.text
-            val quality = when {
-                Regex("""(?i)\b(2160p|4k|uhd)\b""").containsMatchIn(text) -> "4K"
-                Regex("""(?i)\b1080p\b""").containsMatchIn(text) -> "1080p"
-                Regex("""(?i)\b720p\b""").containsMatchIn(text) -> "720p"
-                Regex("""(?i)\b(480p|sd)\b""").containsMatchIn(text) -> "SD"
-                else -> ""
-            }
-            val ready = s.url != null || s.cached == true
-            val size = s.size ?: sizeIn(text)
-            val label = (s.filename ?: s.title ?: s.name ?: "").lineSequence().firstOrNull()?.take(120) ?: ""
-            Choice(s, quality, size?.let(::sizeText), ready, label)
-        }.filter { it.stream.externalUrl == null }
-            .sortedWith(compareByDescending<Choice> { it.ready }.thenByDescending { QUALITY.indexOf(it.quality) }.thenByDescending { it.stream.size ?: sizeIn(it.stream.text) ?: 0 })
-
-        private val QUALITY = listOf("", "SD", "720p", "1080p", "4K")
-
-        /**
-         * Just press Play: the stream to start without asking. The remembered one when it's there (the
-         * same binge group, else the same addon and quality), else the best ready one at or under
-         * [maxQuality] ("4K", "1080p", "720p", or "" for any). Null: show the list.
-         */
-        fun pick(choices: List<Choice>, remembered: String?, maxQuality: String): Choice? {
-            val ready = choices.filter { it.ready }
-            if (remembered != null) {
-                val (source, quality, group) = (remembered.split("|") + listOf("", "", "")).take(3)
-                if (group.isNotEmpty()) ready.firstOrNull { it.stream.bingeGroup == group }?.let { return it }
-                ready.firstOrNull { it.stream.source == source && it.quality == quality }?.let { return it }
-            }
-            val cap = QUALITY.indexOf(maxQuality).takeIf { it > 0 } ?: QUALITY.size
-            return ready.firstOrNull { QUALITY.indexOf(it.quality) <= cap } ?: ready.firstOrNull()
-        }
-
-        private fun sizeIn(text: String): Long? {
-            val m = Regex("""(?i)(\d+(?:[.,]\d+)?)\s*(GB|MB)\b""").find(text) ?: return null
-            val n = m.groupValues[1].replace(',', '.').toDoubleOrNull() ?: return null
-            return (n * if (m.groupValues[2].uppercase() == "GB") 1_073_741_824 else 1_048_576).toLong()
-        }
-
-        private fun sizeText(bytes: Long): String = if (bytes >= 1_073_741_824) "${(bytes / 107_374_182.4).toLong() / 10.0} GB" else "${bytes / 1_048_576} MB"
     }
 }

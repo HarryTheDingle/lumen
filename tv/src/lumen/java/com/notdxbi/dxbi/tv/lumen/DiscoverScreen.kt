@@ -45,16 +45,14 @@ import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import androidx.compose.foundation.lazy.LazyListScope
 import kotlinx.coroutines.launch
+import com.notdxbi.dxbi.tv.phone.Dates
 import com.notdxbi.dxbi.tv.phone.ListRow
 import com.notdxbi.dxbi.tv.phone.Stremio
 import com.notdxbi.dxbi.tv.phone.Title
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import java.text.SimpleDateFormat
 import java.util.Calendar
-import java.util.Date
-import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 /** A row of Discover: posters, with a date under each for releases */
@@ -130,7 +128,6 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
     ) {
         val pageListState = androidx.compose.foundation.lazy.rememberLazyListState()
         val pageScope = androidx.compose.runtime.rememberCoroutineScope()
-        val pageScroller = remember { PageScroller(pageListState, pageScope) }
         val forYou = selected.isEmpty()
         // The page's items in order, as the column below lays them out: what a section shortcut scrolls to
         val keys = buildList {
@@ -167,8 +164,7 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
                 runCatching { chosenPill.requestFocus() }
             }
         }
-        CompositionLocalProvider(LocalBringIntoViewSpec provides CentredScrolling, LocalPageScroller provides pageScroller) {
-            LazyColumn(state = pageListState, modifier = Modifier.onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        PageColumn(state = pageListState) {
                 item(key = "top") { ScreenTag(nav) }
                 item(key = "services") {
                     // (each service its icon until the remote's on it: the whole row fits across the screen)
@@ -224,7 +220,6 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
                     if (forYou && i == minOf(3, rows.lastIndex)) franchisesItem(stremio, nav, Modifier.focusRequester(landingFor("franchises")))
                 }
                 if (forYou && rows.isEmpty()) { genresItem(nav, inSeason, hasKitsu, Modifier.focusRequester(landingFor("genres"))); franchisesItem(stremio, nav, Modifier.focusRequester(landingFor("franchises"))) }
-            }
         }
     }
 }
@@ -249,7 +244,7 @@ private fun DatedPoster(t: Title, date: Long, onClick: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         PosterCard(t, onClick = onClick)
         Text(
-            SimpleDateFormat("d MMM", Locale.getDefault()).format(Date(date)),
+            Dates.formatShortDay(date),
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
             color = if (date > System.currentTimeMillis()) Color.White else Dx.Muted,

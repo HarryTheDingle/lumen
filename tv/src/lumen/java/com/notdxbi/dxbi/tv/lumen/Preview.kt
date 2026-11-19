@@ -72,6 +72,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.notdxbi.dxbi.tv.phone.Continue
 import com.notdxbi.dxbi.tv.phone.Title
+import com.notdxbi.dxbi.tv.phone.episodeLabel
 import kotlinx.coroutines.delay
 
 /** What a card's menu and caption can do: play the title, add it to the Library, fetch its genres */
@@ -149,7 +150,6 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
         delay(150)
         genres = actions.genres(title).also { genreMemory[title.id] = it }
     }
-    val watchedNow = actions?.watched?.collectAsState()?.value?.contains(title.id) == true || (title.watched && title.type == "movie")
     Column(Modifier.height(height + CAPTION_ROOM)) {
         FocusCard(
             onLongClick = { held = true },
@@ -159,15 +159,13 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
                 .height(height + CAPTION_ROOM * grow)
                 .onFocusChanged { focused = it.isFocused || it.hasFocus },
         ) {
-            Box(Modifier.fillMaxSize()) {
-                PosterFace(title, rank, width, watched = watchedNow, grow = { grow }, caption = listOfNotNull(typeName(title.type), genres.firstOrNull()).joinToString(" · "))
-                // (turned down: dimmed with a thumb, in place, so the remote doesn't lose its card)
-                if (actions?.turnedDown?.collectAsState()?.value?.contains(title.id) == true) {
-                    Box(Modifier.fillMaxWidth().height(width * 1.5f).background(Color.Black.copy(alpha = 0.62f)), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Outlined.ThumbDown, contentDescription = "Not interested", tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(34.dp))
-                    }
-                }
-            }
+            PosterFace(
+                title = title,
+                rank = rank,
+                width = width,
+                grow = { grow },
+                caption = listOfNotNull(typeName(title.type), genres.firstOrNull()).joinToString(" · "),
+            )
         }
     }
 }
@@ -377,16 +375,26 @@ private fun trailerScript(start: Double, whole: Boolean = false): String {
 val CAPTION_ROOM = 30.dp
 
 /**
- * The poster side of the card (and Netflix's Top 10 number). [grow] (0 to 1, read as it draws): how far it has grown
- * down into its caption strip.
+ * The shared poster face (art, fallback title, badge/tag, watched mark, turned-down dimming, and optional
+ * growing caption strip) used by both [PosterCard] and [PreviewPosterCard].
  */
 @Composable
-private fun PosterFace(title: Title, rank: Int?, width: Dp, watched: Boolean = title.watched, grow: () -> Float = { 0f }, caption: String = typeName(title.type)) {
+fun PosterFace(
+    title: Title,
+    rank: Int? = null,
+    width: Dp = Dx.Poster,
+    fill: Boolean = false,
+    grow: () -> Float = { 0f },
+    caption: String? = null,
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val actions = LocalCardActions.current
+    val watched = actions?.watched?.collectAsState()?.value?.contains(title.id) == true || (title.watched && title.type == "movie")
+    val dimmed = actions?.turnedDown?.collectAsState()?.value?.contains(title.id) == true
     Box(Modifier.fillMaxSize()) {
         // the strip under the poster: the poster's own foot carried on, blurred, darkening (only the chosen card has it, so
         // the blur is one small one at a time; TVs before Android 12 can't blur, and get a tiny copy stretched instead)
-        val grown = grow() > 0f
+        val grown = caption != null && grow() > 0f
         if (grown) {
             val canBlur = android.os.Build.VERSION.SDK_INT >= 31
             val art = fresh(title.art)
@@ -403,7 +411,8 @@ private fun PosterFace(title: Title, rank: Int?, width: Dp, watched: Boolean = t
             }
         }
         // (the poster's foot fades into the strip, so there's no edge between them)
-        Box(Modifier.fillMaxWidth().height(width * 1.5f).then(if (grown) Modifier.fadeFoot(grow) else Modifier)) {
+        val posterMod = if (fill) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(width * 1.5f)
+        Box(posterMod.then(if (grown) Modifier.fadeFoot(grow) else Modifier)) {
             // (no poster, or one that won't load: its name instead of a blank grey card, as search results had)
             var noArt by remember(title.art) { mutableStateOf(title.art == null) }
             Art(title.art, Modifier.fillMaxSize(), onError = { noArt = true })
@@ -412,15 +421,23 @@ private fun PosterFace(title: Title, rank: Int?, width: Dp, watched: Boolean = t
             CardLabel(title.id, width, inTopTen = rank != null)
             // (the ✓ in the corner at the foot: the label has the top)
             if (watched) WatchedMark(Modifier.align(Alignment.BottomEnd).padding(6.dp))
+            // (turned down: dimmed with a thumb, in place, so the remote doesn't lose its card)
+            if (dimmed) {
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.62f)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Outlined.ThumbDown, contentDescription = "Not interested", tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(34.dp))
+                }
+            }
         }
         // what it is, in the strip (a moment after it opens)
-        Text(
-            caption,
-            // (small enough for "TV Show · Comedy" across a poster)
-            fontSize = 11.sp, letterSpacing = (-0.1).sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 7.dp, vertical = 7.dp)
-                .graphicsLayer { alpha = ((grow() - 0.5f) * 2f).coerceIn(0f, 1f) },
-        )
+        if (caption != null) {
+            Text(
+                caption,
+                // (small enough for "TV Show · Comedy" across a poster)
+                fontSize = 11.sp, letterSpacing = (-0.1).sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 7.dp, vertical = 7.dp)
+                    .graphicsLayer { alpha = ((grow() - 0.5f) * 2f).coerceIn(0f, 1f) },
+            )
+        }
     }
 }
 

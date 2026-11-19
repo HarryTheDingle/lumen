@@ -12,17 +12,12 @@
 //   #3 Today       in Top 10 Today (the TV leaves it off the Top 10 row itself, whose numbers say it)
 // A film's dates are the UK's where TMDB has them, else the earliest anywhere.
 
-const TMDB = "https://api.themoviedb.org/3";
+import { findByImdb, tmdbGet } from "./tmdb.js";
+
 const KEEP_MS = 2 * 86400000;
 const NEW = 20;
 const MAX_IDS = 60;
 const DAY = 86400000;
-
-async function getJson(url) {
-  const r = await fetch(url, { headers: { "User-Agent": "Lumos/1.0" }, signal: AbortSignal.timeout(8000) });
-  if (!r.ok) throw new Error(`${new URL(url).host} answered ${r.status}`);
-  return r.json();
-}
 
 /** The dates that matter from TMDB's details: a film's (cinema, digital), a series' (first, last and next episode) */
 export function factsOf(kind, d) {
@@ -84,20 +79,12 @@ async function kept(env, ids) {
 
 /** TMDB's id for an IMDb one (kept for good with picks.js's), then its details: the facts, kept */
 async function lookup(env, tt, writes) {
-  const key = encodeURIComponent(env.LUMOS_TMDB_KEY);
-  let ref = (await env.DB.prepare("SELECT v FROM lumos_meta WHERE k = ?").bind(`find:${tt}`).all()).results?.[0]?.v;
-  ref = ref ? JSON.parse(ref) : null;
-  if (!ref) {
-    const j = await getJson(`${TMDB}/find/${tt}?external_source=imdb_id&api_key=${key}`);
-    const m = (j.movie_results || [])[0];
-    const t = (j.tv_results || [])[0];
-    const x = m || t;
-    ref = x ? { kind: m ? "movie" : "tv", id: x.id, name: x.title || x.name || "", genres: x.genre_ids || [], year: Number(String(x.release_date || x.first_air_date || "").slice(0, 4)) || 0 } : { id: 0 };
-    writes.push(env.DB.prepare("INSERT OR REPLACE INTO lumos_meta (k, v) VALUES (?, ?)").bind(`find:${tt}`, JSON.stringify(ref)));
-  }
+  const ref = await findByImdb(env, tt, { writes });
+  if (ref === undefined) return undefined;
   let facts = null;
-  if (ref.id) {
-    const d = await getJson(`${TMDB}/${ref.kind}/${ref.id}?api_key=${key}${ref.kind === "movie" ? "&append_to_response=release_dates" : ""}`);
+  if (ref) {
+    const d = await tmdbGet(env, `/${ref.kind}/${ref.id}${ref.kind === "movie" ? "?append_to_response=release_dates" : ""}`);
+    if (!d) return undefined;
     facts = factsOf(ref.kind, d);
   }
   writes.push(env.DB.prepare("INSERT OR REPLACE INTO lumos_facts (imdb, facts, at) VALUES (?, ?, ?)").bind(tt, JSON.stringify(facts), Date.now()));

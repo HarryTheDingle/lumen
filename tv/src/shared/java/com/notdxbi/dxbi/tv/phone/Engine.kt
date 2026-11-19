@@ -622,13 +622,11 @@ class Engine(context: Context) {
             .put("background", source.text("background") ?: source.text("poster") ?: "")
             .put("poster", source.text("poster") ?: "")
         episode?.let { e ->
-            val title = e.optString("title")
-            payload.put("subtitle", "S${e.optInt("season")} E${e.optInt("episode")}" + if (title.isNotEmpty()) " · $title" else "")
+            payload.put("subtitle", episodeLabel(e.optInt("season"), e.optInt("episode"), e.optString("title"), sep = " "))
         }
         next?.let { n ->
-            val title = n.optString("title")
             payload.put("next", JSONObject().put("id", n.optString("id")).put("thumbnail", n.optString("thumbnail"))
-                .put("title", "S${n.optInt("season")} · E${n.optInt("episode")}" + if (title.isNotEmpty()) " · $title" else ""))
+                .put("title", episodeLabel(n.optInt("season"), n.optInt("episode"), n.optString("title"), sep = " · ")))
         }
         // Skip Intro and the credits (1.5 s at most), and subtitles (2.5 s), fetched side by side
         val skips = scope.async(Dispatchers.Default) { withTimeoutOrNull(1500) { runCatching { core.phone.skipSegments(type, metaId, video) }.getOrNull() } ?: "[]" }
@@ -648,8 +646,7 @@ class Engine(context: Context) {
     private fun released(video: JSONObject): Boolean {
         val r = video.text("released") ?: return true
         // (Cinemeta's dates: 2026-11-18T00:00:00.000Z; the day is enough. java.time isn't on Android 7)
-        val day = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
-        val at = runCatching { day.parse(r.take(10))?.time }.getOrNull() ?: return true
+        val at = Dates.parseUtcDay(r.take(10)) ?: return true
         return at <= now()
     }
 
@@ -728,7 +725,7 @@ class Engine(context: Context) {
         val duration = durationMs / 1000.0
         keep(position, duration)
         // (an episode finished: on to the next one, as Up Next)
-        if (p.optString("type") == "series" && duration > 0 && position / duration >= 0.92) runCatching { core.phone.moveOn(setOf(p.optString("videoId")), now()) }
+        if (p.optString("type") == "series" && duration > 0 && position / duration >= Lumos.FINISHED) runCatching { core.phone.moveOn(setOf(p.optString("videoId")), now()) }
         save()
         tell("continue_watching_preview", obj(core.phone.continueWatching()))
         details?.optJSONObject("meta")?.let { m -> m.text("type")?.let { t -> details = obj(core.phone.details()); tell("meta_details", details) } }
@@ -755,8 +752,6 @@ class Engine(context: Context) {
     }
 
     private fun obj(text: String?): JSONObject? = text?.let { runCatching { JSONTokener(it).nextValue() as? JSONObject }.getOrNull() }
-
-    private fun JSONObject.text(key: String): String? = if (!has(key) || isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
 
     companion object {
         const val SYNC = "https://lumos-sync.hedigital.workers.dev"

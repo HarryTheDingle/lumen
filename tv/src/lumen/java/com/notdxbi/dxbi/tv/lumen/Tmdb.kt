@@ -1,6 +1,7 @@
 package com.notdxbi.dxbi.tv.lumen
 
 import com.notdxbi.dxbi.tv.BuildConfig
+import com.notdxbi.dxbi.tv.phone.objects
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -11,6 +12,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * The cast and people pages' data, straight from TMDB with the key built in (BuildConfig.TMDB_KEY). Lumen asked its
@@ -30,27 +32,32 @@ object Tmdb {
         }.getOrNull()
     }
 
-    private fun JSONArray?.objs(): List<JSONObject> = this?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } }.orEmpty()
+    private val found = ConcurrentHashMap<String, Any>()
+    private val MISS = Any()
+
     private fun JSONObject.str(k: String): String? = optString(k).takeIf { it.isNotBlank() && it != "null" }
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
     private fun face(path: String?) = path?.let { "$IMAGES/w342$it" }
     private fun kind(type: String) = if (type == "movie") "movie" else "tv"
 
     /** TMDB's own id for an IMDb one: (the kind, the id) */
-    private suspend fun find(imdb: String): Pair<String, Int>? {
+    @Suppress("UNCHECKED_CAST")
+    internal suspend fun find(imdb: String): Pair<String, Int>? {
+        found[imdb]?.let { return if (it === MISS) null else it as Pair<String, Int> }
         val r = get("/find/$imdb", "&external_source=imdb_id") ?: return null
-        r.optJSONArray("movie_results").objs().firstOrNull()?.let { return "movie" to it.optInt("id") }
-        r.optJSONArray("tv_results").objs().firstOrNull()?.let { return "tv" to it.optInt("id") }
-        return null
+        val hit = r.optJSONArray("movie_results").objects().firstOrNull()?.let { "movie" to it.optInt("id") }
+            ?: r.optJSONArray("tv_results").objects().firstOrNull()?.let { "tv" to it.optInt("id") }
+        found[imdb] = hit ?: MISS
+        return hit
     }
 
     /** The cast row: [{name, role, photo, id}], the directors first then the cast (a name TMDB doesn't list keeps no photo). null without a key or a match */
     suspend fun cast(type: String, imdb: String, names: JSONArray): List<JSONObject>? {
         val (k, id) = find(imdb) ?: return null
         val credits = get("/$k/$id/credits") ?: return null
-        val actors = credits.optJSONArray("cast").objs().associateBy { it.optString("name").lowercase() }
-        val crew = credits.optJSONArray("crew").objs().filter { it.optString("job") == "Director" }.associateBy { it.optString("name").lowercase() }
-        return names.objs().map { n ->
+        val actors = credits.optJSONArray("cast").objects().associateBy { it.optString("name").lowercase() }
+        val crew = credits.optJSONArray("crew").objects().filter { it.optString("job") == "Director" }.associateBy { it.optString("name").lowercase() }
+        return names.objects().map { n ->
             val name = n.optString("name")
             val role = n.optString("role")
             val hit = (if (role == "Director") crew[name.lowercase()] ?: actors[name.lowercase()] else actors[name.lowercase()] ?: crew[name.lowercase()])
@@ -71,7 +78,7 @@ object Tmdb {
         val out = HashMap<String, JSONObject>()
         for (season in seasons.distinct().take(12)) {
             val j = get("/tv/$id/season/$season") ?: continue
-            for (e in j.optJSONArray("episodes").objs()) {
+            for (e in j.optJSONArray("episodes").objects()) {
                 val n = e.optInt("episode_number").takeIf { it > 0 } ?: continue
                 out["$season:$n"] = JSONObject()
                     .put("title", e.str("name") ?: JSONObject.NULL)
@@ -87,11 +94,11 @@ object Tmdb {
      * given), else the most popular of that name. null when there's no one of that name
      */
     suspend fun personId(name: String, imdb: String?): String? {
-        val results = get("/search/person", "&query=${enc(name)}")?.optJSONArray("results").objs()
+        val results = get("/search/person", "&query=${enc(name)}")?.optJSONArray("results").objects()
         if (results.isEmpty()) return null
         val here = imdb?.let { find(it)?.second }
         val exact = results.filter { it.optString("name").equals(name, ignoreCase = true) }.ifEmpty { results }
-        val known = here?.let { t -> exact.firstOrNull { p -> p.optJSONArray("known_for").objs().any { it.optInt("id") == t } } }
+        val known = here?.let { t -> exact.firstOrNull { p -> p.optJSONArray("known_for").objects().any { it.optInt("id") == t } } }
         return (known ?: exact.first()).optInt("id").toString()
     }
 
@@ -119,7 +126,7 @@ object Tmdb {
             }
         }
         // (the most talked-about first; a person can have hundreds of credits, so only the top few get an IMDb lookup)
-        val credited = credits?.let { c -> c.optJSONArray("cast").objs() + c.optJSONArray("crew").objs().filter { it.optString("job") == "Director" } }.orEmpty()
+        val credited = credits?.let { c -> c.optJSONArray("cast").objects() + c.optJSONArray("crew").objects().filter { it.optString("job") == "Director" } }.orEmpty()
             .filter { it.str("media_type") == "movie" || it.str("media_type") == "tv" }
             .filter { it.str("poster_path") != null }
             // (what they're in, not where they turned up as themselves: talk shows, news, reality, award shows, a voice

@@ -178,6 +178,15 @@ class Phone(private val lumos: Lumos) {
         return m
     }
 
+    private fun episodes(meta: Meta): List<Video> =
+        meta.videos.filter { (it.season ?: 0) > 0 }.sortedWith(compareBy({ it.season }, { it.episode }))
+
+    private fun nextUnwatched(meta: Meta, watched: Set<String>): String? {
+        val eps = episodes(meta)
+        val last = eps.indexOfLast { it.id in watched }
+        return (if (last >= 0) eps.getOrNull(last + 1) else null)?.id ?: eps.firstOrNull()?.id
+    }
+
     /**
      * The episode Play would start, without the show's details when it can: the one part-way through or up next, else
      * (given the details) the one after the last watched, else the first. A film: itself
@@ -185,13 +194,10 @@ class Phone(private val lumos: Lumos) {
     fun guessVideo(type: String, id: String, meta: Meta? = null): String? {
         if (type != "series") return id
         lumos.continueWatching().firstOrNull { it.id == id }?.video?.takeIf { it.startsWith("$id:") }?.let { return it }
-        // (nothing of it watched yet: its first episode, before the details have said so)
-        if (meta == null && lumos.watchedIds().none { it.startsWith("$id:") }) return "$id:1:1"
-        meta ?: return null
         val watched = lumos.watchedIds()
-        val eps = meta.videos.filter { (it.season ?: 0) > 0 }.sortedWith(compareBy({ it.season }, { it.episode }))
-        val last = eps.indexOfLast { it.id in watched }
-        return (if (last >= 0) eps.getOrNull(last + 1) else null)?.id ?: eps.firstOrNull()?.id
+        // (nothing of it watched yet: its first episode, before the details have said so)
+        if (meta == null && watched.none { it.startsWith("$id:") }) return "$id:1:1"
+        return meta?.let { nextUnwatched(it, watched) }
     }
 
 
@@ -239,10 +245,10 @@ class Phone(private val lumos: Lumos) {
         val season = at.season ?: return
         val episode = at.episode ?: return
         if (season <= 0) return
-        val ids = meta.videos.filter { v ->
+        val ids = episodes(meta).filter { v ->
             val s = v.season ?: return@filter false
             val e = v.episode ?: return@filter false
-            s > 0 && (s < season || (s == season && e <= episode))
+            s < season || (s == season && e <= episode)
         }.map { it.id }
         lumos.setWatchedAll(ids, true, now)
         moveOn(ids.toSet(), now)
@@ -259,8 +265,7 @@ class Phone(private val lumos: Lumos) {
         val place = lumos.placeVideo(openId) ?: return
         if (place !in videos) return
         val watched = lumos.watchedIds()
-        val eps = meta.videos.filter { (it.season ?: 0) > 0 }.sortedWith(compareBy({ it.season }, { it.episode }))
-        val next = eps.dropWhile { it.id != place }.drop(1).firstOrNull { it.id !in watched && it.id !in videos }
+        val next = episodes(meta).dropWhile { it.id != place }.drop(1).firstOrNull { it.id !in watched && it.id !in videos }
         if (next == null) lumos.forget(openId, now)
         else lumos.setUpNext(openId, next.id, meta.preview.name, meta.preview.poster, now)
     }
@@ -272,9 +277,7 @@ class Phone(private val lumos: Lumos) {
         if (resume != null && resume.video.startsWith("$openId:")) return resume.video
         // (a show moved on to its next episode, here or in Lumen/Stremio: that one)
         lumos.continueWatching().firstOrNull { it.id == openId }?.video?.takeIf { it.startsWith("$openId:") }?.let { return it }
-        val eps = meta.videos.filter { (it.season ?: 0) > 0 }.sortedWith(compareBy({ it.season }, { it.episode }))
-        val last = eps.indexOfLast { it.id in watched }
-        return (if (last >= 0) eps.getOrNull(last + 1) else null)?.id ?: eps.firstOrNull()?.id
+        return nextUnwatched(meta, watched)
     }
 
     // ---- Streams for one video, as they come ----
@@ -404,8 +407,8 @@ class Phone(private val lumos: Lumos) {
         }.toString()
     }
 
-    /** Ranked as Lumen's list shows them: best picture first; of the same, ready, then seeds, then size. Upscales and samples left out */
-    private fun described(): List<Pair<Stream, Described>> {
+    /** Ranked by the unified stream formula: ready, resolution, IMAX, DV/HDR, source, bitrate; then seeds, then size. Upscales and samples left out */
+    internal fun described(): List<Pair<Stream, Described>> {
         val video = streamsVideo
         val year = openMeta?.preview?.releaseInfo?.let { Regex("""\d{4}""").find(it)?.value?.toIntOrNull() }
         val name = openMeta?.preview?.name
@@ -416,20 +419,10 @@ class Phone(private val lumos: Lumos) {
         // (never cinema recordings; low-res rips only when nothing in HD is there, as for an old show that was only on DVD)
         val keep = all.filter { (_, d) -> !d.sample && d.source != "CAM" }.let { l -> l.filter { !it.second.upscaled }.ifEmpty { l } }
             .let { l -> if (l.any { it.second.res >= 720 }) l.filter { it.second.res == 0 || it.second.res >= 720 } else l }
-        return keep.sortedWith { (sa, a), (sb, b) ->
-            val sa1 = score(a); val sb1 = score(b)
-            when {
-                sa1 != sb1 -> sb1 - sa1
-                ready(sa, a) != ready(sb, b) -> if (ready(sa, a)) -1 else 1
-                a.seeds != b.seeds -> b.seeds - a.seeds
-                else -> b.size.compareTo(a.size)
-            }
-        }
+        return keep.sortedWith(::streamOrder)
     }
 
     private fun ready(s: Stream, d: Described) = s.url != null || d.instant || s.cached == true
-    private fun score(d: Described) = d.res * 10 + (if (d.dv) 3 else if (d.hdr) 2 else 0) +
-        (mapOf("Remux" to 4, "BluRay" to 3, "WEB" to 2, "HDTV" to 1, "CAM" to -10)[d.source] ?: 0)
 
     private fun memory(s: Stream, d: Described) = listOf(s.source, d.res.toString(), s.bingeGroup ?: "").joinToString("|")
 
@@ -441,14 +434,34 @@ class Phone(private val lumos: Lumos) {
 
     private companion object { const val WARM_MS = 5 * 60_000L }
 
-    private data class Pick(val index: Int, val how: String, val lowered: Triple<Int, Int, String>?)
+    internal data class Pick(val index: Int, val how: String, val lowered: Triple<Int, Int, String>?)
+
+    /** Seeds stream state directly for unit tests without going over HTTP */
+    internal fun seedStreams(
+        videoId: String,
+        streams: List<Stream>,
+        type: String = "movie",
+        id: String = videoId.substringBefore(':'),
+        settled: Boolean = true,
+        speed: Double = 0.0,
+        netCap: Int = 0,
+        meta: Meta? = null,
+    ) {
+        prepare(type, id)
+        openMeta = meta
+        streamsVideo = videoId
+        found = streams
+        this.settled = settled
+        fitSpeed = speed
+        networkCap = netCap
+    }
 
     /**
      * Just press Play (Lumen's streamChoice.choose): the stream chosen for this title before (kept even when the speed says
      * it's heavy: chosen by hand), else of the ready ones those that fit the connection (at most 75% of its speed, or the
      * lightest when none does), under the quality cap (the setting's and this network's), the best by Lumen's ranking
      */
-    private fun pick(list: List<Pair<Stream, Described>>): Pick? {
+    internal fun pick(list: List<Pair<Stream, Described>>): Pick? {
         val candidates = list.withIndex().filter { (_, p) ->
             !p.second.pending && !p.second.sample && p.second.source != "CAM" && ready(p.first, p.second) && key(p.first) !in rejected
         }
@@ -553,17 +566,26 @@ class Phone(private val lumos: Lumos) {
         return mapOf(2160 to 20.0, 1440 to 12.0, 1080 to 8.0, 720 to 4.0, 480 to 2.0)[d.res] ?: 8.0
     }
 
-    /** Lumen's ranking (streamChoice.rank): ready, then resolution, HDR, source, bitrate */
-    private fun rank(s: Stream, d: Described): Double {
-        val range = if (d.hdr) 2 else 0
+    /** Unified ranking: ready, resolution, IMAX preference, DV/HDR, source, bitrate, demoting lesser (3D/HFR/upscaled) */
+    internal fun rank(s: Stream, d: Described): Double {
+        val range = if (d.dv) 3 else if (d.hdr) 2 else 0
         val rate = if (size(s, d) > 0 && minutes > 0) minOf(10.0, mbps(s, d) / 10) else 0.0
-        val source = mapOf("Remux" to 6, "BluRay" to 4, "WEB" to 2, "HDTV" to 1)[d.source] ?: 0
+        val source = mapOf("Remux" to 6, "BluRay" to 4, "WEB" to 2, "HDTV" to 1, "CAM" to -10)[d.source] ?: 0
         val imax = if (d.imax && lumos.preferImax) 20 else 0
         return (if (ready(s, d)) 1e5 else 0.0) + d.res * 10 + range + source + rate + imax - (if (d.lesser) 15000 else 0)
     }
 
+    private fun streamOrder(a: Pair<Stream, Described>, b: Pair<Stream, Described>): Int {
+        val ra = rank(a.first, a.second); val rb = rank(b.first, b.second)
+        return when {
+            ra != rb -> rb.compareTo(ra)
+            a.second.seeds != b.second.seeds -> b.second.seeds - a.second.seeds
+            else -> size(b.first, b.second).compareTo(size(a.first, a.second))
+        }
+    }
+
     private fun best(list: List<IndexedValue<Pair<Stream, Described>>>, n: Int) =
-        list.sortedWith(compareByDescending<IndexedValue<Pair<Stream, Described>>> { rank(it.value.first, it.value.second) }.thenByDescending { it.value.second.seeds }).take(n)
+        list.sortedWith { a, b -> streamOrder(a.value, b.value) }.take(n)
 
     /** What can stand in for the stream playing: not it, not a sample, a cinema recording or a debrid download not ready */
     private fun pool(): List<IndexedValue<Pair<Stream, Described>>> {

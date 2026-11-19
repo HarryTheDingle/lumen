@@ -97,6 +97,7 @@ import com.notdxbi.dxbi.tv.phone.Load
 import com.notdxbi.dxbi.tv.phone.Row
 import com.notdxbi.dxbi.tv.phone.Stremio
 import com.notdxbi.dxbi.tv.phone.Title
+import com.notdxbi.dxbi.tv.phone.episodeLabel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -209,8 +210,14 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
     ) {
         val screen = maxHeight
         val geniusFeed = LocalDiscoverFeed.current
-        CompositionLocalProvider(LocalBringIntoViewSpec provides homeScrolling, LocalPageScroller provides pageScroller) {
-        LazyColumn(state = list, modifier = Modifier.graphicsLayer { alpha = uiAlpha }.onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        PageColumn(
+            state = list,
+            modifier = Modifier.graphicsLayer { alpha = uiAlpha },
+            scroller = pageScroller,
+            bringIntoViewSpec = homeScrolling,
+            contentPadding = PaddingValues(bottom = pageBottomPad()),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
             item(key = "billboard") {
                 // the screen's name in the corner, over the billboard (it scrolls away with it)
                 Box {
@@ -300,7 +307,6 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
                 }
             }
         }
-        }
 
     }
 }
@@ -344,8 +350,8 @@ private fun statusLines(watching: List<Continue>, airing: List<Airing>): Map<Str
         out.putIfAbsent(a.id, if (a.out) "New Episode Out Now" else "New Episode ${a.whenText}")
     }
     watching.take(5).forEach { item ->
-        val m = item.videoId?.let { Regex(""".+:(\d+):(\d+)""").matchEntire(it) } ?: return@forEach
-        out[item.title.id] = "${if (item.progress > 0f) "Resume" else "Up Next"} S${m.groupValues[1]}, E${m.groupValues[2]}"
+        val ep = episodeLabel(item.videoId) ?: return@forEach
+        out[item.title.id] = "${if (item.progress > 0f) "Resume" else "Up Next"} $ep"
     }
     return out
 }

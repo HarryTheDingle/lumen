@@ -48,15 +48,13 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.notdxbi.dxbi.tv.phone.Dates
 import com.notdxbi.dxbi.tv.phone.Stremio
 import com.notdxbi.dxbi.tv.phone.Title
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import java.text.SimpleDateFormat
 import java.util.Calendar
-import java.util.Date
-import java.util.Locale
 
 /**
  * The Calendar, as Stremio's: a month as a grid of days, each with the posters of what comes out on it, and the day the
@@ -105,7 +103,7 @@ fun CalendarScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
         ScreenTag(nav)
         // the month, the arrows to the next and last, and what to show
         Row(Modifier.fillMaxWidth().padding(start = Dx.Gutter, end = Dx.Gutter, bottom = 10.dp).onFocusChanged { headerFocused = it.hasFocus }, verticalAlignment = Alignment.CenterVertically) {
-            Text(SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(month.time), fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Text(Dates.formatMonthYear(month.time), fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Spacer(Modifier.width(18.dp))
             Pill("‹ Last Month", selected = false, onClick = { if (monthShift > -1) { arrive = null; monthShift-- } })
             Spacer(Modifier.width(8.dp))
@@ -329,7 +327,7 @@ private fun startOfDay(t: Long): Long = Calendar.getInstance().apply {
 
 /** "Today", "Tomorrow", then "Thursday 13 November" */
 private fun dayHeading(day: Long, today: Long): String {
-    val date = SimpleDateFormat("EEEE d MMMM", Locale.getDefault()).format(Date(day))
+    val date = Dates.formatWeekdayDayMonth(day)
     return when ((day - today + DAY_MS / 2).floorDiv(DAY_MS)) {
         0L -> "Today · $date"
         1L -> "Tomorrow · $date"

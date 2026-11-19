@@ -3,6 +3,8 @@
 //   { scores: [{ source, name, value, votes, url }], scoresFrom: "MDBList" }
 // sources: tomatoes (Rotten Tomatoes critics), popcorn (its audience), metacritic, imdb, letterboxd, tmdb, trakt
 
+import { getJson } from "./tmdb.js";
+
 const MDBLIST = "https://api.mdblist.com";
 const KEEP_MS = 3 * 86400000;
 const NAMES = {
@@ -40,9 +42,9 @@ export async function handleScores(body, env) {
   if (k && Date.now() - k.at < KEEP_MS) return { scores: k.scores, scoresFrom: "MDBList" };
   if (!env.MDBLIST_KEY) return { scores: k ? k.scores : [], scoresFrom: k ? "MDBList" : null, mdbError: "Scores aren't set up on the server." };
   try {
-    const r = await fetch(`${MDBLIST}/imdb/${kind}/${tt}?apikey=${encodeURIComponent(env.MDBLIST_KEY)}`, { signal: AbortSignal.timeout(8000) });
-    if (!r.ok) throw new Error(`MDBList answered ${r.status}`);
-    const scores = scoresOf(await r.json(), tt);
+    const answer = await getJson(`${MDBLIST}/imdb/${kind}/${tt}?apikey=${encodeURIComponent(env.MDBLIST_KEY)}`);
+    if (!answer) throw new Error("MDBList fetch failed");
+    const scores = scoresOf(answer, tt);
     await env.DB.prepare("INSERT OR REPLACE INTO lumos_meta (k, v) VALUES (?, ?)").bind(key, JSON.stringify({ at: Date.now(), scores })).run();
     return { scores, scoresFrom: "MDBList" };
   } catch (e) {

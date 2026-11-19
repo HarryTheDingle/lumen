@@ -99,6 +99,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.notdxbi.dxbi.tv.phone.AnimeSeason
+import com.notdxbi.dxbi.tv.phone.Dates
 import com.notdxbi.dxbi.tv.phone.Details
 import com.notdxbi.dxbi.tv.phone.Load
 import com.notdxbi.dxbi.tv.phone.Reviews
@@ -107,6 +108,7 @@ import com.notdxbi.dxbi.tv.phone.StreamOption
 import com.notdxbi.dxbi.tv.phone.Stremio
 import com.notdxbi.dxbi.tv.phone.Title
 import com.notdxbi.dxbi.tv.phone.Video
+import com.notdxbi.dxbi.tv.phone.episodeLabel
 import com.notdxbi.dxbi.tv.phone.text
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -402,8 +404,14 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                 }
             }
 
-            CompositionLocalProvider(LocalBringIntoViewSpec provides pageScrolling, LocalPageScroller provides pageScroller) {
-                LazyColumn(state = list, modifier = Modifier.alpha(if (watching != null) 0f else uiAlpha).onGloballyPositioned { pageScroller.viewport = it }, contentPadding = PaddingValues(bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(30.dp)) {
+            PageColumn(
+                state = list,
+                modifier = Modifier.alpha(if (watching != null) 0f else uiAlpha),
+                scroller = pageScroller,
+                bringIntoViewSpec = pageScrolling,
+                contentPadding = PaddingValues(bottom = pageBottomPad()),
+                verticalArrangement = Arrangement.spacedBy(30.dp),
+            ) {
                     item(key = "header") {
                         Header(
                             title = title,
@@ -422,9 +430,9 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                                 choices = null
                                 stremio.open(ref.type, ref.id, d?.videoId, again = true)
                             },
-                            // (the same label as its card, where it has one; else the page's own)
+                            // (the same label as its card, where it has one)
                             // (not when the badge by the facts already says it: "In Cinemas" twice)
-                            tag = (Labels.known[ref.id]?.takeIf { it.isNotEmpty() && !it.startsWith("#") } ?: newTag(ref.type, d, releaseDates) ?: if (title.watched) "Watched" else null)
+                            tag = (Labels.known[ref.id]?.takeIf { it.isNotEmpty() && !it.startsWith("#") } ?: if (title.watched) "Watched" else null)
                                 ?.takeUnless { t -> (nothingNotice ?: notice?.first)?.startsWith(t, ignoreCase = true) == true },
                             height = screen,
                             playLabel = playLabel(ref, d),
@@ -552,7 +560,6 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                             if (title.description != null || title.genres.isNotEmpty()) About(title, d, facts)
                         }
                     }
-                }
             }
         }
 
@@ -642,19 +649,6 @@ private class PageScrollingSpec(private val list: androidx.compose.foundation.la
     }
 }
 
-/** Apple TV's "New": a film out on digital in the last month, or a show with an episode out in the last ten days */
-private fun newTag(type: String, d: Details?, dates: DiscoverFeed.ReleaseDates?): String? {
-    val now = System.currentTimeMillis()
-    val day = 86_400_000L
-    if (type == "movie") {
-        val out = dates?.digital ?: return null
-        return if (out <= now && now - out < 30 * day) "New" else null
-    }
-    val iso = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-    val latest = d?.videos?.filter { (it.season ?: 0) > 0 }?.mapNotNull { v -> v.released?.take(10)?.let { runCatching { iso.parse(it)?.time }.getOrNull() } }?.filter { it <= now }?.maxOrNull() ?: return null
-    return if (now - latest < 10 * day) "New Episode" else null
-}
-
 /** What Play starts: the episode last played if it was left part-way, the one after it if it was finished, else the first (the engine decides) */
 fun nextVideo(d: Details): Video? {
     if (d.title?.type != "series" && d.videos.none { it.season != null }) return null
@@ -668,7 +662,7 @@ private fun playLabel(ref: Title, d: Details?): String {
         val v = nextVideo(d)
         if (v?.season != null && v.episode != null) {
             val resuming = v.id == d.resumeVideoId && d.resumeMs > 0
-            return "${if (resuming) "Resume" else "Play"} S${v.season}, E${v.episode}"
+            return "${if (resuming) "Resume" else "Play"} ${episodeLabel(v.season, v.episode)}"
         }
     }
     return if (d.resumeMs > 0 && d.resumeVideoId == ref.id) "Resume" else "Play"
@@ -677,7 +671,7 @@ private fun playLabel(ref: Title, d: Details?): String {
 private fun episodeLine(d: Details): String? {
     val v = d.videos.firstOrNull { it.id == d.videoId } ?: return null
     if (v.season == null || v.episode == null) return null
-    return "S${v.season}, E${v.episode} · ${v.title}"
+    return episodeLabel(v.season, v.episode, v.title)
 }
 
 private fun episodeName(v: Video) = if (v.episode != null) "${v.episode}. ${v.title}" else v.title
@@ -1150,8 +1144,8 @@ private fun InfoColumn(heading: String, rows: List<Pair<String, String>>, modifi
 /** "7 Oct 2026" (or "Coming 7 Oct 2026") from the episode's release date */
 private fun releasedText(v: Video): String? {
     val day = v.released?.take(10) ?: return null
-    val date = runCatching { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(day) }.getOrNull() ?: return null
-    val text = java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault()).format(date)
+    val date = Dates.parseLocalDay(day) ?: return null
+    val text = Dates.formatMediumDay(date)
     return if (v.upcoming) "Coming $text" else text
 }
 

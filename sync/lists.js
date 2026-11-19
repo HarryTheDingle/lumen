@@ -8,7 +8,9 @@
 // Each run of the cron does what fits in a Worker's 50 outside requests: the stalest lists first, each list's missing
 // IMDb matches looked up (a list is kept with what's matched so far, and finished on the next runs).
 
-const TMDB = "https://api.themoviedb.org/3";
+import { art, buildTitle, getJson, tmdbGet } from "./tmdb.js";
+export { art };
+
 const MDBLIST = "https://api.mdblist.com";
 const REGION = "GB";
 const BUDGET = 45;
@@ -52,78 +54,56 @@ export const LISTS = [
   { id: "imdbTop250Series", name: "IMDb Top 250 Series", kind: "mdblist", search: "IMDb Top 250 TV", mediatype: "show", max: 40 },
 ];
 
-const GENRES = {
-  28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family",
-  14: "Fantasy", 36: "History", 27: "Horror", 10402: "Music", 9648: "Mystery", 10749: "Romance", 878: "Sci-Fi", 53: "Thriller",
-  10752: "War", 37: "Western", 10759: "Action & Adventure", 10762: "Kids", 10763: "News", 10764: "Reality", 10765: "Sci-Fi & Fantasy",
-  10766: "Soap", 10767: "Talk", 10768: "War & Politics", 770: "TV Movie",
-};
-
-// The pictures every Lumos screen already uses (metahub, by IMDb id)
-// metahub's addresses, as every addon's pictures are: each device swaps them for checked TMDB ones (art.js), the same as
-// everywhere else in Lumos, so a picture said to be wrong is put right in the lists too
-export function art(tt) {
-  return {
-    poster: `https://images.metahub.space/poster/medium/${tt}/img`,
-    background: `https://images.metahub.space/background/medium/${tt}/img`,
-    logo: `https://images.metahub.space/logo/medium/${tt}/img`,
-  };
-}
-
-async function getJson(url, init) {
-  const r = await fetch(url, init);
-  if (!r.ok) throw new Error(`${new URL(url).host} answered ${r.status}`);
-  return r.json();
-}
-
 /** One TMDB result as a Lumos title, once its IMDb id is known */
 function fromTmdb(x, type, tt) {
-  return {
-    id: tt, type, name: x.title || x.name || "",
-    year: String(x.release_date || x.first_air_date || "").slice(0, 4) || null,
-    description: x.overview || null,
-    genres: (x.genre_ids || []).map((g) => GENRES[g]).filter(Boolean).slice(0, 3),
-    rating: x.vote_average ? Math.round(x.vote_average * 10) / 10 : null,
-    ...art(tt),
-  };
+  return buildTitle({
+    id: tt,
+    type,
+    name: x.title || x.name || "",
+    year: x.release_date || x.first_air_date || "",
+    description: x.overview,
+    genres: x.genre_ids,
+    rating: x.vote_average,
+  });
 }
 
 /** Makes (or carries on making) one list; [budget] counts outside requests. Returns { list, done, used } */
 async function build(def, env, budget) {
-  let used = 0;
+  const reqBudget = { used: 0, max: budget };
   if (def.kind === "mdblist") {
-    if (!env.MDBLIST_KEY) return { list: null, done: true, used };
+    if (!env.MDBLIST_KEY) return { list: null, done: true, used: reqBudget.used };
     const key = encodeURIComponent(env.MDBLIST_KEY);
     // the list to read: found once by name (the most liked big enough list of the right kind), then remembered
     let ref = (await env.DB.prepare("SELECT v FROM lumos_meta WHERE k = ?").bind(`mdblist:${def.id}`).all()).results?.[0]?.v;
     if (!ref) {
-      used++;
+      reqBudget.used++;
       const found = await getJson(`${MDBLIST}/lists/search?query=${encodeURIComponent(def.search)}&apikey=${key}`);
+      if (!found) throw new Error("MDBList search failed");
       const pick = (Array.isArray(found) ? found : [])
         .filter((l) => (!def.mediatype || l.mediatype === def.mediatype) && (l.items || 0) >= 200 && /imdb/i.test(l.name || ""))
         .sort((a, b) => (b.likes || 0) - (a.likes || 0))[0];
-      if (!pick) return { list: null, done: true, used };
+      if (!pick) return { list: null, done: true, used: reqBudget.used };
       ref = String(pick.id);
       await env.DB.prepare("INSERT OR REPLACE INTO lumos_meta (k, v) VALUES (?, ?)").bind(`mdblist:${def.id}`, ref).run();
     }
-    used++;
+    reqBudget.used++;
     const items = await getJson(`${MDBLIST}/lists/${ref}/items?limit=${def.max}&apikey=${key}`);
+    if (!items) throw new Error("MDBList items failed");
     const all = [...(items.movies || []), ...(items.shows || [])].sort((a, b) => (a.rank || 0) - (b.rank || 0));
     const picked = all.filter((x) => /^tt\d+$/.test(x.imdb_id || "")).slice(0, def.max);
     const titles = picked.map((x) => ({
       id: x.imdb_id, type: x.mediatype === "show" ? "series" : "movie", name: x.title || "",
       year: x.release_year ? String(x.release_year) : null, description: null, genres: [], rating: null, ...art(x.imdb_id),
     }));
-    return { list: titles, done: true, used };
+    return { list: titles, done: true, used: reqBudget.used };
   }
 
-  if (!env.LUMOS_TMDB_KEY) return { list: null, done: true, used };
-  const key = encodeURIComponent(env.LUMOS_TMDB_KEY);
+  if (!env.LUMOS_TMDB_KEY) return { list: null, done: true, used: reqBudget.used };
   // the lists' pages, side by side and taken in turn (a list of two sources alternates them)
   const pages = [];
   for (const path of def.paths()) {
-    used++;
-    const j = await getJson(`${TMDB}${path}${path.includes("?") ? "&" : "?"}api_key=${key}&language=en-GB`);
+    const j = await tmdbGet(env, path, { language: "en-GB", budget: reqBudget });
+    if (!j) throw new Error(`TMDB failed for ${path}`);
     const type = path.includes("/tv") ? "series" : path.includes("/movie") ? "movie" : null;
     const today = day(0);
     pages.push((j.results || []).map((x) => ({ x, type: type || (x.media_type === "tv" ? "series" : x.media_type === "movie" ? "movie" : null) }))
@@ -152,10 +132,9 @@ async function build(def, env, budget) {
   const found = [];
   for (const k of keys) {
     if (known.has(k)) continue;
-    if (used >= budget) { done = false; break; }
-    used++;
+    if (reqBudget.used >= budget) { done = false; break; }
     const [kind, id] = k.split(":");
-    const ext = await getJson(`${TMDB}/${kind}/${id}/external_ids?api_key=${key}`).catch(() => null);
+    const ext = await tmdbGet(env, `/${kind}/${id}/external_ids`, { budget: reqBudget });
     const tt = ext && /^tt\d+$/.test(ext.imdb_id || "") ? ext.imdb_id : "";
     known.set(k, tt);
     // (written together once the lookups are done: one batch, not a write per title)
@@ -170,7 +149,7 @@ async function build(def, env, budget) {
     seen.add(tt);
     titles.push(fromTmdb(r.x, r.type, tt));
   });
-  return { list: titles, done, used };
+  return { list: titles, done, used: reqBudget.used };
 }
 
 /** The cron's work: the stalest lists remade, as many as fit in this run */

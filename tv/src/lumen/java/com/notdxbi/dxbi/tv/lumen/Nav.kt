@@ -357,7 +357,7 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
                     if (viewer != null) ProfileAvatar(viewer.name, viewer.colour, 28.dp) else Avatar(email, 28.dp)
                     Spacer(Modifier.width(10.dp))
                     Text(viewer?.name ?: email?.substringBefore('@') ?: "Guest", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f))
-                    Text(java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date()), fontSize = 13.sp, color = androidx.tv.material3.LocalContentColor.current.copy(alpha = 0.6f))
+                    Text(com.notdxbi.dxbi.tv.phone.Dates.formatTime(), fontSize = 13.sp, color = androidx.tv.material3.LocalContentColor.current.copy(alpha = 0.6f))
                 }
                 }
                 Spacer(Modifier.height(8.dp))
