@@ -8,7 +8,10 @@
 //  3. With Cloudflare's AI (the AI binding; or Gemini with a GEMINI_API_KEY secret): the same prompt as Lumen's Worker
 //     re-ranks them by tone and themes, and adds a few closer matches and finds, each checked against TMDB.
 //
-// Kept 12 hours per profile (sooner when what they watched changes). Outside requests are counted: a Worker has 50, and
+// The Because rows are varied: no title is in two of them (or in Top Picks' first ten), seeds that resemble each other
+// (Gladiator and The Odyssey) aren't picked together, and which seeds get a row shifts from day to day.
+//
+// Kept 12 hours per profile (sooner when what they watched changes, and when the day changes, which is what moves the rows). Outside requests are counted: a Worker has 50, and
 // TMDB's answers are kept (recommendations a week, IMDb ids for good), so later runs need far fewer.
 
 import { GENRES, art, buildTitle, findByImdb, tmdbGet } from "./tmdb.js";
@@ -16,6 +19,8 @@ import { GENRES, art, buildTitle, findByImdb, tmdbGet } from "./tmdb.js";
 const KEEP_MS = 12 * 3600e3;
 const RECS_MS = 7 * 86400e3;
 const BUDGET = 44;
+const SAVED_WEIGHT = 0.45; // something saved to the Library but not watched says less than something watched or rated
+const BECAUSE_ROWS = 5;
 const CF_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const SKIPPED_GENRES = new Set([10767, 10763, 10764, 99]); // talk shows, news, reality, documentaries
 const GENRE = { ...GENRES, 10759: "Action", 10765: "Sci-Fi", 10768: "War" };
@@ -70,13 +75,21 @@ export function seedsOf(data, now) {
   const taste = data.taste && Array.isArray(data.taste.titles) ? data.taste.titles : [];
   const tw = 1.1 / (1 + by.size * 0.2);
   for (const t of taste) if (t && /^tt\d+$/.test(t.id || "")) add(t.id, tw, { how: by.has(t.id) ? "watched" : "liked", type: t.type === "series" ? "series" : "movie", name: t.name });
+  // (the Library: saved but not watched yet is still a hint of what they fancy, only a lighter one; a title already
+  // watched or rated keeps its own, stronger, weight and just gets a little more)
+  for (const [id, m] of Object.entries(data.myList || {})) {
+    if (!m || !m.on) continue;
+    add(id, SAVED_WEIGHT * recent(now, m.at || 0) * (by.has(id) ? 0.3 : 1), { how: "saved", type: m.type === "series" ? "series" : "movie", name: m.name });
+  }
   return [...by.values()].filter((s) => s.weight > 0).sort((a, b) => b.weight - a.weight);
 }
 
-/** What not to suggest: seen, started, saved, turned down */
+/** What not to suggest: seen, started, in their Library, turned down */
 function skipOf(data) {
   const out = new Set();
-  for (const k of ["watched", "progress", "myList", "ratings", "cwDismissed"]) for (const id of Object.keys(data[k] || {})) out.add(id);
+  for (const k of ["watched", "progress", "ratings", "cwDismissed"]) for (const id of Object.keys(data[k] || {})) out.add(id);
+  // (only what's still in the Library: a title they took out of it is fair game again)
+  for (const [id, m] of Object.entries(data.myList || {})) if (m && m.on) out.add(id);
   // (Not Interested)
   for (const h of hiddenOf(data)) out.add(h.id);
   return out;
@@ -98,6 +111,60 @@ function profile(seeds) {
   const out = {};
   if (top > 0) for (const [g, v] of Object.entries(sum)) out[g] = v / top;
   return out;
+}
+
+// ---- the Because rows: varied, and changing day by day ----
+
+/** A steady 0 to 1 for a title on a given day: the same all day, different tomorrow (so the rows rotate, but not on every look) */
+export function dayHash(day, id) {
+  let h = 2166136261 ^ day;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  h ^= h >>> 15; h = Math.imul(h, 2246822507); h ^= h >>> 13;
+  return (h >>> 0) / 4294967296;
+}
+
+/** How alike two seeds are, 0 to 1: shared genres mostly, and being from the same era a little */
+export function likeness(a, b) {
+  const ga = new Set(a.genres || []), gb = new Set(b.genres || []);
+  const both = [...ga].filter((g) => gb.has(g)).length;
+  const union = new Set([...ga, ...gb]).size;
+  const era = a.year && b.year && Math.abs(a.year - b.year) <= 12 ? 1 : 0;
+  return 0.8 * (union ? both / union : 0) + 0.2 * era;
+}
+
+/**
+ * The seeds in the order their Because rows should be tried: the first is the strongest after a daily nudge of its
+ * weight (so a lower one can take a turn, but never a weak one over a strong one), then each next one is the strongest
+ * of what's left after its weight is cut by how much it resembles any already chosen. That keeps Gladiator and The
+ * Odyssey from sitting side by side, and a row of a different taste comes between them.
+ */
+export function becauseOrder(seeds, day) {
+  const left = seeds.map((s) => ({ s, w: s.weight * (0.65 + 0.7 * dayHash(day, s.id)) }));
+  const out = [];
+  while (left.length) {
+    let best = 0, bestScore = -1;
+    left.forEach((c, i) => {
+      const alike = out.reduce((m, o) => Math.max(m, likeness(c.s, o)), 0);
+      const v = c.w * (1 - 0.85 * alike);
+      if (v > bestScore) { best = i; bestScore = v; }
+    });
+    out.push(left.splice(best, 1)[0].s);
+  }
+  return out;
+}
+
+/** The Because rows: [{seed, items}], every title in one row only, none from `taken` (Top Picks' first ones), at least six each */
+export function becauseRows(seeds, ranked, day, taken, max = BECAUSE_ROWS) {
+  const used = new Set(taken);
+  const rows = [];
+  for (const s of becauseOrder(seeds, day)) {
+    if (rows.length >= max) break;
+    const pick = ranked.filter((c) => c.seeds.includes(s.id) && !used.has(c.tt)).slice(0, 14);
+    if (pick.length < 6) continue;
+    pick.forEach((c) => used.add(c.tt));
+    rows.push({ seed: s, items: pick });
+  }
+  return rows;
 }
 
 export function score(c, prof, year) {
@@ -234,7 +301,7 @@ export async function handlePicks(body, env, account, now) {
   // (never all one kind: a series is watched for many more hours than a film, so by weight alone it'd be nearly all series)
   const n = 12;
   const want = prefer === "movie" ? { movie: 9, series: 3 } : prefer === "series" ? { movie: 3, series: 9 } : { movie: 6, series: 6 };
-  const sig = all.slice(0, 16).map((s) => s.id).join(",") + `|${prefer || ""}|${Object.keys(data.watched || {}).length}|${hiddenOf(data).length}`;
+  const sig = all.slice(0, 24).map((s) => s.id).join(",") + `|${prefer || ""}|${Object.keys(data.watched || {}).length}|${hiddenOf(data).length}|${Object.values(data.myList || {}).filter((m) => m && m.on).length}|${Math.floor(now / 86400e3)}`;
   const cacheKey = `picks:${account}:${viewer}`;
   const kept = await metaGet(env, cacheKey);
   if (kept && kept.sig === sig && !kept.partial && now - kept.at < KEEP_MS && !body.again) return { status: 200, body: { rows: kept.rows, ai: kept.ai, at: kept.at } };
@@ -253,7 +320,7 @@ export async function handlePicks(body, env, account, now) {
     const kind = f.kind === "tv" ? "series" : "movie";
     if (taken[kind] >= want[kind] && all.length > n) continue;
     taken[kind]++;
-    seeds.push({ ...s, kind: f.kind, tmdb: f.id, name: s.name || f.name, genres: f.genres, type: kind });
+    seeds.push({ ...s, kind: f.kind, tmdb: f.id, name: s.name || f.name, genres: f.genres, year: f.year || 0, type: kind });
   }
   const prof = profile(seeds);
   const skip = skipOf(data);
@@ -333,15 +400,9 @@ export async function handlePicks(body, env, account, now) {
   // the rows: Top Picks, then Because you watched … for their strongest titles (six fresh ones each, at least)
   const rows = [];
   if (ranked.length >= 6) rows.push({ name: "Top Picks for You", items: ranked.slice(0, 20).map(title) });
-  const used = new Set(ranked.slice(0, 6).map((c) => c.tt));
-  for (const s of seeds) {
-    if (rows.length >= 6) break;
-    const list = ranked.filter((c) => c.seeds.includes(s.id));
-    const fresh = list.filter((c) => !used.has(c.tt));
-    const pick = (fresh.length >= 6 ? fresh : list).slice(0, 14);
-    if (pick.length < 6) continue;
-    pick.forEach((c) => used.add(c.tt));
-    rows.push({ name: `Because you ${s.how === "liked" ? "liked" : "watched"} ${s.name}`, items: pick.map(title) });
+  // (Top Picks' first ten aren't repeated below; each Because row has titles of its own)
+  for (const r of becauseRows(seeds, ranked, Math.floor(now / 86400e3), ranked.slice(0, 10).map((c) => c.tt))) {
+    rows.push({ name: `Because you ${r.seed.how === "liked" ? "liked" : r.seed.how === "saved" ? "saved" : "watched"} ${r.seed.name}`, items: r.items.map(title) });
   }
   // (out of requests before the end: what's found so far, and the next ask carries on, TMDB's answers being kept)
   const partial = budget.used >= BUDGET;
