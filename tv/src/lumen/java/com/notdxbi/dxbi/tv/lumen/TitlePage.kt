@@ -469,9 +469,20 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                                     val place = d != null && d.resumeMs > 0 && (if (ref.type == "series") nextVideo(d)?.id == d.resumeVideoId else d.resumeVideoId == ref.id)
                                     if (place) add(Action("Start from the Beginning", Icons.Filled.Replay) { start(d?.let(::nextVideo)?.id, fromStart = true) })
                                     if (ref.type == "series" && d != null && ready) add(Action("Shuffle", Icons.Filled.Shuffle) { start(d.shuffled()?.id, shuffle = true) })
-                                    if (!title.watched) add(Action("Mark as Watched", Icons.Filled.Visibility) { stremio.setWatched(true) })
+                                    if (!title.watched) add(Action("Mark as Watched", Icons.Filled.Visibility) {
+                                        stremio.setWatched(true)
+                                        // (watched and not rated: ask for a rating, which they can just dismiss)
+                                        if (myRating == null) rating = true
+                                    })
                                     // (partly seen counts: Unwatched puts it back to the start)
                                     if (title.watched || (d?.resumeMs ?: 0) > 0) add(Action("Mark as Unwatched", Icons.Filled.VisibilityOff) { stremio.setWatched(false) })
+                                    // (the library button's other half: not in the Library, so it can be turned down from here, as from a
+                                    // card's hold menu; only a real IMDb title, which is all Stremio can be told about)
+                                    if (!inList && Regex("""tt\d+""").matches(title.id)) add(Action("Not Interested", Icons.Filled.VisibilityOff) {
+                                        stremio.notInterested(title)
+                                        Toast.makeText(context, "Not interested: it'll be left out of your recommendations", Toast.LENGTH_SHORT).show()
+                                        nav.back()
+                                    })
                                     if (d?.videoId != null) add(Action("Choose a Stream", Icons.AutoMirrored.Filled.List) {
                                         streamsOpen = true
                                     })
@@ -600,6 +611,8 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
         if (rating) RatingSheet(title.name, myRating, onDismiss = { rating = false }) { score ->
             myRating = score
             stremio.setRating(title, score)
+            // (a rating means they've seen it: marked watched too, if it isn't; taking the rating off leaves that be)
+            if (score != null && !title.watched) stremio.setWatched(true)
             Toast.makeText(context, if (score == null) "Rating removed" else "Rated $score/10", Toast.LENGTH_SHORT).show()
         }
     }
@@ -749,14 +762,29 @@ private fun Header(
                     loading = false,
                 )
             } else {
+                // (out, but nothing to play: the remote lands on the Library, not on Look Again, which is still one press
+                // away; playFocus follows it there for Home and for back up from the rows below)
+                // (once only: Look Again turns the button again while it asks, and the remote mustn't be pulled off it then)
+                var landed by remember { mutableStateOf(false) }
+                var onPlayButton by remember { mutableStateOf(false) }
+                LaunchedEffect(nothing) {
+                    if (nothing && !landed) {
+                        landed = true
+                        // (only if the remote is still on the button that turned into Look Again: not pulled off wherever it went)
+                        if (onPlayButton) { delay(16); runCatching { playFocus.requestFocus() } }
+                    }
+                }
                 PlayButton(
                     if (nothing) "Look Again" else playLabel,
                     { if (nothing) onLookAgain() else if (!looking) onPlay() },
-                    Modifier.focusRequester(playFocus),
+                    (if (nothing) Modifier else Modifier.focusRequester(playFocus)).onFocusChanged { onPlayButton = it.hasFocus },
                     icon = if (nothing) Icons.Filled.Refresh else Icons.Filled.PlayArrow,
                     loading = available == null || looking,
                 )
-                RoundButton(if (inList) Icons.Filled.Check else Icons.Filled.Add, if (inList) "In your Library" else "Add to Library", onList)
+                RoundButton(
+                    if (inList) Icons.Filled.Check else Icons.Filled.Add, if (inList) "In your Library" else "Add to Library", onList,
+                    if (nothing) Modifier.focusRequester(playFocus) else Modifier,
+                )
             }
             RoundButton(
                 if (rated != null) Icons.Filled.Star else Icons.Outlined.StarBorder,
@@ -804,10 +832,11 @@ private fun Credit(role: String, names: String) {
 @Composable
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 fun Facts(title: Title, reviews: Reviews?, badges: List<String> = emptyList(), notice: String? = null, rating: String? = null) {
-    // (wraps onto a second line when the badges and the scores are more than fit across, rather than running off the edge)
+    // (a single line: what doesn't fit across is left off, rather than wrapping or running off the edge)
     androidx.compose.foundation.layout.FlowRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
+        maxLines = 1,
     ) {
         val when_ = listOfNotNull(title.year, runtimeText(title.runtime)).joinToString(" · ")
         if (when_.isNotEmpty()) Text(when_, fontSize = 14.sp, color = Color.White)
@@ -821,8 +850,10 @@ fun Facts(title: Title, reviews: Reviews?, badges: List<String> = emptyList(), n
         }
         badges.forEach { FormatBadge(it) }
         // Rotten Tomatoes, then the audience score, Metacritic, IMDb, with a little room before them
-        val order = listOf("tomatoes", "popcorn", "metacritic", "imdb")
-        val scores = reviews?.scores.orEmpty().filter { it.source in order }.sortedBy { order.indexOf(it.source) }.take(4)
+        // (one line only: Rotten Tomatoes' critics and its audience first, then IMDb, then whatever else fits; FlowRow's maxLines
+        // below drops the ones that don't, and the Scores button has the full list)
+        val order = listOf("tomatoes", "popcorn", "imdb", "metacritic", "letterboxd", "tmdb", "trakt")
+        val scores = reviews?.scores.orEmpty().filter { it.source in order }.sortedBy { order.indexOf(it.source) }
         if (scores.isNotEmpty()) Spacer(Modifier.width(4.dp))
         scores.forEach { sc -> ScoreChip(sc.source, sc.value) }
     }
@@ -986,7 +1017,8 @@ private fun EpisodeCard(v: Video, fallbackArt: String?, isCurrent: Boolean, blur
     // (Apple TV's: the words sit on the page; the frosted box behind them comes up only on the episode the remote's on)
     var chosen by remember { mutableStateOf(false) }
     val boxAlpha = animateFloatAsState(if (chosen) 1f else 0f, tween(if (chosen) 300 else 420), label = "episode-box")
-    Column(Modifier.width(width).onFocusChanged { chosen = it.hasFocus }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.width(width).onFocusChanged { chosen = it.hasFocus }, verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        // (18, not 8: the picture grows 13% when chosen, which brought its edge right down onto the words under it)
         FocusCard(onClick = onClick, onLongClick = onLongClick, modifier = modifier.width(width).height(width * 0.64f)) {
             Box(Modifier.fillMaxSize()) {
                 // (Blur unwatched episodes: hidden until it's watched or started; TVs before Android 12 can't
