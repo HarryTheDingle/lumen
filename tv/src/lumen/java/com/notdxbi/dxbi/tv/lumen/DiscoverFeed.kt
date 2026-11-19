@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -85,6 +86,27 @@ class DiscoverFeed(cacheDir: File) {
         private val NON_ALNUM = Regex("[^a-z0-9]+")
         private const val HOUR = 3_600_000L
         private const val DAY = 24 * HOUR
+
+        /** How long Christmas at Home is kept, in memory and on disk */
+        private const val CHRISTMAS_KEEP = 6 * HOUR
+
+        /** The finished Christmas page for this session (the feed may be made again; the page needn't be) */
+        @Volatile private var christmasMemory: Pair<Long, List<ListRow>>? = null
+
+        /** A TMDB-made row: [filter] (given this year) narrows the Christmas-keyword films, [sort] orders them */
+        private class TmdbRow(val name: String, val sort: String, val filter: (Int) -> String)
+
+        private val CHRISTMAS_TMDB = listOf(
+            // (this year's and last year's; popularity keeps unwatched shorts out, the vote floor is low as they're new)
+            TmdbRow("New Christmas Movies", "popularity.desc") { y ->
+                "primary_release_date.gte=${y - 1}-01-01&primary_release_date.lte=$y-12-31&vote_count.gte=3"
+            },
+            // (the Hallmark kind: Christmas, romance, made for TV; 10749 Romance and 10770 TV Movie, both required)
+            TmdbRow("Hallmark-Style Christmas Romances", "popularity.desc") { _ -> "with_genres=10749,10770&vote_count.gte=5" },
+            TmdbRow("Family Christmas", "popularity.desc") { _ -> "with_genres=10751&vote_count.gte=150" },
+            TmdbRow("Christmas Comedies", "popularity.desc") { _ -> "with_genres=35&vote_count.gte=150" },
+            TmdbRow("More Christmas", "popularity.desc") { _ -> "vote_count.gte=150" },
+        )
 
         private data class CuratedList(val name: String, val type: String, val titles: List<Pair<String, Int?>>)
 
@@ -482,24 +504,34 @@ class DiscoverFeed(cacheDir: File) {
         cinemetaTitle(hit, type).takeIf { it.id.isNotEmpty() }
     }
 
-    private suspend fun moreChristmas(skip: Set<String>): List<Title> = coroutineScope {
-        val key = com.notdxbi.dxbi.tv.BuildConfig.TMDB_KEY.trim()
-        if (key.isEmpty()) return@coroutineScope emptyList()
-        val kwBody = withContext(Dispatchers.IO) { fetch("https://api.themoviedb.org/3/search/keyword?query=christmas&page=1&api_key=$key") }
-        val kwId = kwBody?.let {
+    /** TMDB's own "christmas" keyword id, looked up once a session (207317 is its long-standing id, the fallback) */
+    @Volatile private var christmasKeyword: Int? = null
+
+    private fun christmasKeywordId(key: String): Int {
+        christmasKeyword?.let { return it }
+        val id = fetch("https://api.themoviedb.org/3/search/keyword?query=christmas&page=1&api_key=$key")?.let {
             runCatching {
                 JSONObject(it).optJSONArray("results").objects().firstOrNull { k -> k.optString("name").equals("christmas", ignoreCase = true) }?.optInt("id")
             }.getOrNull()
         } ?: 207317
-        val discBody = withContext(Dispatchers.IO) {
-            fetch("https://api.themoviedb.org/3/discover/movie?with_keywords=$kwId&sort_by=popularity.desc&vote_count.gte=150&include_adult=false&language=en-US&page=1&api_key=$key")
-        } ?: return@coroutineScope emptyList()
-        val picks = runCatching { JSONObject(discBody).optJSONArray("results").objects() }.getOrDefault(emptyList()).take(24)
+        christmasKeyword = id
+        return id
+    }
+
+    /**
+     * A TMDB discover of Christmas films ([extra] adds its filters, [sort] orders them), each turned into a Cinemeta-style
+     * title through its IMDb id (the engine knows titles by that). The ids are asked for at once, not one after another.
+     */
+    private suspend fun tmdbChristmas(extra: String, sort: String, limit: Int): List<Title> = coroutineScope {
+        val key = com.notdxbi.dxbi.tv.BuildConfig.TMDB_KEY.trim()
+        if (key.isEmpty()) return@coroutineScope emptyList()
+        val kwId = christmasKeywordId(key)
+        val discBody = fetch("https://api.themoviedb.org/3/discover/movie?with_keywords=$kwId&sort_by=$sort&include_adult=false&language=en-US&page=1&api_key=$key&$extra")
+            ?: return@coroutineScope emptyList()
+        val picks = runCatching { JSONObject(discBody).optJSONArray("results").objects() }.getOrDefault(emptyList()).take(limit)
         picks.map { m ->
             async(Dispatchers.IO) {
-                val ext = fetch("https://api.themoviedb.org/3/movie/${m.optInt("id")}/external_ids?api_key=$key") ?: return@async null
-                val tt = runCatching { JSONObject(ext).optString("imdb_id") }.getOrDefault("").takeIf { it.startsWith("tt") } ?: return@async null
-                if (tt in skip) return@async null
+                val tt = imdbOf(key, m.optInt("id")) ?: return@async null
                 Title(
                     id = tt,
                     type = "movie",
@@ -513,47 +545,85 @@ class DiscoverFeed(cacheDir: File) {
         }.awaitAll().filterNotNull().distinctBy { it.id }
     }
 
-    /** Christmas at Home: curated rows (cached 24 hours on disk), plus TMDB "More Christmas" when a key is configured */
-    suspend fun christmas(): Christmas? = withContext(Dispatchers.IO) {
+    /** A TMDB film's IMDb id (kept a week on disk: the same few dozen films come up in every row, and every visit) */
+    private fun imdbOf(key: String, tmdbId: Int): String? {
+        val cacheKey = "tmdb-imdb-$tmdbId"
+        val body = load(cacheKey, 30 * DAY) ?: fetch("https://api.themoviedb.org/3/movie/$tmdbId/external_ids?api_key=$key")?.also { save(cacheKey, it) } ?: return null
+        return runCatching { JSONObject(body).optString("imdb_id") }.getOrDefault("").takeIf { it.startsWith("tt") }
+    }
+
+    private fun serializeRows(rows: List<ListRow>): String = JSONArray(rows.map { r ->
+        JSONObject().put("name", r.name).put("items", JSONArray(r.items.map { t ->
+            JSONObject().put("id", t.id).put("type", t.type).put("name", t.name)
+                .put("poster", t.poster ?: JSONObject.NULL)
+                .put("background", t.background ?: JSONObject.NULL)
+                .put("description", t.description ?: JSONObject.NULL)
+                .put("year", t.year ?: JSONObject.NULL)
+                .put("imdb", t.imdb ?: JSONObject.NULL)
+                .put("genres", JSONArray(t.genres))
+        }))
+    }).toString()
+
+    private fun parseRows(saved: String): List<ListRow> = runCatching {
+        JSONArray(saved).objects().map { r -> ListRow(r.optString("name"), r.optJSONArray("items").objects().map(Title::from)) }.filter { it.items.isNotEmpty() }
+    }.getOrDefault(emptyList())
+
+    /**
+     * Christmas at Home, each row handed over as soon as it's in ([onUpdate] gets every row so far, in page order, with the
+     * empty ones left out), all the rows asked for at once. The finished page is kept for the session and for six hours on
+     * disk, so the next visit is instant. Returns false when nothing at all came back.
+     */
+    suspend fun christmasRows(onUpdate: (Christmas) -> Unit): Boolean = withContext(Dispatchers.IO) {
         val now = Calendar.getInstance()
         val inSeason = christmasInSeason(now)
         val days = daysToChristmas(now)
-        load("christmas-rows", DAY)?.let { saved ->
-            val cachedRows = runCatching {
-                JSONArray(saved).objects().map { r ->
-                    ListRow(r.optString("name"), r.optJSONArray("items").objects().map(Title::from))
-                }.filter { it.items.isNotEmpty() }
-            }.getOrDefault(emptyList())
-            if (cachedRows.isNotEmpty()) return@withContext Christmas(daysToChristmas = days, inSeason = inSeason, rows = cachedRows)
+        fun page(rows: List<ListRow>) = Christmas(daysToChristmas = days, inSeason = inSeason, rows = rows)
+
+        christmasMemory?.let { (at, rows) ->
+            if (System.currentTimeMillis() - at < CHRISTMAS_KEEP) { onUpdate(page(rows)); return@withContext true }
         }
-        val rows = coroutineScope {
-            CHRISTMAS_LISTS.map { list ->
-                async {
-                    val items = list.titles.map { (name, year) ->
-                        async { findCinemeta(list.type, name, year) }
-                    }.awaitAll().filterNotNull()
-                    ListRow(list.name, items)
+        load("christmas-rows-v2", CHRISTMAS_KEEP)?.let(::parseRows)?.takeIf { it.isNotEmpty() }?.let { rows ->
+            christmasMemory = System.currentTimeMillis() to rows
+            onUpdate(page(rows))
+            return@withContext true
+        }
+
+        val year = now.get(Calendar.YEAR)
+        // (the page's order: this and last year's films first, then the romances, then the curated lists and the rest)
+        val slots = arrayOfNulls<ListRow>(CHRISTMAS_LISTS.size + CHRISTMAS_TMDB.size)
+        val lock = Any()
+        fun publish() {
+            // (a title shows once, in the first row that has it; a row it empties is dropped)
+            val seen = mutableSetOf<String>()
+            val rows = synchronized(lock) { slots.filterNotNull() }.mapNotNull { r ->
+                val items = r.items.filter { seen.add(it.id) }
+                if (items.isEmpty()) null else ListRow(r.name, items)
+            }
+            if (rows.isNotEmpty()) onUpdate(page(rows))
+        }
+        coroutineScope {
+            CHRISTMAS_TMDB.forEachIndexed { i, spec ->
+                launch {
+                    val items = runCatching { tmdbChristmas(spec.filter(year), spec.sort, 20) }.getOrDefault(emptyList())
+                    synchronized(lock) { slots[i] = ListRow(spec.name, items) }
+                    publish()
                 }
-            }.awaitAll()
-        }.toMutableList()
-        val have = rows.flatMap { r -> r.items.map { it.id } }.toSet()
-        val more = runCatching { moreChristmas(have) }.getOrDefault(emptyList())
-        if (more.isNotEmpty()) rows.add(minOf(3, rows.size), ListRow("More Christmas", more))
-        val nonEmpty = rows.filter { it.items.isNotEmpty() }
-        if (nonEmpty.isEmpty()) return@withContext null
-        val serialized = JSONArray(nonEmpty.map { r ->
-            JSONObject().put("name", r.name).put("items", JSONArray(r.items.map { t ->
-                JSONObject().put("id", t.id).put("type", t.type).put("name", t.name)
-                    .put("poster", t.poster ?: JSONObject.NULL)
-                    .put("background", t.background ?: JSONObject.NULL)
-                    .put("description", t.description ?: JSONObject.NULL)
-                    .put("year", t.year ?: JSONObject.NULL)
-                    .put("imdb", t.imdb ?: JSONObject.NULL)
-                    .put("genres", JSONArray(t.genres))
-            }))
-        }).toString()
-        save("christmas-rows", serialized)
-        Christmas(daysToChristmas = days, inSeason = inSeason, rows = nonEmpty)
+            }
+            CHRISTMAS_LISTS.forEachIndexed { i, list ->
+                launch {
+                    val items = list.titles.map { (name, y) -> async { findCinemeta(list.type, name, y) } }.awaitAll().filterNotNull()
+                    synchronized(lock) { slots[CHRISTMAS_TMDB.size + i] = ListRow(list.name, items) }
+                    publish()
+                }
+            }
+        }
+        val rows = synchronized(lock) { slots.filterNotNull() }
+        val seen = mutableSetOf<String>()
+        val final = rows.mapNotNull { r -> r.items.filter { seen.add(it.id) }.takeIf { it.isNotEmpty() }?.let { ListRow(r.name, it) } }
+        if (final.isEmpty()) return@withContext false
+        christmasMemory = System.currentTimeMillis() to final
+        save("christmas-rows-v2", serializeRows(final))
+        true
     }
 
     // ---------------------------------------------------------------------------------------------
