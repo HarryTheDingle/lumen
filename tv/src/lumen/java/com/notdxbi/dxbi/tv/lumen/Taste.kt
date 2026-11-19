@@ -236,7 +236,7 @@ fun TasteSetup(state: TasteState, who: String?, onDone: suspend (Taste) -> Unit)
                             val mod = if (g === list.first()) Modifier.focusRequester(first) else Modifier
                             FocusCard(onClick = { if (on) genres.remove(g.name) else genres.add(g.name) }, modifier = mod.fillMaxWidth().aspectRatio(16f / 9f)) {
                                 Box(Modifier.fillMaxSize()) {
-                                    androidx.compose.foundation.Image(painterResource(genreDrawable(g.name)), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                                    Picture(genreDrawable(g.name), Modifier.fillMaxSize())
                                     Text(g.name, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 9.dp))
                                     if (on) Tick(Modifier.align(Alignment.TopEnd))
                                 }

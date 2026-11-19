@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -55,12 +56,14 @@ class GlassState {
 private fun white(a: Float) = Color.White.copy(alpha = a.coerceIn(0f, 1f))
 
 /** [focus]: how far the card has lifted (0 resting, 1 chosen), read while drawing */
-fun Modifier.glassEdge(shape: Shape, state: GlassState, focus: () -> Float): Modifier = this
-    .onGloballyPositioned { c ->
+fun Modifier.glassEdge(shape: Shape, state: GlassState, tracked: Boolean = true, focus: () -> Float): Modifier = this
+    // (where it is, for the light's spot: only the chosen card needs it. Every card asking on every frame of a scroll
+    // was a few milliseconds of the Mi Box's main thread)
+    .then(if (!tracked) Modifier else Modifier.onGloballyPositioned { c ->
         val p = c.positionInRoot()
         state.centre = Offset(p.x + c.size.width / 2f, p.y + c.size.height / 2f)
         if (state.screen == Size.Zero) state.screen = c.findRootCoordinates().size.toSize()
-    }
+    })
     .drawWithCache {
         val outline = shape.createOutline(size, layoutDirection, this)
         val w = 1.dp.toPx()
@@ -72,13 +75,14 @@ fun Modifier.glassEdge(shape: Shape, state: GlassState, focus: () -> Float): Mod
             1f to white(0.03f),
             endY = size.height,
         )
-        val restSheenBrush = Brush.verticalGradient(0f to white(0.05f), 0.2f to Color.Transparent, endY = size.height)
         onDrawWithContent {
             drawContent()
             val f = focus().coerceIn(0f, 1f)
             if (f <= 0f) {
+                // (at rest, just the rim: every shape drawn is drawn again for every card on every frame of a scroll, and
+                // the Mi Box's drawing thread was spending its time on them; the sheen, all but invisible at rest, comes
+                // with the lift)
                 drawOutline(outline, restRimBrush, style = rim)
-                drawOutline(outline, restSheenBrush)
                 return@onDrawWithContent
             }
             // the rim: lighter at the top, almost gone at the foot
@@ -93,10 +97,12 @@ fun Modifier.glassEdge(shape: Shape, state: GlassState, focus: () -> Float): Mod
                 style = rim,
             )
             // a faint sheen just inside the top, as on a pane of glass
-            drawOutline(
-                outline,
-                Brush.verticalGradient(0f to white(0.05f + 0.04f * f), 0.2f to Color.Transparent, endY = size.height),
-            )
+            clipRect(bottom = size.height * 0.2f) {
+                drawOutline(
+                    outline,
+                    Brush.verticalGradient(0f to white(0.05f + 0.04f * f), 0.2f to Color.Transparent, endY = size.height),
+                )
+            }
             // where the light catches it
             val screen = state.screen
             val c = state.centre

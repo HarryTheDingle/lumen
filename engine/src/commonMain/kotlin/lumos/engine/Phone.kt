@@ -423,6 +423,22 @@ class Phone(private val lumos: Lumos) {
 
     /** Ranked by the unified stream formula: ready, resolution, IMAX, DV/HDR, source, bitrate; then seeds, then size. Upscales and samples left out */
     internal fun described(): List<Pair<Stream, Described>> {
+        // (the same streams, title and settings as last time: the same list. Play's warm-up asks every 300 ms while the
+        // remote rests on a title, and remaking it each time (every stream described, then sorted) kept a Mi Box's four
+        // cores busy for seconds while the page tried to move)
+        val key = DescribedKey(found, streamsVideo, openMeta, lumos.preferImax)
+        describedMemo?.let { (k, v) -> if (k == key) return v }
+        return describe().also { describedMemo = key to it }
+    }
+
+    /** What [described]'s list depends on ([found] and [openMeta] by identity: each is replaced, never changed in place) */
+    private class DescribedKey(val found: List<Stream>, val video: String?, val meta: Meta?, val imax: Boolean) {
+        override fun equals(other: Any?) = other is DescribedKey && other.found === found && other.video == video && other.meta === meta && other.imax == imax
+        override fun hashCode() = found.size * 31 + (video?.hashCode() ?: 0)
+    }
+    private var describedMemo: Pair<DescribedKey, List<Pair<Stream, Described>>>? = null
+
+    private fun describe(): List<Pair<Stream, Described>> {
         val video = streamsVideo
         val year = openMeta?.preview?.releaseInfo?.let { Regex("""\d{4}""").find(it)?.value?.toIntOrNull() }
         val name = openMeta?.preview?.name
@@ -433,8 +449,16 @@ class Phone(private val lumos: Lumos) {
         // (never cinema recordings; low-res rips only when nothing in HD is there, as for an old show that was only on DVD)
         val keep = all.filter { (_, d) -> !d.sample && d.source != "CAM" }.let { l -> l.filter { !it.second.upscaled }.ifEmpty { l } }
             .let { l -> if (l.any { it.second.res >= 720 }) l.filter { it.second.res == 0 || it.second.res >= 720 } else l }
-        return keep.sortedWith(::streamOrder)
+        return ranked(keep)
     }
+
+    /** [list] best first: each ranked once, then sorted (ranking inside the comparison ranked each stream dozens of times) */
+    private fun ranked(list: List<Pair<Stream, Described>>): List<Pair<Stream, Described>> =
+        list.map { p -> Ranked(p, rank(p.first, p.second), size(p.first, p.second)) }
+            .sortedWith(compareByDescending<Ranked> { it.rank }.thenByDescending { it.pair.second.seeds }.thenByDescending { it.size })
+            .map { it.pair }
+
+    private class Ranked(val pair: Pair<Stream, Described>, val rank: Double, val size: Double)
 
     private fun ready(s: Stream, d: Described) = s.url != null || d.instant || s.cached == true
 
@@ -447,6 +471,9 @@ class Phone(private val lumos: Lumos) {
     private val LAST_RESORT_AFTER = 3
 
     private companion object {
+        val HOURS = Regex("""(\d+)\s*h""")
+        val MINS = Regex("""(\d+)\s*m""")
+        val DIGITS = Regex("""\d+""")
         const val WARM_MS = 5 * 60_000L
         const val WARM_CAP = 24
     }
@@ -568,10 +595,13 @@ class Phone(private val lumos: Lumos) {
     /** The open title's length in minutes, from its runtime ("2h 15min", "136 min"), 0 if unknown */
     private val minutes: Int get() {
         val r = openMeta?.runtime ?: return 0
-        val h = Regex("""(\d+)\s*h""").find(r)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-        val m = Regex("""(\d+)\s*m""").find(r)?.groupValues?.get(1)?.toIntOrNull() ?: if (h == 0) Regex("""\d+""").find(r)?.value?.toIntOrNull() ?: 0 else 0
-        return h * 60 + m
+        minutesMemo?.let { (text, n) -> if (text == r) return n }
+        val h = HOURS.find(r)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        val m = MINS.find(r)?.groupValues?.get(1)?.toIntOrNull() ?: if (h == 0) DIGITS.find(r)?.value?.toIntOrNull() ?: 0 else 0
+        return (h * 60 + m).also { minutesMemo = r to it }
     }
+    /** (worked out once a title: the ranking asks for it for every stream) */
+    private var minutesMemo: Pair<String, Int>? = null
 
     private fun size(s: Stream, d: Described) = s.size?.toDouble() ?: d.size
 
@@ -592,17 +622,10 @@ class Phone(private val lumos: Lumos) {
         return (if (ready(s, d)) 1e5 else 0.0) + d.res * 10 + range + source + rate + imax - (if (d.lesser) 15000 else 0)
     }
 
-    private fun streamOrder(a: Pair<Stream, Described>, b: Pair<Stream, Described>): Int {
-        val ra = rank(a.first, a.second); val rb = rank(b.first, b.second)
-        return when {
-            ra != rb -> rb.compareTo(ra)
-            a.second.seeds != b.second.seeds -> b.second.seeds - a.second.seeds
-            else -> size(b.first, b.second).compareTo(size(a.first, a.second))
-        }
+    private fun best(list: List<IndexedValue<Pair<Stream, Described>>>, n: Int): List<IndexedValue<Pair<Stream, Described>>> {
+        val order = ranked(list.map { it.value }).withIndex().associate { (i, p) -> p to i }
+        return list.sortedBy { order[it.value] ?: Int.MAX_VALUE }.take(n)
     }
-
-    private fun best(list: List<IndexedValue<Pair<Stream, Described>>>, n: Int) =
-        list.sortedWith { a, b -> streamOrder(a.value, b.value) }.take(n)
 
     /** What can stand in for the stream playing: not it, not a sample, a cinema recording or a debrid download not ready */
     private fun pool(): List<IndexedValue<Pair<Stream, Described>>> {

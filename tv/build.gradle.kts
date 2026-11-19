@@ -33,8 +33,8 @@ android {
         applicationId = "com.harrythedingle.lumos.tv"
         minSdk = 24
         targetSdk = 35
-        versionName = "0.1.1"
-        versionCode = 101
+        versionName = "0.1.2"
+        versionCode = 102
         buildConfigField("String", "UPDATE_REPO", "\"\"")
         // (where a newer Lumos is found: sync/release-tv.sh puts it there)
         buildConfigField("String", "UPDATE_FEED", "\"https://lumos-sync.hedigital.workers.dev/update/tv/release.json\"")
@@ -75,8 +75,8 @@ android {
         create("lumen3") {
             dimension = "brand"
             applicationId = "com.harrythedingle.lumen.tv"
-            versionName = "3.0.1"
-            versionCode = 30001
+            versionName = "3.0.2"
+            versionCode = 30002
             buildConfigField("String", "APP_NAME", "\"Lumen\"")
             buildConfigField("String", "UPDATE_REPO", "\"HarryTheDingle/lumen\"")
             buildConfigField("String", "UPDATE_FEED", "\"\"")
@@ -95,8 +95,8 @@ android {
         debug { ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64") } }
         release {
             ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = !project.hasProperty("profiling")
+            isShrinkResources = !project.hasProperty("profiling")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // (the brand flavors say which key)
             signingConfig = null

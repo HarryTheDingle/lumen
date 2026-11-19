@@ -6,6 +6,10 @@ import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -98,10 +102,13 @@ fun FocusCard(
     // its glass edge (Glass.kt): the light's spot leans the way the remote came, then settles
     val glass = remember { GlassState() }
     androidx.compose.runtime.LaunchedEffect(focused) { if (focused) glass.arrived() }
-    Card(
-        onClick = onClick,
-        onLongClick = onLongClick,
-        modifier = modifier
+    // (a plain focusable box, not the TV library's Card: that one brings its own scale, border, glow and colour animations,
+    // interaction state and a surface of layers for every poster, all switched off here, and building a row of them was
+    // the main thread's biggest cost as Home's rows came on screen on a Mi Box)
+    var pressed by remember { mutableStateOf(false) }
+    var held by remember { mutableStateOf(false) }
+    Box(
+        modifier
             .zIndex(if (focused) 1f else 0f)
             .onFocusChanged { focused = it.isFocused || it.hasFocus }
             .graphicsLayer {
@@ -110,15 +117,38 @@ fun FocusCard(
                 scaleY = s
             }
             .softGlow(corner) { glow.value }
-            .glassEdge(shape, glass) { lift },
-        shape = CardDefaults.shape(shape),
-        colors = CardDefaults.colors(containerColor = Dx.Raised, focusedContainerColor = Dx.Raised),
-        scale = CardDefaults.scale(focusedScale = 1f),
-        border = CardDefaults.border(border = Border.None, focusedBorder = Border.None),
-        glow = CardDefaults.glow(focusedGlow = Glow.None),
+            .glassEdge(shape, glass, tracked = focused) { lift }
+            // OK as the TV library's cards take it: a click when it's let go, the menu when it's held
+            .onKeyEvent { e ->
+                if (!e.isSelect()) return@onKeyEvent false
+                val native = e.nativeKeyEvent
+                when (e.type) {
+                    androidx.compose.ui.input.key.KeyEventType.KeyDown -> {
+                        if (native.repeatCount == 0 && !native.isLongPress) { pressed = true; held = false }
+                        else if (onLongClick != null && !held && pressed) { held = true; onLongClick() }
+                        true
+                    }
+                    androidx.compose.ui.input.key.KeyEventType.KeyUp -> {
+                        val click = pressed && !held
+                        pressed = false; held = false
+                        if (click) onClick()
+                        true
+                    }
+                    else -> false
+                }
+            }
+            .focusable()
+            // (no background of its own: what's in it (a picture, with its own while it loads) covers it)
+            .clip(shape),
     ) {
-        content()
+        CompositionLocalProvider(androidx.tv.material3.LocalContentColor provides Color.White) { content() }
     }
+}
+
+/** OK on a remote (the middle of the D-pad), Enter, or a game pad's A */
+private fun androidx.compose.ui.input.key.KeyEvent.isSelect(): Boolean = when (nativeKeyEvent.keyCode) {
+    android.view.KeyEvent.KEYCODE_DPAD_CENTER, android.view.KeyEvent.KEYCODE_ENTER, android.view.KeyEvent.KEYCODE_NUMPAD_ENTER, android.view.KeyEvent.KEYCODE_BUTTON_A -> true
+    else -> false
 }
 
 /** A soft white light around the card while [amount] is above 0: rings widening and fading, read while drawing (no recomposition) */

@@ -15,3 +15,12 @@
 -keepclassmembers class * {
     @android.webkit.JavascriptInterface <methods>;
 }
+
+# QuietAccessibility.kt reaches Compose's accessibility delegate and its list of services by name
+-keepnames class androidx.compose.ui.platform.AndroidComposeView
+-keepclassmembernames class androidx.compose.ui.platform.AndroidComposeView {
+    androidx.compose.ui.platform.AndroidComposeViewAccessibilityDelegateCompat composeAccessibilityDelegate;
+}
+-keepclassmembernames class androidx.compose.ui.platform.AndroidComposeViewAccessibilityDelegateCompat {
+    java.util.List enabledServices;
+}

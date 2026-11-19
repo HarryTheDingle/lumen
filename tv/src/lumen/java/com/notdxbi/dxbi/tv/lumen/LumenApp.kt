@@ -163,6 +163,8 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
     LaunchedEffect(retrying) { if (retrying != null) launcher.retry() }
     val play: (Title) -> Unit = { title -> launcher.play(title, watching.firstOrNull { it.title.id == title.id }?.videoId) }
     // what a preview card's menu and caption do
+    // (the genre and mood tiles' pictures, decoded in the background now rather than on the main thread as rows come)
+    LaunchedEffect(Unit) { Pictures.warm(context, GENRES.map { genreDrawable(it.name) } + MOODS.map { moodDrawable(it.name) }.filter { it != 0 }) }
     val cardActions = remember {
         CardActions(
             play = { play(it) },

@@ -1,6 +1,7 @@
 package com.notdxbi.dxbi.tv.lumen
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -138,11 +139,17 @@ fun Modifier.skeleton(on: Boolean = true, shape: androidx.compose.ui.graphics.Sh
             val centre = -band + (screen + band * 2) * clock.sweep.value - x
             val outline = shape.createOutline(size, layoutDirection, this)
             drawOutline(outline, Dx.Raised)
-            drawOutline(outline, Brush.linearGradient(
-                0f to Color.Transparent, 0.5f to Color.White.copy(alpha = 0.06f), 1f to Color.Transparent,
-                start = androidx.compose.ui.geometry.Offset(centre - band / 2, 0f),
-                end = androidx.compose.ui.geometry.Offset(centre + band / 2, size.height * 0.4f),
-            ))
+            // (the shimmer only where its band is: a gradient over every loading card, every frame, was costly on a Mi Box;
+            // outside the band it's clear anyway)
+            val left = centre - band
+            val right = centre + band
+            if (right > 0f && left < size.width) clipRect(left = left.coerceAtLeast(0f), right = right.coerceAtMost(size.width)) {
+                drawOutline(outline, Brush.linearGradient(
+                    0f to Color.Transparent, 0.5f to Color.White.copy(alpha = 0.06f), 1f to Color.Transparent,
+                    start = androidx.compose.ui.geometry.Offset(centre - band / 2, 0f),
+                    end = androidx.compose.ui.geometry.Offset(centre + band / 2, size.height * 0.4f),
+                ))
+            }
         }
 }
 
@@ -166,7 +173,8 @@ fun Art(asked: String?, modifier: Modifier = Modifier, contentScale: ContentScal
     val url = fresh(asked)
     // (a skeleton while it comes; the picture fades in over it, the loader's crossfade)
     var loading by remember(url) { mutableStateOf(url != null) }
-    Box(modifier.background(Dx.Raised).skeleton(loading)) {
+    // (the grey under it only while it loads: once the picture's there it's one less shape to draw on every frame)
+    Box(modifier.then(if (loading) Modifier.background(Dx.Raised).skeleton() else Modifier)) {
         if (url != null) AsyncImage(
             model = url, contentDescription = null, contentScale = contentScale,
             onSuccess = { loading = false },
@@ -344,3 +352,28 @@ object Glass {
 /** A glass fill and edge in [shape] */
 fun Modifier.glass(shape: androidx.compose.ui.graphics.Shape, fill: Color = Glass.Fill): Modifier =
     this.background(fill, shape).border(BorderStroke(1.dp, Glass.Edge), shape)
+
+/**
+ * The app's own pictures (genre and mood tiles), decoded once and kept: painterResource decoded one on the main thread
+ * every time a tile was first made, a hitch as each row of them came on screen. [warmPictures] decodes them all in the
+ * background as Lumen starts.
+ */
+object Pictures {
+    private val kept = java.util.concurrent.ConcurrentHashMap<Int, androidx.compose.ui.graphics.ImageBitmap>()
+
+    fun get(context: android.content.Context, id: Int): androidx.compose.ui.graphics.ImageBitmap =
+        kept.getOrPut(id) { android.graphics.BitmapFactory.decodeResource(context.resources, id).asImageBitmap() }
+
+    fun warm(context: android.content.Context, ids: List<Int>) {
+        val app = context.applicationContext
+        Thread({ ids.forEach { runCatching { get(app, it) } } }, "lumen-pictures").apply { priority = Thread.MIN_PRIORITY }.start()
+    }
+}
+
+/** One of the app's own pictures, from [Pictures] */
+@Composable
+fun Picture(id: Int, modifier: Modifier = Modifier, contentScale: ContentScale = ContentScale.Crop) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val bitmap = remember(id) { Pictures.get(context, id) }
+    androidx.compose.foundation.Image(androidx.compose.ui.graphics.painter.BitmapPainter(bitmap), contentDescription = null, contentScale = contentScale, modifier = modifier)
+}

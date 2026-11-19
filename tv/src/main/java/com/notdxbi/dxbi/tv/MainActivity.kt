@@ -35,6 +35,8 @@ class MainActivity : AppCompatActivity() {
         root.setBackgroundColor(getColor(R.color.background))
         setContentView(root)
         Phone.attach(this, root) {}
+        // (no accessibility tree built every frame when nothing reads it: a remote-button app had it on, on the Mi Box)
+        QuietAccessibility.watch(root)
         // (a newer Lumos offered once a little after starting, when there is one)
         root.postDelayed({ if (!isFinishing) Updates.checkApp(this) }, 8000)
 

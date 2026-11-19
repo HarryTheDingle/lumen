@@ -156,15 +156,33 @@ fun androidx.compose.foundation.lazy.LazyListScope.geniusBrowse(feed: DiscoverFe
     }
 }
 
+/** A mood's tile picture (its two colours and soft glow, made once by script), or 0 for a mood without one */
+internal fun moodDrawable(name: String): Int = when (name) {
+    "Secrets, Lies & Spies" -> com.notdxbi.dxbi.tv.R.drawable.mood_secrets_lies_spies
+    "Mind-Bending Mysteries" -> com.notdxbi.dxbi.tv.R.drawable.mood_mind_bending_mysteries
+    "Charming Romcoms" -> com.notdxbi.dxbi.tv.R.drawable.mood_charming_romcoms
+    "Good for a Night In" -> com.notdxbi.dxbi.tv.R.drawable.mood_good_for_a_night_in
+    "Gripping Crime" -> com.notdxbi.dxbi.tv.R.drawable.mood_gripping_crime
+    "Epic Adventures" -> com.notdxbi.dxbi.tv.R.drawable.mood_epic_adventures
+    "Into the Future" -> com.notdxbi.dxbi.tv.R.drawable.mood_into_the_future
+    "Things That Go Bump" -> com.notdxbi.dxbi.tv.R.drawable.mood_things_that_go_bump
+    "Family Movie Night" -> com.notdxbi.dxbi.tv.R.drawable.mood_family_movie_night
+    "True Stories" -> com.notdxbi.dxbi.tv.R.drawable.mood_true_stories
+    "Laugh-Out-Loud Shows" -> com.notdxbi.dxbi.tv.R.drawable.mood_laugh_out_loud_shows
+    "War & Heroes" -> com.notdxbi.dxbi.tv.R.drawable.mood_war_heroes
+    else -> 0
+}
+
 /** A mood's tile: a poster's shape, its colours soft and glowing, its name low on the left */
 @Composable
 private fun MoodTile(mood: Mood, onClick: () -> Unit) {
     FocusCard(onClick = onClick, modifier = Modifier.width(Dx.Poster).height(Dx.Poster * 1.5f)) {
-        Box(
-            Modifier.fillMaxSize()
-                .background(Brush.linearGradient(listOf(mood.top, mood.bottom)))
-                .background(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.28f), Color.Transparent))),
-        ) {
+        // (its colours baked into a picture, res/drawable-nodpi/mood_*: two gradients painted over a dozen tiles on every
+        // frame were too much for a Mi Box's GPU while the page moved)
+        Box(Modifier.fillMaxSize()) {
+            val art = moodDrawable(mood.name)
+            if (art != 0) Picture(art, Modifier.fillMaxSize())
+            else Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(mood.top, mood.bottom))))
             Text(
                 mood.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White, lineHeight = 17.sp, maxLines = 3,
                 modifier = Modifier.align(Alignment.BottomStart).padding(10.dp),

@@ -92,7 +92,7 @@ fun GenreTile(genre: Genre, portrait: Boolean = false, onClick: () -> Unit) {
     val size = if (portrait) androidx.compose.ui.unit.DpSize(Dx.Poster, Dx.Poster * 1.5f) else androidx.compose.ui.unit.DpSize(wide, wide * 0.5625f)
     FocusCard(onClick = onClick, corner = 12.dp, modifier = Modifier.size(size)) {
         Box(Modifier.fillMaxSize()) {
-            Image(painterResource(genreDrawable(genre.name)), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            Picture(genreDrawable(genre.name), Modifier.fillMaxSize())
             if (portrait) Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.7f))))
             Text(
                 genre.name,
