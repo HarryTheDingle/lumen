@@ -38,6 +38,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.foundation.relocation.bringIntoViewResponder
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
@@ -87,9 +88,15 @@ fun FocusCard(
     modifier: Modifier = Modifier,
     corner: Dp = 12.dp,
     onLongClick: (() -> Unit)? = null,
+    /**
+     * Px of the card's foot kept out of sight (clipped, and the rim stops short of it), read while drawing: a poster
+     * grows down into the room kept under it by this going to 0, with nothing laid out or drawn again as it does
+     */
+    hiddenFoot: (() -> Float)? = null,
     content: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(corner)
+    val cutShape = remember(corner, hiddenFoot) { hiddenFoot?.let { FootCutShape(corner, it) } }
     var focused by remember { mutableStateOf(false) }
     // (a spring with no bounce, ease-out over about a third of a second: it carries on from where it is when the remote
     // moves on mid-lift, so quick presses never jump)
@@ -97,6 +104,8 @@ fun FocusCard(
     // its glass edge (Glass.kt): the light's spot leans the way the remote came, then settles
     val glass = remember { GlassState() }
     androidx.compose.runtime.LaunchedEffect(focused) { if (focused) glass.arrived() }
+    // (chosen: its row's name knows where it is, and moves up out of its way when it's under it)
+    val rowLift = LocalRowLift.current
     // (a plain focusable box, not the TV library's Card: that one brings its own scale, border, glow and colour animations,
     // interaction state and a surface of layers for every poster, all switched off here, and building a row of them was
     // the main thread's biggest cost as Home's rows came on screen on a Mi Box)
@@ -106,12 +115,16 @@ fun FocusCard(
         modifier
             .zIndex(if (focused) 1f else 0f)
             .onFocusChanged { focused = it.isFocused || it.hasFocus }
+            .then(if (focused && rowLift != null) Modifier.onGloballyPositioned { rowLift.left = it.positionInWindow().x } else Modifier)
             .graphicsLayer {
                 val s = 1f + 0.13f * lift
                 scaleX = s
                 scaleY = s
+                // (lifting from the middle of what shows, not of the room under it)
+                val cut = hiddenFoot?.invoke() ?: 0f
+                if (cut > 0f && size.height > 0f) transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, (size.height - cut) / 2f / size.height)
             }
-            .glassEdge(shape, glass, tracked = focused) { lift }
+            .glassEdge(cutShape ?: shape, glass, tracked = focused) { lift }
             // OK as the TV library's cards take it: a click when it's let go, the menu when it's held
             .onKeyEvent { e ->
                 if (!e.isSelect()) return@onKeyEvent false
@@ -133,10 +146,28 @@ fun FocusCard(
             }
             .focusable()
             // (no background of its own: what's in it (a picture, with its own while it loads) covers it)
-            .clip(shape),
+            .then(if (cutShape != null) Modifier.graphicsLayer { clip = true; this.shape = cutShape.now() } else Modifier.clip(shape)),
     ) {
         CompositionLocalProvider(androidx.tv.material3.LocalContentColor provides Color.White) { content() }
     }
+}
+
+/**
+ * A rounded card with [cut] px of its foot left off. [now] is the shape as it is this moment (a new one each time the cut
+ * changes, which is what a layer looks at to know its outline moved)
+ */
+class FootCutShape(private val corner: Dp, private val cut: () -> Float) : androidx.compose.ui.graphics.Shape {
+    private class At(val corner: Dp, val px: Float) : androidx.compose.ui.graphics.Shape {
+        override fun createOutline(size: androidx.compose.ui.geometry.Size, layoutDirection: androidx.compose.ui.unit.LayoutDirection, density: androidx.compose.ui.unit.Density): androidx.compose.ui.graphics.Outline {
+            val r = with(density) { corner.toPx() }
+            return androidx.compose.ui.graphics.Outline.Rounded(androidx.compose.ui.geometry.RoundRect(0f, 0f, size.width, (size.height - px).coerceAtLeast(r * 2), androidx.compose.ui.geometry.CornerRadius(r)))
+        }
+        override fun equals(other: Any?) = other is At && other.px == px && other.corner == corner
+        override fun hashCode() = px.hashCode()
+    }
+    fun now(): androidx.compose.ui.graphics.Shape = At(corner, cut())
+    override fun createOutline(size: androidx.compose.ui.geometry.Size, layoutDirection: androidx.compose.ui.unit.LayoutDirection, density: androidx.compose.ui.unit.Density) =
+        now().createOutline(size, layoutDirection, density)
 }
 
 /** OK on a remote (the middle of the D-pad), Enter, or a game pad's A */
@@ -496,8 +527,13 @@ fun PageColumn(
 
 /** Shelf heading isolated in its own scope so row focus changes never recompose the LazyRow below */
 @Composable
-private fun ShelfTitle(title: String, focused: () -> Boolean) {
+private fun ShelfTitle(title: String, lift: RowLift, focused: () -> Boolean) {
     val titleAlpha = animateFloatAsState(if (focused()) 1f else 0.6f, tween(320), label = "row-title")
+    val up = with(androidx.compose.ui.platform.LocalDensity.current) { 10.dp.toPx() }
+    var right by remember { mutableStateOf(0f) }
+    // (eased like the card's own lift: up as a card under it is chosen, back down as the remote moves on past it)
+    val under by remember { androidx.compose.runtime.derivedStateOf { focused() && lift.left < right } }
+    val shift by animateFloatAsState(if (under) 1f else 0f, androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 320f), label = "row-title-lift")
     Text(
         title,
         fontSize = 20.sp,
@@ -505,9 +541,22 @@ private fun ShelfTitle(title: String, focused: () -> Boolean) {
         color = Color.White,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.padding(horizontal = Dx.Gutter).graphicsLayer { alpha = titleAlpha.value },
+        modifier = Modifier.padding(horizontal = Dx.Gutter)
+            .onGloballyPositioned { right = it.positionInWindow().x + it.size.width }
+            .graphicsLayer {
+                alpha = titleAlpha.value
+                // (Apple TV's: a card under the name, growing as it's chosen, lifts the name out of its way)
+                translationY = -up * shift
+            },
     )
 }
+
+/** Where the chosen card of a row is (its left edge, in the window): its row's name moves up when it's under it */
+class RowLift {
+    var left by androidx.compose.runtime.mutableFloatStateOf(Float.MAX_VALUE)
+}
+
+val LocalRowLift = androidx.compose.runtime.staticCompositionLocalOf<RowLift?> { null }
 
 /**
  * A row the remote can't fall out of sideways: past its last card (or, with [left], its first) nothing happens, as on
@@ -526,13 +575,14 @@ fun Modifier.keepsSideways(left: Boolean = false): Modifier = focusProperties {
 fun Shelf(title: String, modifier: Modifier = Modifier, spacing: Dp = 18.dp, content: LazyListScope.() -> Unit) {
     // (the row the remote is in has its name bright; the others' are softer, as on Apple TV)
     val rowFocused = remember { mutableStateOf(false) }
+    val rowLift = remember { RowLift() }
     val rowScrolling = rememberRowScrolling(Dx.Gutter, spacing)
     Column(
         modifier.fillMaxWidth().centredWhenFocused().onFocusChanged { rowFocused.value = it.hasFocus },
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        ShelfTitle(title) { rowFocused.value }
-        CompositionLocalProvider(LocalBringIntoViewSpec provides rowScrolling) {
+        ShelfTitle(title, rowLift) { rowFocused.value }
+        CompositionLocalProvider(LocalBringIntoViewSpec provides rowScrolling, LocalRowLift provides rowLift) {
             LazyRow(
                 // (up or down into the row, the remote lands on the card in the same column it came from: the rows' cards line
                 // up in columns (rememberRowScrolling), Harry's grid; it doesn't jump back to the card it was last on there)
@@ -610,7 +660,8 @@ fun LoadingShelf(title: String?) {
         // (no name yet: a skeleton bar where it'll be)
         if (title != null) Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Dx.Faint, maxLines = 1, modifier = Modifier.padding(horizontal = Dx.Gutter))
         else Box(Modifier.padding(horizontal = Dx.Gutter, vertical = 4.dp).size(180.dp, 18.dp).skeleton(shape = RoundedCornerShape(6.dp)))
-        Row(Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 20.dp, bottom = 26.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+        // (the room under each poster that a chosen card grows into, kept here too, so nothing moves when the row comes)
+        Row(Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 20.dp, bottom = 26.dp + CAPTION_ROOM), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             repeat(8) { Box(Modifier.size(Dx.Poster, Dx.Poster * 1.5f).skeleton(shape = RoundedCornerShape(12.dp))) }
         }
     }

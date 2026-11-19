@@ -65,7 +65,11 @@ fun Modifier.glassEdge(shape: Shape, state: GlassState, tracked: Boolean = true,
         if (state.screen == Size.Zero) state.screen = c.findRootCoordinates().size.toSize()
     })
     .drawWithCache {
-        val outline = shape.createOutline(size, layoutDirection, this)
+        // (a poster's card with its foot cut off (FootCutShape): the rim goes round what shows, worked out again only when
+        // the cut has moved)
+        val cutting = shape as? FootCutShape
+        var outline = (cutting?.now() ?: shape).createOutline(size, layoutDirection, this)
+        var outlineFor = cutting?.now()
         val w = 1.dp.toPx()
         val rim = Stroke(w)
         val spotRim = Stroke(w * 1.5f)
@@ -77,6 +81,10 @@ fun Modifier.glassEdge(shape: Shape, state: GlassState, tracked: Boolean = true,
         )
         onDrawWithContent {
             drawContent()
+            if (cutting != null) {
+                val now = cutting.now()
+                if (now != outlineFor) { outlineFor = now; outline = now.createOutline(size, layoutDirection, this) }
+            }
             val f = focus().coerceIn(0f, 1f)
             if (f <= 0f) {
                 // (at rest, just the rim: every shape drawn is drawn again for every card on every frame of a scroll, and

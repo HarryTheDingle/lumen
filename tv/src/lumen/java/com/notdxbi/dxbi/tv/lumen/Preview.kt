@@ -160,11 +160,17 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
         genres = actions.genres(title).also { genreMemory[title.id] = it }
     }
     val caption = remember(title.type, genres) { listOfNotNull(typeName(title.type), genres.firstOrNull()).joinToString(" · ") }
+    // Apple TV's: the poster the remote is on grows down into the room kept under every poster, a strip of its own
+    // colours with what it is in it. The room is there in every row, so nothing moves; the growing is the card's clip
+    // and rim reaching down (FocusCard's hiddenFoot), so nothing is measured or drawn again while it does
+    val room = with(androidx.compose.ui.platform.LocalDensity.current) { CAPTION_ROOM.toPx() }
+    val stripShown by remember { androidx.compose.runtime.derivedStateOf { growAnim.value > 0f } }
     FocusCard(
         onLongClick = { held = true },
         onClick = onClick,
+        hiddenFoot = { room * (1f - growAnim.value) },
         modifier = Modifier
-            .size(width, height)
+            .size(width, height + CAPTION_ROOM)
             .onFocusChanged { focused = it.isFocused || it.hasFocus },
     ) {
         PosterFace(
@@ -173,9 +179,14 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
             width = width,
             grow = { growAnim.value },
             caption = caption,
+            room = CAPTION_ROOM,
+            strip = stripShown,
         )
     }
 }
+
+/** The room kept under every poster, which the one the remote is on grows down into */
+val CAPTION_ROOM = 30.dp
 
 /**
  * Continue Watching: wide art with the name in plain type and how far they got. OK opens the title's page.
@@ -391,10 +402,31 @@ fun PosterFace(
     fill: Boolean = false,
     grow: () -> Float = { 0f },
     caption: String? = null,
+    /** Room under the poster that the chosen card grows into (0: none, the caption sits over the poster's foot) */
+    room: Dp = 0.dp,
+    /** The strip under the poster is up (the chosen card, and while it closes) */
+    strip: Boolean = false,
 ) {
     val actions = LocalCardActions.current
     val watched = actions?.watched?.collectAsState()?.value?.contains(title.id) == true || (title.watched && title.type == "movie")
     val dimmed = actions?.turnedDown?.collectAsState()?.value?.contains(title.id) == true
+    if (room > 0.dp) {
+        Box(Modifier.fillMaxSize()) {
+            // the strip (GrowStrip): the poster's own foot carried on, blurred and darkening, only on the chosen card
+            Box(Modifier.fillMaxWidth().height(width * 1.5f)) {
+                PosterFace(title, rank, width, fill = true, grow = { 0f }, caption = null)
+            }
+            // (over the poster's foot, fading in, so the poster runs on into it with no edge)
+            if (strip) GrowStrip(title, room, grow)
+            if (strip && caption != null) Text(
+                caption,
+                fontSize = 11.sp, letterSpacing = (-0.1).sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 8.dp, vertical = 8.dp)
+                    .graphicsLayer { alpha = ((grow() - 0.5f) * 2f).coerceIn(0f, 1f) },
+            )
+        }
+        return
+    }
     Box(Modifier.fillMaxSize()) {
         // (no poster, or one that won't load: its name instead of a blank grey card, as search results had)
         var noArt by remember(title.art) { mutableStateOf(title.art == null) }
@@ -449,6 +481,35 @@ fun PosterFace(
         }
         // (the ✓ in the corner at the foot: the label has the top)
         if (watched) WatchedMark(Modifier.align(Alignment.BottomEnd).padding(6.dp))
+    }
+}
+
+/**
+ * Under the chosen poster: its foot carried on, blurred, fading up from inside the poster (an overlap, so there's no
+ * edge) and darkening to the caption. Drawn on its own layer, so its fade is one small offscreen at a time
+ */
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.GrowStrip(title: Title, room: Dp, grow: () -> Float) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val canBlur = android.os.Build.VERSION.SDK_INT >= 31
+    val art = fresh(title.art)
+    val smear = remember(art, canBlur) { art?.let { coil3.request.ImageRequest.Builder(context).data(it).apply { if (!canBlur) size(8, 12) }.build() } }
+    val overlap = 56.dp
+    Box(
+        Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(room + overlap)
+            .graphicsLayer { alpha = grow(); compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+            .drawWithContent {
+                drawContent()
+                // (clear at the top, where it lies over the poster, solid below the poster's foot)
+                drawRect(Brush.verticalGradient(0f to Color.Transparent, overlap.toPx() / size.height to Color.Black), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
+            },
+    ) {
+        if (smear != null) coil3.compose.AsyncImage(
+            model = smear, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            alignment = Alignment.BottomCenter,
+            modifier = Modifier.fillMaxSize().then(if (canBlur) Modifier.blur(14.dp, androidx.compose.ui.draw.BlurredEdgeTreatment.Rectangle) else Modifier),
+        )
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, 0.45f to Color.Black.copy(alpha = 0.25f), 1f to Color.Black.copy(alpha = 0.6f))))
     }
 }
 
