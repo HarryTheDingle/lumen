@@ -76,9 +76,8 @@ fun CalendarScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
     // the month shown: 0 this one, -1 last month, up to 2 ahead
     var monthShift by remember { mutableIntStateOf(0) }
     var entries by remember { mutableStateOf<List<Entry>?>(null) }
-    val mine = remember(library) { library.map { it.id }.toSet() }
-    LaunchedEffect(mine, everything) {
-        entries = gather(stremio, feed, mine, everything)
+    LaunchedEffect(library, everything) {
+        entries = gather(feed, library, everything)
     }
 
     val today = startOfDay(System.currentTimeMillis())
@@ -275,8 +274,14 @@ private fun DayList(day: Long, today: Long, items: List<Entry>, loading: Boolean
 }
 
 /** The episodes and the films, each with its day; [everything]: the popular shows and every film too */
-private suspend fun gather(stremio: Stremio, feed: DiscoverFeed, mine: Set<String>, everything: Boolean): List<Entry> = coroutineScope {
-    val libraryEpisodes = async { runCatching { stremio.calendar() }.getOrNull().orEmpty() }
+private suspend fun gather(feed: DiscoverFeed, library: List<Title>, everything: Boolean): List<Entry> = coroutineScope {
+    val mine = library.map { it.id }.toSet()
+    val libraryShows = async {
+        library.filter { it.type == "series" && it.id.startsWith("tt") }
+            .distinctBy { it.id }
+            .map { s -> async { s to runCatching { feed.episodes(s.id) }.getOrDefault(emptyList()) } }
+            .awaitAll()
+    }
     // (films: last month's to two months ahead, the months the site has pages for)
     val months = (-1..2).map { d -> Calendar.getInstance().apply { set(Calendar.DAY_OF_MONTH, 1); add(Calendar.MONTH, d) } }
     val releases = months.map { c -> async { runCatching { feed.digital(c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1) }.getOrDefault(emptyList()) } }
@@ -304,11 +309,7 @@ private suspend fun gather(stremio: Stremio, feed: DiscoverFeed, mine: Set<Strin
             out += Entry(day, firstEp.third, t, t.name, line, t.art, isMine)
         }
     }
-    for ((_, eps) in libraryEpisodes.await().groupBy { it.id }) {
-        val e = eps.first()
-        val t = Title(id = e.id, type = "series", name = e.name, poster = e.poster, background = e.background)
-        addShow(t, eps.map { Triple(it.season, it.episode, it.time) }, true)
-    }
+    libraryShows.await().forEach { (show, eps) -> addShow(show, eps.map { Triple(it.season, it.episode, it.time) }, true) }
     popular?.await()?.forEach { (show, eps) -> addShow(show, eps.map { Triple(it.season, it.episode, it.time) }, false) }
     val seen = HashSet<String>()
     for (r in releases.awaitAll().flatten()) {

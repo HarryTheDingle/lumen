@@ -252,15 +252,11 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
                 return@launch
             }
             // nothing watched yet to go on: popular titles in the genres of what was saved last
-            repeat(10) {
-                val answer = dx("phone.forYou")
-                if (answer is JSONObject) {
-                    val items = answer.optJSONArray("items").objects()
-                    forYou.value = if (items.isEmpty()) null else ListRow(answer.optString("name"), items.map(Title::from))
-                    cache.edit().putString("x.forYou", JSONArray().put(answer).toString()).apply()
-                    return@launch
-                }
-                delay(1500)
+            val answer = dx("phone.forYou")
+            if (answer is JSONObject) {
+                val items = answer.optJSONArray("items").objects()
+                forYou.value = if (items.isEmpty()) null else ListRow(answer.optString("name"), items.map(Title::from))
+                cache.edit().putString("x.forYou", JSONArray().put(answer).toString()).apply()
             }
         }
     }

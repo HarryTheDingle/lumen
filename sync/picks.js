@@ -145,7 +145,7 @@ async function found(env, get, tt) {
   const x = m || t;
   const out = x ? { kind: m ? "movie" : "tv", id: x.id, name: x.title || x.name || "", genres: x.genre_ids || [], year: Number(String(x.release_date || x.first_air_date || "").slice(0, 4)) || 0 } : { id: 0 };
   await metaPut(env, `find:${tt}`, out);
-  await env.DB.prepare("INSERT OR REPLACE INTO lumos_ids (tmdb, imdb, at) VALUES (?, ?, ?)").bind(`${out.kind}:${out.id}`, tt, Date.now()).run().catch(() => {});
+  if (x) await env.DB.prepare("INSERT OR REPLACE INTO lumos_ids (tmdb, imdb, at) VALUES (?, ?, ?)").bind(`${out.kind}:${out.id}`, tt, Date.now()).run().catch(() => {});
   return x ? out : null;
 }
 

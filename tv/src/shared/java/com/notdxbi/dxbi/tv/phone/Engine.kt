@@ -249,7 +249,8 @@ class Engine(context: Context) {
     private fun picksAnswer(): JSONObject {
         val v = core.viewer
         val memo = picksMemo[v]
-        val history = core.watchedIds().isNotEmpty() || core.continueWatching().isNotEmpty() || core.value("taste:$v") != null
+        val hasRatings = (obj(core.value("ratings:$v"))?.length() ?: 0) > 0
+        val history = core.watchedIds().isNotEmpty() || core.continueWatching().isNotEmpty() || core.value("taste:$v") != null || hasRatings
         if (!history && memo == null) return JSONObject().put("rows", JSONArray())
         val fresh = memo != null && now() - memo.first < 30 * 60_000L && !memo.second.optBoolean("partial")
         // (after the server failed, not again for five minutes: Home asks every second and a half)
@@ -533,7 +534,24 @@ class Engine(context: Context) {
                 save(); true
             }
             "phone.forgetNetwork" -> { core.phone.forgetNetwork(args.optString(0)); save(); true }
-            "phone.describe", "phone.ratings", "phone.accountData" -> JSONObject()
+            "phone.describe", "phone.accountData" -> JSONObject()
+            "phone.ratings" -> obj(core.value("ratings:${core.viewer}")) ?: JSONObject()
+            "phone.rating" -> {
+                val id = args.optString(0)
+                obj(core.value("ratings:${core.viewer}"))?.optInt(id, 0)?.takeIf { it in 1..10 }
+            }
+            "phone.setRating" -> {
+                val id = args.optString(0)
+                val score = num(1)?.toInt() ?: 0
+                if (id.isNotEmpty()) {
+                    val map = obj(core.value("ratings:${core.viewer}")) ?: JSONObject()
+                    if (score in 1..10) map.put(id, score) else map.remove(id)
+                    core.setValue("ratings:${core.viewer}", map.toString(), now())
+                    picksMemo.remove(core.viewer)
+                    changed()
+                }
+                null
+            }
             "phone.streams" -> obj(core.phone.streams())?.also { c ->
                 if (c.optBoolean("settled")) {
                     val p = c.optJSONArray("items")?.optJSONObject(c.optInt("pick", -1))
