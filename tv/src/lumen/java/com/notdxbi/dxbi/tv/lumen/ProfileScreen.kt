@@ -76,20 +76,19 @@ private fun Circle(onClick: () -> Unit, modifier: Modifier = Modifier, selected:
 /**
  * Who's watching? A person each, with their own Continue Watching, watched marks and picks (as on the iPad:
  * ios/Dxbi/UI/ProfileViews.swift). Opens when the app starts with more than one, and from the menu or
- * Settings. Manage adds, renames and removes them; Accounts switches the Stremio account.
+ * Settings. Manage adds, renames and removes them.
  */
 @Composable
 fun ProfilePicker(stremio: Stremio, onDone: () -> Unit) {
     val viewers by stremio.viewers.collectAsState()
     val current by stremio.viewer.collectAsState()
     var managing by remember { mutableStateOf(false) }
-    // null: the list; a Viewer or NEW: the editor; ACCOUNTS: the accounts
+    // null: the list; a Viewer or NEW: the editor
     var screen by remember { mutableStateOf<Any?>(null) }
     val first = remember { FocusRequester() }
 
     Box(Modifier.fillMaxSize().background(Dx.Background), contentAlignment = Alignment.Center) {
         when (val s = screen) {
-            ACCOUNTS -> AccountsPanel(stremio, onDone = { screen = null; onDone() }, onBack = { screen = null })
             is Viewer, NEW -> ProfileEditor(stremio, s as? Viewer, viewers.size) { screen = null }
             else -> {
                 FocusOnOpen(first, viewers.size)
@@ -120,8 +119,6 @@ fun ProfilePicker(stremio: Stremio, onDone: () -> Unit) {
                     Spacer(Modifier.height(44.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         Pill(if (managing) "Done" else "Manage", selected = false, onClick = { managing = !managing })
-                        // (Lumos has one account on a TV: no Stremio accounts to switch between; signing out is in Settings)
-                        if (false) Pill("Accounts", selected = false, onClick = { screen = ACCOUNTS })
                     }
                 }
             }
@@ -130,7 +127,6 @@ fun ProfilePicker(stremio: Stremio, onDone: () -> Unit) {
 }
 
 private val NEW = Any()
-private val ACCOUNTS = Any()
 
 /** Name and colour of a profile; Delete for one that exists */
 @Composable
@@ -167,35 +163,5 @@ private fun ProfileEditor(stremio: Stremio, viewer: Viewer?, count: Int, onClose
                 if (confirm) { stremio.removeViewer(viewer.id); onClose() } else confirm = true
             })
         }
-    }
-}
-
-/** The accounts kept on this device: switch without a password, add another, or browse without one */
-@Composable
-private fun AccountsPanel(stremio: Stremio, onDone: () -> Unit, onBack: () -> Unit) {
-    val accounts by stremio.accounts.collectAsState()
-    val account by stremio.account.collectAsState()
-    val currentId by stremio.currentAccountId.collectAsState()
-    val guest by stremio.guest.collectAsState()
-    val signedIn = account?.signedIn == true
-    val first = remember { FocusRequester() }
-    FocusOnOpen(first)
-    Column(Modifier.width(460.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Accounts", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White)
-        Text("Each account you sign in to stays on this device, encrypted, so you can switch without typing the password again.", fontSize = 13.sp, color = Dx.Muted, modifier = Modifier.padding(bottom = 12.dp))
-        accounts.forEachIndexed { i, a ->
-            val on = signedIn && a.id == currentId
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Pill((if (on) "✓  " else "") + a.email.ifEmpty { "Stremio account" }, selected = on, modifier = Modifier.then(if (i == 0) Modifier.focusRequester(first) else Modifier), onClick = {
-                    if (!on) { stremio.switchAccount(a.id); onDone() }
-                })
-                if (!on) Pill("Remove", selected = false, onClick = { stremio.forgetAccount(a.id) })
-            }
-        }
-        if (accounts.isEmpty() && signedIn) Pill("✓  " + (account?.email ?: "Stremio account"), selected = true, onClick = {}, modifier = Modifier.focusRequester(first))
-        Pill("Add Account", selected = false, onClick = { stremio.beginAddAccount(); onDone() }, modifier = Modifier.then(if (accounts.isEmpty() && !signedIn) Modifier.focusRequester(first) else Modifier))
-        Pill((if (guest && !signedIn) "✓  " else "") + "Browse Without an Account", selected = false, onClick = { stremio.switchAccount(null); onDone() })
-        Spacer(Modifier.height(8.dp))
-        Pill("Back", selected = false, onClick = onBack)
     }
 }

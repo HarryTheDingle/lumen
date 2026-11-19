@@ -33,7 +33,6 @@ interface Controls {
     fun closePanel(): Boolean
     /** The remote inside an open menu (true if it took the key) */
     fun panelKey(code: Int): Boolean
-    fun party(on: Boolean, code: String, people: List<String>)
     fun fit(widthDp: Int, upright: Boolean)
 }
 
@@ -53,7 +52,6 @@ class PlayerControls(
     private val clock: View?,
     hasNext: Boolean,
     private val seek: (Int) -> Unit,
-    private val leaveParty: () -> Unit,
     private val leave: (Boolean) -> Unit,
 ) : Controls {
     private val root: View = activity.findViewById(R.id.controls)
@@ -77,7 +75,7 @@ class PlayerControls(
         }
     }
 
-    private val buttons = listOf(R.id.ctl_play, R.id.ctl_rewind, R.id.ctl_forward, R.id.ctl_next, R.id.ctl_streams, R.id.ctl_stats, R.id.ctl_picture, R.id.ctl_speed, R.id.ctl_more, R.id.ctl_subtitles, R.id.ctl_audio, R.id.ctl_party)
+    private val buttons = listOf(R.id.ctl_play, R.id.ctl_rewind, R.id.ctl_forward, R.id.ctl_next, R.id.ctl_streams, R.id.ctl_stats, R.id.ctl_picture, R.id.ctl_speed, R.id.ctl_more, R.id.ctl_subtitles, R.id.ctl_audio)
         .map { activity.findViewById<View>(it) }
 
     override val visible get() = root.visibility == View.VISIBLE
@@ -97,7 +95,6 @@ class PlayerControls(
         click(R.id.ctl_speed) { showSpeed(it) }
         click(R.id.ctl_subtitles) { showTracks(it, C.TRACK_TYPE_TEXT, "Subtitles") }
         click(R.id.ctl_audio) { showTracks(it, C.TRACK_TYPE_AUDIO, "Audio") }
-        click(R.id.ctl_party) { showParty(it) }
         // Lumen: fewer buttons. No speed; Streams, Stats and Picture open out from More, Subtitles and Audio stay
         if (Phone.ownsKeys()) {
             val tucked = listOf(R.id.ctl_streams, R.id.ctl_stats, R.id.ctl_picture).map { activity.findViewById<View>(it) }
@@ -273,29 +270,6 @@ class PlayerControls(
     private fun focusFirst() {
         val rows = (0 until panelRows.childCount).map { panelRows.getChildAt(it) }.filter { it.isFocusable }
         (rows.firstOrNull { it.tag == "on" } ?: rows.firstOrNull())?.requestFocus()
-    }
-
-    private var partyCode = ""
-    private var partyPeople = emptyList<String>()
-
-    /** The Party button shows while this viewer is in a watch party */
-    override fun party(on: Boolean, code: String, people: List<String>) {
-        partyCode = code
-        partyPeople = people
-        val button = activity.findViewById<View>(R.id.ctl_party)
-        val shown = if (on) View.VISIBLE else View.GONE
-        if (button.visibility != shown) {
-            button.visibility = shown
-            activity.refit()
-        }
-    }
-
-    private fun showParty(from: View) {
-        openPanel(from, "Watch party · $partyCode")
-        heading(if (partyPeople.isEmpty()) "Waiting for friends" else "Watching with")
-        for (name in partyPeople) row(name, false, keepOpen = true) {}
-        row("Leave the party", false) { leaveParty() }
-        focusFirst()
     }
 
     /** The streams being listed: changes when the panel closes or opens again, so a late answer is dropped */

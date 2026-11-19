@@ -399,7 +399,7 @@ class Phone(private val lumos: Lumos) {
         return buildJsonObject {
             put("url", url)
             putJsonObject("headers") { s.headers.forEach { (k, v) -> put(k, v) } }
-            put("label", label(s, d))
+            put("label", label(d))
             put("play", playLink(s))
         }.toString()
     }
@@ -501,7 +501,7 @@ class Phone(private val lumos: Lumos) {
     }
 
     /** Lumen's label (quickPlay.label): "4K · Dolby Vision · Blu-ray" */
-    private fun label(@Suppress("UNUSED_PARAMETER") s: Stream, d: Described) = listOfNotNull(
+    private fun label(d: Described) = listOfNotNull(
         qualityName(d.res),
         "IMAX".takeIf { d.imax },
         if (d.dv) "Dolby Vision" else if (d.hdr) "HDR" else null,
@@ -513,7 +513,7 @@ class Phone(private val lumos: Lumos) {
         put("play", playLink(s))
         put("addon", s.source)
         put("filename", s.filename ?: s.title?.lineSequence()?.firstOrNull() ?: "")
-        put("label", label(s, d))
+        put("label", label(d))
         put("torrent", s.url == null && s.infoHash != null)
         put("provider", d.provider); put("site", d.site); put("codec", d.codec)
         put("instant", ready(s, d)); put("pending", d.pending); put("lesser", d.lesser)
@@ -616,7 +616,7 @@ class Phone(private val lumos: Lumos) {
         val pick = listOf(720, 1080, 480, 1440, 2160).map { r -> web.filter { it.second.res == r } }.firstOrNull { it.isNotEmpty() } ?: return null
         val (s, d) = pick.minBy { size(it.first, it.second).takeIf { v -> v > 0 } ?: Double.MAX_VALUE }
         return buildJsonObject {
-            put("url", s.url!!); putJsonObject("headers") { s.headers.forEach { (k, v) -> put(k, v) } }; put("label", label(s, d))
+            put("url", s.url!!); putJsonObject("headers") { s.headers.forEach { (k, v) -> put(k, v) } }; put("label", label(d))
         }.toString()
     }
 

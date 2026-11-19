@@ -7,7 +7,6 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -22,7 +21,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.lifecycle.Lifecycle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.TrackSelectionOverride
@@ -31,7 +29,6 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
-import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -58,48 +55,7 @@ class PlayerActivity : AppCompatActivity() {
 
     private lateinit var playerView: PlayerView
     private lateinit var controls: Controls
-    private var extras: PlayerHooks? = null
-    // the subtitles' size (Stremio's setting), put back after the phone app's small window's bigger one
-    private var subtitleSize = SubtitleView.DEFAULT_TEXT_SIZE_FRACTION
     private lateinit var zoom: PictureZoom
-    private var party = false
-    private val partyTick = object : Runnable {
-        override fun run() {
-            val exo = player ?: return
-            val duration = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
-            PlaybackBus.listener?.onPartyTick(exo.currentPosition, duration, !exo.playWhenReady, exo.playbackState == Player.STATE_BUFFERING, exo.playbackParameters.speed)
-            handler.postDelayed(this, 500)
-        }
-    }
-    private val hideToast = Runnable { seekFlash.visibility = View.GONE }
-
-    /** The page's watch party: plays, pauses and seeks with everyone, and says what's happening */
-    fun control(json: String) {
-        val exo = player ?: return
-        val c = JSONObject(json)
-        when (c.optString("cmd")) {
-            "play" -> exo.play()
-            "pause" -> exo.pause()
-            "seek" -> exo.seekTo(c.optLong("ms"))
-            "rate" -> exo.setPlaybackSpeed(c.optDouble("rate", 1.0).toFloat())
-            "close" -> finishWith()
-            "party" -> {
-                val on = c.optBoolean("on")
-                if (on != party) {
-                    party = on
-                    handler.removeCallbacks(partyTick)
-                    if (on) handler.post(partyTick)
-                }
-                controls.party(on, c.optString("code"), c.optJSONArray("people")?.let { list -> (0 until list.length()).map { list.optString(it) } } ?: emptyList())
-            }
-            "toast" -> {
-                seekFlash.text = c.optString("text")
-                seekFlash.visibility = View.VISIBLE
-                handler.removeCallbacks(hideToast)
-                handler.postDelayed(hideToast, 3500)
-            }
-        }
-    }
     // (both go with the player when it's kept after Back: HeldPlayer)
     private var sound = SoundMode()
     private var subtitleDelay = SubtitleDelay()
@@ -182,7 +138,6 @@ class PlayerActivity : AppCompatActivity() {
     }
     /** How fast the stream came, as the player measured it while loading (bits a second) */
     private var measuredBps = 0L
-    private var pictureReported = false
     private var clipChecked = false
     // Lumen's Streams list: the sources a swap changes headers on, the subtitles to keep, which stream plays, and
     // where a stream chosen from the list goes back to if it won't play
@@ -214,24 +169,6 @@ class PlayerActivity : AppCompatActivity() {
     private val autoSkipped = mutableSetOf<Segment>()
     private var showing: Segment? = null
     private lateinit var skipButton: TextView
-    // A torrent played on the TV itself: how it's going, while the picture waits for it
-    private var torrent = false
-    private val torrentStatus = object : Runnable {
-        override fun run() {
-            val exo = player
-            val waiting = exo == null || exo.playbackState == Player.STATE_BUFFERING || exo.playbackState == Player.STATE_IDLE
-            val text = if (torrent && waiting) TorrentEngine.status() else null
-            if (text != null && loading?.showing == true) {
-                loading?.detail(text)
-            } else if (text != null) {
-                seekFlash.text = text
-                seekFlash.visibility = View.VISIBLE
-            } else if (seekFlash.text.contains("peer") || seekFlash.text.startsWith("Finding")) {
-                seekFlash.visibility = View.GONE
-            }
-            handler.postDelayed(this, 700)
-        }
-    }
     private val updateClock = object : Runnable {
         override fun run() {
             val exo = player
@@ -271,8 +208,6 @@ class PlayerActivity : AppCompatActivity() {
         skipButton.setOnClickListener { doSkip() }
 
         val stream = JSONObject(intent.getStringExtra(EXTRA_STREAM) ?: "{}")
-        // dx.bi for phones: its controls, gestures, small window and downloads (none in dx.bi TV)
-        extras = Phone.player(host, stream)
         segments = stream.optJSONArray("skips")?.let { list ->
             (0 until list.length()).mapNotNull { i ->
                 val o = list.optJSONObject(i) ?: return@mapNotNull null
@@ -283,7 +218,6 @@ class PlayerActivity : AppCompatActivity() {
         } ?: emptyList()
         autoSkip = stream.optString("autoSkip", "off")
         showClock = stream.optBoolean("clock", true)
-        torrent = stream.optBoolean("torrent", false)
         findViewById<TextView>(R.id.title).text = stream.optString("title")
         findViewById<TextView>(R.id.subtitle).apply {
             text = stream.optString("subtitle")
@@ -309,8 +243,7 @@ class PlayerActivity : AppCompatActivity() {
         stream.optJSONObject("headers")?.let { h -> h.keys().forEach { k -> headers[k] = h.optString(k) } }
         val http = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
-            // a torrent's first bytes wait for its details and first pieces to come from peers
-            .readTimeout(if (torrent) 150L else 30L, TimeUnit.SECONDS)
+            .readTimeout(30L, TimeUnit.SECONDS)
             .followRedirects(true)
             // (a debrid link that's been followed once goes straight to its file: RedirectMemory)
             .addInterceptor(RedirectMemory.interceptor)
@@ -321,11 +254,10 @@ class PlayerActivity : AppCompatActivity() {
             .setUserAgent(if (ownAgent) null else "dxbi-tv/${BuildConfigVersion.name(this)}")
             .setDefaultRequestProperties(headers)
         onlineSource = online
-        val dataSource = extras?.dataSource(online) ?: online
 
         // The TV's own decoders first, falling back to software ones when a format isn't supported
         // A player kept after Back on this same stream: taken back, with all it had downloaded (HeldPlayer)
-        val held = if (lumenLook && !torrent) HeldPlayer.take(url) else HeldPlayer.release().let { null }
+        val held = if (lumenLook) HeldPlayer.take(url) else HeldPlayer.release().let { null }
         if (held != null) {
             sound = held.sound
             subtitleDelay = held.delay
@@ -361,7 +293,7 @@ class PlayerActivity : AppCompatActivity() {
         val exo = held?.exo ?: ExoPlayer.Builder(applicationContext, renderers)
             .setLoadControl(loadControl)
             .setBandwidthMeter(bandwidth)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(online))
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
             .setHandleAudioBecomingNoisy(true)
             .setSeekBackIncrementMs(SEEK_STEP_MS)
@@ -383,10 +315,7 @@ class PlayerActivity : AppCompatActivity() {
         // (Lumen for phones has no Up next card, as the iPad's: its Next button is how the next episode starts)
         upNextSeconds = if (next == null || (lumenLook && !Phone.ownsKeys())) 0 else stream.optString("upNext", "10").toIntOrNull() ?: 0
         upNextCard = findViewById(R.id.up_next)
-        controls = extras?.controls(exo, sound, zoom, accent, next != null, showClock)
-            ?: PlayerControls(this, playerView, exo, sound, zoom, ::shiftSubtitles, accent, clock.takeIf { showClock }, next != null, ::seek, { PlaybackBus.listener?.onPartyLeave() }) { go -> finishWith(next = go) }
-        PlaybackBus.player = this
-        extras?.started(exo, controls)
+        controls = PlayerControls(this, playerView, exo, sound, zoom, ::shiftSubtitles, accent, clock.takeIf { showClock }, next != null, ::seek) { go -> finishWith(next = go) }
         if (lumen) {
             // the spinner in white, and the title's picture behind it until the video's first picture
             playerView.findViewById<android.widget.ProgressBar>(androidx.media3.ui.R.id.exo_buffering)
@@ -410,11 +339,11 @@ class PlayerActivity : AppCompatActivity() {
             if (remote) scrubber = Scrubber(this, exo, findViewById(R.id.seek_line), previewUrl ?: url, if (previewUrl != null) previewHeaders else headers, wentBack = { from, to -> replaySubtitles(from, to) }) { controls }
             tracks = TrackMemory(this, exo, stream.optString("videoId").substringBefore(':'))
         }
-        // how fast the stream comes (not a torrent's: that's the TV's own server), for the network's memory
+        // how fast the stream comes, for the network's memory
         exo.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
             init { exoAnalytics += this }
             override fun onBandwidthEstimate(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, totalLoadTimeMs: Int, totalBytesLoaded: Long, bitrateEstimate: Long) {
-                if (!torrent && totalBytesLoaded > 4_000_000) measuredBps = bitrateEstimate
+                if (totalBytesLoaded > 4_000_000) measuredBps = bitrateEstimate
             }
         })
         fitControls()
@@ -451,7 +380,7 @@ class PlayerActivity : AppCompatActivity() {
                 val s = list.optJSONObject(i) ?: continue
                 val subUrl = s.optString("url").takeIf { it.isNotEmpty() } ?: continue
                 if (remote && !isEnglish(s.optString("lang"))) continue
-                val id = extras?.subtitleId(s.optString("source", "addon"), i) ?: "sub-${s.optString("source", "addon")}-$i"
+                val id = "sub-${s.optString("source", "addon")}-$i"
                 sideloaded += id
                 subtitles += MediaItem.SubtitleConfiguration.Builder(Uri.parse(subUrl))
                     .setId(id)
@@ -516,11 +445,6 @@ class PlayerActivity : AppCompatActivity() {
             // A subtitle switched on mid-line only shows from its next line: a seek to where we are
             // brings the current one up straight away
             override fun onRenderedFirstFrame() {
-                // (Lumen: the picture's real width, once per stream (each stream is its own player), so the page learns a stream that plays lower than its name)
-                if (!pictureReported && lumenLook && exo.videoSize.width > 0) {
-                    pictureReported = true
-                    Phone.realPicture(exo.videoSize.width)
-                }
                 uncover()
                 loading?.ready()
                 returnTo = null
@@ -555,7 +479,7 @@ class PlayerActivity : AppCompatActivity() {
                     if (back.index >= 0) Phone.pageCall("phone.source", org.json.JSONArray().put(back.index)) {}
                     return
                 }
-                lastError = (if (torrent) TorrentEngine.failed() else null) ?: describe(error)
+                lastError = describe(error)
                 // (before its first picture: closed quietly, and the page tries the next best stream with
                 // the loading screen still up, so a stream that won't play is passed over, not shown failing)
                 if (loading?.showing == true) {
@@ -569,9 +493,7 @@ class PlayerActivity : AppCompatActivity() {
                 finishWith(error = lastError)
             }
 
-            override fun onVideoSizeChanged(videoSize: VideoSize) { extras?.changed() }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                extras?.changed()
                 // (a video with no picture to wait for: playing is ready enough)
                 if (isPlaying) handler.postDelayed({ loading?.ready() }, 2500)
             }
@@ -597,7 +519,6 @@ class PlayerActivity : AppCompatActivity() {
         handler.postDelayed(reportProgress, PROGRESS_INTERVAL_MS)
         if (showClock) handler.post(updateClock)
         handler.postDelayed(checkSkip, 500)
-        if (torrent) handler.post(torrentStatus)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             // Back leaves the player straight away, like Netflix (the position is kept). In Lumen, Back
@@ -684,15 +605,6 @@ class PlayerActivity : AppCompatActivity() {
     private fun mediaItem(url: String) = MediaItem.Builder()
         .setUri(Uri.parse(url))
         .setSubtitleConfigurations(subtitleItems)
-        // (what the lock screen and headphones' controls show: the phone's media session reads it)
-        .apply {
-            if (extras != null) setMediaMetadata(
-                androidx.media3.common.MediaMetadata.Builder()
-                    .setTitle(findViewById<TextView>(R.id.title).text)
-                    .setSubtitle(findViewById<TextView>(R.id.subtitle).text)
-                    .build(),
-            )
-        }
         .build()
 
     private fun flashText(text: String) {
@@ -733,15 +645,9 @@ class PlayerActivity : AppCompatActivity() {
             }
             val headers = source?.optJSONObject("headers")?.let { h -> h.keys().asSequence().associateWith { k -> h.optString(k) } } ?: emptyMap()
             val exo = player ?: return@pageCall
-            // (a torrent that was playing can't be gone back to in place)
-            returnTo = if (torrent) null else Return(currentUrl, currentHeaders, playKey, playIndex)
-            if (torrent) {
-                TorrentEngine.close()
-                torrent = false
-            }
+            returnTo = Return(currentUrl, currentHeaders, playKey, playIndex)
             putStream(url, headers, alt.key, alt.index, exo.currentPosition, source?.optString("label"))
             tracks?.again()
-            pictureReported = false
         }
     }
 
@@ -877,8 +783,6 @@ class PlayerActivity : AppCompatActivity() {
         return subtitleDelayMs
     }
 
-    fun refit() = fitControls()
-
     private fun fitControls() {
         val config = resources.configuration
         controls.fit(config.screenWidthDp, config.orientation == Configuration.ORIENTATION_PORTRAIT)
@@ -913,7 +817,7 @@ class PlayerActivity : AppCompatActivity() {
     private fun report() {
         val exo = player ?: return
         val duration = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
-        if (extras?.keep(exo.currentPosition, ended = false) != true) PlaybackBus.listener?.onProgress(exo.currentPosition, duration, !exo.isPlaying)
+        PlaybackBus.listener?.onProgress(exo.currentPosition, duration, !exo.isPlaying)
     }
 
     /** Closes the player and says how it went ([positionMs]/[durationMs]: where another app left it, instead of this one) */
@@ -930,12 +834,11 @@ class PlayerActivity : AppCompatActivity() {
         val toNext = next && nextTitle.isNotEmpty() && nextId.isNotEmpty() && loading != null
         if (toNext) loading?.next(nextTitle, nextId)
         // (Lumen starts the next episode itself, as Play does: the page just goes back, as for any close)
-        if (extras?.keep(position, ended) != true) PlaybackBus.closed(position, duration, ended, error, next && !toNext, measuredBps / 1_000_000.0)
-        if (torrent) TorrentEngine.close()
+        PlaybackBus.closed(position, duration, ended, error, next && !toNext, measuredBps / 1_000_000.0)
         // Back (not the end, not a failure): the player's kept a few minutes, paused, with what it's downloaded, for Play
         // or Resume on the same stream to carry straight on (HeldPlayer)
         val exoNow = player
-        if (keep && exoNow != null && lumenLook && !torrent && error == null && !ended && !next && returnTo == null &&
+        if (keep && exoNow != null && lumenLook && error == null && !ended && !next && returnTo == null &&
             loading?.showing != true && exoNow.playbackState != Player.STATE_IDLE) {
             exoAnalytics.forEach { exoNow.removeAnalyticsListener(it) }
             exoListeners.forEach { exoNow.removeListener(it) }
@@ -954,63 +857,15 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        // Leaving the app (Home button) pauses, unless it carries on in the phone app's small window;
-        // the progress so far is kept
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N || !isInPictureInPictureMode) player?.pause()
+        player?.pause()
         report()
-    }
-
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
-        extras?.leaving()
-    }
-
-    /** The phone app's small window (dx.bi TV never opens one): just the picture in it, a little bigger subtitles */
-    override fun onPictureInPictureModeChanged(inPip: Boolean, newConfig: Configuration) {
-        super.onPictureInPictureModeChanged(inPip, newConfig)
-        if (inPip) {
-            if (::controls.isInitialized) controls.hide()
-            skipButton.visibility = View.GONE
-            seekFlash.visibility = View.GONE
-            if (::upNextCard.isInitialized) upNextCard.visibility = View.GONE
-            playerView.subtitleView?.setFractionalTextSize(subtitleSize * 1.6f)
-        } else {
-            playerView.subtitleView?.setFractionalTextSize(subtitleSize)
-            // The small window was closed (not opened back up): the video's over
-            if (lifecycle.currentState == Lifecycle.State.CREATED) finishWith()
-        }
-    }
-
-    /** What the phone app's part of the player can ask of it */
-    private val host = object : PlayerHost {
-        override val activity get() = this@PlayerActivity
-        override val playerView get() = this@PlayerActivity.playerView
-        override val seekFlash get() = this@PlayerActivity.seekFlash
-        override fun seek(direction: Int) = this@PlayerActivity.seek(direction)
-        override fun shiftSubtitles(byMs: Long) = this@PlayerActivity.shiftSubtitles(byMs)
-        override fun leaveParty() { PlaybackBus.listener?.onPartyLeave() }
-        override fun finishWith(ended: Boolean, next: Boolean, positionMs: Long?, durationMs: Long?) =
-            this@PlayerActivity.finishWith(ended = ended, next = next, positionMs = positionMs, durationMs = durationMs)
-
-        override fun flash(text: String, forMs: Long) {
-            handler.removeCallbacks(hideFlash)
-            if (text.isEmpty()) {
-                seekFlash.visibility = View.GONE
-                return
-            }
-            seekFlash.text = text
-            seekFlash.visibility = View.VISIBLE
-            handler.postDelayed(hideFlash, forMs)
-        }
     }
 
     override fun onDestroy() {
         if (!closed) finishWith()
         handler.removeCallbacksAndMessages(null)
-        if (PlaybackBus.player === this) PlaybackBus.player = null
         if (::controls.isInitialized) controls.release()
         if (::zoom.isInitialized) zoom.release()
-        extras?.release()
         player?.release()
         player = null
         super.onDestroy()
@@ -1047,8 +902,7 @@ class PlayerActivity : AppCompatActivity() {
         view.setApplyEmbeddedStyles(false)
         view.setApplyEmbeddedFontSizes(false)
         val size = style.optDouble("size", 100.0).coerceIn(50.0, 300.0) / 100
-        subtitleSize = (SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * size).toFloat()
-        view.setFractionalTextSize(subtitleSize)
+        view.setFractionalTextSize((SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * size).toFloat())
         // Stremio's offset is how far up from the bottom of the picture the lines sit
         val offset = style.optDouble("offset", 5.0).coerceIn(0.0, 40.0) / 100
         view.setBottomPaddingFraction(0f)

@@ -72,8 +72,6 @@ object Dx {
     /** The icon's blue: progress (watched so far) */
     val Blue = Color(0xFF2F8BFF)
     val Amber = Color(0xFFFFB547)
-    /** The icon's light, cyan through blue to amber: the logo */
-    val Spectrum = Brush.horizontalGradient(listOf(Accent, Blue, Amber))
     /** Text on the accent (it's light) */
     val OnAccent = Color.Black
     /** Black, as Harry wants it (2026-11-11; it was Apple TV's #2C2C2E grey): a chosen card glows in its own colour instead of casting a shadow */
@@ -278,38 +276,6 @@ fun typeName(type: String) = when (type) {
 }
 
 /**
- * Apple TV's backdrop below the big picture: the title's art as a soft wash of its colours, darkened.
- * (A tiny copy of the art stretched over the screen: as soft as a blur, and nothing for a TV to work out
- * as the page moves.)
- */
-@Composable
-fun Wash(url: String?, modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    Box(modifier.background(Color.Black)) {
-        if (url != null) {
-            Crossfade(fresh(url), animationSpec = tween(900), label = "wash") { u ->
-                val request = remember(u) { ImageRequest.Builder(context).data(u).size(24, 14).build() }
-                AsyncImage(
-                    model = request,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().alpha(0.85f),
-                )
-            }
-        }
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.35f), 1f to Color.Black.copy(alpha = 0.7f))))
-    }
-}
-
-/** Fades what's drawn out to nothing at the bottom (the big picture into the wash under it) */
-fun Modifier.fadeBottom(from: Float = 0.62f): Modifier = this
-    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
-    .drawWithContent {
-        drawContent()
-        drawRect(Brush.verticalGradient(from to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
-    }
-
-/**
  * Apple TV's title-page background: the art blurred right down and dimmed, still under the whole page. The blur is
  * worked out once per picture on a small copy (a box blur, three passes, much like a Gaussian) and the result stretched
  * over the screen: nothing for the TV to redo as the page moves, which a live blur would be on every frame.
@@ -381,9 +347,7 @@ private fun boxPass(src: IntArray, dst: IntArray, w: Int, h: Int, r: Int, horizo
  */
 object Glass {
     val Fill = Color.White.copy(alpha = 0.16f)
-    val FillStrong = Color.White.copy(alpha = 0.24f)
     val Edge = Brush.verticalGradient(0f to Color.White.copy(alpha = 0.38f), 1f to Color.White.copy(alpha = 0.08f))
-    val Focused = Color.White.copy(alpha = 0.30f)
 }
 
 /** A glass fill and edge in [shape] */

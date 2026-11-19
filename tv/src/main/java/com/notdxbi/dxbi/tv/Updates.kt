@@ -15,64 +15,22 @@ import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
 /**
- * Keeps dx.bi current on the TV:
- *  - the dx.bi plugin updates itself between app releases, like it does on a computer: a newer copy
- *    is fetched in the background and used from the next launch
- *  - a new dx.bi TV release is offered once, and downloaded and installed when wanted
+ * Keeps the app current on the TV: a new release is offered once, and downloaded and installed when wanted.
  */
 object Updates {
-    // The plugin from the latest release, not the main branch: unreleased work never reaches TVs
     private const val REPO = BuildConfig.UPDATE_REPO
     // Lumos: no GitHub repo; the sync server has the latest release ({tag_name, body, assets, history}, as GitHub's API
     // answers, history being the releases before it) next to its APK
     private const val FEED = BuildConfig.UPDATE_FEED
-    private const val PLUGIN_URL = "https://github.com/$REPO/releases/latest/download/dxbi.plugin.js"
     private const val RELEASES_URL = "https://api.github.com/repos/$REPO/releases/latest"
     private const val LATEST_PAGE = "https://github.com/$REPO/releases/latest"
-    // A debug build runs the plugin it was built with: a released one fetched over it would hide the work being tested
     private val ENABLED = BuildConfig.SELF_UPDATE
     private const val RECHECK_MS = 6 * 60 * 60 * 1000L
     // each app updates to its own: dxbi-tv.apk or dxbi-mobile.apk
     private const val APK_ASSET = BuildConfig.APK_NAME
-    private const val UPDATED_PLUGIN = "dxbi.plugin.js"
 
     private val http by lazy {
         OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
-    }
-
-    /** The plugin to run: the bundled one, or a newer one fetched earlier */
-    fun pluginSource(context: Context): String {
-        val bundled = context.assets.open("dxbi.plugin.js").bufferedReader().use { it.readText() }
-        val updated = File(context.filesDir, UPDATED_PLUGIN)
-        if (updated.exists()) {
-            val text = updated.readText()
-            if (isNewer(version(text), version(bundled))) return text
-            updated.delete() // the app itself has caught up
-        }
-        return bundled
-    }
-
-    /**
-     * The plugin as the TV runs it: without the intro film and the picture enhancer's shaders, which
-     * dx.bi TV never uses: about 40% smaller, so a 2 GB TV has that much less to hold while starting.
-     */
-    fun forTv(source: String): String = source
-        .replace(Regex("""(\n  function introVideoData\(\) \{\n    return )"[^\n]*"""), "$1\"\";")
-        .replace(Regex("""(\n  function anime4kShaders\(\) \{\n    return )\{[^\n]*"""), "$1{};")
-
-    fun checkPlugin(context: Context) = thread(name = "dxbi-plugin-update") {
-        if (!ENABLED || FEED.isNotEmpty()) return@thread
-        try {
-            val text = get(PLUGIN_URL) ?: return@thread
-            if (!text.contains("@name dx.bi")) return@thread
-            if (isNewer(version(text), version(pluginSource(context)))) {
-                // Written next to it and swapped in whole: a half-written copy (power cut, app closed)
-                // would otherwise keep its new version number and be loaded, and never fetched again
-                val partial = File(context.filesDir, "$UPDATED_PLUGIN.download")
-                partial.writeText(text)
-                if (!partial.renameTo(File(context.filesDir, UPDATED_PLUGIN))) partial.delete()
-            }
-        } catch (_: Exception) { /* offline: try again next launch */ }
     }
 
     /** A TV app is rarely closed: it comes back from Home for days, so look again when it does */
@@ -84,7 +42,6 @@ object Updates {
             }
         }
         if (lastCheck != 0L && System.currentTimeMillis() - lastCheck > RECHECK_MS) {
-            checkPlugin(activity)
             checkApp(activity)
         }
     }
@@ -142,10 +99,7 @@ object Updates {
                 val prefix = if (colon in 1..60) line.substring(0, colon) else ""
                 val about = prefix.lowercase()
                 val device = about.contains("tv") || about.contains("phone") || about.contains("ipad") || about.contains("iphone") || about.contains("android")
-                if (device) {
-                    val mine = if (BuildConfig.PHONE_UI) about.contains("android") || about.contains("phone") && !about.contains("iphone") else about.contains("tv")
-                    if (!mine) continue
-                }
+                if (device && !about.contains("tv")) continue
                 val text = (if (device || about == "fixes") line.substring(colon + 1) else line).trim()
                     .replaceFirstChar { it.uppercase() }
                 when {
@@ -193,8 +147,7 @@ object Updates {
                 UpdatePanel.show(
                     activity,
                     "${BuildConfig.APP_NAME} $latest is ready",
-                    if (BuildConfig.PHONE_UI) "You have $current. It downloads in the background and installs (Android may ask you to confirm)."
-                    else "You have $current. It downloads in the background, then Android asks you to install it.",
+                    "You have $current. It downloads in the background, then Android asks you to install it.",
                     listOf(
                         UpdatePanel.Choice("Update") { download(activity, found.url, found.size, latest) },
                         UpdatePanel.Choice("Later") {},
@@ -218,8 +171,7 @@ object Updates {
             UpdatePanel.show(
                 activity,
                 "One thing first",
-                if (BuildConfig.PHONE_UI) "To update itself, $name needs permission to install apps. On the next screen, switch on \"Allow from this source\", then come back. You only need to do this once."
-                else "To update itself, $name needs permission to install apps. On the next screen, move down to $name, switch it on, then press Back. You only need to do this once.",
+                "To update itself, $name needs permission to install apps. On the next screen, move down to $name, switch it on, then press Back. You only need to do this once.",
                 listOf(
                     UpdatePanel.Choice("Continue") {
                         pendingInstall = { download(it, url, size, version) }
@@ -273,9 +225,8 @@ object Updates {
         }
     }
 
-    /** Hands the downloaded update to Android's installer (the phone app installs it itself where it can: its Phone.install) */
+    /** Hands the downloaded update to Android's installer */
     private fun install(activity: MainActivity, apk: File) {
-        if (Phone.install(activity, apk)) return
         val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.updates", apk)
         activity.runOnUiThread {
             activity.startActivity(Intent(Intent.ACTION_VIEW)
@@ -319,8 +270,6 @@ object Updates {
         http.newCall(Request.Builder().url(url).header("User-Agent", "dxbi-tv").build()).execute().use { r ->
             if (r.isSuccessful) r.body?.string() else null
         }
-
-    private fun version(source: String): String = Regex("""@version\s+([\d.]+)""").find(source)?.groupValues?.get(1) ?: "0"
 
     fun isNewer(candidate: String, current: String): Boolean {
         val a = candidate.split(".").map { it.toIntOrNull() ?: 0 }

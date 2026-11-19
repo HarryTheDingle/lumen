@@ -89,7 +89,6 @@ sealed interface Page {
     data object Profiles : Page
     /** Settings' own pages */
     data object Networks : Page
-    data object Addons : Page
     /** A genre's own page (Discover's Genres row), and Christmas at Home */
     data class Genre(val name: String) : Page
     data object Christmas : Page

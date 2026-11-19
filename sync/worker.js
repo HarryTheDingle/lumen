@@ -12,7 +12,6 @@
 //   POST /sync { since, entries } (signed in) → { now, entries }   the most recent of each key wins
 //   POST /import/stremio { authKey } (signed in) → { imported }    bring Lumen's profiles and Stremio's history across, once
 //   POST /lists                   (signed in) → { lists }           Lumos's own Home lists (lists.js), made by the cron
-//   POST /lists/refresh           (signed in) → { report }          one round of the cron's work now
 //   POST /art { ids }             (signed in) → { art, pending }   checked TMDB pictures by IMDb id (art.js)
 //   POST /art/wrong { id }        (signed in) → { art }             a title's pictures said to be wrong: the next best
 //
@@ -432,7 +431,6 @@ async function handle(request, env) {
       case "/sync": return handleSync(body, env, me.account);
       case "/import/stremio": return handleImport(body, env, me.account);
       case "/lists": return reply(200, { lists: await readLists(env) });
-      case "/lists/refresh": return reply(200, { report: await refreshLists(env) });
       case "/art": return reply(200, await resolveArt(env, body.ids));
       case "/logs": return handleLogs(body, env, me.account, now);
       case "/scores": return reply(200, await handleScores(body, env));

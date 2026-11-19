@@ -1,7 +1,6 @@
 package com.notdxbi.dxbi.tv
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.WindowManager
@@ -43,8 +42,6 @@ class MainActivity : AppCompatActivity() {
 
         playbackListener = object : PlaybackBus.Listener {
             override fun onProgress(positionMs: Long, durationMs: Long, paused: Boolean) = Phone.progress(positionMs, durationMs, paused)
-            override fun onPartyTick(positionMs: Long, durationMs: Long, paused: Boolean, buffering: Boolean, rate: Float) {}
-            override fun onPartyLeave() {}
             override fun onClosed() {
                 val close = PlaybackBus.takePendingClose()?.let { runCatching { org.json.JSONObject(it) }.getOrNull() } ?: return
                 Phone.closed(close.optLong("timeMs"), close.optLong("durationMs"))
@@ -104,23 +101,6 @@ class MainActivity : AppCompatActivity() {
         // (the TV may close this screen while the player has it: coming back mustn't ask who's watching again)
         getSharedPreferences("phone-cache", MODE_PRIVATE).edit().putLong("x.playerUntil", System.currentTimeMillis() + 12 * 3600_000L).apply()
         startActivity(Intent(this, PlayerActivity::class.java).putExtra(PlayerActivity.EXTRA_STREAM, json))
-    }
-
-    fun openExternal(url: String) {
-        val uri = Uri.parse(url)
-        if (uri.host?.endsWith("youtube.com") == true || uri.host == "youtu.be") {
-            for (pkg in listOf("com.google.android.youtube.tv", "com.amazon.firetv.youtube", "com.google.android.youtube")) {
-                try {
-                    startActivity(Intent(Intent.ACTION_VIEW, uri).setPackage(pkg))
-                    return
-                } catch (_: Exception) { /* not on this TV: the next one */ }
-            }
-        }
-        try {
-            startActivity(Intent(Intent.ACTION_VIEW, uri))
-        } catch (_: Exception) {
-            Toast.makeText(this, "No app on this TV can open that link", Toast.LENGTH_SHORT).show()
-        }
     }
 
     /** Whether there's a screen to show yet (what the intro waits for): Lumen's screens are up at once */

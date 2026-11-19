@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.StatFs
 import android.util.Log
 import android.widget.Toast
-import java.io.File
 
 /**
  * A TV with its storage nearly full (a 4 GB Sony was at 95%) can't start Stremio's engine at all: the page loads, but
@@ -18,9 +17,6 @@ object LowSpace {
     fun free(context: Context): Long = try { StatFs(context.filesDir.path).availableBytes } catch (_: Exception) { Long.MAX_VALUE }
 
     fun relieve(context: Context) {
-        // A torrent's half-downloaded video is deleted when playback stops, but not when Android or a crash ended the app
-        // mid-film: it would sit there (up to a whole film) until the next torrent. Nothing plays at launch, so always clear it
-        File(context.cacheDir, "torrents").deleteRecursively()
         if (free(context) >= SHORT) return
         val before = free(context)
         context.cacheDir.listFiles()?.forEach { it.deleteRecursively() }

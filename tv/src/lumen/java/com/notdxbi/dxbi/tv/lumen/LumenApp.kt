@@ -106,15 +106,11 @@ fun LumenApp(engine: Engine) {
     LumenTheme {
         val account by stremio.account.collectAsState()
         val ready by stremio.ready.collectAsState()
-        val guest by stremio.guest.collectAsState()
-        val swapping by stremio.swapping.collectAsState()
         val viewers by stremio.viewers.collectAsState()
         val chosen by stremio.profileChosen.collectAsState()
         val needsAddons by engine.needsAddons.collectAsState()
         val a = account
         when {
-            // another account is being read in: Stremio's page starts again
-            swapping -> Starting()
             a == null && !ready -> Starting()
             // (Lumos: its own sign-in, a code approved on a signed-in device)
             a != null && !a.signedIn -> LumosSignIn(stremio)
@@ -142,9 +138,8 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
     // what this profile said it likes (Taste.kt): read for whoever's watching, and asked once when they have nothing watched
     val taste = remember { TasteState(context.applicationContext, feed, stremio) }
     val viewerNow by stremio.viewer.collectAsState()
-    val accountId by stremio.currentAccountId.collectAsState()
     val noHistory by stremio.noHistory.collectAsState()
-    LaunchedEffect(accountId, viewerNow?.id) { taste.load(accountId, viewerNow?.id) }
+    LaunchedEffect(viewerNow?.id) { taste.load(null, viewerNow?.id) }
     LaunchedEffect(noHistory, taste.loadedFor, taste.current) {
         if (noHistory && taste.current == null && taste.loadedFor != null) taste.tuning = true
     }
@@ -167,7 +162,7 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
     val retrying by LoadingHandoff.retries.collectAsState()
     LaunchedEffect(retrying) { if (retrying != null) launcher.retry() }
     val play: (Title) -> Unit = { title -> launcher.play(title, watching.firstOrNull { it.title.id == title.id }?.videoId) }
-    // what a preview card's Play, + and scores do
+    // what a preview card's menu and caption do
     val cardActions = remember {
         CardActions(
             play = { play(it) },
@@ -178,7 +173,6 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
             // (what's in My List already, then what's been added or taken out here)
             listMarks = combine(stremio.myList, stremio.listMarks) { rows, marks -> rows.flatMap { it.items }.associate { it.id to true } + marks }
                 .stateIn(scope, SharingStarted.Eagerly, stremio.listMarks.value),
-            scores = { t -> stremio.reviews(t.type, t.id)?.scores.orEmpty() },
             trailer = { t -> feed.trailer(t.type, t.id) },
             watched = stremio.watchedIds,
             genres = { t -> stremio.genres(t.type, t.id) },
@@ -248,7 +242,6 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
                     is Page.Genius -> GeniusPage(nav, feed, stremio, page.mood)
                     is Page.Chain -> ChainPage(nav, stremio, page.name, page.titles)
                     is Page.Franchise -> FranchisePage(stremio, nav, page.id, page.name)
-                    Page.Addons -> PageWindow(onBack = { nav.back() }) { AddonsScreen(stremio) }
                     Page.Profiles -> PageWindow(onBack = { nav.back() }) { ProfilePicker(stremio) { nav.back() } }
                 }
             }
@@ -269,94 +262,6 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
 private fun Starting() {
     Box(Modifier.fillMaxSize().background(Dx.Background), contentAlignment = Alignment.Center) {
         Logo(130.dp)
-    }
-}
-
-/** Signing in to Stremio, with the TV's keyboard (or browsing without an account) */
-@Composable
-private fun SignIn(stremio: Stremio) {
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    val accounts by stremio.accounts.collectAsState()
-    val adding by stremio.addingAccount.collectAsState()
-    val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
-
-    // Sign in on a phone: Stremio's link code, asked for again before it runs out, and watched until it's been finished
-    var link by remember { mutableStateOf<Stremio.LinkCode?>(null) }
-    var linking by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            val made = stremio.linkCreate()
-            link = made
-            if (made == null) { delay(30_000); continue }
-            val until = System.currentTimeMillis() + 4 * 60_000
-            var gone = 0
-            while (System.currentTimeMillis() < until) {
-                delay(3_000)
-                if (busy) continue
-                val key = stremio.linkRead(made.code)
-                if (key == null) continue
-                linking = true
-                busy = true
-                error = null
-                val failed = stremio.signInWithToken(key)
-                android.util.Log.i("lumen-link", "token sign-in: ${failed ?: "ok"}")
-                busy = false
-                linking = false
-                if (failed != null) { error = failed; gone++; if (gone >= 3) break }
-            }
-        }
-    }
-
-    Row(Modifier.fillMaxSize().background(Dx.Background), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-        link?.let { l ->
-            Column(Modifier.width(380.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Logo(70.dp)
-                Text("Scan to sign in", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-                Box(Modifier.size(260.dp).background(Color.White, RoundedCornerShape(20.dp)).padding(14.dp)) {
-                    AsyncImage(model = l.qrUrl, contentDescription = "QR code to sign in", modifier = Modifier.fillMaxSize())
-                }
-                Text("or go to link.stremio.com and enter", fontSize = 14.sp, color = Dx.Muted)
-                Text(l.code, fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 8.sp)
-            }
-            Spacer(Modifier.width(72.dp))
-        }
-        Column(Modifier.width(420.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            if (link == null) Logo(100.dp)
-            Text("Sign in with your Stremio account", fontSize = 16.sp, color = Dx.Muted)
-            Spacer(Modifier.height(6.dp))
-            Field("Email", email, { email = it }, KeyboardType.Email, Modifier.focusRequester(first))
-            Field("Password", password, { password = it }, KeyboardType.Password)
-            error?.let { Text(it, fontSize = 14.sp, color = Color(0xFFFF6B6B)) }
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Button(
-                    onClick = {
-                        if (busy) return@Button
-                        busy = true
-                        error = null
-                        scope.launch {
-                            error = stremio.signIn(email.trim(), password)
-                            busy = false
-                        }
-                    },
-                    colors = ButtonDefaults.colors(containerColor = Dx.Accent.copy(alpha = 0.8f), contentColor = Dx.OnAccent, focusedContainerColor = Dx.Accent, focusedContentColor = Dx.OnAccent),
-                ) { Text(if (busy || linking) "Signing in…" else "Sign In", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
-                Button(
-                    onClick = { stremio.continueAsGuest() },
-                    colors = ButtonDefaults.colors(containerColor = Color.White.copy(alpha = 0.12f), contentColor = Color.White, focusedContainerColor = Color.White, focusedContentColor = Color.Black),
-                ) { Text("Browse without an account", fontSize = 16.sp) }
-            }
-            // kept on this device: back in without typing
-            if (accounts.isNotEmpty()) {
-                Text("Saved on this device", fontSize = 13.sp, color = Dx.Muted, modifier = Modifier.padding(top = 8.dp))
-                accounts.forEach { a -> Pill(a.email.ifEmpty { "Stremio account" }, selected = false, onClick = { stremio.switchAccount(a.id) }) }
-            }
-            if (adding) Pill("Cancel", selected = false, onClick = { stremio.cancelAddAccount() })
-        }
     }
 }
 

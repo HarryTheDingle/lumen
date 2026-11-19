@@ -1,17 +1,13 @@
 package com.notdxbi.dxbi.tv
 
-import android.content.Context
 import android.widget.FrameLayout
 import androidx.compose.ui.platform.ComposeView
-import androidx.media3.common.util.UnstableApi
 import com.notdxbi.dxbi.tv.lumen.LoadingHandoff
 import com.notdxbi.dxbi.tv.lumen.LumenApp
 import com.notdxbi.dxbi.tv.lumen.PlayerLoading
 import com.notdxbi.dxbi.tv.phone.Engine
-import com.notdxbi.dxbi.tv.phone.StreamOption
 import kotlinx.coroutines.launch
 import org.json.JSONObject
-import java.io.File
 
 /**
  * Lumen for Android TV, joined to the original TV app's code (see PhoneHooks.kt): Lumen's own screens, worked by
@@ -20,17 +16,7 @@ import java.io.File
  */
 object Phone {
 
-    /** Where the next stream goes: only Lumen's player for now (other apps come later) */
-    enum class Target { Player }
-
-    @Volatile
-    var nextTarget = Target.Player
-
     private var engine: Engine? = null
-
-    fun route(context: Context, option: StreamOption, target: Target, otherApp: Boolean) {
-        nextTarget = target
-    }
 
     fun attach(activity: MainActivity, root: FrameLayout, js: (String) -> Unit) {
         // (Lumos: the engine answers Lumen's screens itself; streams it starts go to the player)
@@ -50,22 +36,6 @@ object Phone {
 
     /** The player closed at [positionMs] */
     fun closed(positionMs: Long, durationMs: Long) { engine?.closed(positionMs, durationMs) }
-
-    fun play(activity: MainActivity, json: String): Boolean {
-        nextTarget = Target.Player
-        return false
-    }
-
-    /** The picture's real width, as the player first showed it: the page notes a stream that plays lower than its name said */
-    fun realPicture(width: Int) {
-        val engine = engine ?: return
-        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
-            val lower = try {
-                engine.call("dx", JSONObject().put("method", "phone.realPicture").put("args", org.json.JSONArray().put(width)))
-            } catch (e: Exception) { null }
-            android.util.Log.i("dxbi-player", "real picture $width wide, lower than its name: $lower")
-        }
-    }
 
     /**
      * The player's Streams list: the playing video's streams from the page (reopening its details first when the page
@@ -127,9 +97,6 @@ object Phone {
         }
     }
 
-    @UnstableApi
-    fun player(host: PlayerHost, stream: JSONObject): PlayerHooks? = null
-
     /** The loading screen carried on over the player (null: it wasn't started from one, so the player has its own cover) */
     fun loading(activity: PlayerActivity, root: FrameLayout): LoadingCover? {
         val info = LoadingHandoff.take() ?: return null
@@ -140,6 +107,4 @@ object Phone {
         root.addView(view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         return cover
     }
-
-    fun install(activity: MainActivity, apk: File) = false
 }

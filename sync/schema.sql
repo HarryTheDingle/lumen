@@ -57,14 +57,6 @@ CREATE TABLE IF NOT EXISTS lumos_meta (
   v TEXT NOT NULL
 );
 
--- TMDB's pictures for an IMDb id (for MDBList's lists, which carry only IMDb ids): poster and backdrop paths, "" when none
-CREATE TABLE IF NOT EXISTS lumos_art (
-  imdb TEXT PRIMARY KEY,
-  poster TEXT NOT NULL,
-  background TEXT NOT NULL,
-  at INTEGER NOT NULL
-);
-
 -- Checked pictures for a title (art.js): TMDB's poster, backdrop and logo paths ("" none), ok: 0 when TMDB hasn't got it
 -- or its title isn't IMDb's (the device keeps metahub's then). Looked at again after a month.
 CREATE TABLE IF NOT EXISTS lumos_titleart (

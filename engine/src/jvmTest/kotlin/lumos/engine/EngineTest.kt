@@ -47,8 +47,8 @@ class EngineTest {
                   {"name":"nothing playable"}
                 ]}""",
         ))
-        val e = Engine(listOf("https://addon.test/manifest.json"), http = http)
-        val s = e.streams("series", "tt0944947:1:1").all()
+        val a = Addon("https://addon.test/manifest.json", http)
+        val s = a.streams("series", "tt0944947:1:1")
         assertEquals(2, s.size)
         assertEquals(12345L, s[0].size)
         assertEquals("r", s[0].headers["Referer"])
@@ -85,9 +85,9 @@ class EngineTest {
         if (System.getProperty("live") != "true") return
         runBlocking {
             val e = Engine(listOf("https://v3-cinemeta.strem.io/manifest.json"))
-            lateinit var rows: List<Pair<Catalog, List<MetaPreview>>>
-            val t = measureTime { rows = e.home() }
-            println("Cinemeta Home: ${rows.size} rows, ${rows.sumOf { it.second.size }} titles in $t")
+            lateinit var rows: List<Pair<Addon, Catalog>>
+            val t = measureTime { rows = e.homeCatalogs() }
+            println("Cinemeta Home: ${rows.size} catalogs in $t")
             assertTrue(rows.isNotEmpty())
             val meta = e.meta("series", "tt0944947")
             assertNotNull(meta)

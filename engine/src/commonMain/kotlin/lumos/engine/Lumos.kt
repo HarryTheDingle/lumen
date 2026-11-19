@@ -1,6 +1,5 @@
 package lumos.engine
 
-import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -15,9 +14,6 @@ data class Imported(val titles: Int, val addons: List<String>, val stremioKey: S
 
 /** One of the people watching (Lumen's viewers, synced) */
 data class Profile(val id: String, val name: String, val colour: String?, val kids: Boolean)
-
-/** A Home row */
-data class Row(val id: String, val title: String, val items: List<MetaPreview>)
 
 /** Somewhere to carry on watching */
 data class Resume(
@@ -198,38 +194,6 @@ class Lumos(syncServer: String) {
         return syncNow()
     }
 
-    // ---- Browsing ----
-
-    @Throws(Exception::class)
-    suspend fun home(): List<Row> = engine.home().map { (c, items) -> Row("${c.type}/${c.id}", rowTitle(c), items) }
-
-    @Throws(Exception::class)
-    suspend fun meta(type: String, id: String): Meta? = engine.meta(type, id)
-
-    @Throws(Exception::class)
-    suspend fun search(query: String): List<MetaPreview> {
-        val out = mutableListOf<MetaPreview>()
-        for ((a, m) in engine.manifests()) for (c in m.catalogs) if ("search" in c.extras) {
-            runCatching { a.catalog(c.type, c.id, mapOf("search" to query)) }.getOrNull()?.let { out += it }
-        }
-        return out.distinctBy { it.id }
-    }
-
-    // ---- Streams ----
-
-    /** Every source's streams for a movie or an episode (`tt…:1:2`), best first */
-    @Throws(Exception::class)
-    suspend fun streams(type: String, id: String): List<Choice> = rank(engine.streams(type, id).toList().flatten())
-
-    /** A link the player can open, or null when it can't be played now */
-    @Throws(Exception::class)
-    suspend fun playable(choice: Choice, videoId: String): String? {
-        val s = choice.stream
-        if (s.url != null) return s.url
-        val parts = videoId.split(":")
-        return engine.torBox?.resolve(s, parts.getOrNull(1)?.toIntOrNull(), parts.getOrNull(2)?.toIntOrNull())
-    }
-
     // ---- Progress ----
 
     /**
@@ -256,8 +220,6 @@ class Lumos(syncServer: String) {
         }
         put("progress:$viewer", JsonObject(progress() + (id to entry)), now)
     }
-
-    fun resumePoint(id: String, video: String): Double? = progress()[id]?.obj()?.let(::resume)?.takeIf { it.video == video && it.fraction < 0.92 }?.position
 
     fun saveProgress(id: String, type: String, video: String, name: String, poster: String?, position: Double, duration: Double, now: Long) {
         val entry = buildJsonObject {
@@ -398,11 +360,6 @@ class Lumos(syncServer: String) {
         )
     }
 
-    private fun rowTitle(c: Catalog): String {
-        val kind = when (c.type) { "movie" -> "Films"; "series" -> "Series"; else -> c.type.replaceFirstChar(Char::uppercase) }
-        return when (c.id) { "top" -> "Popular $kind"; "year" -> "New $kind"; "imdbRating" -> "Top-rated $kind"; else -> "${c.name} · $kind" }
-    }
-
     companion object {
         private val MERGED = setOf("progress", "watched", "myList")
 
@@ -424,9 +381,6 @@ class Lumos(syncServer: String) {
             .sortedWith(compareByDescending<Choice> { it.ready }.thenByDescending { QUALITY.indexOf(it.quality) }.thenByDescending { it.stream.size ?: sizeIn(it.stream.text) ?: 0 })
 
         private val QUALITY = listOf("", "SD", "720p", "1080p", "4K")
-
-        /** What a choice is remembered by: its addon, quality and binge group ("same release, next episode") */
-        fun memory(c: Choice): String = listOf(c.stream.source, c.quality, c.stream.bingeGroup ?: "").joinToString("|")
 
         /**
          * Just press Play: the stream to start without asking. The remembered one when it's there (the

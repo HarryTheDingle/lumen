@@ -5,9 +5,6 @@ import io.ktor.client.plugins.HttpTimeout
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -31,33 +28,12 @@ class Engine(
     suspend fun homeCatalogs(): List<Pair<Addon, Catalog>> =
         manifests().flatMap { (a, m) -> m.catalogs.filter { it.requiredExtras.isEmpty() }.map { a to it } }
 
-    /** Home's rows, all fetched at once; a row that doesn't answer in time is left out */
-    suspend fun home(): List<Pair<Catalog, List<MetaPreview>>> = coroutineScope {
-        homeCatalogs().map { (a, c) ->
-            async { withTimeoutOrNull(CATALOG_MS) { runCatching { c to a.catalog(c.type, c.id) }.getOrNull() } }
-        }.awaitAll().filterNotNull().filter { it.second.isNotEmpty() }
-    }
-
     /** A title's details from the first addon that has them */
     suspend fun meta(type: String, id: String): Meta? {
         for ((a, m) in manifests()) if (m.answers("meta", type, id)) {
             withTimeoutOrNull(CATALOG_MS) { runCatching { a.meta(type, id) }.getOrNull() }?.let { return it }
         }
         return null
-    }
-
-    /**
-     * Streams for a movie, or an episode (`tt0944947:1:1`), as each addon that offers streams answers.
-     * Each emission is one addon's list. (TorBox retired its own search in 2026: finding is the addons'
-     * job, TorBox plays what they find.)
-     */
-    fun streams(type: String, id: String): Flow<List<Stream>> = channelFlow {
-        for (a in addons) launch {
-            val m = withTimeoutOrNull(MANIFEST_MS) { runCatching { a.manifest() }.getOrNull() } ?: return@launch
-            if (!m.answers("stream", type, id)) return@launch
-            withTimeoutOrNull(STREAMS_MS) { runCatching { a.streams(type, id) }.getOrNull() }
-                ?.takeIf { it.isNotEmpty() }?.let { send(it) }
-        }
     }
 
     companion object {
@@ -70,11 +46,4 @@ class Engine(
             expectSuccess = false
         }
     }
-}
-
-/** Waits for the flow to finish, for tests and simple callers */
-suspend fun Flow<List<Stream>>.all(): List<Stream> {
-    val out = mutableListOf<Stream>()
-    collect { out += it }
-    return out
 }

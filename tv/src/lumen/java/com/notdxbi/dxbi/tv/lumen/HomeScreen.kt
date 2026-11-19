@@ -328,19 +328,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.listRows(rows: List<R
     }
 }
 
-/**
- * How Home scrolls to what the remote moves onto: not at all while it's on screen (so the billboard stays
- * whole while its buttons are chosen), else so it sits a quarter of the way down, with the row above in view
- */
-@OptIn(ExperimentalFoundationApi::class)
-val ScreenScrolling = object : BringIntoViewSpec {
-    override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> get() = PageGlide
-    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-        if (offset >= 0f && offset + size <= containerSize) return 0f
-        return offset - containerSize * 0.25f
-    }
-}
-
 /** Play's words for what's in progress: "Resume", else "Play" */
 private fun playLabels(watching: List<Continue>): Map<String, String> = watching.take(5).associate { item ->
     item.title.id to (if (item.progress > 0f) "Resume" else "Play")

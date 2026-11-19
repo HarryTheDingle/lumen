@@ -17,12 +17,9 @@ import kotlin.math.roundToInt
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,8 +33,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.material.icons.Icons
-import kotlinx.coroutines.launch
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
@@ -48,12 +43,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.staticCompositionLocalOf
-import com.notdxbi.dxbi.tv.phone.Score
 import kotlinx.coroutines.flow.StateFlow
 import java.util.concurrent.ConcurrentHashMap
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -63,17 +55,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -90,19 +74,12 @@ import com.notdxbi.dxbi.tv.phone.Continue
 import com.notdxbi.dxbi.tv.phone.Title
 import kotlinx.coroutines.delay
 
-/** How long a title stays chosen before its card opens out */
-private const val OPEN_AFTER_MS = 900L
-
-/** Posters opening out into a wide card on rest: off (Apple TV's don't: the caption and the title's page do that job) */
-private const val PREVIEW_EXPANDS = false
-
-/** What a card that's opened out can do: play the title, add it to the Library, show its scores */
+/** What a card's menu and caption can do: play the title, add it to the Library, fetch its genres */
 class CardActions(
     val play: (Title) -> Unit,
     val setInList: (Title, Boolean) -> Unit,
     /** Titles added to or taken out of the Library here, before Stremio's own lists catch up */
     val listMarks: StateFlow<Map<String, Boolean>>,
-    val scores: suspend (Title) -> List<Score>,
     /** A title's trailer, when its row didn't come with one (Home's billboard plays it) */
     val trailer: suspend (Title) -> String?,
     /** A title's genres, for the chosen card's caption when its row didn't bring them */
@@ -149,65 +126,20 @@ fun TitleHoldMenu(title: Title, onOpen: () -> Unit, onDismiss: () -> Unit) {
 /** Each title's genres, once looked up (kept while Lumen's open) */
 private val genreMemory = ConcurrentHashMap<String, List<String>>()
 
-/** Each title's scores, once fetched (kept while Lumen's open: they're slow to come) */
-private val scoreMemory = ConcurrentHashMap<String, List<Score>>()
-
-/** A score's name, whole ("Rotten Tomatoes"); short, its mark's stand-in where only text will do */
-fun scoreName(s: Score, short: Boolean = false): String = when (s.source) {
-    "imdb" -> "IMDb"
-    "tomatoes" -> if (short) "RT" else "Rotten Tomatoes"
-    "popcorn" -> if (short) "RT Audience" else "Rotten Tomatoes Audience"
-    else -> s.name
-}
-
 /**
- * A poster that previews itself, as Netflix's TV app does (Lumen's hover cards, for a remote): rest on it
- * and it opens out sideways into a wide card with the title's picture, logo, year, genres and scores
- * (Rotten Tomatoes, IMDb), with Play and + in it, pushing its neighbours along. Moving on closes it at
- * once. (Trailers play in Home's billboard, not here: a card's too small and too many for a TV's
- * processor.)
+ * A poster card: when the remote is on it, it grows down into the caption strip under the poster with
+ * what it is ("Movie · Drama"). Hold OK for Play, Library, and Not Interested.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, width: Dp = Dx.Poster) {
     val height = width * 1.5f
     val actions = LocalCardActions.current
     var focused by remember { mutableStateOf(false) }
-    var open by remember { mutableStateOf(false) }
-    var scores by remember(title.id) { mutableStateOf(scoreMemory[title.id]) }
-    val reveal = remember { BringIntoViewRequester() }
-
-    LaunchedEffect(focused) {
-        if (!focused) {
-            open = false
-            return@LaunchedEffect
-        }
-        if (!PREVIEW_EXPANDS) return@LaunchedEffect
-        delay(OPEN_AFTER_MS)
-        open = true
-        // the wider card may now run past the screen's edge: the row moves to show all of it
-        delay(320)
-        runCatching { reveal.bringIntoView() }
-    }
-    LaunchedEffect(open) {
-        if (open && scores == null && actions != null) {
-            scores = actions.scores(title).also { scoreMemory[title.id] = it }
-        }
-    }
-    val cardWidth by animateDpAsState(if (open) height * 16f / 9f else width, tween(300), label = "preview-width")
-    val marks = actions?.listMarks?.collectAsState()?.value.orEmpty()
-    val inList = marks[title.id] ?: title.inLibrary
-
-    // Play and + are drawn inside the open card; the remote stays on the card and moves between them:
-    // down to Play, right to +, up back to the card. OK does whichever is lit.
-    var lit by remember { mutableIntStateOf(0) }
-    LaunchedEffect(open) { if (!open) lit = 0 }
-    val buttons = open && actions != null
     var held by remember { mutableStateOf(false) }
     if (held) TitleHoldMenu(title, onOpen = onClick, onDismiss = { held = false })
     // Apple TV's: the poster the remote is on grows down into the room kept under every poster, the strip a smear of
     // the poster's own colours with what it is ("Movie · Drama") in it. The room is there in every row, so nothing moves.
-    val grow by animateFloatAsState(if (focused && !open) 1f else 0f, tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "grow")
+    val grow by animateFloatAsState(if (focused) 1f else 0f, tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "grow")
     // (a show's own flag in a row counts one episode seen; the library's list counts a show only watched as a whole)
     // what it is for the caption under it: "Movie · Drama", the genre looked up once it's chosen if its row had none
     var genres by remember(title.id) { mutableStateOf(title.genres.ifEmpty { genreMemory[title.id].orEmpty() }) }
@@ -219,33 +151,15 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
     }
     val watchedNow = actions?.watched?.collectAsState()?.value?.contains(title.id) == true || (title.watched && title.type == "movie")
     Column(Modifier.height(height + CAPTION_ROOM)) {
-    FocusCard(
-        onLongClick = { held = true },
-        onClick = {
-            when (lit) {
-                1 -> actions?.play?.invoke(title)
-                2 -> actions?.setInList?.invoke(title, !inList)
-                else -> onClick()
-            }
-        },
-        modifier = Modifier
-            .width(cardWidth)
-            .height(height + CAPTION_ROOM * grow)
-            .bringIntoViewRequester(reveal)
-            .onFocusChanged { focused = it.isFocused || it.hasFocus }
-            .onPreviewKeyEvent {
-                if (!buttons || it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when (it.key) {
-                    Key.DirectionDown -> if (lit == 0) { lit = 1; true } else false
-                    Key.DirectionUp -> if (lit != 0) { lit = 0; true } else false
-                    Key.DirectionRight -> if (lit == 1) { lit = 2; true } else false
-                    Key.DirectionLeft -> if (lit == 2) { lit = 1; true } else false
-                    else -> false
-                }
-            },
-    ) {
-        Crossfade(open, animationSpec = tween(250), label = "preview") { wide ->
-            if (!wide) {
+        FocusCard(
+            onLongClick = { held = true },
+            onClick = onClick,
+            modifier = Modifier
+                .width(width)
+                .height(height + CAPTION_ROOM * grow)
+                .onFocusChanged { focused = it.isFocused || it.hasFocus },
+        ) {
+            Box(Modifier.fillMaxSize()) {
                 PosterFace(title, rank, width, watched = watchedNow, grow = { grow }, caption = listOfNotNull(typeName(title.type), genres.firstOrNull()).joinToString(" · "))
                 // (turned down: dimmed with a thumb, in place, so the remote doesn't lose its card)
                 if (actions?.turnedDown?.collectAsState()?.value?.contains(title.id) == true) {
@@ -253,110 +167,30 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
                         Icon(Icons.Outlined.ThumbDown, contentDescription = "Not interested", tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(34.dp))
                     }
                 }
-            } else {
-                Box(Modifier.fillMaxSize()) {
-                    Art(title.backdrop, Modifier.fillMaxSize())
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.3f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.92f))))
-                    Column(
-                        Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        // (the name in plain type: a logo this small is hard to read)
-                        Text(
-                            title.name,
-                            style = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold, shadow = Shadow(Color.Black, blurRadius = 8f)),
-                            color = Color.White,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        FactsLine(listOfNotNull(title.year, typeName(title.type), title.genres.firstOrNull(), title.runtime), scores)
-                        if (buttons) {
-                            Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                InCardButton(lit == 1) {
-                                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Play", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                }
-                                InCardButton(lit == 2, round = true) {
-                                    Icon(if (inList) Icons.Filled.Check else Icons.Filled.Add, contentDescription = if (inList) "In your Library" else "Add to Library", modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
-    }
     }
 }
 
 /**
- * Continue Watching, as the preview cards: wide art with the name in plain type and how far they got; rest on it
- * and it opens out sideways, with the year, genre and scores, and Resume and + in it (down to Resume, right to +,
- * up back to the card). OK on the card opens the title's page.
+ * Continue Watching: wide art with the name in plain type and how far they got. OK opens the title's page.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 270.dp, onLongClick: (() -> Unit)? = null) {
     val title = item.title
     val height = width * 0.64f
-    val actions = LocalCardActions.current
     var focused by remember { mutableStateOf(false) }
-    var open by remember { mutableStateOf(false) }
-    var scores by remember(title.id) { mutableStateOf(scoreMemory[title.id]) }
-    val reveal = remember { BringIntoViewRequester() }
-
-    LaunchedEffect(focused) {
-        if (!focused) {
-            open = false
-            return@LaunchedEffect
-        }
-        if (!PREVIEW_EXPANDS) return@LaunchedEffect
-        delay(OPEN_AFTER_MS)
-        open = true
-        delay(320)
-        runCatching { reveal.bringIntoView() }
-    }
-    LaunchedEffect(open) {
-        if (open && scores == null && actions != null) {
-            scores = actions.scores(title).also { scoreMemory[title.id] = it }
-        }
-    }
-    val cardWidth by animateDpAsState(if (open) width * 1.5f else width, tween(300), label = "continue-width")
     // (resting on it: Play's work done ahead, so it starts at once: Launcher.warm)
     val launcher = LocalLauncher.current
     LaunchedEffect(focused) { if (focused) launcher?.warm(title) }
-    val marks = actions?.listMarks?.collectAsState()?.value.orEmpty()
-    val inList = marks[title.id] ?: title.inLibrary
-
-    var lit by remember { mutableIntStateOf(0) }
-    LaunchedEffect(open) { if (!open) lit = 0 }
-    val buttons = open && actions != null
     FocusCard(
-        onClick = {
-            when (lit) {
-                1 -> actions?.play?.invoke(title)
-                2 -> actions?.setInList?.invoke(title, !inList)
-                else -> onClick()
-            }
-        },
+        onClick = onClick,
         corner = 16.dp,
         onLongClick = onLongClick,
         modifier = Modifier
-            .width(cardWidth)
+            .width(width)
             .height(height)
-            .bringIntoViewRequester(reveal)
-            .onFocusChanged { focused = it.isFocused || it.hasFocus }
-            .onPreviewKeyEvent {
-                if (!buttons || it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when (it.key) {
-                    Key.DirectionDown -> if (lit == 0) { lit = 1; true } else false
-                    Key.DirectionUp -> if (lit != 0) { lit = 0; true } else false
-                    Key.DirectionRight -> if (lit == 1) { lit = 2; true } else false
-                    Key.DirectionLeft -> if (lit == 2) { lit = 1; true } else false
-                    else -> false
-                }
-            },
+            .onFocusChanged { focused = it.isFocused || it.hasFocus },
     ) {
         Box(Modifier.fillMaxSize()) {
             Art(title.backdrop, Modifier.fillMaxSize())
@@ -373,71 +207,16 @@ fun PreviewContinueCard(item: Continue, onClick: () -> Unit, width: Dp = 270.dp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (open) {
-                    FactsLine(listOfNotNull(title.year, typeName(title.type), title.genres.firstOrNull()), scores)
-                }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (item.progress > 0f) ProgressLine(item.progress, Modifier.width(56.dp))
                     val words = listOfNotNull(
                         episodeLabel(item.videoId),
                         if (item.newEpisodes > 0) "${item.newEpisodes} new" else null,
-                    ).joinToString(" · ").ifEmpty { if (open) "" else typeName(title.type) }
-                    // (open, the facts line already says Movie)
+                    ).joinToString(" · ").ifEmpty { typeName(title.type) }
                     if (words.isNotEmpty()) Text(words, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1)
                 }
-                if (buttons) {
-                    Row(Modifier.padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        InCardButton(lit == 1) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text(if (item.progress > 0f) "Resume" else "Play", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                        InCardButton(lit == 2, round = true) {
-                            Icon(if (inList) Icons.Filled.Check else Icons.Filled.Add, contentDescription = if (inList) "In your Library" else "Add to Library", modifier = Modifier.size(16.dp))
-                        }
-                    }
-                }
             }
         }
-    }
-}
-
-/**
- * An open card's facts ("2003 · Film · Comedy · 97 min"), then its scores (Rotten Tomatoes, Metacritic, IMDb), which
- * fade in at the end of the line when they're found (they're looked up as the card opens)
- */
-@Composable
-private fun FactsLine(facts: List<String>, scores: List<Score>?) {
-    val style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium, shadow = Shadow(Color.Black, blurRadius = 6f))
-    val found = scores.orEmpty().take(3)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(facts.joinToString(" · "), style = style, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-        // (nothing is reserved for them: the facts stay where they are and the scores come in after them, each with its mark)
-        androidx.compose.animation.AnimatedVisibility(
-            visible = found.isNotEmpty(),
-            enter = androidx.compose.animation.fadeIn(tween(700)),
-        ) {
-            Row(Modifier.padding(start = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                found.forEach { ScoreChip(it.source, it.value, size = 12.dp, fontSize = 12.sp) }
-            }
-        }
-    }
-}
-
-/** A button drawn in an open card: white with dark words when it's the lit one, else frosted */
-@Composable
-private fun InCardButton(lit: Boolean, round: Boolean = false, content: @Composable () -> Unit) {
-    val shape = RoundedCornerShape(50)
-    androidx.compose.runtime.CompositionLocalProvider(androidx.tv.material3.LocalContentColor provides if (lit) Color.Black else Color.White) {
-        Row(
-            Modifier
-                .height(28.dp)
-                .then(if (round) Modifier.width(28.dp) else Modifier)
-                .background(if (lit) Color.White else Color.White.copy(alpha = 0.22f), shape)
-                .padding(horizontal = if (round) 0.dp else 12.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) { content() }
     }
 }
 

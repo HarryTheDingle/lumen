@@ -9,7 +9,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -50,9 +49,6 @@ class Engine(context: Context) {
 
     /** Up at once: there's no page to wait for */
     val ready = MutableStateFlow(false)
-
-    /** UserAuthenticated, Error ({error: {message}}) as Stremio's core sent them: Lumen's sign-in waits on these */
-    val events = MutableSharedFlow<Pair<String, JSONObject?>>(extraBufferCapacity = 16)
 
     private var details: JSONObject? = null
     private var lastBoard: JSONObject? = null
@@ -170,7 +166,6 @@ class Engine(context: Context) {
         signedIn.value = true
         checkAddons()
         syncNow()
-        events.tryEmit("UserAuthenticated" to null)
         refreshAll()
     }
 
@@ -344,9 +339,6 @@ class Engine(context: Context) {
     /** Asks for something and waits for the answer (a JSONObject, JSONArray, string, number… or null) */
     suspend fun call(op: String, args: JSONObject = JSONObject(), timeoutMs: Long = 20_000): Any? =
         withTimeoutOrNull(timeoutMs) { withContext(one) { answer(op, args) } }
-
-    /** (Lumen's page wrote here; there's no page) */
-    fun onMessage(json: String) {}
 
     private suspend fun answer(op: String, args: JSONObject): Any? {
         when (op) {
@@ -534,7 +526,7 @@ class Engine(context: Context) {
                 save(); true
             }
             "phone.forgetNetwork" -> { core.phone.forgetNetwork(args.optString(0)); save(); true }
-            "phone.describe", "phone.accountData" -> JSONObject()
+            "phone.describe" -> JSONObject()
             "phone.ratings" -> obj(core.value("ratings:${core.viewer}")) ?: JSONObject()
             "phone.rating" -> {
                 val id = args.optString(0)
