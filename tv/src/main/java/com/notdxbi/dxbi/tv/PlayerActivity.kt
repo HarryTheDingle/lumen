@@ -946,8 +946,7 @@ class PlayerActivity : AppCompatActivity() {
 
     /**
      * Forced subtitles (just the lines not in the film's language: Tenzing's Nepali, say) whenever the full subtitles are
-     * off, as Apple TV and Netflix show them: the file's forced track in the sound's language (else an English one), or a
-     * subtitle file named "forced". Subtitles chosen in full have every line already, so nothing changes then.
+     * off, as Apple TV and Netflix show them: the file's English forced track, or a subtitle file named "forced". Subtitles chosen in full have every line already, so nothing changes then.
      */
     private fun showForced(tracks: Tracks) {
         val exo = player ?: return
@@ -956,11 +955,11 @@ class PlayerActivity : AppCompatActivity() {
         if (texts.isEmpty()) return
         val selected = texts.flatMap { g -> (0 until g.length).filter { g.isTrackSelected(it) }.map { g.getTrackFormat(it) } }
         if (selected.isNotEmpty()) return
-        val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }.firstNotNullOfOrNull { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it).language } }
+        // (English only: they're for an English-speaking viewer, the lines in another language translated. Matching the
+        // sound's language put up a release's Portuguese or Russian forced track, read when the tracks first came in and
+        // the file's own first sound (a dub) was still the one playing, before it was moved to the English)
         val forced = texts.flatMap { g -> (0 until g.length).filter { g.isTrackSupported(it) && isForced(g.getTrackFormat(it)) }.map { g to it } }
-        val pick = forced.firstOrNull { (g, i) -> audio != null && g.getTrackFormat(i).language?.let(::iso3) == iso3(audio) }
-            ?: forced.firstOrNull { (g, i) -> isEnglish(g.getTrackFormat(i).language) }
-            ?: return
+        val pick = forced.firstOrNull { (g, i) -> englishForced(g.getTrackFormat(i)) } ?: return
         val f = pick.first.getTrackFormat(pick.second)
         if (forcedPicked == f.id) return // (put up once: Off chosen afterwards in the menu leaves them off)
         forcedPicked = f.id
@@ -1037,6 +1036,18 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     /** English, or no language given (a file's own track without one is most often English) */
+    /**
+     * A forced track that's English: said to be, or saying nothing of its language and not named for another (a release's
+     * untagged "Russian Forced" track showed Russian over the film's signs)
+     */
+    private fun englishForced(f: androidx.media3.common.Format): Boolean {
+        val lang = f.language
+        if (!lang.isNullOrEmpty() && iso3(lang) != "und") return iso3(lang) == "eng"
+        val label = f.label?.lowercase() ?: return true
+        if ("english" in label) return true
+        return java.util.Locale.getAvailableLocales().none { l -> l.language != "en" && l.getDisplayLanguage(java.util.Locale.ENGLISH).lowercase().let { it.length > 3 && it in label } }
+    }
+
     private fun isEnglish(code: String?): Boolean = code.isNullOrEmpty() || iso3(code).let { it == "eng" || it == "und" }
 
     /** "en", "eng", "en-GB": the same three letters */

@@ -20,7 +20,9 @@ object Phone {
 
     fun attach(activity: MainActivity, root: FrameLayout, js: (String) -> Unit) {
         // (Lumos: the engine answers Lumen's screens itself; streams it starts go to the player)
-        val engine = Engine(activity).also { engine = it }
+        // (one engine for the app's whole life, not one per screen: Android can close and remake this screen while a film
+        // plays, and a new engine didn't know anything was playing, so where it got to was dropped)
+        val engine = this.engine ?: Engine(activity.applicationContext).also { engine = it }
         engine.onPlay = { json -> activity.play(json) }
         val screens = ComposeView(activity).apply { setContent { LumenApp(engine) } }
         // Lumen's screens paint every pixel themselves: no window background painted under every frame

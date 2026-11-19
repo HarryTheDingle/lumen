@@ -20,7 +20,6 @@ import androidx.core.view.WindowInsetsControllerCompat
 class MainActivity : AppCompatActivity() {
 
     private var lastBack = 0L
-    private var playbackListener: PlaybackBus.Listener? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,14 +39,12 @@ class MainActivity : AppCompatActivity() {
         // (a newer Lumos offered once a little after starting, when there is one)
         root.postDelayed({ if (!isFinishing) Updates.checkApp(this) }, 8000)
 
-        playbackListener = object : PlaybackBus.Listener {
-            override fun onProgress(positionMs: Long, durationMs: Long, paused: Boolean) = Phone.progress(positionMs, durationMs, paused)
-            override fun onClosed() {
-                val close = PlaybackBus.takePendingClose()?.let { runCatching { org.json.JSONObject(it) }.getOrNull() } ?: return
-                Phone.closed(close.optLong("timeMs"), close.optLong("durationMs"))
-            }
-        }
-        PlaybackBus.listener = playbackListener
+        // (the player's reports go to the engine whether or not this screen is still there: Android can close it while
+        // a film plays on a TV short of memory, and its own listener went with it, so nothing watched was kept, not
+        // even where it was closed)
+        PlaybackBus.listener = AppPlayback
+        // (a player closed while there was nowhere for it to go: where it got to, kept now)
+        AppPlayback.onClosed()
 
         // (Lumen's screens handle Back first, with their own handlers; on Home, Back twice leaves)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -112,8 +109,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onDestroy() {
-        if (PlaybackBus.listener === playbackListener) PlaybackBus.listener = null
-        super.onDestroy()
+    /** The player's reports, to the engine (Phone): for the whole app, not this screen (see onCreate) */
+    object AppPlayback : PlaybackBus.Listener {
+        override fun onProgress(positionMs: Long, durationMs: Long, paused: Boolean) = Phone.progress(positionMs, durationMs, paused)
+        override fun onClosed() {
+            val close = PlaybackBus.takePendingClose()?.let { runCatching { org.json.JSONObject(it) }.getOrNull() } ?: return
+            Phone.closed(close.optLong("timeMs"), close.optLong("durationMs"))
+        }
     }
 }
