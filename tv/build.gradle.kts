@@ -33,8 +33,8 @@ android {
         applicationId = "com.harrythedingle.lumos.tv"
         minSdk = 24
         targetSdk = 35
-        versionName = "0.1.7"
-        versionCode = 107
+        versionName = "0.1.8"
+        versionCode = 108
         buildConfigField("String", "UPDATE_REPO", "\"\"")
         // (where a newer Lumos is found: sync/release-tv.sh puts it there)
         buildConfigField("String", "UPDATE_FEED", "\"https://lumos-sync.hedigital.workers.dev/update/tv/release.json\"")
@@ -75,8 +75,8 @@ android {
         create("lumen3") {
             dimension = "brand"
             applicationId = "com.harrythedingle.lumen.tv"
-            versionName = "3.0.7"
-            versionCode = 30007
+            versionName = "3.0.8"
+            versionCode = 30008
             buildConfigField("String", "APP_NAME", "\"Lumen\"")
             buildConfigField("String", "UPDATE_REPO", "\"HarryTheDingle/lumen\"")
             buildConfigField("String", "UPDATE_FEED", "\"\"")

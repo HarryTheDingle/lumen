@@ -89,7 +89,7 @@ fun TitleInfo(
 ) {
     var full by remember { mutableStateOf(false) }
     val info: @Composable (Title) -> Unit = { t ->
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.widthIn(max = 470.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (tag != null) Text(
                 tag, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
                 modifier = Modifier.glass(RoundedCornerShape(6.dp)).padding(horizontal = 7.dp, vertical = 2.dp),
@@ -109,7 +109,7 @@ fun TitleInfo(
             }
         }
     }
-    Column(modifier.widthIn(max = 470.dp)) {
+    Column(modifier) {
         if (animated) AnimatedContent(title, // (the picture settles first, then the words come up: as Apple TV's billboard does)
         transitionSpec = { fadeIn(tween(450, delayMillis = 380)) togetherWith fadeOut(tween(200)) }, label = "title-info",
         // (the same title with something changed, as when it's added to the Library, keeps its words where they are)
@@ -224,10 +224,18 @@ fun FormatBadge(text: String) {
  * into Play or Look Again with a soft fade as the button eases to its new size
  */
 @Composable
-fun PlayButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector = Icons.Filled.PlayArrow, loading: Boolean = false) {
+fun PlayButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector = Icons.Filled.PlayArrow, loading: Boolean = false, expands: Boolean = false) {
+    var focused by remember { mutableStateOf(false) }
+    var everFocused by remember { mutableStateOf(false) }
+    val open = !expands || focused || (!everFocused && label != "Look Again")
     Button(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.onFocusChanged {
+            val f = it.isFocused || it.hasFocus
+            focused = f
+            if (f) everFocused = true
+        },
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = if (open) 16.dp else 10.dp, vertical = 10.dp),
         colors = ButtonDefaults.colors(
             // Apple TV's: frosted glass at rest (light enough to see on black), a soft white when the remote's on it
             containerColor = Glass.Fill,
@@ -248,12 +256,18 @@ fun PlayButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier
             label = "play",
         ) { shown ->
             if (shown == null) {
-                androidx.compose.foundation.layout.Box(Modifier.widthIn(min = 96.dp).height(PLAY_CONTENT_HEIGHT), contentAlignment = androidx.compose.ui.Alignment.Center) { Turning(Modifier.size(20.dp)) }
+                androidx.compose.foundation.layout.Box(Modifier.widthIn(min = if (open) 96.dp else 22.dp).height(PLAY_CONTENT_HEIGHT), contentAlignment = androidx.compose.ui.Alignment.Center) { Turning(Modifier.size(20.dp)) }
             } else {
                 androidx.compose.foundation.layout.Row(Modifier.height(PLAY_CONTENT_HEIGHT), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Icon(shown.second, contentDescription = null, modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(shown.first, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Icon(shown.second, contentDescription = shown.first, modifier = Modifier.size(22.dp))
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = open,
+                        enter = androidx.compose.animation.expandHorizontally(tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                            fadeIn(tween(200, delayMillis = 80)),
+                        exit = androidx.compose.animation.shrinkHorizontally(tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)) + fadeOut(tween(120)),
+                    ) {
+                        Text(shown.first, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.padding(start = 6.dp))
+                    }
                 }
             }
         }

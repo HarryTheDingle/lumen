@@ -437,7 +437,16 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                                     Action(
                                         "${v.edition ?: "As released"} · ${v.label}",
                                         if (v.chosen) Icons.Filled.Check else Icons.Outlined.VideoLibrary,
-                                    ) { scope.launch { stremio.chooseVersion(v.edition); versions = stremio.versions() } }
+                                    ) {
+                                        scope.launch {
+                                            stremio.chooseVersion(v.edition)
+                                            versions = stremio.versions()
+                                            for (wait in listOf(16L, 48L, 100L)) {
+                                                delay(wait)
+                                                runCatching { playFocus.requestFocus() }
+                                            }
+                                        }
+                                    }
                                 }
                             },
                             onLookAgain = {
@@ -787,6 +796,7 @@ private fun Header(
                     Modifier.focusRequester(playFocus),
                     icon = if (inList) Icons.Filled.Check else Icons.Filled.Add,
                     loading = false,
+                    expands = true,
                 )
             } else {
                 // (out, but nothing to play: the remote lands on the Library, not on Look Again, which is still one press
@@ -807,6 +817,7 @@ private fun Header(
                     (if (nothing) Modifier else Modifier.focusRequester(playFocus)).onFocusChanged { onPlayButton = it.hasFocus },
                     icon = if (nothing) Icons.Filled.Refresh else Icons.Filled.PlayArrow,
                     loading = available == null || looking,
+                    expands = true,
                 )
                 RoundButton(
                     if (inList) Icons.Filled.Check else Icons.Filled.Add, if (inList) "In Your Library" else "Add to Library", onList,
