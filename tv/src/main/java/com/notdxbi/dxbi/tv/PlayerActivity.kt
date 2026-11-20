@@ -94,6 +94,9 @@ class PlayerActivity : AppCompatActivity() {
 
         override fun buildAudioSink(context: android.content.Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink =
             DefaultAudioSink.Builder(context)
+                // Decode compressed surround (AC3/EAC3/DTS/TrueHD) to PCM instead of raw HDMI passthrough,
+                // which some TVs/boxes advertise in EDID without actually outputting sound (and lets SoundMode run)
+                .setAudioCapabilities(androidx.media3.exoplayer.audio.AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
                 .setEnableFloatOutput(false) // (Dialogue boost works on 16-bit sound)
                 .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                 .setAudioProcessors(arrayOf(sound))
