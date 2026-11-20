@@ -373,7 +373,9 @@ class PlayerControls(
     private fun showTracks(from: View, type: Int, title: String) {
         openPanel(from, title)
         val groups = exo.currentTracks.groups.filter { it.type == type }
-        val anySelected = groups.any { it.isSelected }
+        // (subtitles left chosen but hidden after a go back count as off)
+        val hidden = type == C.TRACK_TYPE_TEXT && activity.subtitlesHidden
+        val anySelected = groups.any { it.isSelected } && !hidden
         if (type == C.TRACK_TYPE_TEXT && anySelected) {
             heading("Timing")
             val shown = { ms: Long -> panelTitle.text = if (ms == 0L) "Subtitles" else "Subtitles · %+.2f s".format(ms / 1000f) }
@@ -384,7 +386,8 @@ class PlayerControls(
         if (type == C.TRACK_TYPE_TEXT) {
             if (anySelected) heading("Track")
             row("Off", !anySelected) {
-                exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                // (hidden already: left as it is, nothing to stop the film for)
+                if (!hidden) exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
                     .clearOverridesOfType(type).setTrackTypeDisabled(type, true).build()
             }
         }
@@ -404,11 +407,12 @@ class PlayerControls(
                 row("$name$channels$kind · can't play here", false) {}
                 continue
             }
-            row(name + channels + kind, group.isTrackSelected(i)) {
+            row(name + channels + kind, group.isTrackSelected(i) && !hidden) {
                 exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
                     .setTrackTypeDisabled(type, false)
                     .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, i))
                     .build()
+                if (type == C.TRACK_TYPE_TEXT) activity.subtitlesChosen()
             }
         }
         if (number == 0 && type == C.TRACK_TYPE_AUDIO) row("No other audio", false) {}

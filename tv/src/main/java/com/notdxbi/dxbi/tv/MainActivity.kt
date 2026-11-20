@@ -109,6 +109,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        HeldPlayer.trim(level)
+    }
+
     /** The player's reports, to the engine (Phone): for the whole app, not this screen (see onCreate) */
     object AppPlayback : PlaybackBus.Listener {
         override fun onProgress(positionMs: Long, durationMs: Long, paused: Boolean) = Phone.progress(positionMs, durationMs, paused)

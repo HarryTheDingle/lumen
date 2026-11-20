@@ -144,6 +144,9 @@ class PlayerActivity : AppCompatActivity() {
     private var onlineSource: OkHttpDataSource.Factory? = null
     private var subtitleItems: List<MediaItem.SubtitleConfiguration> = emptyList()
     private var currentUrl = ""
+    /** What this player is playing, for HeldPlayer; and subtitles it had hidden when it was kept */
+    private var heldVideo = ""
+    private var heldHidden = false
     private var playKey = ""
     private var playIndex = -1
     private var videoRoute: List<String> = emptyList()
@@ -257,12 +260,16 @@ class PlayerActivity : AppCompatActivity() {
 
         // The TV's own decoders first, falling back to software ones when a format isn't supported
         // A player kept after Back on this same stream: taken back, with all it had downloaded (HeldPlayer)
-        val held = if (lumenLook) HeldPlayer.take(url) else HeldPlayer.release().let { null }
+        val held = if (lumenLook) HeldPlayer.take(url, stream.optString("videoId")) else HeldPlayer.release().let { null }
         if (held != null) {
             sound = held.sound
             subtitleDelay = held.delay
             reused = true
+            // (its address from before: what it's playing)
+            currentUrl = held.url
+            heldHidden = held.subtitlesHidden
         }
+        heldVideo = stream.optString("videoId")
         val renderers = Renderers(applicationContext, sound, subtitleDelay)
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
@@ -316,6 +323,7 @@ class PlayerActivity : AppCompatActivity() {
         upNextSeconds = if (next == null || (lumenLook && !Phone.ownsKeys())) 0 else stream.optString("upNext", "10").toIntOrNull() ?: 0
         upNextCard = findViewById(R.id.up_next)
         controls = PlayerControls(this, playerView, exo, sound, zoom, ::shiftSubtitles, accent, clock.takeIf { showClock }, next != null, ::seek) { go -> finishWith(next = go) }
+        if (heldHidden) setSubtitlesHidden(true)
         if (lumen) {
             // the spinner in white, and the title's picture behind it until the video's first picture
             playerView.findViewById<android.widget.ProgressBar>(androidx.media3.ui.R.id.exo_buffering)
@@ -844,7 +852,7 @@ class PlayerActivity : AppCompatActivity() {
             exoListeners.forEach { exoNow.removeListener(it) }
             exoNow.pause()
             playerView.player = null
-            HeldPlayer.hold(HeldPlayer.Kept(exoNow, sound, subtitleDelay, currentUrl))
+            HeldPlayer.hold(HeldPlayer.Kept(exoNow, sound, subtitleDelay, currentUrl, heldVideo, subtitlesHidden))
             player = null
         }
         finish()
@@ -986,6 +994,17 @@ class PlayerActivity : AppCompatActivity() {
             replayUntil = maxOf(replayUntil, fromMs)
             return
         }
+        // (still chosen from the last time, only hidden: shown again, no track changed, so nothing stops)
+        if (subtitlesHidden) {
+            tracks?.holding = true
+            setSubtitlesHidden(false)
+            replayBefore = null
+            replaySet = exo.trackSelectionParameters
+            replayUntil = fromMs
+            handler.removeCallbacks(replayWatch)
+            handler.postDelayed(replayWatch, 500)
+            return
+        }
         val texts = exo.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
         val showing = texts.flatMap { g -> (0 until g.length).filter { g.isTrackSelected(it) }.map { g.getTrackFormat(it) } }
         if (showing.any { !isForced(it) }) return
@@ -1030,8 +1049,34 @@ class PlayerActivity : AppCompatActivity() {
         replayUntil = -1
         replayBefore = null
         replaySet = null
-        if (restore && exo != null && before != null) exo.trackSelectionParameters = before
+        if (restore && exo != null) {
+            // (back past where it was: the subtitles go from the screen but stay chosen. Turning the track off again made
+            // the player rebuild its streams, and the film stopped for a second; hidden, the next go back shows them at once.
+            // Forced ones that were up before are put back as they were)
+            if (forcedPicked != null && before != null) exo.trackSelectionParameters = before
+            else { setSubtitlesHidden(true); return }
+        }
         // (the tracks settle a moment after; then what's chosen is remembered again)
+        handler.postDelayed({ tracks?.holding = false }, 1500)
+    }
+
+    /**
+     * Subtitles chosen but not shown: left after the bit gone back over (see [endReplay]). They count as off: the menu says
+     * Off, and they aren't remembered for the show
+     */
+    var subtitlesHidden = false
+        private set
+
+    private fun setSubtitlesHidden(hidden: Boolean) {
+        subtitlesHidden = hidden
+        playerView.subtitleView?.visibility = if (hidden) View.INVISIBLE else View.VISIBLE
+        if (hidden) tracks?.holding = true
+    }
+
+    /** The subtitles menu chose something (a track, or Off): what's chosen shows, and is remembered again */
+    fun subtitlesChosen() {
+        if (!subtitlesHidden) return
+        setSubtitlesHidden(false)
         handler.postDelayed({ tracks?.holding = false }, 1500)
     }
 
