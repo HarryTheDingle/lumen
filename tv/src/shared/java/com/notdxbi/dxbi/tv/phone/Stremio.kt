@@ -318,6 +318,17 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
         ask("watched", JSONObject().put("id", title.id).put("type", title.type).put("name", title.name).put("poster", title.poster ?: JSONObject.NULL).put("value", watched))
     }
 
+    /** A version of the open title its streams come in (Extended, Encore...; null: as released) */
+    data class Version(val edition: String?, val label: String, val chosen: Boolean)
+
+    /** The open title's versions, when its streams come in more than one ([] otherwise) */
+    suspend fun versions(): List<Version> = (dx("phone.versions") as? JSONArray)?.objects()?.map {
+        Version(it.optString("edition").ifEmpty { null }, it.optString("label"), it.optBoolean("chosen"))
+    }.orEmpty()
+
+    /** Play plays [edition] of the open title (null: as released) */
+    suspend fun chooseVersion(edition: String?) { dx("phone.chooseVersion", edition ?: "") }
+
     /** One video of the open title watched or not (a film: its own id); [upTo]: and the episodes before it in its season */
     fun setWatched(videoId: String, watched: Boolean, upTo: Boolean = false) = scope.launch {
         ask("videoWatched", JSONObject().put("id", videoId).put("value", watched).put("upTo", upTo))

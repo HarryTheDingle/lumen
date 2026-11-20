@@ -38,6 +38,8 @@ class Scrubber(
     private val headers: Map<String, String>,
     /** OK played from earlier than where it was: from where, to where (the player shows subtitles over the bit gone back over) */
     private val wentBack: (fromMs: Long, toMs: Long) -> Unit = { _, _ -> },
+    /** False: the time alone, no pictures (none can be had of the version playing) */
+    picturesWanted: Boolean = true,
     private val controls: () -> Controls,
 ) {
     /** Where it was playing when the marker started moving */
@@ -53,7 +55,7 @@ class Scrubber(
     // the picture: read on its own thread, one at a time, and only the latest asked for
     private val reader = Executors.newSingleThreadExecutor()
     private var retriever: MediaMetadataRetriever? = null
-    private var pictures = !url.startsWith("file:")
+    private var pictures = picturesWanted && !url.startsWith("file:")
     @Volatile private var wanted = -1L
 
     private val bubble = LinearLayout(activity).apply {

@@ -342,9 +342,11 @@ class PlayerActivity : AppCompatActivity() {
             val previewUrl = preview?.optString("url")?.takeIf { it.startsWith("http") }
             val previewHeaders = mutableMapOf<String, String>()
             preview?.optJSONObject("headers")?.let { h -> h.keys().forEach { k -> previewHeaders[k] = h.optString(k) } }
-            android.util.Log.i("dxbi-player", "seek pictures from ${if (previewUrl != null) "the lightest stream" else "the stream playing"}")
+            // (no lighter stream of the version playing: the time alone, no pictures, rather than another cut's)
+            val noPictures = preview?.optBoolean("none") == true
+            android.util.Log.i("dxbi-player", "seek pictures from ${if (noPictures) "nowhere (no lighter stream of this version)" else if (previewUrl != null) "the lightest stream" else "the stream playing"}")
             // (a phone's seek bar shows its pictures itself, from the same lightest stream: see PhonePlayer)
-            if (remote) scrubber = Scrubber(this, exo, findViewById(R.id.seek_line), previewUrl ?: url, if (previewUrl != null) previewHeaders else headers, wentBack = { from, to -> replaySubtitles(from, to) }) { controls }
+            if (remote) scrubber = Scrubber(this, exo, findViewById(R.id.seek_line), previewUrl ?: url, if (previewUrl != null) previewHeaders else headers, wentBack = { from, to -> replaySubtitles(from, to) }, picturesWanted = !noPictures) { controls }
             tracks = TrackMemory(this, exo, stream.optString("videoId").substringBefore(':'))
         }
         // how fast the stream comes, for the network's memory

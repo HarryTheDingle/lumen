@@ -526,12 +526,15 @@ class Phone(private val lumos: Lumos) {
         // others' plays, or after several of theirs turned out not to (Easynews has played another show's episode)
         val main = candidates.filter { !Matching.searchBased(it.value.first.source) }
         val failed = list.count { (s, _) -> !Matching.searchBased(s.source) && key(s) in rejected }
-        val usable = when {
+        val usableAll = when {
             main.isNotEmpty() && failed < LAST_RESORT_AFTER -> main
             main.isNotEmpty() -> candidates
             settled || failed >= LAST_RESORT_AFTER -> candidates
             else -> return null
         }
+        // (the version chosen on the page, else the film as released; any there is when that's not among them)
+        val wanted = lumos.versionFor(openId)
+        val usable = usableAll.filter { it.value.second.edition == wanted }.ifEmpty { usableAll }
         lumos.rememberedChoice(openId)?.let { m ->
             val (source, res, group) = (m.split("|") + listOf("", "", "")).take(3)
             if (group.isNotEmpty()) usable.firstOrNull { it.value.first.bingeGroup == group }?.let { return Pick(it.index, "same", null) }
@@ -687,15 +690,53 @@ class Phone(private val lumos: Lumos) {
         return buildJsonArray { list.forEach { add(shownOption(it)) } }.toString()
     }
 
-    /** The seek bar's previews: the lightest web stream of [videoId] (720p, else 1080p, else what there is) */
+    /**
+     * The seek bar's previews: the lightest web stream of [videoId] (720p, else 1080p, else what there is) of the same
+     * version as the one playing (an Extended cut's pictures aren't where the released film's are), and lighter than it.
+     * None lighter of that version: {"none": true}, and the seek bar shows the time alone
+     */
     fun previewSource(videoId: String): String? {
         if (videoId != streamsVideo) return null
+        val now = playing?.let { p -> shown.firstOrNull { same(it.first, p) } }
         val web = shown.filter { (s, d) -> s.url?.startsWith("http") == true && !d.sample && !d.pending && d.source != "CAM" && d.res >= 480 }
+            .filter { (s, d) -> now == null || (d.edition == now.second.edition && d.res < now.second.res && !same(s, now.first)) }
+        if (now != null && web.isEmpty()) return buildJsonObject { put("none", true) }.toString()
         val pick = listOf(720, 1080, 480, 1440, 2160).map { r -> web.filter { it.second.res == r } }.firstOrNull { it.isNotEmpty() } ?: return null
         val (s, d) = pick.minBy { size(it.first, it.second).takeIf { v -> v > 0 } ?: Double.MAX_VALUE }
         return buildJsonObject {
             put("url", s.url!!); putJsonObject("headers") { s.headers.forEach { (k, v) -> put(k, v) } }; put("label", label(d))
         }.toString()
+    }
+
+    /**
+     * The versions of the open title its streams come in, when there's more than one: [{edition (null: as released), label
+     * (the best quality it comes in), streams}], the one chosen marked "chosen"; [] when there's only the one
+     */
+    fun versions(): String {
+        val list = described()
+        val groups = list.groupBy { it.second.edition }
+        if (groups.size < 2) return "[]"
+        val chosen = lumos.versionFor(openId)
+        val order = groups.keys.sortedWith(compareBy<String?> { it != null }.thenBy { it })
+        return buildJsonArray {
+            for (e in order) {
+                val streams = groups.getValue(e)
+                val (_, d) = streams.first()
+                add(buildJsonObject {
+                    e?.let { put("edition", it) }
+                    put("label", listOfNotNull(qualityName(d.res), if (d.dv) "Dolby Vision" else if (d.hdr) "HDR" else null, "IMAX".takeIf { d.imax }).joinToString(" · "))
+                    put("streams", streams.size)
+                    put("chosen", e == chosen)
+                })
+            }
+        }.toString()
+    }
+
+    /** The version Play plays for the open title (null: as released); a stream chosen by hand before is forgotten */
+    fun chooseVersion(edition: String?) {
+        lumos.chooseVersion(openId, edition)
+        lumos.forgetChoice(openId)
+        touchStreams()
     }
 
     /** A web stream's address, headers and listed size, to look at before it's played (null for a torrent) */

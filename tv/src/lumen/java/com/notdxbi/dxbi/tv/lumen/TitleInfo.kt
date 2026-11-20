@@ -1,5 +1,6 @@
 package com.notdxbi.dxbi.tv.lumen
 
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloat
@@ -286,20 +287,39 @@ private fun Turning(modifier: Modifier) {
 
 /** The round button beside Play: +, ✓, … */
 @Composable
-fun RoundButton(icon: ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, tint: Color = Color.White) {
-    IconButton(
+fun RoundButton(icon: ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, tint: Color = Color.White, expands: Boolean = false) {
+    // [expands]: chosen, it opens out into a pill with its name beside the icon ("Add to Library", "Rate"), the buttons
+    // beside it moving along to make room, as Apple TV's do; back to a circle when the remote moves on
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(50)
+    androidx.tv.material3.Surface(
         onClick = onClick,
-        modifier = modifier,
-        colors = IconButtonDefaults.colors(
+        modifier = modifier.onFocusChanged { focused = it.isFocused || it.hasFocus },
+        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(shape),
+        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
             containerColor = Glass.Fill,
             contentColor = tint,
             focusedContainerColor = Color(0xFFE8E8E8),
             focusedContentColor = Color.Black,
         ),
-        scale = IconButtonDefaults.scale(focusedScale = 1.1f),
-        border = IconButtonDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Glass.Edge), shape = androidx.compose.foundation.shape.CircleShape), focusedBorder = androidx.tv.material3.Border.None),
+        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = if (expands) 1.04f else 1.1f),
+        border = androidx.tv.material3.ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Glass.Edge), shape = shape), focusedBorder = androidx.tv.material3.Border.None),
     ) {
-        Icon(icon, contentDescription = label)
+        androidx.compose.foundation.layout.Row(
+            Modifier.height(40.dp).widthIn(min = 40.dp).padding(horizontal = 10.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+        ) {
+            Icon(icon, contentDescription = label, modifier = Modifier.size(20.dp))
+            if (expands) androidx.compose.animation.AnimatedVisibility(
+                visible = focused,
+                enter = androidx.compose.animation.expandHorizontally(tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                    fadeIn(tween(200, delayMillis = 80)),
+                exit = androidx.compose.animation.shrinkHorizontally(tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)) + fadeOut(tween(120)),
+            ) {
+                Text(label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.padding(start = 8.dp, end = 4.dp))
+            }
+        }
     }
 }
 

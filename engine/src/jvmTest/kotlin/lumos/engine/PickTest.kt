@@ -162,4 +162,20 @@ class PickTest {
         )
         assertEquals("tt0903747:1:2", lumos.phone.guessVideo("series", "tt0903747", meta))
     }
+
+    @Test fun playPlaysTheVersionChosen() {
+        val streams = listOf(
+            s("Torz", "4K", title = "Avengers.Endgame.2019.Encore.2160p.WEB-DL.DV", group = "torz|encore"),
+            s("Torz", "4K", title = "Avengers.Endgame.2019.2160p.WEB-DL.DV", group = "torz|4k"),
+            s("Torz", "1080p", title = "Avengers.Endgame.2019.Encore.1080p.WEB-DL", group = "torz|encore1080"),
+        )
+        val (lumos, list) = lumosWith(streams)
+        // (as released, unless another is chosen)
+        assertEquals(null, list[lumos.phone.pick(list)!!.index].second.edition)
+        assertEquals(2, kotlinx.serialization.json.Json.parseToJsonElement(lumos.phone.versions()).let { (it as kotlinx.serialization.json.JsonArray).size })
+        lumos.phone.chooseVersion("Encore")
+        val picked = list[lumos.phone.pick(list)!!.index].second
+        assertEquals("Encore", picked.edition)
+        assertEquals(2160, picked.res)
+    }
 }

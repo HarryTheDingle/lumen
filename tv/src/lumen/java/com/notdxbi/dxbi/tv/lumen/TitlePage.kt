@@ -60,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.RateReview
+import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.ui.draw.alpha
@@ -191,6 +192,8 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
     var myRating by remember(ref.id) { mutableStateOf<Int?>(null) }
     var rating by remember { mutableStateOf(false) }
     var scoresOpen by remember { mutableStateOf(false) }
+    // the versions its streams come in (Extended, Encore...), asked again as the streams come
+    var versions by remember { mutableStateOf<List<Stremio.Version>>(emptyList()) }
     LaunchedEffect(ref.id) { myRating = stremio.rating(ref.id) }
     var menu by remember { mutableStateOf<Pair<String, List<Action>>?>(null) }
     // In the Library: what was just chosen here, else what the title came with, what its own page says, or the Library's
@@ -261,6 +264,8 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
         }
     }
     // the episode picked shows in its season (back from the player, it's the next one: dxbi-engine.js afterPlaying)
+    // (the streams as they come: whenever the page's details are made again, the versions are asked again)
+    LaunchedEffect(mine) { if (mine != null) versions = runCatching { stremio.versions() }.getOrDefault(versions) }
     LaunchedEffect(d?.videoId) {
         d?.videos?.firstOrNull { it.id == d.videoId }?.season?.let { season = it }
     }
@@ -426,6 +431,15 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                             notOut = notOut,
                             looking = looking,
                             onScores = { scoresOpen = true },
+                            versions = versions.size,
+                            onVersions = {
+                                menu = "${title.name} · Versions" to versions.map { v ->
+                                    Action(
+                                        "${v.edition ?: "As released"} · ${v.label}",
+                                        if (v.chosen) Icons.Filled.Check else Icons.Outlined.VideoLibrary,
+                                    ) { scope.launch { stremio.chooseVersion(v.edition); versions = stremio.versions() } }
+                                }
+                            },
                             onLookAgain = {
                                 looking = true
                                 choices = null
@@ -436,7 +450,8 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                             tag = (Labels.known[ref.id]?.takeIf { it.isNotEmpty() && !it.startsWith("#") } ?: if (title.watched) "Watched" else null)
                                 ?.takeUnless { t -> (nothingNotice ?: notice?.first)?.startsWith(t, ignoreCase = true) == true },
                             height = screen,
-                            playLabel = playLabel(ref, d),
+                            // (another version chosen: Play says which)
+                            playLabel = playLabel(ref, d).let { l -> versions.firstOrNull { it.chosen && it.edition != null }?.let { "$l ${it.edition}" } ?: l },
                             inList = inList,
                             playFocus = playFocus,
                             // (the episodes aren't there to move to until they're scrolled in: in first, then onto the one they're on)
@@ -725,6 +740,9 @@ private fun Header(
     onRate: () -> Unit,
     onMore: () -> Unit,
     onScores: () -> Unit = {},
+    /** How many versions its streams come in (Versions shows from 2) */
+    versions: Int = 0,
+    onVersions: () -> Unit = {},
     notice: String? = null,
     facts: TitleFacts? = null,
     tag: String? = null,
@@ -791,17 +809,21 @@ private fun Header(
                     loading = available == null || looking,
                 )
                 RoundButton(
-                    if (inList) Icons.Filled.Check else Icons.Filled.Add, if (inList) "In your Library" else "Add to Library", onList,
+                    if (inList) Icons.Filled.Check else Icons.Filled.Add, if (inList) "In Your Library" else "Add to Library", onList,
                     if (nothing) Modifier.focusRequester(playFocus) else Modifier,
+                    expands = true,
                 )
             }
             RoundButton(
                 if (rated != null) Icons.Filled.Star else Icons.Outlined.StarBorder,
                 if (rated != null) "Rated $rated/10" else "Rate", onRate,
                 tint = if (rated != null) RatingYellow else Color.White,
+                expands = true,
             )
             // (every score, larger, with how many voted: the summary shows four at most)
-            if (reviews?.scores?.isNotEmpty() == true) RoundButton(Icons.Outlined.RateReview, "Scores", onScores)
+            if (reviews?.scores?.isNotEmpty() == true) RoundButton(Icons.Outlined.RateReview, "Scores", onScores, expands = true)
+            // (more than one version of it among the streams: Extended, Director's Cut, a re-release like Endgame's Encore)
+            if (versions > 1) RoundButton(Icons.Outlined.VideoLibrary, "$versions Versions", onVersions, expands = true)
             RoundButton(Icons.Filled.MoreHoriz, "More", onMore)
         }
         // who's in it, and who made it

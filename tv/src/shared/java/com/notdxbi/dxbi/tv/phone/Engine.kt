@@ -590,6 +590,8 @@ class Engine(context: Context) {
             "phone.alternatives" -> obj(core.phone.alternatives(num(0) ?: 0.0))
             "phone.lighter" -> JSONArray(core.phone.lighter(num(0) ?: 0.0, num(1) ?: 0.0))
             "phone.previewSource" -> core.phone.previewSource(args.optString(0))?.let(::obj)
+            "phone.versions" -> runCatching { JSONArray(core.phone.versions()) }.getOrDefault(JSONArray())
+            "phone.chooseVersion" -> { core.phone.chooseVersion(args.optString(0).ifEmpty { null }); true }
             "phone.probe" -> num(0)?.toInt()?.let { core.phone.probe(it) }?.let(::obj)
             "phone.reject" -> num(0)?.toInt()?.let { core.phone.reject(it) }
             "skipSegments" -> JSONArray(runCatching { core.phone.skipSegments(args.optString(0), args.optString(1), args.optString(2)) }.getOrDefault("[]"))

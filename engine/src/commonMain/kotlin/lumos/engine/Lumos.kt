@@ -317,6 +317,15 @@ class Lumos(syncServer: String) {
     private val choices = mutableMapOf<String, String>()
     fun rememberChoice(metaId: String, memory: String) { choices[metaId] = memory }
     fun rememberedChoice(metaId: String): String? = choices[metaId]
+    fun forgetChoice(metaId: String) { choices.remove(metaId) }
+
+    /**
+     * The version chosen for each title (Extended, Director's Cut, Encore...; "" for the film as released): Play plays that
+     * one. Not chosen: as released, where there is one
+     */
+    private val versions = mutableMapOf<String, String>()
+    fun versionFor(metaId: String): String? = versions[metaId]?.ifEmpty { null }
+    fun chooseVersion(metaId: String, edition: String?) { versions[metaId] = edition.orEmpty() }
 
     // ---- Kept between launches ----
 
