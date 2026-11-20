@@ -378,16 +378,30 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
         }.getOrDefault(true)
     }
 
-    /** Whether this device can play [s]: no 10-bit HEVC (every HDR or Dolby Vision file, nearly every 4K one) without a Main10 decoder; Dolby Vision alone needs its own */
-    fun canDecode(s: StreamOption): Boolean {
-        if (s.dvOnly && !hasDolbyVisionDecoder) return false
+    /** Whether the attached TV supports Dolby Vision and its max physical height (0 if unknown) */
+    private fun displayLimits(): Pair<Boolean, Int> = runCatching {
+        val dm = app.getSystemService(Context.DISPLAY_SERVICE) as? android.hardware.display.DisplayManager
+        val display = dm?.getDisplay(android.view.Display.DEFAULT_DISPLAY) ?: return true to 0
+        val hdrTypes = display.hdrCapabilities?.supportedHdrTypes
+        val dv = hdrTypes != null && android.view.Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION in hdrTypes
+        val maxHeight = display.supportedModes.maxOfOrNull { minOf(it.physicalWidth, it.physicalHeight) } ?: 0
+        dv to maxHeight
+    }.getOrDefault(true to 0)
+
+    /** Whether this device and its attached TV can play [s]: Dolby Vision needs both decoder and TV support; skips resolutions above the TV's max mode; 10-bit HEVC needs Main10 */
+    fun canDecode(s: StreamOption, tvDv: Boolean = true, maxHeight: Int = 0): Boolean {
+        if (s.dv && !(hasDolbyVisionDecoder && tvDv)) return false
+        if (maxHeight > 0 && s.res > maxHeight) return false
         val tenBit = s.codec == "HEVC" && (s.hdr || s.dv || s.res >= 2160 || TEN_BIT.containsMatchIn(s.filename))
         return !tenBit || hasHevcMain10Decoder
     }
     private val TEN_BIT = Regex("""10[ ._-]?bit|hi10p?|main10""", RegexOption.IGNORE_CASE)
 
     /** The open title's streams, described by dx.bi, with Just press Play's pick */
-    suspend fun streams(): StreamChoices? = (dx("phone.streams") as? JSONObject)?.let(StreamChoices::from)?.withDecodable(::canDecode)
+    suspend fun streams(): StreamChoices? {
+        val (tvDv, maxHeight) = displayLimits()
+        return (dx("phone.streams") as? JSONObject)?.let(StreamChoices::from)?.withDecodable { canDecode(it, tvDv, maxHeight) }
+    }
 
     /**
      * Plays one of [streams] (dx.bi keeps the next best ready in case it won't play) in dx.bi's player
