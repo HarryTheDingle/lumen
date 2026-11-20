@@ -92,15 +92,31 @@ class PlayerActivity : AppCompatActivity() {
             own.mapTo(out) { DelayedText(it) { delay.ms * 1000 } }
         }
 
-        override fun buildAudioSink(context: android.content.Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink =
-            DefaultAudioSink.Builder(context)
-                // Decode compressed surround (AC3/EAC3/DTS/TrueHD) to PCM instead of raw HDMI passthrough,
-                // which some TVs/boxes advertise in EDID without actually outputting sound (and lets SoundMode run)
-                .setAudioCapabilities(androidx.media3.exoplayer.audio.AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
+        private fun defaultPassthrough(): Boolean {
+            val mfg = android.os.Build.MANUFACTURER
+            val model = android.os.Build.MODEL
+            return mfg.equals("Sony", ignoreCase = true) ||
+                mfg.equals("Xiaomi", ignoreCase = true) ||
+                (mfg.equals("Google", ignoreCase = true) && model.contains("Google TV Streamer", ignoreCase = true)) ||
+                model.contains("Mi Box", ignoreCase = true) ||
+                model.contains("MIBOX", ignoreCase = true)
+        }
+
+        override fun buildAudioSink(context: android.content.Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink {
+            // HDMI passthrough is on for known-good devices (Google TV Streamer, Sony, Mi Box) and off by default
+            // on new/unknown devices so boxes with broken EDID/hal bitstream ports decode surround to PCM instead of going silent.
+            val builder = if (defaultPassthrough()) {
+                DefaultAudioSink.Builder(context)
+            } else {
+                @Suppress("DEPRECATION")
+                DefaultAudioSink.Builder().setAudioCapabilities(androidx.media3.exoplayer.audio.AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
+            }
+            return builder
                 .setEnableFloatOutput(false) // (Dialogue boost works on 16-bit sound)
                 .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                 .setAudioProcessors(arrayOf(sound))
                 .build()
+        }
     }
 
     private val phone get() = (getSystemService(UI_MODE_SERVICE) as android.app.UiModeManager).currentModeType != Configuration.UI_MODE_TYPE_TELEVISION &&
