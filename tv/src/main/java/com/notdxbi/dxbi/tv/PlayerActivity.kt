@@ -463,8 +463,24 @@ class PlayerActivity : AppCompatActivity() {
             override fun onTracksChanged(tracks: Tracks) {
                 this@PlayerActivity.tracks?.changed(tracks)
                 // (whatever the file started on, a commentary or a description track isn't the film: its English sound is)
-                if (!audioChecked && tracks.groups.any { it.type == C.TRACK_TYPE_AUDIO }) {
+                val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+                if (!audioChecked && audioGroups.isNotEmpty()) {
                     audioChecked = true
+                    val audioDesc = audioGroups.flatMap { g -> (0 until g.length).map { i -> g.getTrackFormat(i).let { f -> "${f.language ?: "?"}/${f.sampleMimeType ?: "?"}/${f.channelCount}ch${if (!g.isTrackSupported(i)) " UNSUPPORTED" else ""}${if (g.isTrackSelected(i)) " *" else ""}" } } }
+                    android.util.Log.i("lumen-play", "audio: ${audioDesc.joinToString(", ")}")
+                    if (audioGroups.none { g -> (0 until g.length).any { g.isTrackSupported(it) } }) {
+                        returnTo?.let { back ->
+                            returnTo = null
+                            putStream(back.url, back.headers, back.key, back.index, exo.currentPosition, null)
+                            flashText("That stream has no playable audio")
+                            if (back.index >= 0) Phone.pageCall("phone.source", org.json.JSONArray().put(back.index)) {}
+                            return
+                        }
+                        lastError = "No playable audio"
+                        loading?.retrying(lastError.orEmpty())
+                        finishWith(error = lastError)
+                        return
+                    }
                     plainAudio(tracks)?.let { (group, i) ->
                         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon().setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, i)).build()
                     }
