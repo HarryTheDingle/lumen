@@ -96,6 +96,7 @@ private sealed interface Item {
     data class Link(override val key: String, val title: String, override val help: String, val action: () -> Unit) : Item
     /** Pressed twice (the first press says what the second does), for what can't be undone */
     data class Action(override val key: String, val title: String, val confirm: String, override val help: String, val action: () -> Unit) : Item
+    data class Toggle(override val key: String, val title: String, val on: Boolean, override val help: String, val onToggle: () -> Unit) : Item
     data class Info(override val key: String, val title: String, val value: String, override val help: String = "") : Item
 }
 
@@ -118,6 +119,7 @@ fun SettingsScreen(stremio: Stremio, nav: Nav) {
     var addons by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var speed by remember { mutableStateOf<String?>(null) }
     var refocus by remember { mutableStateOf<String?>(null) }
+    var passthroughOn by remember { mutableStateOf(com.notdxbi.dxbi.tv.PlayerActivity.passthroughEnabled(context)) }
     val viewers by stremio.viewers.collectAsState()
     val sectionFocus = remember { Section.entries.associateWith { FocusRequester() } }
     val rightFirst = remember { FocusRequester() }
@@ -158,6 +160,15 @@ fun SettingsScreen(stremio: Stremio, nav: Nav) {
         Section.Playback, Section.Subtitles, Section.Episodes, Section.Player -> if (settings.isEmpty()) emptyList() else buildList {
             settings.filter { it.group == section.group }.forEach { add(Item.Value(it)) }
             if (section == Section.Playback) add(Item.Link("networks", "Networks", "The speed Lumen has learnt on each Wi-Fi or cable connection, and a quality cap for each.") { nav.push(Page.Networks) })
+            if (section == Section.Player) add(Item.Toggle(
+                "hdmiPassthrough",
+                "HDMI audio passthrough",
+                passthroughOn,
+                "Send Dolby and DTS straight to your TV or receiver. Off: decode to PCM on this box (best if surround streams have no sound).",
+            ) {
+                passthroughOn = !passthroughOn
+                com.notdxbi.dxbi.tv.PlayerActivity.setPassthroughEnabled(context, passthroughOn)
+            })
         }
         Section.Home -> listOf(
             Item.Link("taste", "Tune Suggestions", "Tell Lumen what you like so Home suggests more of it.") { tasteState?.tuning = true },
@@ -282,6 +293,7 @@ fun SettingsScreen(stremio: Stremio, nav: Nav) {
                                 is Item.Action -> SettingLine(if (armed) item.confirm else item.title, null, warn = armed, modifier = mod, onClick = {
                                     if (armed) { armed = false; item.action() } else armed = true
                                 })
+                                is Item.Toggle -> SettingLine(item.title, if (item.on) "On" else "Off", modifier = mod, onClick = item.onToggle)
                                 is Item.Info -> SettingLine(item.title, item.value, modifier = mod, onClick = {})
                             }
                         }

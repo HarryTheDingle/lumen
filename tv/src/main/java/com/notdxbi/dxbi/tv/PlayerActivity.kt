@@ -92,20 +92,10 @@ class PlayerActivity : AppCompatActivity() {
             own.mapTo(out) { DelayedText(it) { delay.ms * 1000 } }
         }
 
-        private fun defaultPassthrough(): Boolean {
-            val mfg = android.os.Build.MANUFACTURER
-            val model = android.os.Build.MODEL
-            return mfg.equals("Sony", ignoreCase = true) ||
-                mfg.equals("Xiaomi", ignoreCase = true) ||
-                (mfg.equals("Google", ignoreCase = true) && model.contains("Google TV Streamer", ignoreCase = true)) ||
-                model.contains("Mi Box", ignoreCase = true) ||
-                model.contains("MIBOX", ignoreCase = true)
-        }
-
         override fun buildAudioSink(context: android.content.Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink {
-            // HDMI passthrough is on for known-good devices (Google TV Streamer, Sony, Mi Box) and off by default
-            // on new/unknown devices so boxes with broken EDID/hal bitstream ports decode surround to PCM instead of going silent.
-            val builder = if (defaultPassthrough()) {
+            // HDMI passthrough is on by default for known-good devices (Google TV Streamer, Sony, Mi Box) and off
+            // by default on new/unknown devices, with a per-device override in Settings → Player.
+            val builder = if (passthroughEnabled(context)) {
                 DefaultAudioSink.Builder(context)
             } else {
                 @Suppress("DEPRECATION")
@@ -1157,5 +1147,27 @@ class PlayerActivity : AppCompatActivity() {
         const val EXTRA_STREAM = "stream"
         private const val PROGRESS_INTERVAL_MS = 5000L
         private const val SEEK_STEP_MS = 10_000L
+        private const val DEVICE_PREFS = "lumen_device"
+        private const val KEY_PASSTHROUGH = "hdmi_passthrough"
+
+        fun defaultPassthrough(): Boolean {
+            val mfg = android.os.Build.MANUFACTURER
+            val model = android.os.Build.MODEL
+            return mfg.equals("Sony", ignoreCase = true) ||
+                mfg.equals("Xiaomi", ignoreCase = true) ||
+                (mfg.equals("Google", ignoreCase = true) && model.contains("Google TV Streamer", ignoreCase = true)) ||
+                model.contains("Mi Box", ignoreCase = true) ||
+                model.contains("MIBOX", ignoreCase = true)
+        }
+
+        fun passthroughEnabled(context: android.content.Context): Boolean {
+            val prefs = context.getSharedPreferences(DEVICE_PREFS, android.content.Context.MODE_PRIVATE)
+            return if (prefs.contains(KEY_PASSTHROUGH)) prefs.getBoolean(KEY_PASSTHROUGH, defaultPassthrough()) else defaultPassthrough()
+        }
+
+        fun setPassthroughEnabled(context: android.content.Context, enabled: Boolean) {
+            context.getSharedPreferences(DEVICE_PREFS, android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_PASSTHROUGH, enabled).apply()
+        }
     }
 }
