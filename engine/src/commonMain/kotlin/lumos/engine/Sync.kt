@@ -223,6 +223,8 @@ class Sync(private val server: String, private val http: HttpClient, var session
         title: String,
         channelId: String? = null,
         category: String? = null,
+        description: String? = null,
+        imdb: Boolean = false,
     ): EpgEnrichment {
         val clean = title.trim()
         if (clean.isEmpty()) return EpgEnrichment()
@@ -230,6 +232,8 @@ class Sync(private val server: String, private val http: HttpClient, var session
             put("title", clean)
             channelId?.takeIf { it.isNotBlank() }?.let { put("channelId", it) }
             category?.takeIf { it.isNotBlank() }?.let { put("category", it) }
+            description?.takeIf { it.isNotBlank() }?.let { put("description", it.take(400)) }
+            if (imdb) put("imdb", true)
         }
         return IptvCodec.decodeEpgEnrichment(call("/epg/enrich", body, signed = true).toString())
     }

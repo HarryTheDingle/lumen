@@ -86,7 +86,8 @@ enum class Tab(val label: String, val icon: ImageVector) {
 
 /** A page over the tabs */
 sealed interface Page {
-    data class Details(val title: Title, val play: Boolean = false) : Page
+    /** [videoId]: an episode to play (Play goes to it rather than the next one); from a channel's "Watch in Lumen" */
+    data class Details(val title: Title, val play: Boolean = false, val videoId: String? = null) : Page
     /** Someone from a cast: TMDB's id for them, their name and photo (shown while it loads) */
     data class Person(val id: String, val name: String, val photo: String?) : Page
     /** Who's watching? and the accounts */

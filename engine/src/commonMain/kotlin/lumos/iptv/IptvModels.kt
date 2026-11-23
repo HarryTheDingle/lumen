@@ -341,6 +341,9 @@ data class EpgEnrichment(
     val description: String? = null,
     val tmdbId: Int? = null,
     val mediaType: String? = null,
+    /** The title's IMDb id (Lumen's own ids), when asked for: what "Watch in Lumen" opens */
+    val imdbId: String? = null,
+    val year: Int? = null,
 )
 
 /** Conflict warning when an IPTV source already has active viewers or exhausted connection slots. */

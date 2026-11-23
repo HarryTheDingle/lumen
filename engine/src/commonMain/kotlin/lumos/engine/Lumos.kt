@@ -404,7 +404,9 @@ class Lumos(syncServer: String) {
         title: String,
         channelId: String? = null,
         category: String? = null,
-    ): EpgEnrichment = sync.enrichEpgProgramme(title, channelId, category)
+        description: String? = null,
+        imdb: Boolean = false,
+    ): EpgEnrichment = sync.enrichEpgProgramme(title, channelId, category, description, imdb)
 
     /** Reports or checks concurrent IPTV viewer presence for [sourceId]; returns null when offline or signed out. */
     suspend fun iptvPresence(action: String, sourceId: String, channelName: String? = null): String? =

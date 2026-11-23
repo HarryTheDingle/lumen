@@ -125,7 +125,7 @@ import org.json.JSONObject
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
+fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVideoId: String? = null) {
     val context = LocalContext.current
     val covered = LocalCovered.current
     val live by stremio.details.collectAsState()
@@ -251,16 +251,18 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
 
     // A series: the episode they're on, ready before Play is pressed. Play pressed early (or the page
     // opened to play) goes once the title's in.
-    LaunchedEffect(ready, wantPlay) {
+    LaunchedEffect(ready, wantPlay, if (playVideoId != null) mine?.videoId else null) {
         val dd = mine ?: return@LaunchedEffect
         if (!ready) return@LaunchedEffect
         if (ref.type == "series") {
-            if (season == null) season = nextVideo(dd)?.season ?: dd.seasons.firstOrNull()
+            if (season == null) season = (playVideoId?.split(":")?.getOrNull(1)?.toIntOrNull()) ?: nextVideo(dd)?.season ?: dd.seasons.firstOrNull()
+            // (asked for a particular episode, a channel's: that one's streams, not the next one's)
+            if (playVideoId != null && dd.videoId != playVideoId) { stremio.open(ref.type, ref.id, playVideoId); return@LaunchedEffect }
             if (dd.videoId == null) nextVideo(dd)?.let { stremio.open(ref.type, ref.id, it.id) }
         }
         if (wantPlay) {
             wantPlay = false
-            start(nextVideo(dd)?.id)
+            start(playVideoId ?: nextVideo(dd)?.id)
         }
     }
     // the episode picked shows in its season (back from the player, it's the next one: dxbi-engine.js afterPlaying)

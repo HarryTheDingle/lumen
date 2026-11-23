@@ -231,6 +231,15 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
     if (nav.menuOpen) SideMenu(nav, account?.email, viewer)
     // a programme or match reminder that's due shows over everything in Lumen
     com.notdxbi.dxbi.tv.lumen.live.ReminderCard(stremio.engine)
+    // a channel's film or episode, to watch in Lumen: open it and play (the live player has let the channel go)
+    val handoff by com.notdxbi.dxbi.tv.live.LumenHandoff.pending.collectAsState()
+    LaunchedEffect(handoff) {
+        val r = handoff ?: return@LaunchedEffect
+        com.notdxbi.dxbi.tv.live.LumenHandoff.pending.value = null
+        nav.pages.clear()
+        nav.pages += Page.Details(com.notdxbi.dxbi.tv.phone.Title(id = r.id, type = r.type, name = r.name, background = r.background), play = true, videoId = r.videoId)
+    }
+    com.notdxbi.dxbi.tv.lumen.live.BackToChannelCard(stremio.engine)
 
     // Back: the top page fades out, then goes (the effect restarts if Back is pressed again, which finishes it at once)
     LaunchedEffect(nav.leaving) {
@@ -249,7 +258,7 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
                 LocalLeaving provides (nav.leaving && i == nav.pages.lastIndex),
             ) {
                 when (page) {
-                    is Page.Details -> TitlePage(stremio, nav, page.title, page.play)
+                    is Page.Details -> TitlePage(stremio, nav, page.title, page.play, page.videoId)
                     is Page.Person -> PersonPage(stremio, nav, page)
                     Page.Networks -> PageWindow(onBack = { nav.back() }) { NetworksScreen(stremio) }
                     is Page.Genre -> GenrePage(nav, feed, page.name)

@@ -77,6 +77,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        com.notdxbi.dxbi.tv.live.LumenHandoff.let { h ->
+            if (h.playerOpened) {
+                h.playerOpened = false
+                h.backOffer.value = h.returnTo
+                h.returnTo = null
+            }
+        }
         window.decorView.postDelayed({ getSharedPreferences("phone-cache", MODE_PRIVATE).edit().remove("x.playerUntil").apply() }, 4000)
         hideSystemBars()
         Updates.onResume(this)
@@ -89,6 +96,13 @@ class MainActivity : AppCompatActivity() {
 
     /** A stream for the player (from the engine) */
     fun play(json: String) {
+        // (from a channel's "Watch in Lumen": start where it was asked, and offer the channel back when it closes)
+        val handoff = com.notdxbi.dxbi.tv.live.LumenHandoff
+        val json = handoff.startMsOnce?.let { at ->
+            handoff.startMsOnce = null
+            runCatching { org.json.JSONObject(json).put("startMs", at).toString() }.getOrDefault(json)
+        } ?: json
+        if (handoff.returnTo != null) handoff.playerOpened = true
         PlaybackBus.started(json)
         // (the TV may close this screen while the player has it: coming back mustn't ask who's watching again)
         getSharedPreferences("phone-cache", MODE_PRIVATE).edit().putLong("x.playerUntil", System.currentTimeMillis() + 12 * 3600_000L).apply()

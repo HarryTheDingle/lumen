@@ -123,6 +123,9 @@ data class LiveOverlayActions(
     val onGoLive: () -> Unit,
     /** The programme on now, from its start (catch-up) */
     val onWatchFromStart: () -> Unit = {},
+    /** Lumen has what's on: play it there (true: from its start; false: from where the channel is) */
+    val onWatchInLumen: (Boolean) -> Unit = {},
+    val onDismissLumenOffer: () -> Unit = {},
     val onZapPrev: () -> Unit,
     val onZapNext: () -> Unit,
     val onCycleSoundMode: () -> Unit,
@@ -334,6 +337,8 @@ class LivePlayerActivity : AppCompatActivity() {
                     )
                 }
             },
+            onWatchInLumen = { fromStart -> watchInLumen(fromStart) },
+            onDismissLumenOffer = { LumenHandoff.dismiss() },
             onZapPrev = { zapRelative(-1) },
             onZapNext = { zapRelative(+1) },
             onCycleSoundMode = {
@@ -498,7 +503,7 @@ class LivePlayerActivity : AppCompatActivity() {
         val conflictOpen = viewerConflictFlow.value != null
 
         if (event.action == KeyEvent.ACTION_DOWN) {
-            if (conflictOpen) {
+            if (conflictOpen || (LumenHandoff.offer.value != null && !osdOpen)) {
                 return super.dispatchKeyEvent(event)
             }
             when (event.keyCode) {
@@ -814,6 +819,7 @@ class LivePlayerActivity : AppCompatActivity() {
                     stream = stream,
                     isCatchup = resolved.isCatchup,
                 )
+                if (!resolved.isCatchup) lookForLumenCopy(liveStore, channel) else LumenHandoff.offer.value = null
                 if (!suppressOsd) {
                     showOsd(autoHide = true)
                 }
@@ -1360,8 +1366,61 @@ class LivePlayerActivity : AppCompatActivity() {
         }
     }
 
+    private var lumenOfferJob: Job? = null
+
+    /** A film, or an episode the guide numbers, that Lumen has: offer it there (a much better picture) */
+    private fun lookForLumenCopy(liveStore: LiveTvStore, channel: CanonicalChannel) {
+        lumenOfferJob?.cancel()
+        LumenHandoff.offer.value = null
+        lumenOfferJob = lifecycleScope.launch {
+            delay(4_000L)
+            val now = System.currentTimeMillis()
+            val prog = liveStore.nowAndNext(channel, now).first ?: return@launch
+            if ("${channel.id}:${prog.startMs}" in LumenHandoff.answered) return@launch
+            if (prog.isLiveSport || Regex("news|sport|weather|live", RegexOption.IGNORE_CASE).containsMatchIn(prog.category.orEmpty())) return@launch
+            val found = liveStore.findInLumen(channel, prog) ?: return@launch
+            if (currentChannelFlow.value.id != channel.id) return@launch
+            val imdb = found.imdbId ?: return@launch
+            val episode = LumenHandoff.episodeOf(prog.subtitle, prog.title, prog.description)
+            val (type, videoId, label) = when {
+                found.mediaType == "movie" -> Triple("movie", null, "Film")
+                episode != null -> Triple("series", "$imdb:${episode.first}:${episode.second}", "S${episode.first}, E${episode.second}")
+                else -> return@launch
+            }
+            LumenHandoff.offer.value = LumenHandoff.Offer(
+                programmeKey = "${channel.id}:${prog.startMs}",
+                name = prog.title.replace(Regex("^(?:new|film|movie)\\s*:\\s*", RegexOption.IGNORE_CASE), ""),
+                label = label,
+                joinMs = (now - prog.startMs).coerceAtLeast(0L),
+                request = LumenHandoff.Request(
+                    id = imdb, type = type, name = prog.title, background = found.backdrop,
+                    videoId = videoId, channelId = channel.id, channelName = channel.name,
+                ),
+            )
+            // (an offer that isn't taken goes after a while)
+            delay(25_000L)
+            LumenHandoff.offer.value = null
+        }
+    }
+
+    private fun watchInLumen(fromStart: Boolean) {
+        val offer = LumenHandoff.offer.value ?: return
+        LumenHandoff.dismiss()
+        LumenHandoff.startMsOnce = if (fromStart) 0L else offer.joinMs
+        LumenHandoff.returnTo = offer.request.channelId to offer.request.channelName
+        LumenHandoff.pending.value = offer.request
+        // the channel's let go of (most lines allow one connection) and Lumen's screens take over
+        tuneJob?.cancel()
+        stopPresenceIfNeeded()
+        exoEngine.releaseCurrentSync()
+        finish()
+    }
+
     private fun handleBackNavigation() {
         when {
+            LumenHandoff.offer.value != null -> {
+                LumenHandoff.dismiss()
+            }
             viewerConflictFlow.value != null -> {
                 conflictDecisionDeferred?.complete(ConflictResolution.Cancel)
             }

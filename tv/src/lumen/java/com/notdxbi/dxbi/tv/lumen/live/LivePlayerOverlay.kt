@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
@@ -169,6 +170,19 @@ fun LivePlayerOverlay(
                 .padding(start = 48.dp, bottom = 36.dp),
         ) {
             ZapBanner(state = state)
+        }
+
+        // "Watch in Lumen": what's on is in Lumen, in a much better picture
+        val lumenOffer by com.notdxbi.dxbi.tv.live.LumenHandoff.offer.collectAsState()
+        AnimatedVisibility(
+            visible = lumenOffer != null && !state.osdVisible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 48.dp, bottom = 40.dp),
+        ) {
+            lumenOffer?.let { offer -> LumenOfferCard(offer, onWatch = actions.onWatchInLumen) }
         }
 
         // Top 130dp gradient scrim (Back button + Clock)
@@ -1402,4 +1416,29 @@ private fun channelCountName(count: Int): String = when (count) {
     6 -> "5.1"
     8 -> "7.1"
     else -> "${count}ch"
+}
+
+
+@Composable
+private fun LumenOfferCard(offer: com.notdxbi.dxbi.tv.live.LumenHandoff.Offer, onWatch: (Boolean) -> Unit) {
+    val first = remember { FocusRequester() }
+    LaunchedEffect(offer.programmeKey) { delay(80); runCatching { first.requestFocus() } }
+    val mins = offer.joinMs / 60_000L
+    val join = if (mins >= 60) "%d:%02d".format(mins / 60, mins % 60) else "${mins} min"
+    Column(
+        modifier = Modifier
+            .width(400.dp)
+            .background(Color(0xEB242426), RoundedCornerShape(22.dp))
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text("In Lumen · ${offer.label}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted)
+        Text(offer.name, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("Watch it in Lumen for a much sharper picture. When it ends you can come back to the channel.", fontSize = 13.sp, color = Dx.Muted)
+        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            LiveChip(label = if (mins >= 2) "From $join" else "Watch", selected = true, onClick = { onWatch(false) }, modifier = Modifier.focusRequester(first))
+            if (mins >= 2) LiveChip(label = "From the start", selected = false, onClick = { onWatch(true) })
+        }
+        Text("Back: not now", fontSize = 11.sp, color = Dx.Faint)
+    }
 }

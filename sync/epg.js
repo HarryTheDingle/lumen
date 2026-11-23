@@ -1082,7 +1082,10 @@ function cleanTitleForTmdb(raw) {
  * Safely degrades to null fields when LUMOS_TMDB_KEY is absent.
  */
 export async function enrichEpgProgramme(env, opts = {}, now = Date.now()) {
-  const empty = { backdrop: null, description: null, tmdbId: null, mediaType: null };
+  const empty = { backdrop: null, description: null, tmdbId: null, mediaType: null, imdbId: null, year: null };
+  // (asked for by the live player's "Watch in Lumen": Lumen's titles are IMDb ids; a film's year from the guide's "[2017]")
+  const wantImdb = Boolean(opts && opts.imdb);
+  const guideYear = Number((String((opts && opts.description) || "").match(/\[((?:19|20)\d\d)\]/) || [])[1]) || null;
   const cleanedTitle = cleanTitleForTmdb(opts && opts.title);
   if (!cleanedTitle) return empty;
 
@@ -1094,17 +1097,19 @@ export async function enrichEpgProgramme(env, opts = {}, now = Date.now()) {
   const keySlug = normText(cleanedTitle);
   if (!keySlug) return empty;
 
-  const cacheKey = `epg:enrich:${mode}:${keySlug}`;
+  const cacheKey = `epg:enrich:${mode}:${keySlug}${guideYear ? `:${guideYear}` : ""}`;
   const rawCached = (await env.DB.prepare("SELECT v FROM lumos_meta WHERE k = ?").bind(cacheKey).all()).results?.[0]?.v;
   if (rawCached) {
     try {
       const parsed = JSON.parse(rawCached);
-      if (parsed && Number.isFinite(parsed.at) && now - parsed.at < ENRICH_TTL_MS) {
+      if (parsed && Number.isFinite(parsed.at) && now - parsed.at < ENRICH_TTL_MS && (!wantImdb || "imdbId" in parsed)) {
         return {
           backdrop: parsed.backdrop || null,
           description: parsed.description || null,
           tmdbId: parsed.tmdbId ?? null,
           mediaType: parsed.mediaType || null,
+          imdbId: parsed.imdbId || null,
+          year: parsed.year ?? null,
         };
       }
     } catch (_) { /* refresh */ }
@@ -1124,13 +1129,24 @@ export async function enrichEpgProgramme(env, opts = {}, now = Date.now()) {
   if (!data) return empty;
 
   const candidates = results.filter((r) => r && (r.media_type === "movie" || r.media_type === "tv" || !r.media_type));
-  const hit = candidates.find((r) => Boolean(r.backdrop_path)) || candidates[0] || null;
+  const yearOf = (r) => Number(String(r.release_date || r.first_air_date || "").slice(0, 4)) || null;
+  // a film whose guide gives its year: that year's (a remake shares the name)
+  const hit = (guideYear && candidates.find((r) => yearOf(r) === guideYear))
+    || candidates.find((r) => Boolean(r.backdrop_path)) || candidates[0] || null;
   const result = {
     backdrop: hit && hit.backdrop_path ? `https://image.tmdb.org/t/p/w1280${hit.backdrop_path}` : null,
     description: hit && typeof hit.overview === "string" && hit.overview.trim() ? hit.overview.trim() : null,
     tmdbId: hit && Number.isFinite(hit.id) ? hit.id : null,
     mediaType: hit ? (hit.media_type || (isMovie ? "movie" : "tv")) : null,
+    year: hit ? yearOf(hit) : null,
   };
+  if (wantImdb) result.imdbId = null;
+  if (wantImdb && hit && Number.isFinite(hit.id)) {
+    const ext = await tmdbGet(env, `/${result.mediaType === "tv" ? "tv" : "movie"}/${hit.id}/external_ids`, {});
+    result.imdbId = ext && typeof ext.imdb_id === "string" && /^tt\d+$/.test(ext.imdb_id) ? ext.imdb_id : null;
+  }
+  // (a guide year that doesn't match what was found: not the same film, so no Lumen offer)
+  if (wantImdb && guideYear && result.mediaType === "movie" && result.year && Math.abs(result.year - guideYear) > 1) result.imdbId = null;
 
   await env.DB.prepare("INSERT OR REPLACE INTO lumos_meta (k, v) VALUES (?, ?)")
     .bind(cacheKey, JSON.stringify({ at: now, ...result }))

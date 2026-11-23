@@ -825,8 +825,10 @@ class Engine(context: Context) {
         title: String,
         channelId: String? = null,
         category: String? = null,
+        description: String? = null,
+        imdb: Boolean = false,
     ): lumos.iptv.EpgEnrichment = withContext(Dispatchers.IO) {
-        core.enrichEpgProgramme(title, channelId, category)
+        core.enrichEpgProgramme(title, channelId, category, description, imdb)
     }
 
     /** Reports or checks concurrent IPTV viewer presence for [sourceId]. */

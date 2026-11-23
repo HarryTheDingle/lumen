@@ -907,6 +907,17 @@ class LiveTvStore(
         context.startActivity(intent)
     }
 
+    /** What the channel is showing, as a Lumen title (its IMDb id), for "Watch in Lumen"; null if not found */
+    suspend fun findInLumen(channel: CanonicalChannel, programme: EpgProgramme): EpgEnrichment? = runCatching {
+        engine.enrichEpgProgramme(
+            title = programme.title,
+            channelId = channel.id,
+            category = programme.category,
+            description = programme.description,
+            imdb = true,
+        )
+    }.getOrNull()?.takeIf { !it.imdbId.isNullOrBlank() }
+
     /** Like Lumen's own player: the TV may close the main screen while the player has it (the Mi Box does when short of
      *  memory), and coming back must not ask Who's watching? again */
     private fun markPlayerOpen(context: Context) {
