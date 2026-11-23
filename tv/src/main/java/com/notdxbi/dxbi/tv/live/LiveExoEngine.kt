@@ -421,6 +421,8 @@ class LiveExoEngine(
                     } else {
                         if (stuckSinceMs == 0L) stuckSinceMs = now
                         if (now - stuckSinceMs > STALL_TIMEOUT_MS) {
+                            android.util.Log.i("lumos-live", "froze: video=${exo.videoFormat?.sampleMimeType} ${exo.videoFormat?.width}x${exo.videoFormat?.height} codec=${exo.videoFormat?.codecs} " +
+                                "rendered=$renderedFrames dropped=${exo.videoDecoderCounters?.droppedBufferCount} audio=${exo.audioFormat?.sampleMimeType} pos=$pos buffered=$buffered")
                             fireFailureOnce("Playback froze")
                             break
                         }
