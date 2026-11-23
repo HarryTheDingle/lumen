@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.LiveTv
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.SkipNext
@@ -85,6 +86,7 @@ private enum class Section(val title: String, val icon: ImageVector, val group: 
     Home("Home", Icons.Rounded.Home),
     Account("Profiles & Account", Icons.Rounded.Person),
     Addons("Addons", Icons.Rounded.Extension),
+    LiveTV("Live TV", Icons.Rounded.LiveTv),
     About("About", Icons.Rounded.Info),
 }
 
@@ -191,6 +193,7 @@ fun SettingsScreen(stremio: Stremio, nav: Nav) {
             }
             add(Item.Link("addAddons", "Add from Stremio", "Your Stremio account's stream addons, with a code on your phone.") { stremio.engine.bringFromStremio() })
         }
+        Section.LiveTV -> liveTvSectionItems(context, stremio, scope)
         Section.About -> listOf(
             Item.Info("version", "Version", com.notdxbi.dxbi.tv.BuildConfig.APP_NAME + " " + BuildConfigVersion.name(context), "No Stremio page underneath: it talks to your addons and TorBox itself."),
             Item.Info("speed", "This connection", speed ?: "Not measured yet", "From Match my internet speed's last check. Settings → Playback → Networks has more."),
@@ -394,4 +397,91 @@ private fun SettingLine(
 @Composable
 internal fun Heading(text: String, top: Int) {
     Text(text, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(start = Dx.Gutter, top = top.dp, bottom = 6.dp))
+}
+
+@Composable
+private fun liveTvSectionItems(
+    context: android.content.Context,
+    stremio: Stremio,
+    scope: kotlinx.coroutines.CoroutineScope,
+): List<Item> {
+    val liveStore = remember { com.notdxbi.dxbi.tv.live.LiveTvRuntime.store(context, stremio.engine) }
+    LaunchedEffect(liveStore) { liveStore.ensureLoaded() }
+    val sources by liveStore.sources.collectAsState()
+    val reports by liveStore.sourceReports.collectAsState()
+    val uiState by liveStore.uiState.collectAsState()
+    val pairing by liveStore.setupPairing.collectAsState()
+
+    pairing?.let { activePairing ->
+        com.notdxbi.dxbi.tv.lumen.live.QrPairingModal(
+            pairing = activePairing,
+            onClose = { liveStore.stopQrSetup() },
+        )
+    }
+
+    val reportById = reports.associateBy { it.sourceId }
+    val enabledCount = sources.count { it.enabled }
+
+    return buildList {
+        add(
+            Item.Info(
+                key = "live:count",
+                title = "Configured sources",
+                value = "${sources.size} ($enabledCount enabled)",
+                help = "Synced IPTV playlists, Xtream accounts, and Stalker portals on your Lumen account.",
+            ),
+        )
+        add(
+            Item.Link(
+                key = "live:refresh",
+                title = if (uiState.refreshing) "Refreshing channels & EPG…" else "Refresh Live TV",
+                help = "Reload enabled IPTV playlists, portal channels, and UK/provider TV guides now.",
+            ) {
+                liveStore.refreshAll(forceEpg = true)
+            },
+        )
+        add(
+            Item.Link(
+                key = "live:qr",
+                title = if (pairing != null) "Close (${pairing!!.code})" else "Add a TV provider",
+                help = "Scan a QR code with your phone to submit Xtream, M3U, or Stalker credentials directly to this TV.",
+            ) {
+                if (pairing != null) liveStore.stopQrSetup() else liveStore.startQrSetup()
+            },
+        )
+        sources.forEach { src ->
+            val kind = when (src) {
+                is lumos.iptv.IptvSource.Xtream -> "Xtream"
+                is lumos.iptv.IptvSource.M3u -> "M3U"
+                is lumos.iptv.IptvSource.Stalker -> "Stalker"
+            }
+            val report = reportById[src.id]
+            val detail = when {
+                !src.enabled -> "$kind source is disabled."
+                report == null -> "$kind source (${src.maxConnections} conn)."
+                report.success -> "$kind · ${report.streamCount} streams loaded."
+                else -> "$kind error: ${report.error ?: "failed to load"}"
+            }
+            add(
+                Item.Toggle(
+                    key = "live:toggle:${src.id}",
+                    title = "${src.name} ($kind)",
+                    on = src.enabled,
+                    help = detail,
+                ) {
+                    scope.launch { liveStore.toggleSource(src.id, !src.enabled) }
+                },
+            )
+            add(
+                Item.Action(
+                    key = "live:remove:${src.id}",
+                    title = "Remove ${src.name}",
+                    confirm = "Press Again to Remove",
+                    help = "Press OK twice to remove ${src.name} from your synced IPTV sources.",
+                ) {
+                    scope.launch { liveStore.removeSource(src.id) }
+                },
+            )
+        }
+    }
 }

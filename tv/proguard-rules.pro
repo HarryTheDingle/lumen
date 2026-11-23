@@ -24,3 +24,6 @@
 -keepclassmembernames class androidx.compose.ui.platform.AndroidComposeViewAccessibilityDelegateCompat {
     java.util.List enabledServices;
 }
+
+# IPTV models use kotlinx.serialization polymorphic sealed classes (IptvSource)
+-keep class lumos.iptv.** { *; }

@@ -106,7 +106,7 @@ fun LumosSignIn(stremio: Stremio) {
             )
             status?.let { Text(it, fontSize = 15.sp, color = Color.White, textAlign = TextAlign.Center) }
             Spacer(Modifier.height(10.dp))
-            Text("Or, on an iPhone already signed in: Lumos → Profile → Lumos → Sign In a Device, and enter", fontSize = 13.sp, color = Dx.Faint, textAlign = TextAlign.Center)
+            Text("Or, on an iPhone already signed in: Lumen → Profile → Sign In a Device, and enter", fontSize = 13.sp, color = Dx.Faint, textAlign = TextAlign.Center)
             Text(pending?.code ?: "· · · ·", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.8f), letterSpacing = 6.sp)
         }
     }

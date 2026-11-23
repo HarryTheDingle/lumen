@@ -1,0 +1,189 @@
+package com.notdxbi.dxbi.tv.live
+
+import android.os.SystemClock
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import lumos.iptv.CanonicalChannel
+import lumos.iptv.EpgProgramme
+import lumos.iptv.StreamSource
+
+/**
+ * Holds a live or catch-up [LiveExoEngine] across Back navigation from [LivePlayerActivity]
+ * into the corner mini-player inside Live TV, enabling zero-downtime fullscreen resume and
+ * maintaining presence heartbeats until stopped or handed back.
+ */
+object LiveMiniPlayer {
+
+    /** Kept playback session powering the floating corner mini-player. */
+    data class Session(
+        val engine: LiveExoEngine,
+        val channel: CanonicalChannel,
+        val activeStream: StreamSource?,
+        val catchupProgramme: EpgProgramme?,
+        val zapChannelIds: List<String>,
+    )
+
+    private const val HEARTBEAT_INTERVAL_MS = 45_000L
+    private const val RECENT_STOP_GRACE_MS = 15_000L
+
+    private val lock = Any()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    private val _session = MutableStateFlow<Session?>(null)
+    val session: StateFlow<Session?> = _session.asStateFlow()
+
+    private var heartbeatJob: Job? = null
+    private var lastStore: LiveTvStore? = null
+
+    @Volatile
+    var ownActiveSourceId: String? = null
+        private set
+
+    @Volatile
+    private var lastStoppedSourceId: String? = null
+
+    @Volatile
+    var lastLocalStopAtMs: Long = 0L
+        private set
+
+    /** True while transitioning into [LivePlayerActivity] so `ON_STOP` on the host preserves playback. */
+    @Volatile
+    var openingFullscreen: Boolean = false
+
+    /** Records that this device is actively streaming on [sourceId]. */
+    fun markOwnSourceActive(sourceId: String?) {
+        if (sourceId.isNullOrBlank()) return
+        ownActiveSourceId = sourceId
+    }
+
+    /** Records that this device recently released a stream on [sourceId]. */
+    fun markOwnSourceStopped(sourceId: String?) {
+        val resolved = sourceId?.takeIf { it.isNotBlank() } ?: ownActiveSourceId
+        if (!resolved.isNullOrBlank()) {
+            lastStoppedSourceId = resolved
+            lastLocalStopAtMs = SystemClock.elapsedRealtime()
+        }
+        if (sourceId == null || ownActiveSourceId == sourceId) {
+            ownActiveSourceId = null
+        }
+    }
+
+    /**
+     * True when this device is currently streaming on [sourceId] or released it within the
+     * 15-second provider socket close grace window.
+     */
+    fun isOwnSourceActiveRecently(sourceId: String): Boolean {
+        if (sourceId.isBlank()) return false
+        if (ownActiveSourceId == sourceId) return true
+        if (lastStoppedSourceId == sourceId && lastLocalStopAtMs > 0L) {
+            val elapsed = SystemClock.elapsedRealtime() - lastLocalStopAtMs
+            return elapsed in 0L..RECENT_STOP_GRACE_MS
+        }
+        return false
+    }
+
+    /**
+     * Keeps [newSession] running in the corner mini-player, releasing any prior distinct engine
+     * and maintaining a 45-second presence heartbeat while open.
+     */
+    fun keep(newSession: Session, store: LiveTvStore?) {
+        val oldToRelease: Session?
+        synchronized(lock) {
+            val prev = _session.value
+            oldToRelease = if (prev != null && prev.engine !== newSession.engine) prev else null
+            heartbeatJob?.cancel()
+            heartbeatJob = null
+            if (store != null) lastStore = store
+            _session.value = newSession
+        }
+
+        val effectiveStore = store ?: lastStore ?: LiveTvRuntime.currentStore()
+        newSession.engine.onStallFailover = {
+            scope.launch(Dispatchers.Main) {
+                if (_session.value?.engine === newSession.engine) {
+                    stop(effectiveStore)
+                }
+            }
+        }
+
+        if (oldToRelease != null) {
+            val oldSourceId = oldToRelease.activeStream?.sourceId
+            oldToRelease.engine.release()
+            if (oldSourceId != null && oldSourceId != newSession.activeStream?.sourceId) {
+                effectiveStore?.notifyPresenceStop(oldSourceId)
+            }
+        }
+
+        val sourceId = newSession.activeStream?.sourceId
+        markOwnSourceActive(sourceId)
+        if (!sourceId.isNullOrBlank() && effectiveStore != null) {
+            synchronized(lock) {
+                heartbeatJob = scope.launch {
+                    while (isActive) {
+                        delay(HEARTBEAT_INTERVAL_MS)
+                        if (!isActive) break
+                        effectiveStore.notifyPresenceHeartbeat(sourceId, newSession.channel.name)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Returns and clears the kept session if it matches [channelId] and [catchupProgramme]?.id;
+     * otherwise stops and releases any mismatched kept session and returns null.
+     */
+    fun takeIfSame(channelId: String, catchupProgramme: EpgProgramme?): Session? {
+        val matched: Session?
+        val shouldStopOld: Boolean
+        synchronized(lock) {
+            val current = _session.value ?: return null
+            val sameChannel = current.channel.id == channelId &&
+                current.catchupProgramme?.id == catchupProgramme?.id
+            if (sameChannel) {
+                heartbeatJob?.cancel()
+                heartbeatJob = null
+                _session.value = null
+                matched = current
+                shouldStopOld = false
+            } else {
+                matched = null
+                shouldStopOld = true
+            }
+        }
+        if (shouldStopOld) {
+            stop(lastStore ?: LiveTvRuntime.currentStore())
+        }
+        return matched
+    }
+
+    /** Stops and releases the kept mini-player session and reports presence stop. */
+    fun stop(store: LiveTvStore? = null) {
+        val old: Session?
+        val effectiveStore: LiveTvStore?
+        synchronized(lock) {
+            heartbeatJob?.cancel()
+            heartbeatJob = null
+            old = _session.value
+            _session.value = null
+            if (store != null) lastStore = store
+            effectiveStore = store ?: lastStore ?: LiveTvRuntime.currentStore()
+        }
+        if (old != null) {
+            val sourceId = old.activeStream?.sourceId
+            old.engine.release()
+            markOwnSourceStopped(sourceId)
+            if (!sourceId.isNullOrBlank()) {
+                effectiveStore?.notifyPresenceStop(sourceId)
+            }
+        }
+    }
+}

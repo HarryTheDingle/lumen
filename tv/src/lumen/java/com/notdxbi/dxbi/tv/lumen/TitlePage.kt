@@ -347,6 +347,9 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
     // (every move of the page goes through this one, a glide to suit its length, one at a time: the focus landing on what
     // a glide is already heading to is let be, so it isn't restarted or run over by a second, quicker scroll)
     val pageScroller = remember(list) { PageScroller(list, scope) }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    // (a Down while the page is still gliding to the row below is the same Down: a second jump skipped a row)
+    var goingDown by remember { mutableStateOf(false) }
 
     fun toTop() = scope.launch {
         // (a glide in flight is cancelled by this one: only one at a time)
@@ -464,17 +467,25 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean) {
                             inList = inList,
                             playFocus = playFocus,
                             // (the episodes aren't there to move to until they're scrolled in: in first, then onto the one they're on)
-                            onDown = if (!hasEpisodes && !hasSeasons) null else {
-                                {
-                                    // (the glide and the focus move go together: the episode is picked up the moment it's composed
-                                    // on the way in, so it lifts straight away instead of after the whole glide)
-                                    pageScroller.move(screenPx + gapPx, screenPx)
-                                    scope.launch {
-                                        repeat(60) {
-                                            if (runCatching { (if (hasSeasons) seasonsFocus else episodeFocus).requestFocus() }.isSuccess) return@launch
-                                            delay(16)
+                            // Down from the buttons always lands on the next row in one press: the episodes or seasons, or (a film)
+                            // whatever comes next, trailers or Related. (A film had no target: the first press found nothing until the
+                            // row scrolled in, and the second went on past it)
+                            onDown = onDown@{
+                                if (goingDown) return@onDown
+                                goingDown = true
+                                // (the glide and the focus move go together: the row is picked up the moment it's composed
+                                // on the way in, so it lifts straight away instead of after the whole glide)
+                                pageScroller.move(screenPx + gapPx, screenPx)
+                                scope.launch {
+                                    try { repeat(60) {
+                                        val landed = if (hasEpisodes || hasSeasons) {
+                                            runCatching { (if (hasSeasons) seasonsFocus else episodeFocus).requestFocus() }.isSuccess
+                                        } else {
+                                            focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)
                                         }
-                                    }
+                                        if (landed) return@launch
+                                        delay(16)
+                                    } } finally { goingDown = false }
                                 }
                             },
                             onFocused = { section.intValue = 0 },
@@ -919,6 +930,7 @@ private fun SeasonsRow(
     val width = 110.dp
     val row = rememberLazyListState()
     val here = seasons.indexOfFirst { it.current }.coerceAtLeast(0)
+    var landingAttached by remember { mutableStateOf(false) }
     LaunchedEffect(seasons) { row.scrollToItem((here - 1).coerceAtLeast(0)) }
     CompositionLocalProvider(LocalBringIntoViewSpec provides RowScrolling) {
     Column(modifier.fillMaxWidth()) {
@@ -928,7 +940,7 @@ private fun SeasonsRow(
             contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 18.dp),
             horizontalArrangement = Arrangement.spacedBy(18.dp),
             // (back into the seasons: the one it was on, else the one open)
-            modifier = @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.keepsSideways(left = true).focusRestorer { landing }.onPreviewKeyEvent {
+            modifier = @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.keepsSideways(left = true).focusRestorer { if (landingAttached) landing else FocusRequester.Default }.onPreviewKeyEvent {
                 if (it.key == Key.DirectionDown) {
                     if (it.type == KeyEventType.KeyDown) onDown()
                     true
@@ -936,6 +948,12 @@ private fun SeasonsRow(
             },
         ) {
             itemsIndexed(seasons, key = { _, s -> s.title.id }) { i, s ->
+                if (i == here) {
+                    DisposableEffect(Unit) {
+                        landingAttached = true
+                        onDispose { landingAttached = false }
+                    }
+                }
                 Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     FocusCard(
                         onClick = { if (!s.current) onOpen(s.title) },
@@ -990,6 +1008,7 @@ private fun Episodes(
     }
     // (the episode they're on, else the first of the season shown at the start: where Down from Play lands)
     val target = remember(all, current) { all.firstOrNull { it.id == current }?.id ?: all.firstOrNull { it.season == season }?.id ?: all.firstOrNull()?.id }
+    var landingAttached by remember { mutableStateOf(false) }
     // A season chosen from the tabs: Down goes to its episode to watch (the one they're on if it's in that season, else
     // its first one not watched that's out, else its first), not back to the episode the remote was last on, which
     // scrolled the row all the way back (season 22 of Taskmaster, back to S1, E1)
@@ -1029,12 +1048,18 @@ private fun Episodes(
             // (back up into the episodes: the one the remote was last on, else the one they're on; it landed on whichever was
             // nearest the card it came from, often one half off the screen)
             // (not while a season chosen from the tabs is waiting to be landed on: the row going back to where it was won over it)
-            modifier = Modifier.keepsSideways(left = true).then(if (aimId != null) Modifier else @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.focusRestorer { landing }),
+            modifier = Modifier.keepsSideways(left = true).then(if (aimId != null) Modifier else @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.focusRestorer { if (landingAttached) landing else FocusRequester.Default }),
             contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 18.dp),
             horizontalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             items(all, key = { it.id }) { v ->
                 val here = v.id == target
+                if (here) {
+                    DisposableEffect(Unit) {
+                        landingAttached = true
+                        onDispose { landingAttached = false }
+                    }
+                }
                 EpisodeCard(
                     v, fallbackArt, isCurrent = v.id == current, blur = blurUnwatched,
                     onClick = { onPlay(v) }, onLongClick = { onMenu(v) },

@@ -12,7 +12,13 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
+import lumos.iptv.EpgEnrichment
+import lumos.iptv.IptvCodec
+import lumos.iptv.SavedSportsTeam
+import lumos.iptv.SportsFixture
+import lumos.iptv.TeamScheduleGroup
 
 /** Something the sync server said no to, in words fit to show */
 class SyncError(val status: Int, message: String) : Exception(message)
@@ -169,6 +175,76 @@ class Sync(private val server: String, private val http: HttpClient, var session
                 (res as? kotlinx.serialization.json.JsonPrimitive)?.content == "stream" || res.obj()?.str("name") == "stream"
             }
         }.mapNotNull { it.str("transportUrl") }.filter { it.startsWith("https://") }
+    }
+
+    /** Fetches UK TV guide listings within `[fromMs, toMs)` from the sync server as JSON text. */
+    @Throws(Exception::class)
+    suspend fun ukEpg(fromMs: Long, toMs: Long): String =
+        call("/epg/uk", buildJsonObject { put("fromMs", fromMs); put("toMs", toMs) }, signed = true).toString()
+
+    /** Starts a phone IPTV pairing session and returns `{ code, path, expires }`. */
+    @Throws(Exception::class)
+    suspend fun startIptvSetup(): JsonObject =
+        call("/iptv/setup/start", JsonObject(emptyMap()), signed = true)
+
+    /** Fetches live & upcoming UK/US sports fixtures with D1 UK TV broadcaster cross-matches. */
+    @Throws(Exception::class)
+    suspend fun sportsFixtures(sport: String? = null, date: String? = null): List<SportsFixture> {
+        val body = buildJsonObject {
+            sport?.takeIf { it.isNotBlank() }?.let { put("sport", it) }
+            date?.takeIf { it.isNotBlank() }?.let { put("date", it) }
+        }
+        return IptvCodec.decodeSportsFixtures(call("/iptv/sports/fixtures", body, signed = true).toString())
+    }
+
+    /** Searches UK Football and US pro sports team directories on the sync server. */
+    @Throws(Exception::class)
+    suspend fun searchSportsTeams(query: String): List<SavedSportsTeam> {
+        val q = query.trim()
+        if (q.isEmpty()) return emptyList()
+        val res = call("/iptv/sports/teams/search", buildJsonObject { put("query", q) }, signed = true)
+        return IptvCodec.decodeSportsTeams(res.toString())
+    }
+
+    /** Fetches live, recent past, and upcoming schedules for saved [teams]. */
+    @Throws(Exception::class)
+    suspend fun savedTeamsSchedule(teams: List<SavedSportsTeam>): List<TeamScheduleGroup> {
+        if (teams.isEmpty()) return emptyList()
+        val body = buildJsonObject {
+            put("teams", json.encodeToJsonElement(teams))
+        }
+        val res = call("/iptv/sports/teams/schedule", body, signed = true)
+        return IptvCodec.decodeTeamSchedules(res.toString())
+    }
+
+    /** Enriches a TV guide programme with TMDB 16:9 backdrop and description when missing. */
+    @Throws(Exception::class)
+    suspend fun enrichEpgProgramme(
+        title: String,
+        channelId: String? = null,
+        category: String? = null,
+    ): EpgEnrichment {
+        val clean = title.trim()
+        if (clean.isEmpty()) return EpgEnrichment()
+        val body = buildJsonObject {
+            put("title", clean)
+            channelId?.takeIf { it.isNotBlank() }?.let { put("channelId", it) }
+            category?.takeIf { it.isNotBlank() }?.let { put("category", it) }
+        }
+        return IptvCodec.decodeEpgEnrichment(call("/epg/enrich", body, signed = true).toString())
+    }
+
+    /** Reports or checks concurrent IPTV viewer presence on `/iptv/presence`; returns null on error or offline. */
+    suspend fun iptvPresence(action: String, sourceId: String, channelName: String? = null): String? {
+        val cleanAction = action.trim()
+        val cleanSourceId = sourceId.trim()
+        if (cleanAction.isEmpty() || cleanSourceId.isEmpty()) return null
+        val body = buildJsonObject {
+            put("action", cleanAction)
+            put("sourceId", cleanSourceId)
+            channelName?.trim()?.takeIf { it.isNotEmpty() }?.let { put("channelName", it) }
+        }
+        return runCatching { call("/iptv/presence", body, signed = true).toString() }.getOrNull()
     }
 
     private fun session(o: JsonObject) = Session(o.str("token") ?: throw SyncError(500, "No sign-in came back"), o.str("account") ?: "")

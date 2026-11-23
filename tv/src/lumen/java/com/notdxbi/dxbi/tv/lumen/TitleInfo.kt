@@ -228,6 +228,8 @@ fun PlayButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier
     var focused by remember { mutableStateOf(false) }
     var everFocused by remember { mutableStateOf(false) }
     val open = !expands || focused || (!everFocused && label != "Look Again")
+    // (the sides ease in and out with the words, rather than jumping)
+    val padX by androidx.compose.animation.core.animateDpAsState(if (open) 16.dp else 10.dp, ButtonMotion.springDp, label = "pad")
     Button(
         onClick = onClick,
         modifier = modifier.onFocusChanged {
@@ -235,7 +237,7 @@ fun PlayButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier
             focused = f
             if (f) everFocused = true
         },
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = if (open) 16.dp else 10.dp, vertical = 10.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = padX, vertical = 10.dp),
         colors = ButtonDefaults.colors(
             // Apple TV's: frosted glass at rest (light enough to see on black), a soft white when the remote's on it
             containerColor = Glass.Fill,
@@ -262,9 +264,8 @@ fun PlayButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier
                     Icon(shown.second, contentDescription = shown.first, modifier = Modifier.size(22.dp))
                     androidx.compose.animation.AnimatedVisibility(
                         visible = open,
-                        enter = androidx.compose.animation.expandHorizontally(tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
-                            fadeIn(tween(200, delayMillis = 80)),
-                        exit = androidx.compose.animation.shrinkHorizontally(tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)) + fadeOut(tween(120)),
+                        enter = ButtonMotion.open,
+                        exit = ButtonMotion.close,
                     ) {
                         Text(shown.first, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.padding(start = 6.dp))
                     }
@@ -272,6 +273,23 @@ fun PlayButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier
             }
         }
     }
+}
+
+/**
+ * How the title page's buttons open out and close (their names sliding in beside the icon): springs that settle without
+ * a bounce, as Apple TV's do, and can turn round mid-way when the remote moves on quickly (fixed-length curves couldn't)
+ */
+private object ButtonMotion {
+    private const val STIFF = 320f // ≈ 0.35 s
+    val springDp = androidx.compose.animation.core.spring<androidx.compose.ui.unit.Dp>(dampingRatio = 1f, stiffness = STIFF)
+    val open = androidx.compose.animation.expandHorizontally(
+        androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntSize>(dampingRatio = 1f, stiffness = STIFF),
+        expandFrom = androidx.compose.ui.Alignment.Start,
+    ) + fadeIn(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 200f))
+    val close = androidx.compose.animation.shrinkHorizontally(
+        androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntSize>(dampingRatio = 1f, stiffness = STIFF),
+        shrinkTowards = androidx.compose.ui.Alignment.Start,
+    ) + fadeOut(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 900f))
 }
 
 /** Play's inside, turning or not: one height, so the button never grows while the streams come in */
@@ -327,9 +345,8 @@ fun RoundButton(icon: ImageVector, label: String, onClick: () -> Unit, modifier:
             Icon(icon, contentDescription = label, modifier = Modifier.size(20.dp))
             if (expands) androidx.compose.animation.AnimatedVisibility(
                 visible = focused,
-                enter = androidx.compose.animation.expandHorizontally(tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
-                    fadeIn(tween(200, delayMillis = 80)),
-                exit = androidx.compose.animation.shrinkHorizontally(tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)) + fadeOut(tween(120)),
+                enter = ButtonMotion.open,
+                exit = ButtonMotion.close,
             ) {
                 Text(label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.padding(start = 8.dp, end = 4.dp))
             }

@@ -22,12 +22,16 @@ import { resolveArt, warmArt, wrongArt } from "./art.js";
 import { handlePicks, handleAsk } from "./picks.js";
 import { resolveLabels } from "./labels.js";
 import { handleScores } from "./scores.js";
+import { enrichEpgProgramme, pruneEpg, readUkEpg, refreshUkEpg } from "./epg.js";
+import { handleSportsFixtures, handleTeamsSchedule, handleTeamsSearch } from "./sports.js";
+import { handleIptvSetupSubmit, renderSetupPage } from "./iptv-setup.js";
+import { handleIptvPresence, pruneIptvPresence } from "./presence.js";
 
 const STREMIO_API = "https://api.strem.io/api";
 
 // What can be kept. Per profile (":<viewer>"): progress (resume points), watched, myList, and Lumen's
 // own profile data (Home layout, hidden titles, taste, ratings…)
-const KEY = /^(viewers|kidsAllow|settings|addons|(homeLayout|hidden|cwDismissed|taste|ratings|progress|watched|myList):[\w-]{1,40})$/;
+const KEY = /^(viewers|kidsAllow|settings|addons|iptvSources|(homeLayout|hidden|cwDismissed|taste|ratings|progress|watched|myList|iptvPrefs):[\w-]{1,40})$/;
 const MAX_BODY = 1536 * 1024;
 const MAX_ENTRIES = 200;
 const MAX_VALUE = 200 * 1024;
@@ -152,7 +156,7 @@ async function handleSync(body, env, account) {
   const now = Date.now();
   const entries = [];
   for (const e of incoming) {
-    if (!e || typeof e.k !== "string" || !KEY.test(e.k)) return reply(400, { error: `Not something Lumos syncs: ${String(e && e.k).slice(0, 40)}` });
+    if (!e || typeof e.k !== "string" || !KEY.test(e.k)) return reply(400, { error: `Not something Lumen syncs: ${String(e && e.k).slice(0, 40)}` });
     const t = Number(e.t);
     if (!Number.isFinite(t) || t <= 0 || t > now + 86400000) return reply(400, { error: "Bad time on " + e.k });
     if (MERGED.test(e.k) && (!e.v || typeof e.v !== "object" || Array.isArray(e.v))) return reply(400, { error: `${e.k} has to be titles by id` });
@@ -342,6 +346,8 @@ async function handleStremioSignIn(body, env) {
 const DAY = 86400000;
 const PRUNE_SCORES_MS = 14 * DAY; // scores.js TTL is 3d
 const PRUNE_RECS_MS = 30 * DAY;   // picks.js recs TTL is 7d
+const PRUNE_EPG_ENRICH_MS = 35 * DAY; // epg enrich TTL is 30d
+const PRUNE_SPORTS_MS = 3 * DAY;      // sports fixtures/schedules TTL is <=24h
 const PRUNE_ART_MS = 60 * DAY;    // art.js TTL is 30d
 const PRUNE_FACTS_MS = 7 * DAY;   // labels.js TTL is 2d
 const PRUNE_LOGS_MS = 30 * DAY;
@@ -353,11 +359,17 @@ export async function pruneCaches(env, now = Date.now()) {
       .bind(now - PRUNE_SCORES_MS),
     env.DB.prepare("DELETE FROM lumos_meta WHERE k >= 'recs:' AND k < 'recs;' AND json_valid(v) AND CAST(json_extract(v, '$.at') AS INTEGER) < ?")
       .bind(now - PRUNE_RECS_MS),
+    env.DB.prepare("DELETE FROM lumos_meta WHERE k >= 'epg:enrich:' AND k < 'epg:enrich;' AND json_valid(v) AND CAST(json_extract(v, '$.at') AS INTEGER) < ?")
+      .bind(now - PRUNE_EPG_ENRICH_MS),
+    env.DB.prepare("DELETE FROM lumos_meta WHERE k >= 'sports:' AND k < 'sports;' AND json_valid(v) AND CAST(json_extract(v, '$.at') AS INTEGER) < ?")
+      .bind(now - PRUNE_SPORTS_MS),
     env.DB.prepare("DELETE FROM lumos_titleart WHERE at < ?").bind(now - PRUNE_ART_MS),
     env.DB.prepare("DELETE FROM lumos_facts WHERE at < ?").bind(now - PRUNE_FACTS_MS),
     env.DB.prepare("DELETE FROM lumos_links WHERE expires < ?").bind(now),
     env.DB.prepare("DELETE FROM lumos_logs WHERE at < ?").bind(now - PRUNE_LOGS_MS),
   ]);
+  await pruneEpg(env, now);
+  await pruneIptvPresence(env, now);
 }
 
 // ---- Routes ----
@@ -369,7 +381,10 @@ export default {
     if (env.DB) ctx.waitUntil(refreshLists(env)
       .then(async (r) => {
         console.log("lists", r.join("; ") || "nothing due");
-        if (!r.length) console.log("art warmed", await warmArt(env));
+        const epgRes = !r.length
+          ? await refreshUkEpg(env).catch((e) => { console.log("epg failed", e.message); return { skipped: true }; })
+          : { skipped: true };
+        if (!r.length && epgRes?.skipped) console.log("art warmed", await warmArt(env));
         await pruneCaches(env);
       })
       .catch((e) => console.log("lists failed", e.message)));
@@ -391,6 +406,12 @@ export default {
 
 async function handle(request, env) {
   const url = new URL(request.url);
+  if (request.method === "GET" && url.pathname === "/iptv") {
+    return new Response(renderSetupPage(url.searchParams.get("code") || "", url.origin), {
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+    });
+  }
   if (request.method !== "POST") return reply(405, { error: "POST only" });
   if (!env.DB) return reply(503, { error: "Sync isn't set up yet." });
 
@@ -409,6 +430,10 @@ async function handle(request, env) {
   const now = Date.now();
 
   // Open routes: making the account, and a new device asking to be let in
+  if (url.pathname === "/iptv/setup/submit") {
+    const r = await handleIptvSetupSubmit(body, env, now);
+    return reply(r.status, r.body);
+  }
   if (url.pathname === "/account") {
     if (typeof env.LUMOS_SETUP !== "string" || env.LUMOS_SETUP.length < 8) return reply(403, { error: "Accounts can't be made on this server." });
     if (!sameText(body.setup, env.LUMOS_SETUP)) return reply(403, { error: "That isn't the setup phrase." });
@@ -437,7 +462,7 @@ async function handle(request, env) {
   }
 
   const me = await signedIn(request, env);
-  if (!me) return reply(401, { error: "Sign in to Lumos." });
+  if (!me) return reply(401, { error: "Sign in to Lumen." });
   if (env.ACCOUNT_LIMIT && !(await env.ACCOUNT_LIMIT.limit({ key: me.account })).success) return reply(429, { error: "Too many requests: try again in a minute." });
 
   switch (url.pathname) {
@@ -469,6 +494,20 @@ async function handle(request, env) {
     case "/labels": return reply(200, await resolveLabels(env, body.ids, undefined, body.facts === true));
     case "/picks": { const r = await handlePicks(body, env, me.account, now); return reply(r.status, r.body); }
     case "/ask": { const r = await handleAsk(body, env, me.account, now); return reply(r.status, r.body); }
+    case "/epg/uk": return reply(200, await readUkEpg(env, body, now));
+    case "/epg/refresh": return reply(200, await refreshUkEpg(env, now, fetch, body.force === true));
+    case "/epg/enrich": return reply(200, await enrichEpgProgramme(env, body, now));
+    case "/iptv/sports/fixtures": return reply(200, await handleSportsFixtures(body, env, now));
+    case "/iptv/sports/teams/search": return reply(200, await handleTeamsSearch(body, env, now));
+    case "/iptv/sports/teams/schedule": return reply(200, await handleTeamsSchedule(body, env, now));
+    case "/iptv/presence": { const r = await handleIptvPresence(body, env, me, now); return reply(r.status, r.body); }
+    case "/iptv/setup/start": {
+      await env.DB.prepare("DELETE FROM lumos_iptv_setup WHERE expires < ?").bind(now).run();
+      const code = randomCode();
+      await env.DB.prepare("INSERT INTO lumos_iptv_setup (code, account, expires) VALUES (?, ?, ?)")
+        .bind(code, me.account, now + LINK_MS).run();
+      return reply(200, { code, path: `/iptv?code=${code}`, expires: now + LINK_MS });
+    }
     case "/art/wrong": {
       const id = typeof body.id === "string" ? body.id : "";
       if (!/^tt\d{1,10}$/.test(id)) return reply(400, { error: "Which title?" });

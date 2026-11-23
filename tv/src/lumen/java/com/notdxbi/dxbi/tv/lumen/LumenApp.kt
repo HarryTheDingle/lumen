@@ -62,6 +62,7 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Text
 import com.notdxbi.dxbi.tv.phone.Engine
+import com.notdxbi.dxbi.tv.lumen.live.LiveTvScreen
 import com.notdxbi.dxbi.tv.phone.Load
 import com.notdxbi.dxbi.tv.phone.Stremio
 import com.notdxbi.dxbi.tv.phone.Title
@@ -215,6 +216,7 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
                 nav,
                 onPlay = { play(it) },
             )
+            Tab.LiveTV -> LiveTvScreen(stremio.engine, nav)
             Tab.Discover -> DiscoverScreen(stremio, nav, feed)
             Tab.Search -> SearchScreen(stremio, nav)
             Tab.Calendar -> CalendarScreen(stremio, nav, feed)
@@ -227,6 +229,8 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
     // Apple TV's menu down the left
     val viewer by stremio.viewer.collectAsState()
     if (nav.menuOpen) SideMenu(nav, account?.email, viewer)
+    // a programme or match reminder that's due shows over everything in Lumen
+    com.notdxbi.dxbi.tv.lumen.live.ReminderCard(stremio.engine)
 
     // Back: the top page fades out, then goes (the effect restarts if Back is pressed again, which finishes it at once)
     LaunchedEffect(nav.leaving) {

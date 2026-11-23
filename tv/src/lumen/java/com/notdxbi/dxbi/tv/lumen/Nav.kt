@@ -18,6 +18,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.ViewList
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.ui.graphics.Brush
@@ -46,6 +49,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -75,6 +79,7 @@ enum class Tab(val label: String, val icon: ImageVector) {
     Search("Search", Icons.Filled.Search),
     Home("Home", Icons.Filled.Home),
     Discover("Discover", Icons.Filled.Explore),
+    LiveTV("Live TV", Icons.Filled.LiveTv),
     Calendar("Calendar", Icons.Filled.CalendarMonth),
     Settings("Settings", Icons.Filled.Settings),
 }
@@ -120,6 +125,8 @@ class Nav {
     val homeList = LazyListState()
     /** Home has had its first look (the remote starts on the billboard's Play just the once) */
     var homeStarted = false
+    /** Live TV's page (Find a channel, Guide, Sports), chosen under Live TV in the menu */
+    var liveSection by mutableStateOf(com.notdxbi.dxbi.tv.lumen.live.LiveSection.TV_GUIDE)
 
     fun open(title: Title, play: Boolean = false) {
         pages += Page.Details(title, play)
@@ -412,7 +419,7 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
                             nav.tab = t
                             close()
                         },
-                        modifier = Modifier.fillMaxWidth().then(if (on) Modifier.focusRequester(chosen) else Modifier),
+                        modifier = Modifier.fillMaxWidth().then(if (on && t != Tab.LiveTV) Modifier.focusRequester(chosen) else Modifier),
                         shape = ClickableSurfaceDefaults.shape(shape),
                         colors = ClickableSurfaceDefaults.colors(
                             containerColor = if (on) Color.White.copy(alpha = 0.14f) else Color.Transparent,
@@ -427,6 +434,55 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
                             Spacer(Modifier.width(12.dp))
                             Text(t.label, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                         }
+                    }
+                    // In Live TV, its pages open out underneath it: one menu for all of Lumen
+                    if (t == Tab.LiveTV && nav.tab == Tab.LiveTV) LiveSubItems(nav, chosen) {
+                        nav.pages.clear()
+                        nav.leaving = false
+                        close()
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveSubItems(nav: Nav, chosen: FocusRequester, onPicked: () -> Unit) {
+    val items = listOf(
+        Triple(com.notdxbi.dxbi.tv.lumen.live.LiveSection.SEARCH, "Find a channel", Icons.Filled.Search),
+        Triple(com.notdxbi.dxbi.tv.lumen.live.LiveSection.TV_GUIDE, "Guide", Icons.Filled.ViewList),
+        Triple(com.notdxbi.dxbi.tv.lumen.live.LiveSection.SPORTS, "Sports", Icons.Filled.EmojiEvents),
+    )
+    Box(Modifier.fillMaxWidth().padding(start = 22.dp, top = 2.dp, bottom = 4.dp)) {
+        // a thin line down the side shows these belong to Live TV
+        Column(
+            Modifier
+                .drawBehind {
+                    val y0 = 10.dp.toPx(); val y1 = size.height - 10.dp.toPx()
+                    drawLine(Color.White.copy(alpha = 0.18f), androidx.compose.ui.geometry.Offset(0f, y0), androidx.compose.ui.geometry.Offset(0f, y1), strokeWidth = 1.dp.toPx())
+                }
+                .padding(start = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp),
+        ) {
+            items.forEach { (section, label, icon) ->
+                val on = nav.liveSection == section
+                Surface(
+                    onClick = { nav.liveSection = section; onPicked() },
+                    modifier = Modifier.fillMaxWidth().then(if (on) Modifier.focusRequester(chosen) else Modifier),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = if (on) Color.White.copy(alpha = 0.14f) else Color.Transparent,
+                        contentColor = Color.White.copy(alpha = if (on) 1f else 0.75f),
+                        focusedContainerColor = Color.White,
+                        focusedContentColor = Color.Black,
+                    ),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+                ) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     }
                 }
             }

@@ -8,6 +8,10 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.add
+import lumos.iptv.EpgEnrichment
+import lumos.iptv.SavedSportsTeam
+import lumos.iptv.SportsFixture
+import lumos.iptv.TeamScheduleGroup
 
 /** What came across from Stremio; [stremioKey] is kept (Keychain) to keep Stremio in step while Lumen's in use */
 data class Imported(val titles: Int, val addons: List<String>, val stremioKey: String)
@@ -362,6 +366,73 @@ class Lumos(syncServer: String) {
         val v = runCatching { json.parseToJsonElement(jsonText).jsonObject }.getOrNull() ?: return
         put(key, v, now)
     }
+
+    // ---- Live TV / IPTV ----
+
+    /** Creates an [lumos.iptv.IptvRepository] sharing the engine's Ktor [HttpClient]. */
+    fun newIptvRepository(): lumos.iptv.IptvRepository = lumos.iptv.IptvRepository(http)
+
+    /** Returns the current connection speed estimate in bits per second (0 when unknown). */
+    suspend fun estimatedBandwidthBps(): Long = (speed.get() * 1_000_000.0).toLong().coerceAtLeast(0L)
+
+    /** Fetches curated UK EPG guide JSON in `[fromMs, toMs)` from the sync server. */
+    @Throws(Exception::class)
+    suspend fun ukEpg(fromMs: Long, toMs: Long): String = sync.ukEpg(fromMs, toMs)
+
+    /** Creates a short-lived phone IPTV setup code (`{ code, path, expires }`). */
+    @Throws(Exception::class)
+    suspend fun startIptvSetup(): JsonObject = sync.startIptvSetup()
+
+    /** Fetches live & upcoming UK/US sports fixtures with D1 UK TV broadcaster cross-matches. */
+    @Throws(Exception::class)
+    suspend fun sportsFixtures(sport: String? = null, date: String? = null): List<SportsFixture> =
+        sync.sportsFixtures(sport, date)
+
+    /** Searches UK Football and US pro sports team directories on the sync server. */
+    @Throws(Exception::class)
+    suspend fun searchSportsTeams(query: String): List<SavedSportsTeam> =
+        sync.searchSportsTeams(query)
+
+    /** Fetches live, recent past, and upcoming schedules for saved [teams]. */
+    @Throws(Exception::class)
+    suspend fun savedTeamsSchedule(teams: List<SavedSportsTeam>): List<TeamScheduleGroup> =
+        sync.savedTeamsSchedule(teams)
+
+    /** Enriches a TV guide programme with TMDB 16:9 backdrop and description when missing. */
+    @Throws(Exception::class)
+    suspend fun enrichEpgProgramme(
+        title: String,
+        channelId: String? = null,
+        category: String? = null,
+    ): EpgEnrichment = sync.enrichEpgProgramme(title, channelId, category)
+
+    /** Reports or checks concurrent IPTV viewer presence for [sourceId]; returns null when offline or signed out. */
+    suspend fun iptvPresence(action: String, sourceId: String, channelName: String? = null): String? =
+        sync.iptvPresence(action, sourceId, channelName)
+
+    /** Returns synced IPTV sources as a JSON array string, accepting array or `{sources:[...]}` storage. */
+    fun iptvSourcesJson(): String? = when (val v = values["iptvSources"]?.v) {
+        is JsonArray -> v.toString()
+        is JsonObject -> (v["sources"] as? JsonArray)?.toString() ?: v.toString()
+        else -> null
+    }
+
+    /** Stores synced IPTV sources (array or object JSON) and marks `iptvSources` dirty for sync. */
+    fun setIptvSourcesJson(jsonText: String, now: Long) {
+        val parsed = runCatching { json.parseToJsonElement(jsonText) }.getOrNull() ?: return
+        val obj = when (parsed) {
+            is JsonArray -> buildJsonObject { put("sources", parsed) }
+            is JsonObject -> parsed
+            else -> return
+        }
+        put("iptvSources", obj, now)
+    }
+
+    /** Returns the current viewer's synced IPTV preferences JSON, or null if unset. */
+    fun iptvPrefsJson(): String? = value("iptvPrefs:$viewer")
+
+    /** Saves the current viewer's IPTV preferences JSON and marks it dirty for sync. */
+    fun setIptvPrefsJson(jsonText: String, now: Long) = setValue("iptvPrefs:$viewer", jsonText, now)
 
     private fun put(k: String, v: JsonObject, now: Long) { values[k] = Entry(k, now, v); dirty += k }
     private fun titles(k: String): Map<String, kotlinx.serialization.json.JsonElement> = values[k]?.v?.obj() ?: emptyMap()

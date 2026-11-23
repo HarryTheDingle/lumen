@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -235,7 +236,7 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
 
 /** Search's microphone: a round frosted button, white when the remote's on it; a soft pulse while it's listening */
 @Composable
-private fun MicButton(listening: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun MicButton(listening: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "mic")
     val glow by pulse.animateFloat(
         0.25f, 0.6f,
@@ -344,12 +345,21 @@ private fun Found(
             if (suggestions.isNotEmpty()) {
                 // (up into them: the first, what was typed, not whichever sits above; its results don't change under the remote)
                 val firstSuggestion = remember { FocusRequester() }
+                var firstAttached by remember { mutableStateOf(false) }
                 LazyRow(
-                    Modifier.focusProperties { enter = { firstSuggestion } }.focusGroup().onFocusChanged { if (!it.hasFocus) onPreview(null) },
+                    Modifier.focusProperties { enter = { if (firstAttached) firstSuggestion else FocusRequester.Default } }.focusGroup().onFocusChanged { if (!it.hasFocus) onPreview(null) },
                     contentPadding = PaddingValues(horizontal = Dx.Gutter),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    itemsIndexed(suggestions, key = { _, it -> it }) { i, s -> Suggestion(s, typed, onFocus = { onPreview(s) }, onClick = { onChoose(s) }, modifier = if (i == 0) Modifier.focusRequester(firstSuggestion) else Modifier) }
+                    itemsIndexed(suggestions, key = { _, it -> it }) { i, s ->
+                        if (i == 0) {
+                            DisposableEffect(Unit) {
+                                firstAttached = true
+                                onDispose { firstAttached = false }
+                            }
+                        }
+                        Suggestion(s, typed, onFocus = { onPreview(s) }, onClick = { onChoose(s) }, modifier = if (i == 0) Modifier.focusRequester(firstSuggestion) else Modifier)
+                    }
                 }
             }
             // the tabs: the one the remote's on is chosen

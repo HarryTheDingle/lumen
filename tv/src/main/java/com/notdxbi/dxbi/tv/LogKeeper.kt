@@ -116,7 +116,7 @@ object LogKeeper {
     private fun gzip(text: String): ByteArray = ByteArrayOutputStream().also { b -> GZIPOutputStream(b).use { it.write(text.toByteArray()) } }.toByteArray()
 
     private val links = Regex("""\b([a-z][a-z0-9+.-]*://)([^/\s"'<>]+)[^\s"'<>]*""", RegexOption.IGNORE_CASE)
-    private val named = Regex("""(?i)\b(auth_?key|token|api_?key|apikey|password|passwd|secret|torbox|authorization|bearer|cookie|session)(["']?\s*[:=]\s*["']?|\s+)[^\s"',&}]+""")
+    private val named = Regex("""(?i)\b(auth_?key|token|api_?key|apikey|password|passwd|secret|torbox|authorization|bearer|cookie|session|username|user|mac|macAddress|portal|portalUrl|xtream|m3u)(["']?\s*[:=]\s*["']?|\s+)[^\s"',&}]+""")
     private val long = Regex("""\b[A-Za-z0-9_\-+/=]{32,}\b""")
 
     /** A line with its secrets taken out */

@@ -784,6 +784,60 @@ class Engine(context: Context) {
 
     private fun obj(text: String?): JSONObject? = text?.let { runCatching { JSONTokener(it).nextValue() as? JSONObject }.getOrNull() }
 
+    // ---- Live TV sync helpers ----
+
+    val syncServerUrl: String get() = SYNC
+
+    /** Syncs IPTV sources and preferences under [one] and persists engine state to disk. */
+    suspend fun syncIptvNow(): Boolean = withContext(one) {
+        val synced = runCatching { core.syncNow() }.getOrDefault(false)
+        save()
+        synced
+    }
+
+    /** Executes [block] against [core] serialized on [one] to protect mutable state maps. */
+    suspend fun <T> withIptvCore(block: suspend (Lumos) -> T): T = withContext(one) {
+        block(core)
+    }
+
+    /** Fetches live and upcoming UK/US sports fixtures with UK TV broadcaster cross-matches. */
+    suspend fun sportsFixtures(
+        sport: String? = null,
+        date: String? = null,
+    ): List<lumos.iptv.SportsFixture> = withContext(Dispatchers.IO) {
+        core.sportsFixtures(sport, date)
+    }
+
+    /** Searches UK Football and US pro sports team directories on the sync server. */
+    suspend fun searchSportsTeams(query: String): List<lumos.iptv.SavedSportsTeam> = withContext(Dispatchers.IO) {
+        core.searchSportsTeams(query)
+    }
+
+    /** Fetches live, recent past, and upcoming schedules for saved [teams]. */
+    suspend fun savedTeamsSchedule(
+        teams: List<lumos.iptv.SavedSportsTeam>,
+    ): List<lumos.iptv.TeamScheduleGroup> = withContext(Dispatchers.IO) {
+        core.savedTeamsSchedule(teams)
+    }
+
+    /** Enriches a TV guide programme with TMDB 16:9 backdrop and description when missing. */
+    suspend fun enrichEpgProgramme(
+        title: String,
+        channelId: String? = null,
+        category: String? = null,
+    ): lumos.iptv.EpgEnrichment = withContext(Dispatchers.IO) {
+        core.enrichEpgProgramme(title, channelId, category)
+    }
+
+    /** Reports or checks concurrent IPTV viewer presence for [sourceId]. */
+    suspend fun iptvPresence(
+        action: String,
+        sourceId: String,
+        channelName: String? = null,
+    ): String? = withContext(Dispatchers.IO) {
+        core.iptvPresence(action, sourceId, channelName)
+    }
+
     companion object {
         const val SYNC = "https://lumos-sync.hedigital.workers.dev"
         const val CINEMETA = "https://v3-cinemeta.strem.io/manifest.json"

@@ -38,7 +38,7 @@ export async function getJson(url, opts = {}) {
   const { timeout = 8000, headers, ...rest } = opts;
   const init = {
     ...rest,
-    headers: { "User-Agent": "Lumos/1.0", ...(headers || {}) },
+    headers: { "User-Agent": "Lumen/1.0", ...(headers || {}) },
     signal: rest.signal || AbortSignal.timeout(timeout),
   };
   try {
