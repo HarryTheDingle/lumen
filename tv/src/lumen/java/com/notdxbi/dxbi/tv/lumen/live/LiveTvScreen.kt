@@ -187,8 +187,16 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
         }
     }
 
-    // (Sports has its own big match at the top)
-    val showHero = activeSection == LiveSection.TV_GUIDE
+    // The guide always has its header; the other pages get the same one (the small screen top left, the programme's
+    // words and picture beside it) while something is playing, so Back from a match lands on the same layout
+    val showHero = activeSection == LiveSection.TV_GUIDE || miniSession != null
+    val playingNow = remember(miniSession?.channel?.id, nowMs / 60_000L) {
+        miniSession?.let { s ->
+            store.programmesInWindow(s.channel, nowMs, nowMs + 1).firstOrNull()
+        }
+    }
+    val headerHero = if (activeSection == LiveSection.TV_GUIDE) resolvedHero
+    else miniSession?.let { HeroSelection.Channel(it.channel, playingNow, null, playingNow?.id?.let { id -> enrichments[id] }) } ?: resolvedHero
 
     Box(
         modifier = Modifier
@@ -198,7 +206,7 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
         Column(modifier = Modifier.fillMaxSize()) {
             if (showHero) {
                 LiveHeroHeader(
-                    selection = resolvedHero,
+                    selection = headerHero,
                     hideSportsScores = prefs.hideSportsScores,
                     nowMs = nowMs,
                     miniPlayerActive = miniPlayerActive,
