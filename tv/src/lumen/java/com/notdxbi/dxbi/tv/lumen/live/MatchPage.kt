@@ -65,6 +65,12 @@ fun MatchPage(
 ) {
     var match by remember { mutableStateOf<JSONObject?>(null) }
     var failed by remember { mutableStateOf(false) }
+    // a finished match: is it in a channel's catch-up?
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var replay by remember { mutableStateOf<LiveTvStore.Replay?>(null) }
+    LaunchedEffect(fixture.id) {
+        if (fixture.status == lumos.iptv.FixtureStatus.FINAL) replay = store.findReplay(fixture)
+    }
     LaunchedEffect(fixture.id) {
         while (true) {
             val m = store.sportsMatch(fixture)
@@ -119,7 +125,12 @@ fun MatchPage(
                         when {
                             live -> LiveChip(label = "Watch" + (fixture.ukChannelName?.let { " on $it" } ?: ""), selected = true, onClick = onWatch, modifier = Modifier.focusRequester(first))
                             status == "UPCOMING" -> LiveChip(label = if (reminded) "Reminder set" else "Remind me", selected = true, onClick = onRemind, modifier = Modifier.focusRequester(first))
-                            else -> LiveChip(label = "Back", selected = true, onClick = onBack, modifier = Modifier.focusRequester(first))
+                            else -> {
+                                replay?.let { r ->
+                                    LiveChip(label = "Watch replay on ${r.channel.name}", selected = true, onClick = { store.playReplay(context, r) }, modifier = Modifier.focusRequester(first))
+                                    LiveChip(label = "Back", selected = false, onClick = onBack)
+                                } ?: LiveChip(label = "Back", selected = true, onClick = onBack, modifier = Modifier.focusRequester(first))
+                            }
                         }
                     }
                 }

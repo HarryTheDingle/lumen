@@ -601,6 +601,59 @@ class LiveTvStore(
         }
     }
 
+    /** A finished fixture's broadcast, found in a channel's catch-up archive */
+    data class Replay(val channel: CanonicalChannel, val programme: EpgProgramme)
+
+    /**
+     * Looks for [fixture] in the catch-up archives of the channels that showed it: the programme that was on
+     * across kick-off (or the start), on a channel whose provider keeps an archive. Null when none does.
+     */
+    suspend fun findReplay(fixture: SportsFixture): Replay? {
+        val now = System.currentTimeMillis()
+        val candidates = buildList {
+            fixture.ukChannelId?.let { id -> addAll(_channels.value.filter { it.id == id }) }
+            runCatching { resolveFixtureStreams(fixture).forEach { add(it.channel) } }
+        }.distinctBy { it.id }
+        Log.i("lumos-replay", "candidates: ${candidates.joinToString { it.name + " catchup=" + it.hasCatchup + "/" + it.maxCatchupDays + " xtream=" + it.streams.count { s -> s.xtreamStreamId != null } + "/" + it.streams.size }}")
+        Log.i("lumos-replay", "channels with catch-up: ${_channels.value.count { it.hasCatchup && it.maxCatchupDays > 0 }} of ${_channels.value.size}; sport: ${_channels.value.filter { it.hasCatchup && it.maxCatchupDays > 0 && Regex("sport|f1|tnt|dazn|premier", RegexOption.IGNORE_CASE).containsMatchIn(it.name) }.take(12).joinToString { it.name + "/" + it.maxCatchupDays + "d" }}")
+        val showing = candidates
+            .filter { it.hasCatchup && it.maxCatchupDays > 0 && it.streams.any { s -> s.xtreamStreamId != null } }
+        // (the match itself, not the show before it: whatever was on for most of the first two hours)
+        val from = fixture.startMs
+        val to = fixture.startMs + 2 * 3_600_000L
+        Log.i("lumos-replay", "${fixture.name}: channel ${fixture.ukChannelId}, ${showing.size} with catch-up: ${showing.joinToString { it.name + "/" + it.maxCatchupDays + "d" }}")
+        for (channel in showing) {
+            val progs = runCatching { repo.loadArchiveEpg(channel, ingest = false) }.getOrDefault(emptyList())
+            if (progs.any { it.endMs > it.startMs && it.title.isNotBlank() }) {
+                synchronized(epgLock) { repo.epg.putProviderEpg(progs) }
+            }
+            val words = fixture.name.lowercase().split(Regex("[^a-z0-9]+")).filter { it.length >= 4 }
+            val best = synchronized(epgLock) { repo.epg.catchupProgrammes(channel, now) }
+                .map { p ->
+                    val overlap = minOf(p.endMs, to) - maxOf(p.startMs, from)
+                    val named = words.count { p.title.lowercase().contains(it) || (p.description ?: "").lowercase().contains(it) }
+                    Triple(p, overlap, named)
+                }
+                .filter { it.second >= 30 * 60_000L }
+                .maxWithOrNull(compareBy<Triple<EpgProgramme, Long, Int>> { it.third }.thenBy { it.second })
+            Log.i("lumos-replay", "${channel.name}: archive ${progs.size}, eligible ${synchronized(epgLock) { repo.epg.catchupProgrammes(channel, now) }.size}, match ${best?.first?.title}")
+            if (best != null) return Replay(channel, best.first)
+        }
+        return null
+    }
+
+    fun playReplay(context: Context, replay: Replay) = playCatchup(context, replay.channel, replay.programme)
+
+    /** Finds and plays [fixture]'s broadcast from the archive, saying so when there is none */
+    fun watchReplay(context: Context, fixture: SportsFixture) {
+        showToast(context, "Looking for the replay…")
+        scope.launch {
+            val replay = findReplay(fixture)
+            if (replay != null) playReplay(context, replay)
+            else showToast(context, fixture.ukChannelName?.let { "$it doesn't have this in its catch-up" } ?: "No replay on your channels")
+        }
+    }
+
     /** Tunes [LivePlayerActivity] to the best ranked stream on [row]. */
     fun playGuideRow(
         context: Context,

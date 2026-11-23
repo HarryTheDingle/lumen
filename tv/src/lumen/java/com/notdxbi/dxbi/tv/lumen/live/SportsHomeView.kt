@@ -173,7 +173,7 @@ fun SportsHomeView(
                     nowMs = nowMs,
                     hideScores = hideSportsScores,
                     remindedIds = remindedIds,
-                    onPick = { f -> if (f.status == FixtureStatus.LIVE) store.playFixture(context, f) else if (f.status == FixtureStatus.UPCOMING) toggleReminder(f) },
+                    onPick = { f -> when (f.status) { FixtureStatus.LIVE -> store.playFixture(context, f); FixtureStatus.UPCOMING -> toggleReminder(f); else -> store.watchReplay(context, f) } },
                 )
                 }
                 standings?.let { F1Standings(it, Modifier.width(380.dp).padding(top = 22.dp, end = 48.dp)) }
@@ -409,7 +409,7 @@ private fun FixtureRow(f: SportsFixture, nowMs: Long, hideScores: Boolean, remin
             val action = when (f.status) {
                 FixtureStatus.LIVE -> if (racing) "Watch" else "Match"
                 FixtureStatus.UPCOMING -> if (reminded) "Reminder set" else "Remind me"
-                else -> if (racing) "" else "Match details"
+                else -> if (racing) (if (f.status == FixtureStatus.FINAL) "Replay" else "") else "Match details"
             }
             if (action.isNotEmpty()) Text(
                 action,
