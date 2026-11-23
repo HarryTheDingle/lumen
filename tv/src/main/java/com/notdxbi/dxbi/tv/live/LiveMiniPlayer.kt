@@ -54,6 +54,13 @@ object LiveMiniPlayer {
     var lastLocalStopAtMs: Long = 0L
         private set
 
+    /**
+     * How many Live TV screens are showing right now. The corner mini-player lives on that screen; when the full-screen
+     * player was opened from anywhere else (a reminder, "Back to the channel") there is no corner for it to go to.
+     */
+    @Volatile
+    var hosts: Int = 0
+
     /** True while transitioning into [LivePlayerActivity] so `ON_STOP` on the host preserves playback. */
     @Volatile
     var openingFullscreen: Boolean = false

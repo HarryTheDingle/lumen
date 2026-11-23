@@ -1434,7 +1434,7 @@ class LivePlayerActivity : AppCompatActivity() {
             osdVisibleFlow.value && playbackStateFlow.value !is LivePlaybackState.Unavailable -> {
                 hideOsd()
             }
-            playbackStateFlow.value is LivePlaybackState.Playing && exoEngine.isPlayingLiveOrCatchup() -> {
+            playbackStateFlow.value is LivePlaybackState.Playing && exoEngine.isPlayingLiveOrCatchup() && LiveMiniPlayer.hosts > 0 -> {
                 val activeStream = activeCandidates.getOrNull(activeStreamIndex)
                 val session = LiveMiniPlayer.Session(
                     engine = exoEngine,

@@ -13,6 +13,7 @@ import {
   parseEspnTeamSchedule,
   parseEspnTeams,
   searchCachedTeams,
+  TEAM_SEARCH_LEAGUES,
 } from "./sports.js";
 import { d1 } from "./d1-sqlite.mjs";
 
@@ -393,7 +394,7 @@ check(
   search1.teams.length === 1 &&
     search1.teams[0].teamId === "363" &&
     search2.teams[0].teamId === "359" &&
-    teamDirFetches === 8,
+    teamDirFetches === TEAM_SEARCH_LEAGUES.length,
   "handleTeamsSearch caches 24h team directory in lumos_meta"
 );
 

@@ -18,6 +18,8 @@ export const FIXTURE_LEAGUES = [
   // UK & European Football
   { sport: "Football", espnSport: "soccer", league: "eng.1", leagueName: "Premier League" },
   { sport: "Football", espnSport: "soccer", league: "eng.2", leagueName: "Championship" },
+  { sport: "Football", espnSport: "soccer", league: "eng.3", leagueName: "League One" },
+  { sport: "Football", espnSport: "soccer", league: "eng.4", leagueName: "League Two" },
   { sport: "Football", espnSport: "soccer", league: "eng.fa", leagueName: "FA Cup" },
   { sport: "Football", espnSport: "soccer", league: "eng.league_cup", leagueName: "Carabao Cup" },
   { sport: "Football", espnSport: "soccer", league: "uefa.champions", leagueName: "Champions League" },
@@ -39,6 +41,9 @@ export const FIXTURE_LEAGUES = [
 export const TEAM_SEARCH_LEAGUES = [
   { sport: "Football", espnSport: "soccer", league: "eng.1", leagueName: "Premier League" },
   { sport: "Football", espnSport: "soccer", league: "eng.2", leagueName: "Championship" },
+  { sport: "Football", espnSport: "soccer", league: "eng.3", leagueName: "League One" },
+  { sport: "Football", espnSport: "soccer", league: "eng.4", leagueName: "League Two" },
+  { sport: "Football", espnSport: "soccer", league: "eng.5", leagueName: "National League" },
   { sport: "Football", espnSport: "soccer", league: "sco.1", leagueName: "Scottish Premiership" },
   { sport: "Football", espnSport: "soccer", league: "uefa.champions", leagueName: "Champions League" },
   { sport: "NFL", espnSport: "football", league: "nfl", leagueName: "NFL" },
@@ -669,7 +674,7 @@ export async function handleTeamsSearch(body = {}, env, now = Date.now(), fetchI
   const query = typeof (body && body.query) === "string" ? body.query.trim() : "";
   if (!query) return { teams: [] };
 
-  const cacheKey = "sports:teams:directory";
+  const cacheKey = "sports:teams:directory:v2";
   const cached = await readMetaJson(env, cacheKey);
   let directory = cached && Array.isArray(cached.teams) && now - Number(cached.at || 0) < TEAMS_DIR_TTL_MS
     ? cached.teams

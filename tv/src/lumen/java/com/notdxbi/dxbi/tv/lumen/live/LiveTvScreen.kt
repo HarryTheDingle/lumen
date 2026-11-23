@@ -113,7 +113,9 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
 
     // Stop kept mini-player when leaving Tab.LiveTV or backgrounding without launching fullscreen
     DisposableEffect(Unit) {
+        LiveMiniPlayer.hosts++
         onDispose {
+            LiveMiniPlayer.hosts = (LiveMiniPlayer.hosts - 1).coerceAtLeast(0)
             if (!LiveMiniPlayer.openingFullscreen) {
                 LiveMiniPlayer.stop(store)
             }
