@@ -1398,7 +1398,7 @@ class LivePlayerActivity : AppCompatActivity() {
                 ),
             )
             // (an offer that isn't taken goes after a while)
-            delay(25_000L)
+            delay(20_000L)
             LumenHandoff.offer.value = null
         }
     }
