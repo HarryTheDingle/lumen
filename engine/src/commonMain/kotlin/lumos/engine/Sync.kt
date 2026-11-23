@@ -197,6 +197,15 @@ class Sync(private val server: String, private val http: HttpClient, var session
         return IptvCodec.decodeSportsFixtures(call("/iptv/sports/fixtures", body, signed = true).toString())
     }
 
+    /** One match's score, stats, goals and cards, and line-ups (ESPN), as JSON: `{"match": {...}}` */
+    @Throws(Exception::class)
+    suspend fun sportsMatch(league: String, eventId: String): String =
+        call("/iptv/sports/match", buildJsonObject { put("league", league); put("eventId", eventId) }, signed = true).toString()
+
+    /** Formula 1's drivers' and constructors' standings (ESPN), as JSON */
+    @Throws(Exception::class)
+    suspend fun f1Standings(): String = call("/iptv/sports/f1/standings", buildJsonObject { }, signed = true).toString()
+
     /** Searches UK Football and US pro sports team directories on the sync server. */
     @Throws(Exception::class)
     suspend fun searchSportsTeams(query: String): List<SavedSportsTeam> {

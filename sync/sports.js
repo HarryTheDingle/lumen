@@ -229,7 +229,13 @@ function parseEspnEvent(ev, leagueCfg, jsonLeagueName) {
 
     const statusObj = (comp && comp.status) || ev.status || {};
     const status = mapEspnStatus(statusObj);
-    const statusDetail = String(statusObj?.type?.shortDetail || statusObj?.type?.detail || "").trim() || null;
+    let statusDetail = String(statusObj?.type?.shortDetail || statusObj?.type?.detail || "").trim() || null;
+    // a finished race: who won it
+    if (leagueCfg.espnSport === "racing" && status === "FINAL") {
+      const first = (Array.isArray(comp && comp.competitors) ? comp.competitors : []).find((c) => Number(c && c.order) === 1);
+      const who = first && first.athlete && (first.athlete.displayName || first.athlete.fullName);
+      if (who) statusDetail = `Won by ${who}`;
+    }
     const clock = status === "LIVE" && statusObj.displayClock ? String(statusObj.displayClock).trim() : null;
     const period = Number.isInteger(statusObj.period) && statusObj.period > 0 ? statusObj.period : null;
     const venue = String(comp?.venue?.fullName || "").trim() || null;
@@ -774,4 +780,125 @@ export async function handleTeamsSchedule(body = {}, env, now = Date.now(), fetc
   }));
 
   return { updatedAt: now, schedules };
+}
+
+// ---- One match's page, and Formula 1's standings (ESPN, free) ----
+// Kept in Cloudflare's edge cache, not D1: a live match is asked for every half minute, and D1's free plan counts
+// every row written.
+
+async function edgeCached(key, ttlSeconds, make) {
+  const cache = typeof caches !== "undefined" && caches.default ? caches.default : null;
+  const req = new Request(`https://lumen-cache.internal/${encodeURIComponent(key)}`);
+  if (cache) {
+    const hit = await cache.match(req).catch(() => null);
+    if (hit) return hit.json();
+  }
+  const value = await make();
+  if (cache && value) {
+    await cache.put(req, new Response(JSON.stringify(value), {
+      headers: { "Content-Type": "application/json", "Cache-Control": `max-age=${ttlSeconds}` },
+    })).catch(() => {});
+  }
+  return value;
+}
+
+/** ESPN's match summary, as the match page needs it */
+export function parseEspnMatchSummary(json, league) {
+  const comp = json && json.header && Array.isArray(json.header.competitions) ? json.header.competitions[0] : null;
+  if (!comp) return null;
+  const st = (comp.status && comp.status.type) || {};
+  const state = st.state === "in" ? "LIVE" : st.state === "post" ? "FINAL" : "UPCOMING";
+  const side = (c) => c && {
+    id: c.team && c.team.id ? String(c.team.id) : null,
+    name: (c.team && (c.team.displayName || c.team.name)) || "",
+    shortName: (c.team && (c.team.shortDisplayName || c.team.abbreviation)) || null,
+    logoUrl: (c.team && ((c.team.logos && c.team.logos[0] && c.team.logos[0].href) || c.team.logo)) || null,
+    score: c.score != null ? String(c.score) : null,
+    winner: Boolean(c.winner),
+  };
+  const comps = Array.isArray(comp.competitors) ? comp.competitors : [];
+  const home = side(comps.find((c) => c.homeAway === "home") || comps[0]);
+  const away = side(comps.find((c) => c.homeAway === "away") || comps[1]);
+  const homeId = home && home.id;
+
+  // stats side by side: [label, home, away]
+  const teams = (json.boxscore && Array.isArray(json.boxscore.teams)) ? json.boxscore.teams : [];
+  const statsFor = (id) => {
+    const t = teams.find((x) => x.team && String(x.team.id) === String(id));
+    return new Map(((t && t.statistics) || []).map((s) => [s.label || s.name, s.displayValue]));
+  };
+  const hs = statsFor(homeId);
+  const as = statsFor(away && away.id);
+  const WANT = ["Possession", "SHOTS", "ON GOAL", "Corner Kicks", "Fouls", "Yellow Cards", "Red Cards", "Offsides", "Saves"];
+  const NAMES = { SHOTS: "Shots", "ON GOAL": "On target", "Corner Kicks": "Corners", "Yellow Cards": "Yellow cards", "Red Cards": "Red cards" };
+  const stats = WANT.filter((k) => hs.has(k) || as.has(k)).map((k) => ({ label: NAMES[k] || k, home: hs.get(k) ?? "0", away: as.get(k) ?? "0" }));
+
+  // goals, cards, subs (not kick-off and half-time markers)
+  const KINDS = { goal: "Goal", "yellow-card": "Yellow card", "red-card": "Red card", substitution: "Substitution", "own-goal": "Own goal", "penalty---scored": "Penalty" };
+  const events = (Array.isArray(json.keyEvents) ? json.keyEvents : [])
+    .filter((e) => e && e.type && (KINDS[e.type.type] || /goal|card|substitution|penalty/i.test(e.type.text || "")))
+    .map((e) => ({
+      minute: (e.clock && e.clock.displayValue) || "",
+      kind: KINDS[e.type.type] || e.type.text || "",
+      home: e.team && String(e.team.id) === String(homeId),
+      who: (Array.isArray(e.participants) ? e.participants : []).map((p) => p && p.athlete && p.athlete.displayName).filter(Boolean).slice(0, 2),
+    }));
+
+  const lineup = (id) => {
+    const r = (Array.isArray(json.rosters) ? json.rosters : []).find((x) => x.team && String(x.team.id) === String(id));
+    return ((r && r.roster) || []).filter((p) => p.starter).map((p) => ({
+      number: p.jersey || "",
+      name: (p.athlete && (p.athlete.shortName || p.athlete.displayName)) || "",
+      position: (p.position && p.position.abbreviation) || "",
+    }));
+  };
+  const venue = json.gameInfo && json.gameInfo.venue ? json.gameInfo.venue.fullName || null : null;
+  return {
+    id: String(comp.id || ""),
+    league,
+    status: state,
+    statusDetail: st.shortDetail || st.detail || null,
+    clock: (comp.status && comp.status.displayClock) || null,
+    startMs: Date.parse(comp.date || "") || null,
+    venue,
+    home, away, stats, events,
+    homeLineup: lineup(homeId),
+    awayLineup: lineup(away && away.id),
+  };
+}
+
+/** POST /iptv/sports/match ({ league, eventId }): one match's score, stats, goals and cards, and line-ups */
+export async function handleSportsMatch(body = {}, env, now = Date.now(), fetchImpl = globalThis.fetch) {
+  const league = String((body && body.league) || "").trim();
+  const eventId = String((body && body.eventId) || "").trim();
+  const cfg = LEAGUE_BY_CODE.get(league) || TEAM_SEARCH_LEAGUES.find((l) => l.league === league);
+  if (!cfg || !/^\d{1,12}$/.test(eventId)) return { status: 400, body: { error: "Unknown match." } };
+  const match = await edgeCached(`match:${league}:${eventId}`, 30, async () => {
+    const json = await fetchJsonWith(fetchImpl, `${ESPN_BASE}/${cfg.espnSport}/${cfg.league}/summary?event=${eventId}`);
+    return json ? parseEspnMatchSummary(json, league) : null;
+  });
+  return match ? { status: 200, body: { match } } : { status: 502, body: { error: "Match details unavailable." } };
+}
+
+/** POST /iptv/sports/f1/standings: drivers' and constructors' championship points */
+export async function handleF1Standings(body = {}, env, now = Date.now(), fetchImpl = globalThis.fetch) {
+  const out = await edgeCached("f1:standings", 6 * 3600, async () => {
+    const json = await fetchJsonWith(fetchImpl, "https://site.api.espn.com/apis/v2/sports/racing/f1/standings");
+    const kids = json && Array.isArray(json.children) ? json.children : [];
+    if (!kids.length) return null;
+    const table = (child, athlete) => ((child && child.standings && child.standings.entries) || []).map((e, i) => {
+      const stat = (n) => ((e.stats || []).find((s) => s.name === n) || {}).displayValue;
+      return {
+        rank: Number(stat("rank")) || i + 1,
+        name: athlete ? (e.athlete && e.athlete.displayName) || "" : (e.team && (e.team.displayName || e.team.name)) || (e.athlete && e.athlete.displayName) || "",
+        points: stat("championshipPts") || stat("points") || "0",
+      };
+    }).sort((a, b) => a.rank - b.rank);
+    return {
+      season: (json.seasons && json.seasons[0] && json.seasons[0].year) || null,
+      drivers: table(kids.find((c) => /driver/i.test(c.name || "")) || kids[0], true),
+      constructors: table(kids.find((c) => /constructor|team/i.test(c.name || "")), false),
+    };
+  });
+  return out ? { status: 200, body: out } : { status: 502, body: { error: "Standings unavailable." } };
 }

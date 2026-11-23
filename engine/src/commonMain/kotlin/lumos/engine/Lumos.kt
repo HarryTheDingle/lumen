@@ -388,6 +388,12 @@ class Lumos(syncServer: String) {
     suspend fun sportsFixtures(sport: String? = null, date: String? = null): List<SportsFixture> =
         sync.sportsFixtures(sport, date)
 
+    @Throws(Exception::class)
+    suspend fun sportsMatch(league: String, eventId: String): String = sync.sportsMatch(league, eventId)
+
+    @Throws(Exception::class)
+    suspend fun f1Standings(): String = sync.f1Standings()
+
     /** Searches UK Football and US pro sports team directories on the sync server. */
     @Throws(Exception::class)
     suspend fun searchSportsTeams(query: String): List<SavedSportsTeam> =

@@ -23,7 +23,7 @@ import { handlePicks, handleAsk } from "./picks.js";
 import { resolveLabels } from "./labels.js";
 import { handleScores } from "./scores.js";
 import { enrichEpgProgramme, pruneEpg, readUkEpg, refreshUkEpg } from "./epg.js";
-import { handleSportsFixtures, handleTeamsSchedule, handleTeamsSearch } from "./sports.js";
+import { handleF1Standings, handleSportsFixtures, handleSportsMatch, handleTeamsSchedule, handleTeamsSearch } from "./sports.js";
 import { handleIptvSetupSubmit, renderSetupPage } from "./iptv-setup.js";
 import { handleIptvPresence, pruneIptvPresence } from "./presence.js";
 
@@ -500,6 +500,8 @@ async function handle(request, env) {
     case "/iptv/sports/fixtures": return reply(200, await handleSportsFixtures(body, env, now));
     case "/iptv/sports/teams/search": return reply(200, await handleTeamsSearch(body, env, now));
     case "/iptv/sports/teams/schedule": return reply(200, await handleTeamsSchedule(body, env, now));
+    case "/iptv/sports/match": { const r = await handleSportsMatch(body, env, now); return reply(r.status, r.body); }
+    case "/iptv/sports/f1/standings": { const r = await handleF1Standings(body, env, now); return reply(r.status, r.body); }
     case "/iptv/presence": { const r = await handleIptvPresence(body, env, me, now); return reply(r.status, r.body); }
     case "/iptv/setup/start": {
       await env.DB.prepare("DELETE FROM lumos_iptv_setup WHERE expires < ?").bind(now).run();

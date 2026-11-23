@@ -808,6 +808,16 @@ class Engine(context: Context) {
         core.sportsFixtures(sport, date)
     }
 
+    /** One match's page (score, stats, goals and cards, line-ups) as JSON; null when it can't be had */
+    suspend fun sportsMatch(league: String, eventId: String): org.json.JSONObject? = withContext(Dispatchers.IO) {
+        runCatching { org.json.JSONObject(core.sportsMatch(league, eventId)).optJSONObject("match") }.getOrNull()
+    }
+
+    /** Formula 1's standings as JSON ({season, drivers, constructors}); null when it can't be had */
+    suspend fun f1Standings(): org.json.JSONObject? = withContext(Dispatchers.IO) {
+        runCatching { org.json.JSONObject(core.f1Standings()) }.getOrNull()
+    }
+
     /** Searches UK Football and US pro sports team directories on the sync server. */
     suspend fun searchSportsTeams(query: String): List<lumos.iptv.SavedSportsTeam> = withContext(Dispatchers.IO) {
         core.searchSportsTeams(query)
