@@ -39,7 +39,8 @@ class Engine(
     companion object {
         const val MANIFEST_MS = 6_000L
         const val CATALOG_MS = 10_000L
-        const val STREAMS_MS = 15_000L
+        const val STREAMS_MS = 20_000L
+        const val STREAMS_FIRST_MS = 8_000L
 
         fun defaultHttp() = HttpClient {
             install(HttpTimeout) { connectTimeoutMillis = 6_000; socketTimeoutMillis = 35_000; requestTimeoutMillis = 35_000 }

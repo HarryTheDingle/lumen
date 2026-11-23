@@ -357,7 +357,9 @@ class Phone(private val lumos: Lumos) {
                 launch {
                     val m = withTimeoutOrNull(Engine.MANIFEST_MS) { runCatching { a.manifest() }.getOrNull() }
                     val list = if (m != null && m.answers("stream", type, videoId)) {
-                        withTimeoutOrNull(Engine.STREAMS_MS) { runCatching { a.streams(type, videoId) }.getOrNull() }
+                        // (an addon that's asleep can miss the first call and answer the next in a second: one more go)
+                        withTimeoutOrNull(Engine.STREAMS_FIRST_MS) { runCatching { a.streams(type, videoId) }.getOrNull() }
+                            ?: withTimeoutOrNull(Engine.STREAMS_MS - Engine.STREAMS_FIRST_MS) { runCatching { a.streams(type, videoId) }.getOrNull() }
                     } else emptyList()
                     lock.withLock {
                         if (streamsVideo != videoId) return@withLock
