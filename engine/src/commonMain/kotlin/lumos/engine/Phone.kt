@@ -171,6 +171,8 @@ class Phone(private val lumos: Lumos) {
 
     private fun rememberWarmed(videoId: String, streams: List<Stream>) {
         warmed.remove(videoId)
+        // (an empty answer is a miss, not a result: kept, it would be served as "no streams" for minutes)
+        if (streams.isEmpty()) return
         warmed[videoId] = lumos.clock() to streams
         while (warmed.size > WARM_CAP) warmed.keys.firstOrNull()?.let(warmed::remove)
     }
@@ -335,7 +337,7 @@ class Phone(private val lumos: Lumos) {
         settled = false
         val addons = lumos.engine.addons
         // (fetched ahead while the remote rested on it: there at once)
-        val ready = if (again) null else warmed[videoId]?.takeIf { lumos.clock() - it.first < WARM_MS }?.second
+        val ready = if (again) null else warmed[videoId]?.takeIf { lumos.clock() - it.first < WARM_MS && it.second.isNotEmpty() }?.second
         if (ready != null) {
             found = ready
             addonStates = addons.map { it.base to "Ready" }
