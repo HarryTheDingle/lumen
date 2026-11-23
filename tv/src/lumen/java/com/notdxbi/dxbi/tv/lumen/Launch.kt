@@ -118,8 +118,10 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
             val dd = d ?: return@launch
             val video = nextVideo(dd)?.id
             if (video != null && dd.videoId != video) stremio.open(t.type, t.id, video)
-            // (once a second, for up to 12: each look at the list costs, and it was three times a second)
-            for (i in 0 until 12) {
+            // (once a second, for up to 22: each look at the list costs, and it was three times a second. An addon that
+            // was asleep and missed it leaves nothing to play: asked once more, afresh, so Play still finds it ready)
+            var asledAgain = false
+            for (i in 0 until 22) {
                 if (title != null) return@launch
                 val c = stremio.streams()
                 val pick = c?.picked
@@ -127,6 +129,10 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
                     stremio.probeAhead(pick)
                     c.videoId?.let { stremio.prefetchSkips(t.type, t.id, it) }
                     return@launch
+                }
+                if (c != null && pick == null && c.settled && !asledAgain && (video == null || c.videoId == video)) {
+                    asledAgain = true
+                    stremio.open(t.type, t.id, video ?: dd.videoId, again = true)
                 }
                 delay(1000)
             }
