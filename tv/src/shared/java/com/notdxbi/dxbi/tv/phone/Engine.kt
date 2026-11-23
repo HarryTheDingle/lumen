@@ -814,8 +814,8 @@ class Engine(context: Context) {
     }
 
     /** Formula 1's standings as JSON ({season, drivers, constructors}); null when it can't be had */
-    suspend fun f1Standings(): org.json.JSONObject? = withContext(Dispatchers.IO) {
-        runCatching { org.json.JSONObject(core.f1Standings()) }.getOrNull()
+    suspend fun f1Standings(series: String = "f1"): org.json.JSONObject? = withContext(Dispatchers.IO) {
+        runCatching { org.json.JSONObject(core.f1Standings(series)) }.getOrNull()
     }
 
     /** Searches UK Football and US pro sports team directories on the sync server. */

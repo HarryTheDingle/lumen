@@ -29,6 +29,8 @@ export const FIXTURE_LEAGUES = [
   { sport: "NHL", espnSport: "hockey", league: "nhl", leagueName: "NHL" },
   { sport: "MLB", espnSport: "baseball", league: "mlb", leagueName: "MLB" },
   { sport: "Formula 1", espnSport: "racing", league: "f1", leagueName: "Formula 1" },
+  { sport: "IndyCar", espnSport: "racing", league: "irl", leagueName: "IndyCar Series" },
+  { sport: "NASCAR", espnSport: "racing", league: "nascar-premier", leagueName: "NASCAR Cup Series" },
   { sport: "UFC", espnSport: "mma", league: "ufc", leagueName: "UFC" },
   { sport: "Golf", espnSport: "golf", league: "pga", leagueName: "PGA Tour" },
   { sport: "Tennis", espnSport: "tennis", league: "atp", leagueName: "ATP Tour" },
@@ -413,6 +415,12 @@ function matchesNonTeamEvent(fixture, paddedText) {
     const tokens = normText(fixture.name).replace(/\b(formula|one|grand|prix|f1|gp)\b/g, " ").trim().split(/\s+/).filter((w) => w.length >= 4);
     return tokens.some((t) => containsAliasPhrase(paddedText, t));
   }
+  if (fixture.sport === "IndyCar" || fixture.sport === "NASCAR") {
+    const series = fixture.sport === "IndyCar" ? /\bindy\s?car\b/ : /\bnascar\b/;
+    if (!series.test(paddedText)) return false;
+    const tokens = normText(fixture.name).replace(/\b(grand|prix|race|the|of|indycar|nascar|cup|series|gp)\b/g, " ").trim().split(/\s+/).filter((w) => w.length >= 4);
+    return !tokens.length || tokens.some((t) => containsAliasPhrase(paddedText, t));
+  }
   if (fixture.sport === "UFC") {
     const m = /\bufc\s*(\d+)\b/i.exec(fixture.name);
     if (m && paddedText.includes(` ufc ${m[1]} `)) return true;
@@ -520,6 +528,8 @@ function filterBySport(fixtures, sportQuery) {
     if (s === q || l === q) return true;
     if (q === "soccer" && s === "football") return true;
     if (q === "f1" && s === "formula 1") return true;
+    if (q === "indycar" && l.includes("indycar")) return true;
+    if (q === "nascar" && l.includes("nascar")) return true;
     return false;
   });
 }
@@ -882,8 +892,10 @@ export async function handleSportsMatch(body = {}, env, now = Date.now(), fetchI
 
 /** POST /iptv/sports/f1/standings: drivers' and constructors' championship points */
 export async function handleF1Standings(body = {}, env, now = Date.now(), fetchImpl = globalThis.fetch) {
-  const out = await edgeCached("f1:standings", 6 * 3600, async () => {
-    const json = await fetchJsonWith(fetchImpl, "https://site.api.espn.com/apis/v2/sports/racing/f1/standings");
+  // (any ESPN racing series: f1 by default, irl = IndyCar, nascar-premier = NASCAR Cup)
+  const series = ["f1", "irl", "nascar-premier"].includes(body && body.series) ? body.series : "f1";
+  const out = await edgeCached(`${series}:standings`, 6 * 3600, async () => {
+    const json = await fetchJsonWith(fetchImpl, `https://site.api.espn.com/apis/v2/sports/racing/${series}/standings`);
     const kids = json && Array.isArray(json.children) ? json.children : [];
     if (!kids.length) return null;
     const table = (child, athlete) => ((child && child.standings && child.standings.entries) || []).map((e, i) => {

@@ -58,7 +58,16 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private enum class SportsTab(val label: String) { MY_TEAMS("My teams"), F1("Formula 1"), ALL("All sports") }
+private enum class SportsTab(val label: String) { MY_TEAMS("My teams"), F1("Motorsport"), ALL("All sports") }
+
+/** The racing series on the Motorsport tab: ESPN's league code, and the Worker's sport name */
+private enum class Series(val label: String, val code: String, val sport: String) {
+    F1("Formula 1", "f1", "f1"), INDY("IndyCar", "irl", "indycar"), NASCAR("NASCAR", "nascar-premier", "nascar")
+}
+
+private fun SportsFixture.isRacing() =
+    sport.contains("racing", true) || league.equals("f1", true) || league.equals("irl", true) ||
+        league.startsWith("nascar", true) || leagueName.contains("formula", true)
 
 /**
  * Sports, as the football dashboard reference: your team's next match big at the top (a countdown, or the live
@@ -82,6 +91,7 @@ fun SportsHomeView(
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var addingTeam by remember { mutableStateOf(false) }
     var openMatch by remember { mutableStateOf<SportsFixture?>(null) }
+    var series by remember { mutableStateOf(Series.F1) }
     var standings by remember { mutableStateOf<org.json.JSONObject?>(null) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -92,10 +102,11 @@ fun SportsHomeView(
             nowMs = System.currentTimeMillis()
         }
     }
-    LaunchedEffect(tab) {
+    LaunchedEffect(tab, series) {
         if (tab == SportsTab.F1) {
-            store.loadSportsFixtures(sport = "f1")
-            if (standings == null) standings = store.f1Standings()
+            standings = null
+            store.loadSportsFixtures(sport = series.sport)
+            standings = store.f1Standings(series.code)
         }
     }
     val remindedIds = remember(reminders) { reminders.mapTo(HashSet()) { it.id } }
@@ -138,13 +149,16 @@ fun SportsHomeView(
             }
             Spacer(Modifier.weight(1f))
             if (tab == SportsTab.MY_TEAMS) LiveChip(label = "Add a team", selected = false, onClick = { addingTeam = true })
+            if (tab == SportsTab.F1) Series.entries.forEach { sr ->
+                LiveChip(label = sr.label, selected = series == sr, onClick = { series = sr })
+            }
         }
 
         when (tab) {
             SportsTab.ALL -> Box(Modifier.weight(1f)) { allSports() }
             SportsTab.F1 -> {
-                val f1 = remember(fixtures) {
-                    fixtures.filter { it.sport.contains("racing", true) || it.league.contains("f1", true) || it.leagueName.contains("formula", true) }
+                val f1 = remember(fixtures, series) {
+                    fixtures.filter { it.isRacing() && it.league.equals(series.code, true) }
                         .sortedBy { it.startMs }
                 }
                 Row(Modifier.fillMaxSize()) {
@@ -155,7 +169,7 @@ fun SportsHomeView(
                         "Coming up" to f1.filter { it.status == FixtureStatus.UPCOMING }.take(8),
                         "Results" to f1.filter { it.status == FixtureStatus.FINAL }.sortedByDescending { it.startMs }.take(6),
                     ),
-                    empty = "No Formula 1 sessions in the next few days.",
+                    empty = "No ${series.label} races in the next few days.",
                     nowMs = nowMs,
                     hideScores = hideSportsScores,
                     remindedIds = remindedIds,
@@ -349,7 +363,7 @@ private fun CountUnit(value: Long, unit: String) {
 @Composable
 private fun FixtureRow(f: SportsFixture, nowMs: Long, hideScores: Boolean, reminded: Boolean, onPick: () -> Unit) {
     // (a race has no two sides and no match page: its name, and Finished rather than Full time)
-    val racing = f.sport.contains("racing", true) || f.league.equals("f1", true) || f.leagueName.contains("formula", true)
+    val racing = f.isRacing()
     GlassTile(
         onClick = onPick,
         modifier = Modifier.padding(horizontal = 40.dp).fillMaxWidth().height(64.dp),
@@ -424,7 +438,7 @@ private fun dayLabel(ms: Long, nowMs: Long): String {
 }
 
 
-/** Formula 1's championship: drivers, then constructors */
+/** A racing series' championship: drivers, then constructors (IndyCar and NASCAR have drivers only) */
 @Composable
 private fun F1Standings(json: org.json.JSONObject, modifier: Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {

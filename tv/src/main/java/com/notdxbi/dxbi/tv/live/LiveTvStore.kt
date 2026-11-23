@@ -912,7 +912,7 @@ class LiveTvStore(
         if (fixture.league.isBlank() || fixture.id.isBlank()) null else engine.sportsMatch(fixture.league, fixture.id)
 
     /** Formula 1's drivers' and constructors' standings */
-    suspend fun f1Standings(): org.json.JSONObject? = engine.f1Standings()
+    suspend fun f1Standings(series: String = "f1"): org.json.JSONObject? = engine.f1Standings(series)
 
     /** What the channel is showing, as a Lumen title (its IMDb id), for "Watch in Lumen"; null if not found */
     suspend fun findInLumen(channel: CanonicalChannel, programme: EpgProgramme): EpgEnrichment? = runCatching {
