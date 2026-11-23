@@ -404,9 +404,13 @@ class LiveExoEngine(
 
                 if (!resolved.isCatchup && exo.playbackState == Player.STATE_READY) {
                     val hasVideo = exo.videoFormat != null
+                    exo.videoDecoderCounters?.ensureUpdated()
                     val renderedFrames = exo.videoDecoderCounters?.renderedOutputBufferCount ?: 0
-                    val progressed = if (hasVideo) {
-                        renderedFrames > lastRenderedFrames || pos > lastObservedPos
+                    val progressed = if (hasVideo && exo.videoDecoderCounters != null) {
+                        // (frames only: a frozen picture with the sound still going moves the position on, and was never caught)
+                        renderedFrames > lastRenderedFrames
+                    } else if (hasVideo) {
+                        pos > lastObservedPos
                     } else {
                         pos > lastObservedPos
                     }
