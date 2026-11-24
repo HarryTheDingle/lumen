@@ -555,6 +555,7 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVid
                             Episodes(
                                 title, d, season ?: d.seasons.firstOrNull(), nextVideo(d)?.id, title.backdrop, blurUnwatched,
                                 landing = episodeFocus,
+                                onUp = { toTop() },
                                 onSeason = { season = it },
                                 onPlay = { start(it.id) },
                                 onMenu = { v ->
@@ -992,6 +993,8 @@ private fun Episodes(
     onSeason: (Int) -> Unit,
     onPlay: (Video) -> Unit,
     onMenu: (Video) -> Unit,
+    /** Up from the top of the episodes (the season tabs, or the cards when there are none): back to the billboard */
+    onUp: () -> Unit = {},
 ) {
     // Every season in one row (Specials last): the tabs above follow the episode the remote is on, and choosing a
     // tab jumps to the start of its season. Move along the episodes or up to the tabs, whichever is nearer.
@@ -1028,6 +1031,8 @@ private fun Episodes(
         if (seasons.size > 1) {
             LazyRow(
                 Modifier.keepsSideways(left = true).onPreviewKeyEvent {
+                    // (the billboard is off the screen by now, and not there to be found by the focus: it goes there itself)
+                    if (it.key == Key.DirectionUp) { if (it.type == KeyEventType.KeyDown) onUp(); return@onPreviewKeyEvent true }
                     if (it.key != Key.DirectionDown || aimId == null) return@onPreviewKeyEvent false
                     if (it.type == KeyEventType.KeyDown) runCatching { aim.requestFocus() }.isSuccess else true
                 },
@@ -1050,7 +1055,14 @@ private fun Episodes(
             // (back up into the episodes: the one the remote was last on, else the one they're on; it landed on whichever was
             // nearest the card it came from, often one half off the screen)
             // (not while a season chosen from the tabs is waiting to be landed on: the row going back to where it was won over it)
-            modifier = Modifier.keepsSideways(left = true).then(if (aimId != null) Modifier else @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.focusRestorer { if (landingAttached) landing else FocusRequester.Default }),
+            modifier = Modifier.keepsSideways(left = true)
+                .onPreviewKeyEvent {
+                    // (no season tabs above the cards: Up is the billboard)
+                    if (seasons.size > 1 || it.key != Key.DirectionUp) return@onPreviewKeyEvent false
+                    if (it.type == KeyEventType.KeyDown) onUp()
+                    true
+                }
+                .then(if (aimId != null) Modifier else @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.focusRestorer { if (landingAttached) landing else FocusRequester.Default }),
             contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 18.dp),
             horizontalArrangement = Arrangement.spacedBy(18.dp),
         ) {
