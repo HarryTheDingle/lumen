@@ -42,6 +42,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -216,19 +218,16 @@ fun SportsHomeView(
                     }
                     item(key = "hero") {
                         val replays = f1.filter { it.status == FixtureStatus.FINAL }.sortedByDescending { it.startMs }.take(3)
-                        Row(Modifier.padding(horizontal = 32.dp, vertical = 8.dp).fillMaxWidth().height(150.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                            next?.let { n ->
+                        val shown = next ?: replays.firstOrNull()
+                        Row(Modifier.padding(horizontal = 32.dp, vertical = 8.dp).fillMaxWidth().height(160.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            shown?.let { n ->
                                 RaceHero(
                                     fixture = n, nowMs = nowMs, reminded = "fixture:${n.id}" in remindedIds,
-                                    onWatch = { store.playFixture(context, n) }, onRemind = { toggleReminder(n) },
+                                    wash = Color(0xFFE10600),
+                                    onWatch = { if (n.status == FixtureStatus.FINAL) store.watchReplay(context, n) else store.playFixture(context, n) },
+                                    onRemind = { toggleReminder(n) },
                                     modifier = Modifier.weight(1.3f).fillMaxHeight(),
                                 )
-                            } ?: Box(Modifier.weight(1.3f).fillMaxHeight().liveGlass(RoundedCornerShape(Dx.RCard + 4.dp)).padding(22.dp), contentAlignment = Alignment.CenterStart) {
-                                Column {
-                                    Text("Next up", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted)
-                                    Text("No ${series.label} race listed yet", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                                    Text("The calendar fills in when the next weekend is announced.", fontSize = 13.sp, color = Dx.Muted)
-                                }
                             }
                             ReplaysPanel(replays, onPick = { store.watchReplay(context, it) }, modifier = Modifier.weight(1f).fillMaxHeight())
                         }
@@ -252,16 +251,34 @@ fun SportsHomeView(
                 val upcoming = pool.filter { it.status == FixtureStatus.UPCOMING }.sortedWith(compareBy({ !isMine(it) }, { it.startMs })).take(12)
                 val past = pool.filter { it.status == FixtureStatus.FINAL }.sortedWith(compareBy({ !isMine(it) }, { -it.startMs })).take(10)
                 val headline: SportsFixture? = null
+                // (golf and the like have no two sides: an event, not a match)
+                fun sided(f: SportsFixture) = !f.home?.name.isNullOrBlank() && !f.away?.name.isNullOrBlank()
+                val events = pool.filterNot { sided(it) }
+                val heroEvent = events.firstOrNull { it.status == FixtureStatus.LIVE } ?: events.filter { it.status == FixtureStatus.UPCOMING }.minByOrNull { it.startMs }
+                    ?: events.filter { it.status == FixtureStatus.FINAL }.maxByOrNull { it.startMs }
                 LazyColumn(state = lists, contentPadding = PaddingValues(bottom = 40.dp)) {
                     item(key = "title") {
                         Row(Modifier.fillMaxWidth().padding(start = 32.dp, end = 32.dp, top = 22.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("${tile.label} · ${dayLabel(nowMs, nowMs)}", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
-                            LiveChip(label = if (prefs.favouriteTeams.isEmpty()) "Add your teams" else "Add a team", selected = false, onClick = { addingTeam = true })
+                            if (tile in teamSports) LiveChip(label = if (prefs.favouriteTeams.isEmpty()) "Add your teams" else "Add a team", selected = false, onClick = { addingTeam = true })
                         }
                     }
-                    panelSection("Live now", live.filter { it != headline }, nowMs, hideSportsScores, favTeamIds) { openMatch = it }
-                    panelSection("Coming up", upcoming.filter { it != headline }, nowMs, hideSportsScores, favTeamIds) { toggleReminder(it) }
-                    panelSection("Results", past, nowMs, hideSportsScores, favTeamIds) { openMatch = it }
+                    heroEvent?.let { h ->
+                        item(key = "event-hero") {
+                            RaceHero(
+                                fixture = h, nowMs = nowMs, reminded = "fixture:${h.id}" in remindedIds,
+                                wash = tintFor(tile.label),
+                                onWatch = { if (h.status == FixtureStatus.FINAL) store.watchReplay(context, h) else store.playFixture(context, h) }, onRemind = { toggleReminder(h) },
+                                modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp).fillMaxWidth().height(150.dp),
+                            )
+                        }
+                    }
+                    panelSection("Live now", live.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds) { openMatch = it }
+                    panelSection("Coming up", upcoming.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds) { toggleReminder(it) }
+                    panelSection("Results", past.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds) { openMatch = it }
+                    eventSection("Events", events.filter { it != heroEvent }.sortedBy { if (it.status == FixtureStatus.FINAL) Long.MAX_VALUE - it.startMs else it.startMs }.take(12), tintFor(tile.label), nowMs) {
+                        if (it.status == FixtureStatus.LIVE) store.playFixture(context, it) else toggleReminder(it)
+                    }
                     if (pool.isEmpty()) item(key = "empty") {
                         Text("No ${tile.label} matches coming up.", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(start = 48.dp, top = 24.dp))
                     }
@@ -293,6 +310,9 @@ fun SportsHomeView(
     }
 }
 
+/** The sports whose matches are between teams (the others have events, or their own page) */
+private val teamSports = setOf(SportTile.FOOTBALL, SportTile.NFL, SportTile.NBA, SportTile.NHL, SportTile.MLB)
+
 /** A sport's large glass tile: its icon and words; ★ when it's a favourite; hold OK to favourite */
 @Composable
 private fun SportTileButton(
@@ -316,6 +336,57 @@ private fun SportTileButton(
             androidx.tv.material3.Icon(tile.icon, contentDescription = null, tint = ink, modifier = Modifier.size(22.dp).align(Alignment.TopStart))
             if (favourite) androidx.tv.material3.Icon(Icons.Filled.Star, contentDescription = "Favourite", tint = ink.copy(alpha = 0.8f), modifier = Modifier.size(13.dp).align(Alignment.TopEnd))
             Text(tile.label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, modifier = Modifier.align(Alignment.BottomStart))
+        }
+    }
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.eventSection(
+    title: String,
+    list: List<SportsFixture>,
+    tint: Color,
+    nowMs: Long,
+    onPick: (SportsFixture) -> Unit,
+) {
+    if (list.isEmpty()) return
+    item(key = "h:$title") {
+        Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(start = 32.dp, top = 22.dp, bottom = 8.dp))
+    }
+    items(list.chunked(2), key = { row -> "ev:${row.first().id}" }) { row ->
+        Row(Modifier.padding(horizontal = 32.dp, vertical = 6.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            row.forEach { f -> EventPanel(f, tint, nowMs, onPick = { onPick(f) }, modifier = Modifier.weight(1f)) }
+            if (row.size == 1) Spacer(Modifier.weight(1f))
+        }
+    }
+}
+
+/** An event with no two sides (a golf tournament, a race weekend): its name, where, and when, on a wash of the sport's colour */
+@Composable
+private fun EventPanel(f: SportsFixture, tint: Color, nowMs: Long, onPick: () -> Unit, modifier: Modifier = Modifier) {
+    GlassTile(
+        onClick = onPick,
+        modifier = modifier.height(84.dp),
+        shape = RoundedCornerShape(Dx.RCard + 4.dp),
+        fillColor = Color(0xFF17171A),
+        focusedScale = Dx.FocusRow,
+    ) { focused, ink ->
+        Box(Modifier.fillMaxSize()) {
+            if (!focused) Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to tint.copy(alpha = 0.55f), 0.7f to Color.Transparent)))
+            Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(f.name.ifBlank { f.leagueName }, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ink, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 18.sp)
+                    Text(listOfNotNull(f.leagueName.takeIf { it.isNotBlank() && it != f.name }, f.venue).joinToString("  ·  "), fontSize = 12.sp, color = ink.copy(alpha = 0.62f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (f.status == FixtureStatus.LIVE) Box(Modifier.size(8.dp).clip(CircleShape).background(LivePalette.LiveRed))
+                        Text(
+                            when (f.status) { FixtureStatus.LIVE -> "  Live"; FixtureStatus.FINAL -> "Finished"; else -> dayLabel(f.startMs, nowMs) },
+                            fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1,
+                        )
+                    }
+                    Text(f.statusDetail?.takeIf { it.isNotBlank() && f.status != FixtureStatus.UPCOMING } ?: (if (f.status == FixtureStatus.UPCOMING) timeLabel(f.startMs) else ""), fontSize = 12.sp, color = ink.copy(alpha = 0.62f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 140.dp))
+                }
+            }
         }
     }
 }
@@ -361,7 +432,7 @@ internal fun MatchPanel(f: SportsFixture, nowMs: Long, hideScores: Boolean, mine
             if (mine) androidx.tv.material3.Icon(Icons.Filled.Star, contentDescription = "Your team", tint = ink.copy(alpha = 0.85f), modifier = Modifier.size(12.dp).align(Alignment.TopStart).padding(top = 6.dp, start = 8.dp))
             Row(Modifier.fillMaxSize().padding(horizontal = 14.dp).padding(top = 14.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    CrestBadge(logoUrl = home?.logoUrl, name = home?.name ?: f.name, size = 30.dp)
+                    CrestBadge(logoUrl = home?.logoUrl, name = home?.name ?: f.name, size = 38.dp)
                     Text(home?.shortName ?: home?.name ?: f.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
                 }
                 val showScore = f.status != FixtureStatus.UPCOMING && !hideScores && home?.score != null
@@ -387,7 +458,7 @@ internal fun MatchPanel(f: SportsFixture, nowMs: Long, hideScores: Boolean, mine
                     }
                 }
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    CrestBadge(logoUrl = away?.logoUrl, name = away?.name ?: f.leagueName, size = 30.dp)
+                    CrestBadge(logoUrl = away?.logoUrl, name = away?.name ?: f.leagueName, size = 38.dp)
                     Text(away?.shortName ?: away?.name ?: "", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
                 }
             }
@@ -420,20 +491,28 @@ private fun ReplaysPanel(list: List<SportsFixture>, onPick: (SportsFixture) -> U
 
 /** The next (or live) race: its name and place, the countdown, and what OK does */
 @Composable
-private fun RaceHero(fixture: SportsFixture, nowMs: Long, reminded: Boolean, onWatch: () -> Unit, onRemind: () -> Unit, modifier: Modifier = Modifier) {
+private fun RaceHero(fixture: SportsFixture, nowMs: Long, reminded: Boolean, onWatch: () -> Unit, onRemind: () -> Unit, modifier: Modifier = Modifier, wash: Color = Color(0xFFE10600)) {
     val live = fixture.status == FixtureStatus.LIVE
-    Box(modifier.liveGlass(RoundedCornerShape(Dx.RCard + 4.dp))) {
+    val finished = fixture.status == FixtureStatus.FINAL
+    val shape = RoundedCornerShape(Dx.RCard + 4.dp)
+    Box(
+        modifier.liveGlass(shape).clip(shape).drawBehind {
+            drawRect(Brush.radialGradient(listOf(wash.copy(alpha = 0.42f), Color.Transparent), center = Offset(size.width, 0f), radius = size.width * 0.8f))
+            drawRect(Brush.radialGradient(listOf(wash.copy(alpha = 0.16f), Color.Transparent), center = Offset(0f, size.height), radius = size.width * 0.5f))
+        },
+    ) {
         Row(Modifier.fillMaxSize().padding(horizontal = 22.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(if (live) "On now" else "Next up", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted)
-                Text(fixture.name.ifBlank { fixture.leagueName }, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, lineHeight = 26.sp)
+                Text(if (live) "On now" else if (finished) "Latest result" else "Next up", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.7f))
+                Text(fixture.name.ifBlank { fixture.leagueName }, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, lineHeight = 28.sp)
                 Text(listOfNotNull(fixture.venue, dayLabel(fixture.startMs, nowMs) + " " + timeLabel(fixture.startMs), fixture.ukChannelName).joinToString("  ·  "), fontSize = 13.sp, color = Dx.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (live) LiveChip(label = "Watch", selected = true, onClick = onWatch)
+                    else if (finished) LiveChip(label = "Watch replay", selected = true, onClick = onWatch)
                     else LiveChip(label = if (reminded) "Reminder set" else "Remind me", selected = reminded, onClick = onRemind)
                 }
             }
-            if (!live) {
+            if (!live && !finished) {
                 val left = (fixture.startMs - nowMs).coerceAtLeast(0L)
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     CountUnit(left / 86_400_000L, "days"); CountUnit((left / 3_600_000L) % 24, "hours"); CountUnit((left / 60_000L) % 60, "minutes")
@@ -548,21 +627,69 @@ private fun dayLabel(ms: Long, nowMs: Long): String {
 }
 
 
-/** A racing series' championship: drivers and constructors side by side (IndyCar and NASCAR have drivers only) */
+/** F1 team colours, by name */
+private fun teamColour(team: String): Color = when {
+    team.contains("mercedes", true) -> Color(0xFF27F4D2)
+    team.contains("red bull", true) -> Color(0xFF3671C6)
+    team.contains("racing bulls", true) || team.contains("rb", true) && team.length <= 3 || team.contains("alphatauri", true) -> Color(0xFF6692FF)
+    team.contains("mclaren", true) -> Color(0xFFFF8000)
+    team.contains("ferrari", true) -> Color(0xFFE80020)
+    team.contains("aston", true) -> Color(0xFF229971)
+    team.contains("alpine", true) -> Color(0xFF0093CC)
+    team.contains("williams", true) -> Color(0xFF64C4FF)
+    team.contains("haas", true) -> Color(0xFFB6BABD)
+    team.contains("audi", true) || team.contains("sauber", true) -> Color(0xFF52E252)
+    team.contains("cadillac", true) -> Color(0xFFC0C0C0)
+    else -> Color(0xFF8A8D93)
+}
+
+/** The current grid, by surname: which team a driver races for */
+private val DRIVER_TEAMS = mapOf(
+    "antonelli" to "Mercedes", "russell" to "Mercedes", "verstappen" to "Red Bull", "hadjar" to "Red Bull",
+    "lawson" to "Racing Bulls", "lindblad" to "Racing Bulls", "norris" to "McLaren", "piastri" to "McLaren",
+    "leclerc" to "Ferrari", "hamilton" to "Ferrari", "alonso" to "Aston Martin", "stroll" to "Aston Martin",
+    "gasly" to "Alpine", "colapinto" to "Alpine", "albon" to "Williams", "sainz" to "Williams",
+    "ocon" to "Haas", "bearman" to "Haas", "hulkenberg" to "Audi", "hülkenberg" to "Audi", "bortoleto" to "Audi",
+    "perez" to "Cadillac", "pérez" to "Cadillac", "bottas" to "Cadillac", "tsunoda" to "Red Bull",
+)
+
+/** A racing series' championship: drivers and constructors side by side, each row in its team's colour */
 @Composable
 private fun F1Standings(json: org.json.JSONObject, modifier: Modifier) {
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         listOf("drivers" to "Drivers", "constructors" to "Constructors").forEach { (key, title) ->
             val rows = json.optJSONArray(key) ?: return@forEach
             if (rows.length() == 0) return@forEach
-            Column(Modifier.weight(1f).liveGlass(RoundedCornerShape(Dx.RCard + 4.dp)).padding(horizontal = 18.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(bottom = 4.dp))
+            val shape = RoundedCornerShape(Dx.RCard + 4.dp)
+            val leaderTeam = rows.getJSONObject(0).optString("name").let { n -> if (key == "drivers") DRIVER_TEAMS[n.substringAfterLast(' ').lowercase()] ?: "" else n }
+            val wash = teamColour(leaderTeam)
+            val top = rows.getJSONObject(0).optString("points").toFloatOrNull() ?: 1f
+            Column(
+                Modifier.weight(1f).liveGlass(shape).clip(shape)
+                    .drawBehind { drawRect(Brush.radialGradient(listOf(wash.copy(alpha = 0.34f), Color.Transparent), center = Offset(0f, 0f), radius = size.width * 0.9f)) }
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
+                    Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
+                    Text("Points", fontSize = 12.sp, color = Dx.Muted)
+                }
                 for (i in 0 until minOf(rows.length(), 6)) {
                     val r = rows.getJSONObject(i)
-                    Row(Modifier.fillMaxWidth().height(26.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(r.optString("rank"), style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Dx.Muted, fontFeatureSettings = "tnum"), modifier = Modifier.width(34.dp))
-                        Text(r.optString("name"), fontSize = 13.sp, color = Color.White, modifier = Modifier.weight(1f), maxLines = 1)
-                        Text(r.optString("points"), style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White, fontFeatureSettings = "tnum"))
+                    val name = r.optString("name")
+                    val team = if (key == "drivers") DRIVER_TEAMS[name.substringAfterLast(' ').lowercase()] ?: "" else name
+                    val colour = teamColour(team)
+                    val pts = r.optString("points")
+                    val frac = ((pts.toFloatOrNull() ?: 0f) / top).coerceIn(0f, 1f)
+                    Row(Modifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(r.optString("rank"), style = TextStyle(fontFamily = Condensed, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Dx.Muted, fontFeatureSettings = "tnum"), modifier = Modifier.width(26.dp))
+                        Box(Modifier.width(4.dp).height(24.dp).clip(RoundedCornerShape(2.dp)).background(colour))
+                        Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                            Text(name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (key == "drivers" && team.isNotEmpty()) Text(team, fontSize = 11.sp, color = Dx.Muted, maxLines = 1)
+                            else Box(Modifier.padding(top = 3.dp).fillMaxWidth(frac * 0.9f).height(3.dp).clip(RoundedCornerShape(2.dp)).background(colour.copy(alpha = 0.8f)))
+                        }
+                        Text(pts, style = TextStyle(fontFamily = Condensed, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFeatureSettings = "tnum"))
                     }
                 }
             }

@@ -364,10 +364,12 @@ internal fun ChannelLogo(
         contentAlignment = Alignment.Center,
     ) {
         if (cleanUrl != null && !failed) {
+            val density = androidx.compose.ui.platform.LocalDensity.current.density
             AsyncImage(
-                model = cleanUrl,
+                model = crispLogoUrl(cleanUrl, (size.value * density * 1.5f).toInt().coerceAtLeast(96)),
                 contentDescription = name,
                 contentScale = ContentScale.Fit,
+                filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
                 onError = { failed = true },
                 modifier = Modifier
                     .size(size - 6.dp)
@@ -609,3 +611,9 @@ internal val GlassRim = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0
 /** A card or panel over the picture: the dark surface with the glass sheen and rim on it */
 internal fun Modifier.liveGlass(shape: Shape = RoundedCornerShape(22.dp)): Modifier =
     this.background(LiveSurface, shape).background(GlassSheen, shape).border(1.dp, GlassRim, shape)
+
+/** ESPN's small team logos, asked for at the size they're drawn (twice over) so they're sharp */
+internal fun crispLogoUrl(url: String, px: Int): String {
+    val m = Regex("""https?://a\d*\.espncdn\.com(/i/teamlogos/[^?\s]+)""").find(url) ?: return url
+    return "https://a.espncdn.com/combiner/i?img=${m.groupValues[1]}&w=$px&h=$px&cquality=90"
+}

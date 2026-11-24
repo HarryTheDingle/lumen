@@ -411,7 +411,7 @@ private fun BottomOsdScrim(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(if (stripChannels.isEmpty()) 240.dp else if (expanded) 340.dp else 290.dp)
+            .height(if (stripChannels.isEmpty()) 260.dp else if (expanded) 420.dp else 310.dp)
             .background(
                 Brush.verticalGradient(
                     0f to Color.Transparent,
@@ -424,8 +424,8 @@ private fun BottomOsdScrim(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 56.dp, end = 56.dp, bottom = 26.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(start = 56.dp, end = 56.dp, bottom = 36.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             // SeekLine row with floating scrub bubble
             Row(
@@ -502,7 +502,7 @@ private fun BottomOsdScrim(
                 )
             }
             // the second Down: play/pause and the settings, below the channels
-            if (stripChannels.isNotEmpty() && expanded) ControlsRow(state, actions, playFocus, Modifier.padding(top = 4.dp))
+            if (stripChannels.isNotEmpty() && expanded) ControlsRow(state, actions, playFocus, Modifier.padding(top = 10.dp))
         }
     }
 }
@@ -513,7 +513,7 @@ private fun ControlsRow(state: LiveOverlayState, actions: LiveOverlayActions, pl
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         PlayerIconButton(
             icon = if (state.isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
@@ -551,9 +551,9 @@ private fun SettingChip(icon: ImageVector, label: String, onClick: () -> Unit) {
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
     ) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = LocalContentColor.current, maxLines = 1)
+        Row(Modifier.padding(horizontal = 18.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+            Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = LocalContentColor.current, maxLines = 1)
         }
     }
 }
@@ -582,8 +582,8 @@ private fun ChannelStrip(
 
     androidx.compose.foundation.lazy.LazyRow(
         state = listState,
-        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item(key = "guide") {
             Surface(

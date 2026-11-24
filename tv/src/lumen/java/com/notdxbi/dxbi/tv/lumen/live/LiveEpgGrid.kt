@@ -67,6 +67,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -157,6 +158,7 @@ private val TIME_HEADER_HEIGHT = 32.dp
  * channel column is purely visual with zero focus stops, D-pad Up/Down restores focus on the slot
  * covering [focusedTimeMs], and holding Left at the live edge unlocks 24h past scrubbing.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun LiveEpgGrid(
     rows: List<GuideChannelRow>,
@@ -206,6 +208,9 @@ fun LiveEpgGrid(
     var holdLeftJob by remember { mutableStateOf<Job?>(null) }
     // the filters, as icons down the side: Left from the first programme opens them (Back closes them)
     var filterRailOpen by remember { mutableStateOf(false) }
+    // the guide moves aside for the filters (they're a list beside it, not a card over it)
+    val railShift by androidx.compose.animation.core.animateDpAsState(if (filterRailOpen) 236.dp else 0.dp, tween(380, easing = Dx.Ease), label = "rail-shift")
+    val railShiftPx = with(androidx.compose.ui.platform.LocalDensity.current) { railShift.toPx() }
     val railRequesters = remember { EpgRowFilter.entries.associateWith { FocusRequester() } }
     fun openRail() { filterRailOpen = true }
     var longPressTarget by remember { mutableStateOf<LongPressTarget?>(null) }
@@ -390,7 +395,27 @@ fun LiveEpgGrid(
         }
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            Column(modifier = Modifier.fillMaxSize()) {
+            FilterRail(
+                open = filterRailOpen,
+                filters = availableFilters,
+                active = activeFilter,
+                requesters = railRequesters,
+                onPick = { f ->
+                    activeFilter = f
+                    filterRailOpen = false
+                    requestSlotFocus(0, if (followLive) nowMs else viewportStartMs + 30L * 60_000L)
+                },
+                onClose = {
+                    filterRailOpen = false
+                    requestSlotFocus(focusedRowIdx, if (followLive) nowMs else viewportStartMs + 30L * 60_000L)
+                },
+                onMenu = {
+                    filterRailOpen = false
+                    onMoveToRail()
+                },
+                modifier = Modifier.align(Alignment.TopStart).padding(top = TIME_HEADER_HEIGHT),
+            )
+            Column(modifier = Modifier.fillMaxSize().graphicsLayer { translationX = railShiftPx }.background(Dx.Background)) {
                 // 3-hour time header ruler
                 Row(
                     modifier = Modifier
@@ -435,6 +460,7 @@ fun LiveEpgGrid(
                         .background(LivePalette.Hairline),
                 )
 
+                androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides guideScrollSpec) {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -624,6 +650,7 @@ fun LiveEpgGrid(
                         )
                     }
                 }
+                }
             }
 
             // Subtle Dx.Blue playhead line strictly below the time ruler with a small dot on the header divider
@@ -634,6 +661,7 @@ fun LiveEpgGrid(
                     modifier = Modifier
                         .zIndex(5f)
                         .fillMaxSize()
+                        .graphicsLayer { translationX = railShiftPx }
                         .padding(start = LEFT_CHANNEL_WIDTH + 1.dp),
                 ) {
                     val xOffset = maxWidth * fraction
@@ -655,26 +683,6 @@ fun LiveEpgGrid(
                 }
             }
 
-            FilterRail(
-                open = filterRailOpen,
-                filters = availableFilters,
-                active = activeFilter,
-                requesters = railRequesters,
-                onPick = { f ->
-                    activeFilter = f
-                    filterRailOpen = false
-                    requestSlotFocus(0, if (followLive) nowMs else viewportStartMs + 30L * 60_000L)
-                },
-                onClose = {
-                    filterRailOpen = false
-                    requestSlotFocus(focusedRowIdx, if (followLive) nowMs else viewportStartMs + 30L * 60_000L)
-                },
-                onMenu = {
-                    filterRailOpen = false
-                    onMoveToRail()
-                },
-                modifier = Modifier.align(Alignment.CenterStart).zIndex(10f),
-            )
         }
     }
 
@@ -823,11 +831,8 @@ private fun GuideChannelViewportRow(
     onNavigateLeftKeyDown: (Int, Int) -> Boolean,
     onNavigateLeftKeyUp: () -> Boolean,
 ) {
-    val rowHeight by androidx.compose.animation.core.animateDpAsState(
-        if (focusedRow) ROW_HEIGHT_FOCUSED else ROW_HEIGHT,
-        tween(Dx.Fast, easing = Dx.Ease),
-        label = "row-height",
-    )
+    // (the row grows at once: animating a row's height re-measures every cell in it each frame, and the Mi Box dropped frames)
+    val rowHeight = if (focusedRow) ROW_HEIGHT_FOCUSED else ROW_HEIGHT
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1446,23 +1451,23 @@ private fun FilterRail(
 ) {
     AnimatedVisibility(
         visible = open,
-        enter = slideInHorizontally(tween(LIVE_MS + 40, easing = Dx.Ease)) { -it / 2 } + fadeIn(tween(LIVE_MS, easing = Dx.Ease)),
-        exit = slideOutHorizontally(tween(LIVE_MS, easing = Dx.Ease)) { -it / 2 } + fadeOut(tween(LIVE_MS, easing = Dx.Ease)),
+        enter = fadeIn(tween(LIVE_MS + 120, easing = Dx.Ease)),
+        exit = fadeOut(tween(LIVE_MS, easing = Dx.Ease)),
         modifier = modifier,
     ) {
         Column(
             modifier = Modifier
-                .padding(start = 12.dp)
-                .liveGlass(RoundedCornerShape(22.dp))
-                .padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+                .padding(start = 18.dp, top = 8.dp)
+                .width(204.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
+            Text("Show", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp))
             filters.filter { it != EpgRowFilter.PLAYABLE }.forEach { f ->
                 Surface(
                     onClick = { onPick(f) },
                     modifier = Modifier
-                        .width(200.dp)
-                        .height(36.dp)
+                        .fillMaxWidth()
+                        .height(38.dp)
                         .focusRequester(requesters.getValue(f))
                         .onPreviewKeyEvent { ev ->
                             if (ev.type != KeyEventType.KeyDown) false
@@ -1488,10 +1493,24 @@ private fun FilterRail(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Icon(filterIcon(f), contentDescription = null, modifier = Modifier.size(20.dp), tint = LocalContentColor.current)
-                        Text(f.label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = LocalContentColor.current, maxLines = 1)
+                        Text(f.label, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = LocalContentColor.current, maxLines = 1)
                     }
                 }
             }
         }
+    }
+}
+
+/** The guide's own scrolling: the row the remote is on glides to a steady place on screen, slowly in and out */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private val guideScrollSpec = object : androidx.compose.foundation.gestures.BringIntoViewSpec {
+    override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> =
+        tween(durationMillis = 460, easing = Dx.Ease)
+
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        // (the focused row's top rests a fifth of the way down; a row already close enough stays put)
+        val rest = containerSize * 0.2f
+        val delta = offset - rest
+        return if (kotlin.math.abs(delta) < 6f) 0f else delta
     }
 }
