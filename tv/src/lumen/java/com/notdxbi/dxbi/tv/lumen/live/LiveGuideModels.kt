@@ -396,7 +396,7 @@ internal fun LandscapeChannelLogo(
     width: Dp = 58.dp,
     height: Dp = 32.dp,
     corner: Dp = 7.dp,
-    /** No box behind it: the logo drawn as a plain white mark, as Apple TV's guide does */
+    /** No box behind it: the logo as it is (tinted white it turned any logo with a background into a white block) */
     plain: Boolean = false,
 ) {
     val cleanUrl = logoUrl?.trim()?.takeIf { it.isNotEmpty() }
@@ -410,7 +410,6 @@ internal fun LandscapeChannelLogo(
                     contentDescription = name,
                     contentScale = ContentScale.Fit,
                     alignment = Alignment.CenterStart,
-                    colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color.White),
                     onError = { failed = true },
                     modifier = Modifier.fillMaxSize(),
                 )
