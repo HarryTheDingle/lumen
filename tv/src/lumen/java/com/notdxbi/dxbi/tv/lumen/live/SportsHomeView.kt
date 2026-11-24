@@ -240,16 +240,16 @@ fun SportsHomeView(
                         val done = f1.filter { it.status == FixtureStatus.FINAL }.sortedByDescending { it.startMs }
                         val shown = next ?: done.firstOrNull()
                         // (the replay addon's weekend for the one shown: replays are only offered when it has them)
-                        fun roundFor(f: SportsFixture?) = f?.let { x -> rounds.firstOrNull { placeMatches(it.place, x.name + " " + (x.venue ?: "")) } }
+                        fun roundFor(f: SportsFixture?) = if (series != Series.F1) null else f?.let { x -> rounds.firstOrNull { placeMatches(it.place, x.name + " " + (x.venue ?: "")) } }
                         val shownRound = if (shown?.status == FixtureStatus.FINAL) roundFor(shown) else null
-                        val replayRound = shownRound ?: rounds.firstOrNull()
+                        val replayRound = if (series == Series.F1) shownRound ?: rounds.firstOrNull() else null
                         Row(Modifier.padding(horizontal = 32.dp, vertical = 8.dp).fillMaxWidth().height(184.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                             shown?.let { n ->
                                 val race = shownRound?.sessions?.firstOrNull { it.label == "Race" } ?: shownRound?.sessions?.firstOrNull()
                                 RaceHero(
                                     fixture = n, nowMs = nowMs, reminded = "fixture:${n.id}" in remindedIds,
                                     wash = Color(0xFFE10600),
-                                    canReplay = race != null,
+                                    canReplay = series == Series.F1 && race != null,
                                     onWatch = {
                                         if (n.status == FixtureStatus.FINAL) { if (race != null && shownRound != null) playMotor(shownRound, race) }
                                         else store.playFixture(context, n)
@@ -258,7 +258,8 @@ fun SportsHomeView(
                                     modifier = Modifier.weight(1.3f).fillMaxHeight(),
                                 )
                             }
-                            ReplaysPanel(replayRound, onPick = { r, sess -> playMotor(r, sess) }, modifier = Modifier.weight(1f).fillMaxHeight())
+                            // (replays come from the Formula 1 addon only: the other series have none until there is a source)
+                            if (series == Series.F1) ReplaysPanel(replayRound, onPick = { r, sess -> playMotor(r, sess) }, modifier = Modifier.weight(1f).fillMaxHeight())
                         }
                     }
                     standings?.let { st -> item(key = "standings") { F1Standings(st, favRacers, ::toggleRacer, Modifier.padding(horizontal = 32.dp, vertical = 8.dp)) } }
