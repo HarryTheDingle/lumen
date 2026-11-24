@@ -179,8 +179,9 @@ android {
     for (flavor in listOf("mobile", "lumenphone")) {
         sourceSets[flavor].java.srcDir("src/phonecommon/java")
         sourceSets[flavor].res.srcDir("src/phonecommon/res")
-        sourceSets[flavor].manifest.srcFile("src/phonecommon/AndroidManifest.xml")
     }
+    sourceSets["mobile"].manifest.srcFile("src/phonecommon/AndroidManifest.xml")
+    // (Lumen's is a copy of that with Live TV's player added: src/lumenphone/AndroidManifest.xml)
     // Lumen's icon, name and pictures, for its phone app too
     sourceSets["lumenphone"].res.srcDir("src/lumen/res")
 }
@@ -256,6 +257,10 @@ dependencies {
     // Lumen for phones: its screens' ear for the window (phone, or the Fold opened out flat: how wide, which way it folds)
     "lumenphoneImplementation"("androidx.compose.material3:material3-window-size-class")
     "lumenphoneImplementation"("androidx.window:window:1.3.0")
+    // Live TV, sports and the guide (the Lumos engine, JVM only)
+    "lumenphoneImplementation"(project(":engine"))
+    "lumenphoneImplementation"("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    "lumenphoneImplementation"("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     "lumenphoneImplementation"("androidx.profileinstaller:profileinstaller:1.3.1")
     // Lumen: its screens drawn with Compose for TV (focus, the remote's D-pad, cards that grow when chosen)
     "lumenImplementation"(platform("androidx.compose:compose-bom:2025.04.01"))

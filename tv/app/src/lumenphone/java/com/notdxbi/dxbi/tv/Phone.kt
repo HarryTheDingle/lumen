@@ -79,6 +79,16 @@ object Phone {
 
     /** A stream the page handed over, when it isn't for the player: true when it's been dealt with */
     fun play(activity: MainActivity, json: String): Boolean {
+        // (a channel's "Watch in Lumen": start where the channel had got to)
+        val handoff = com.notdxbi.dxbi.tv.live.LumenHandoff
+        handoff.startMsOnce?.let { at ->
+            handoff.startMsOnce = null
+            runCatching { org.json.JSONObject(json).put("startMs", at).toString() }.getOrNull()?.let { return play(activity, it, true) }
+        }
+        return play(activity, json, true)
+    }
+
+    private fun play(activity: MainActivity, json: String, @Suppress("UNUSED_PARAMETER") marked: Boolean): Boolean {
         val target = nextTarget.also { nextTarget = Target.Player }
         when (target) {
             Target.Player -> return false

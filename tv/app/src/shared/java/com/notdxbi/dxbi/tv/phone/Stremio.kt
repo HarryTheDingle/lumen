@@ -514,6 +514,13 @@ class Stremio(context: Context, val engine: Engine, private val scope: Coroutine
         cache.edit().putString("accounts.current", id).apply()
     }
 
+    /** The signed-in Stremio account's sign-in key (Live TV signs in to Lumen's server with it), or null */
+    suspend fun authKey(): String? {
+        val export = ask("accountExport") as? JSONObject ?: return null
+        val text = export.optString("profile").ifEmpty { return null }
+        return runCatching { JSONObject(text).optJSONObject("auth")?.optString("key") }.getOrNull()?.takeIf { it.isNotEmpty() }
+    }
+
     /** Keeps the signed-in account (its session and people) so it can be switched back to without a password */
     suspend fun rememberAccount(force: Boolean = false) {
         if (swapping.value) return

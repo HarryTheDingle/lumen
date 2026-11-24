@@ -26,6 +26,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.outlined.GridView
@@ -61,6 +63,7 @@ enum class Tab(val label: String, val on: ImageVector, val off: ImageVector) {
     Home("Home", Icons.Filled.Home, Icons.Outlined.Home),
     Discover("Discover", Icons.Filled.GridView, Icons.Outlined.GridView),
     Library("Library", Icons.Filled.VideoLibrary, Icons.Outlined.VideoLibrary),
+    Live("Live TV", Icons.Filled.LiveTv, Icons.Outlined.LiveTv),
     Search("Search", Icons.Filled.Search, Icons.Outlined.Search),
 }
 
@@ -102,6 +105,7 @@ fun Shell(stremio: Stremio, layout: AppLayout) {
                                     Tab.Home -> HomeScreen(stremio, layout, bottomSpace, onProfile = { nav.push(Page.Profile) }, onOpen = { nav.open(it) })
                                     Tab.Discover -> DiscoverScreen(stremio, layout, bottomSpace, onOpen = { nav.open(it) })
                                     Tab.Library -> LibraryScreen(stremio, layout, bottomSpace, onOpen = { nav.open(it) })
+                                    Tab.Live -> com.notdxbi.dxbi.tv.lumenphone.live.LiveTab(stremio, layout, bottomSpace)
                                     Tab.Search -> SearchScreen(stremio, layout, bottomSpace, onOpen = { nav.open(it) })
                                 }
                             },
@@ -125,6 +129,7 @@ fun Shell(stremio: Stremio, layout: AppLayout) {
             }
             // Play's loading screen, over everything until the player is up
             LoadingScreen(launcher)
+            com.notdxbi.dxbi.tv.lumenphone.live.LiveOverlays(stremio, launcher)
             MobileDataAsk(stremio, launcher)
         }
     }

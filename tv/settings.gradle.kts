@@ -14,3 +14,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "dxbi-tv"
 include(":app")
+include(":engine")
