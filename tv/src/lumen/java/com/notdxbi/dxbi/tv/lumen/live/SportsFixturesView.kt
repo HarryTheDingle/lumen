@@ -271,7 +271,7 @@ fun SportsFixturesView(
         when {
             loading && filteredFixtures.isEmpty() -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Loading live & upcoming sports fixtures…", fontSize = 15.sp, color = Dx.Muted)
+                    Text("Loading fixtures…", fontSize = 15.sp, color = Dx.Muted)
                 }
             }
             error != null && filteredFixtures.isEmpty() -> {
@@ -281,7 +281,7 @@ fun SportsFixturesView(
             }
             groups.isEmpty() -> {
                 Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                    Text("No ${selectedSport.label} fixtures scheduled right now.", fontSize = 15.sp, color = Dx.Muted)
+                    Text("No ${selectedSport.label} fixtures coming up.", fontSize = 15.sp, color = Dx.Muted)
                 }
             }
             else -> {

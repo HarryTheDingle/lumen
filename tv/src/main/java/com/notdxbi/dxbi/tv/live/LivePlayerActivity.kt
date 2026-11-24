@@ -834,7 +834,7 @@ class LivePlayerActivity : AppCompatActivity() {
             }
             val resolved = resolvedResult.getOrNull()
             if (resolved == null) {
-                val reason = resolvedResult.exceptionOrNull()?.message ?: "Failed to resolve stream URL"
+                val reason = resolvedResult.exceptionOrNull()?.message ?: "Couldn't open this channel. Try again, or go back to the guide."
                 liveStore.recordStreamFailure(stream.id)
                 if (idx + 1 < candidates.size) {
                     playbackStateFlow.value = LivePlaybackState.FailingOver(
@@ -881,7 +881,7 @@ class LivePlayerActivity : AppCompatActivity() {
                 return
             }
 
-            val failReason = tuneResult.exceptionOrNull()?.message ?: "Stream playback failed"
+            val failReason = tuneResult.exceptionOrNull()?.message ?: "This channel stopped playing. Try again, or go back to the guide."
             liveStore.recordStreamFailure(stream.id)
             exoEngine.releaseCurrentSync()
             if (failReason == LiveExoEngine.REFUSED_FULL || failReason == LiveExoEngine.REFUSED_LOGIN) {

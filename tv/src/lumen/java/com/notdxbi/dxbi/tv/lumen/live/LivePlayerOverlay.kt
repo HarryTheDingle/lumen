@@ -1015,7 +1015,7 @@ private fun ActiveViewerConflictDialog(
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PanelActionPill(
-                    label = "Watch Anyway",
+                    label = "Watch anyway",
                     onClick = onWatchAnyway,
                     modifier = Modifier.focusRequester(watchFocus),
                 )
@@ -1080,7 +1080,7 @@ private fun UnavailableDialog(
                     modifier = Modifier.focusRequester(retryFocus),
                 )
                 PanelActionPill(
-                    label = "Back to Guide",
+                    label = "Back to guide",
                     onClick = onBack,
                 )
             }

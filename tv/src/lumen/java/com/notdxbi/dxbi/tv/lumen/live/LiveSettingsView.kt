@@ -91,7 +91,7 @@ fun LiveSettingsView(
     ) {
         item(key = "set:title") {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("Live TV Settings", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text("Live TV settings", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 Text(
                     "Preferences, EPG guide sync, and connected IPTV sources",
                     fontSize = 13.sp,

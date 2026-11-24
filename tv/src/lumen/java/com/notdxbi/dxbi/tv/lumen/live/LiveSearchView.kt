@@ -348,7 +348,7 @@ fun LiveSearchView(
                 current.epg.catchup.isEmpty() &&
                 current.epg.upcoming.isEmpty() &&
                 current.fixtures.isEmpty() -> {
-                Text("No Live TV matches for \"${query.trim()}\".", fontSize = 14.sp, color = Dx.Muted)
+                Text("No results for \"${query.trim()}\". Try a channel, show or team name.", fontSize = 14.sp, color = Dx.Muted)
             }
             else -> {
                 LazyColumn(

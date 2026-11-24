@@ -194,7 +194,7 @@ fun LiveFavouritesView(
                         }
                         val addFocusMod = if (favourites.isEmpty()) Modifier.focusRequester(contentFocusRequester) else Modifier
                         LiveChip(
-                            label = "Add Team",
+                            label = "Add a team",
                             selected = true,
                             onClick = { showAddTeamModal = true },
                             leading = {
@@ -585,7 +585,7 @@ internal fun AddSportsTeamDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column {
-                        Text("Add Sports Team", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("Add a team", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         Text("Search UK football, NFL, NBA, NHL, or MLB teams", fontSize = 12.sp, color = Dx.Muted)
                     }
                     Pill(text = "Done", selected = false, onClick = onClose)
@@ -603,7 +603,7 @@ internal fun AddSportsTeamDialog(
 
                 when {
                     searching -> Text("Searching teams…", fontSize = 13.sp, color = Dx.Muted)
-                    query.trim().length >= 2 && results.isEmpty() -> Text("No matching teams found.", fontSize = 13.sp, color = Dx.Muted)
+                    query.trim().length >= 2 && results.isEmpty() -> Text("No teams match. Try a different name.", fontSize = 13.sp, color = Dx.Muted)
                     else -> {
                         LazyColumn(
                             verticalArrangement = Arrangement.spacedBy(8.dp),

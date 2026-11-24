@@ -147,7 +147,7 @@ fun MatchPage(
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Heading("Match events")
                                 val events = m.optJSONArray("events") ?: JSONArray()
-                                if (events.length() == 0) Text("Nothing yet.", fontSize = 14.sp, color = Dx.Muted)
+                                if (events.length() == 0) Text("No events yet.", fontSize = 14.sp, color = Dx.Muted)
                                 for (i in 0 until events.length()) {
                                     val e = events.getJSONObject(i)
                                     EventLine(e, homeName = home?.optString("shortName")?.takeIf { it != "null" } ?: home?.optString("name") ?: "", awayName = away?.optString("shortName")?.takeIf { it != "null" } ?: away?.optString("name") ?: "")

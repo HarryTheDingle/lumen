@@ -523,15 +523,15 @@ private fun EmptyLiveTvSetup(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Text("No Live TV Sources Yet", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text("No Live TV yet", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 Text(
-                    "Scan a QR code with your phone to send your Xtream Codes, M3U playlist, or Stalker Portal credentials straight to this TV.",
+                    "Scan the code with your phone to add your Xtream, M3U or Stalker provider.",
                     fontSize = 14.sp,
                     color = Dx.Muted,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
                 Pill(
-                    text = "Add IPTV Source with Phone QR",
+                    text = "Add a provider with your phone",
                     selected = true,
                     modifier = Modifier.focusRequester(contentFocusRequester),
                     onClick = onStartPairing,

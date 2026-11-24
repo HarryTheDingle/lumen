@@ -1117,7 +1117,7 @@ class LiveTvStore(
 
             val failedReports = loadResult.reports.filter { !it.success }
             val errMsg = if (loadResult.channels.isEmpty() && failedReports.isNotEmpty()) {
-                failedReports.firstNotNullOfOrNull { it.error } ?: "Failed to load Live TV sources"
+                failedReports.firstNotNullOfOrNull { it.error } ?: "Couldn't load your Live TV providers. Check your connection and try again."
             } else null
 
             _uiState.value = LiveUiState(
@@ -1167,7 +1167,7 @@ class LiveTvStore(
             _uiState.value = _uiState.value.copy(
                 loading = false,
                 refreshing = false,
-                error = "Live TV refresh failed (${e.javaClass.simpleName})",
+                error = "Couldn't refresh Live TV. Check your connection and try again.",
             )
         }
     }
