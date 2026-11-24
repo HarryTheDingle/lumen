@@ -855,6 +855,7 @@ class LivePlayerActivity : AppCompatActivity() {
         val liveStore = store ?: return
         val channel = currentChannelFlow.value
         val failedStream = activeCandidates.getOrNull(activeStreamIndex)
+        android.util.Log.i("lumos-live", "failover on ${channel.name}: $reason (feed ${activeStreamIndex + 1} of ${activeCandidates.size})")
         if (failedStream != null) {
             liveStore.recordStreamFailure(failedStream.id)
         }
