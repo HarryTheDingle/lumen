@@ -209,7 +209,7 @@ fun LiveEpgGrid(
     // the filters, as icons down the side: Left from the first programme opens them (Back closes them)
     var filterRailOpen by remember { mutableStateOf(false) }
     // the guide moves aside for the filters (they're a list beside it, not a card over it)
-    val railShift by androidx.compose.animation.core.animateDpAsState(if (filterRailOpen) 236.dp else 0.dp, tween(380, easing = Dx.Ease), label = "rail-shift")
+    val railShift by androidx.compose.animation.core.animateDpAsState(if (filterRailOpen) 236.dp else 0.dp, androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 200f), label = "rail-shift")
     val railShiftPx = with(androidx.compose.ui.platform.LocalDensity.current) { railShift.toPx() }
     val railRequesters = remember { EpgRowFilter.entries.associateWith { FocusRequester() } }
     fun openRail() { filterRailOpen = true }
@@ -1501,11 +1501,11 @@ private fun FilterRail(
     }
 }
 
-/** The guide's own scrolling: the row the remote is on glides to a steady place on screen, slowly in and out */
+/** The guide's own scrolling: the row the remote is on glides to a steady place on screen, in the main app's own spring (no bounce; it carries on smoothly when the next press comes) */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 private val guideScrollSpec = object : androidx.compose.foundation.gestures.BringIntoViewSpec {
     override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> =
-        tween(durationMillis = 460, easing = Dx.Ease)
+        androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 170f)
 
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
         // (the focused row's top rests a fifth of the way down; a row already close enough stays put)
