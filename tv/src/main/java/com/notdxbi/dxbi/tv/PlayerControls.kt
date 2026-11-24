@@ -361,6 +361,13 @@ class PlayerControls(
         for ((value, name) in zooms) row(name, zoom.mode == value) { zoom.set(value) }
         heading("Sound")
         for (mode in SoundMode.MODES) row(mode.label, sound.mode === mode) { sound.mode = mode }
+        // (for a TV or sound system whose sound runs behind or ahead of the picture: kept for this TV, both players)
+        heading("Lip sync")
+        val shown = { ms: Long -> panelTitle.text = if (ms == 0L) "Picture & sound" else "Lip sync · " + LipSync.label(ms) }
+        shown(LipSync.ms)
+        row("Sound sooner", false, keepOpen = true) { shown(LipSync.shift(activity, -LipSync.STEP_MS)) }
+        row("Sound later", false, keepOpen = true) { shown(LipSync.shift(activity, +LipSync.STEP_MS)) }
+        row("In time", false, keepOpen = true) { shown(LipSync.set(activity, 0L)) }
         focusFirst()
     }
 

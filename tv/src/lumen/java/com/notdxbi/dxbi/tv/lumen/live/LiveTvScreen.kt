@@ -73,9 +73,8 @@ import kotlinx.coroutines.delay
 import lumos.iptv.CanonicalChannel
 
 /**
- * Apple TV / Lumen glass Live TV hub coordinating the auto-hiding [LiveSideRail],
- * conditional [LiveHeroHeader], viewport-clamped [LiveEpgGrid], unified [SportsFixturesView],
- * [LiveFavouritesView], [LiveSearchView], [LiveSettingsView], and Sky-style corner mini-player.
+ * Live TV: the guide (with its header and the channel playing in the corner), Find a channel and Sports, chosen under
+ * Live TV in Lumen's menu.
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable

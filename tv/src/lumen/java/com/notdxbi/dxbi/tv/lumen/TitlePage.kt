@@ -931,7 +931,7 @@ private fun SeasonsRow(
     modifier: Modifier = Modifier,
 ) {
     val width = 110.dp
-    val row = rememberLazyListState()
+    val row = rememberShelfState()
     val here = seasons.indexOfFirst { it.current }.coerceAtLeast(0)
     var landingAttached by remember { mutableStateOf(false) }
     LaunchedEffect(seasons) { row.scrollToItem((here - 1).coerceAtLeast(0)) }
@@ -1000,7 +1000,7 @@ private fun Episodes(
     // tab jumps to the start of its season. Move along the episodes or up to the tabs, whichever is nearer.
     val seasons = remember(d.seasons) { d.seasons.filter { it != 0 } + d.seasons.filter { it == 0 } }
     val all = remember(d.videos, seasons) { seasons.flatMap { s -> d.videos.filter { it.season == s } } }
-    val row = rememberLazyListState()
+    val row = rememberShelfState()
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     // the episode they're on, in view (once the episodes are there, and again when it changes)
     // (not while the remote is in the row: the details refresh as streams come in and the episode "they're on" can change under
@@ -1030,7 +1030,8 @@ private fun Episodes(
         TitleLogo(title, maxHeight = 46.dp, maxWidth = 320.dp, textSize = 30.sp, centred = true, modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
         if (seasons.size > 1) {
             LazyRow(
-                Modifier.keepsSideways(left = true).onPreviewKeyEvent {
+                state = rememberShelfState(),
+                modifier = Modifier.keepsSideways(left = true).onPreviewKeyEvent {
                     // (the billboard is off the screen by now, and not there to be found by the focus: it goes there itself)
                     if (it.key == Key.DirectionUp) { if (it.type == KeyEventType.KeyDown) onUp(); return@onPreviewKeyEvent true }
                     if (it.key != Key.DirectionDown || aimId == null) return@onPreviewKeyEvent false
@@ -1160,7 +1161,7 @@ private fun CastRow(d: Details, photos: List<JSONObject>?, onPerson: (name: Stri
     Column(Modifier.fillMaxWidth().centredWhenFocused()) {
         Text("Cast & Crew", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = Dx.Gutter))
         Spacer(Modifier.height(10.dp))
-        LazyRow(Modifier.keepsSideways(left = true), contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+        LazyRow(state = rememberShelfState(), modifier = Modifier.keepsSideways(left = true), contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
             items(people) { (name, role, photo, id) -> Person(name!!, role, photo) { onPerson(name, id, photo) } }
         }
     }

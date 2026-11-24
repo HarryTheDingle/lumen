@@ -76,6 +76,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -110,9 +111,6 @@ import lumos.iptv.EpgProgramme
 import lumos.iptv.LivePlaybackState
 import lumos.iptv.StreamSource
 import kotlin.math.roundToInt
-
-private val PANEL_BG = LiveSurface
-private val PANEL_BORDER = Color(0x1FFFFFFF)
 
 /**
  * Live TV player OSD matching Lumen's VOD player geometry (`activity_player.xml` / `PlayerControls.kt` / `Scrubber.kt`).
@@ -609,8 +607,8 @@ private fun ChannelStrip(
     val viewportDp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp - 112
     fun centred(idx: Int): Pair<Int, Int> {
         var i = idx + 1
-        var left = viewportDp / 2f - 150f
-        while (i > 0 && left > 40f) { i--; left -= if (i == 0) 108f else 312f }
+        var left = viewportDp / 2f - STRIP_TILE_W.value / 2f
+        while (i > 0 && left > 40f) { i--; left -= if (i == 0) STRIP_GUIDE_W.value + STRIP_GAP.value else STRIP_TILE_W.value + STRIP_GAP.value }
         return i to with(density) { (40f - left).coerceAtLeast(0f).dp.roundToPx() }
     }
     val start = remember { centred(currentIdx) }
@@ -649,16 +647,18 @@ private fun ChannelStrip(
                     blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
                 )
             },
-        contentPadding = PaddingValues(horizontal = 40.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        // (room between the tiles for the chosen one to lift into without touching its neighbours, and above and below it)
+        contentPadding = PaddingValues(horizontal = 40.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(STRIP_GAP),
     ) {
         item(key = "guide") {
             Surface(
                 onClick = onOpenGuide,
-                modifier = Modifier.width(96.dp).height(STRIP_HEIGHT).focusRequester(guideFocus).onFocusChanged { if (it.isFocused) StripPreview.value = null },
+                modifier = Modifier.width(STRIP_GUIDE_W).height(STRIP_HEIGHT).focusRequester(guideFocus).onFocusChanged { if (it.isFocused) StripPreview.value = null }
+                    .liveFrost(RoundedCornerShape(12.dp)),
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
                 colors = ClickableSurfaceDefaults.colors(
-                    containerColor = Color.White.copy(alpha = 0.10f),
+                    containerColor = Color.Transparent,
                     contentColor = Color.White,
                     focusedContainerColor = Color.White,
                     focusedContentColor = Color.Black,
@@ -678,11 +678,12 @@ private fun ChannelStrip(
             // Lumen's card (as the films on Home): it lifts when chosen, with the glass rim
             com.notdxbi.dxbi.tv.lumen.FocusCard(
                 onClick = { onZap(channel) },
-                modifier = Modifier.width(300.dp).height(STRIP_HEIGHT).then(if (playing) Modifier.focusRequester(currentTile) else Modifier)
+                modifier = Modifier.width(STRIP_TILE_W).height(STRIP_HEIGHT).then(if (playing) Modifier.focusRequester(currentTile) else Modifier)
                     .onFocusChanged { if (it.isFocused || it.hasFocus) StripPreview.value = channel to prog },
                 corner = 12.dp,
             ) {
-                Box(Modifier.fillMaxSize().background(if (playing) Color.White.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.10f))) {
+                // frosted glass over the picture, as the channel box at the top (the one playing a touch lighter)
+                Box(Modifier.fillMaxSize().liveFrost(RoundedCornerShape(12.dp), rim = false).then(if (playing) Modifier.background(Color.White.copy(alpha = 0.12f)) else Modifier)) {
                 val ink = Color.White
                 Row(Modifier.fillMaxSize().padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     // the channel's logo tile says which it is (its name in words was one more line)
@@ -715,29 +716,12 @@ private object CentreSpec : androidx.compose.foundation.gestures.BringIntoViewSp
 /** The channel the remote is on in the player's strip (the top box shows it), or null on the one playing */
 private val StripPreview = androidx.compose.runtime.mutableStateOf<Pair<CanonicalChannel, EpgProgramme?>?>(null)
 
-/** How tall the quick channel changer's tiles are */
+/** How tall the quick channel changer's tiles are, how wide, and the gap between them */
+private val PANEL_BORDER = Color(0x1FFFFFFF)
 private val STRIP_HEIGHT = 62.dp
-
-@Composable
-private fun PlayerTextButton(label: String, onClick: () -> Unit) {
-    androidx.tv.material3.Surface(
-        onClick = onClick,
-        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
-        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
-            containerColor = Color.White.copy(alpha = 0.16f),
-            contentColor = Color.White,
-            focusedContainerColor = Color.White,
-            focusedContentColor = Color.Black,
-        ),
-        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
-    ) {
-        Row(Modifier.padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.Replay10, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = androidx.tv.material3.LocalContentColor.current)
-        }
-    }
-}
+private val STRIP_TILE_W = 300.dp
+private val STRIP_GUIDE_W = 96.dp
+private val STRIP_GAP = 26.dp
 
 @Composable
 private fun SeekLineBar(
@@ -879,37 +863,6 @@ private fun SeekLineBar(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun PlayerIconButton(
-    icon: ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    active: Boolean = false,
-    tint: Color? = null,
-) {
-    Surface(
-        onClick = onClick,
-        modifier = modifier.size(52.dp),
-        shape = ClickableSurfaceDefaults.shape(CircleShape),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (active) Color(0x33FFFFFF) else Color.Transparent,
-            contentColor = tint ?: Color.White,
-            focusedContainerColor = Color(0x40FFFFFF),
-            focusedContentColor = Color.White,
-        ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
-    ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = icon,
-                contentDescription = contentDescription,
-                modifier = Modifier.size(26.dp),
-            )
         }
     }
 }
@@ -1404,6 +1357,7 @@ private fun MorePanel(
             item {
                 PanelRow(title = "Sound mode", subtitle = soundModeLabel, selected = false, onClick = onCycleSoundMode)
             }
+            item { LipSyncRow() }
             item {
                 PanelSectionLabel("This stream")
             }
@@ -1425,6 +1379,33 @@ private fun MorePanel(
             }
         }
     }
+}
+
+/**
+ * Lip sync, for a TV or sound system whose sound runs behind or ahead of the picture: Left brings the sound sooner, Right
+ * makes it later, OK puts it back in time. Kept for this TV, and the film player uses the same.
+ */
+@Composable
+private fun LipSyncRow() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var ms by remember { mutableStateOf(com.notdxbi.dxbi.tv.LipSync.ms) }
+    var focused by remember { mutableStateOf(false) }
+    PanelRow(
+        title = "Lip sync",
+        subtitle = if (focused) "◀ sooner   ${com.notdxbi.dxbi.tv.LipSync.label(ms)}   later ▶" else com.notdxbi.dxbi.tv.LipSync.label(ms),
+        selected = false,
+        onClick = { ms = com.notdxbi.dxbi.tv.LipSync.set(context, 0L) },
+        modifier = Modifier
+            .onFocusChanged { focused = it.isFocused || it.hasFocus }
+            .onPreviewKeyEvent { ev ->
+                if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent ev.key == Key.DirectionLeft || ev.key == Key.DirectionRight
+                when (ev.key) {
+                    Key.DirectionLeft -> { ms = com.notdxbi.dxbi.tv.LipSync.shift(context, -com.notdxbi.dxbi.tv.LipSync.STEP_MS); true }
+                    Key.DirectionRight -> { ms = com.notdxbi.dxbi.tv.LipSync.shift(context, +com.notdxbi.dxbi.tv.LipSync.STEP_MS); true }
+                    else -> false
+                }
+            },
+    )
 }
 
 @Composable

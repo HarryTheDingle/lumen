@@ -459,6 +459,7 @@ private fun ChainRowView(
                 val rowKey = row.key
                 CompositionLocalProvider(LocalBringIntoViewSpec provides rowScrolling) {
                     LazyRow(
+                        state = rememberShelfState(),
                         modifier = Modifier.graphicsLayer { alpha = cardsAlpha },
                         contentPadding = PaddingValues(start = Dx.Gutter, end = Dx.Gutter, top = 20.dp, bottom = 26.dp),
                         horizontalArrangement = Arrangement.spacedBy(18.dp),

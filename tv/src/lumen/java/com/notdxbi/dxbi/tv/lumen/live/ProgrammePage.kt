@@ -162,32 +162,6 @@ internal fun GuideHeader(
 
 private data class Quad(val a: EpgProgramme?, val b: String?, val c: String?, val d: String?)
 
-/** One of the page's buttons: glass, white when chosen (as Apple TV's) */
-@Composable
-private fun PageButton(label: String?, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(
-        onClick = onClick,
-        modifier = modifier.height(40.dp).then(if (label == null) Modifier.width(40.dp) else Modifier),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.White.copy(alpha = 0.18f),
-            contentColor = Color.White,
-            focusedContainerColor = Color.White,
-            focusedContentColor = Color.Black,
-        ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
-    ) {
-        Row(
-            Modifier.fillMaxHeight().then(if (label == null) Modifier.fillMaxWidth() else Modifier).padding(horizontal = if (label == null) 0.dp else 18.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-        ) {
-            Icon(icon, contentDescription = label, modifier = Modifier.size(18.dp), tint = LocalContentColor.current)
-            if (label != null) Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = LocalContentColor.current, maxLines = 1)
-        }
-    }
-}
-
 /**
  * A programme's page (OK on one still to come, or OK held on any): its picture across the screen, the title top left,
  * then along the bottom one line of when and where, the buttons, and what else is on that channel.
@@ -317,6 +291,8 @@ internal fun ProgrammePage(
                         com.notdxbi.dxbi.tv.live.LumenHandoff.startMsOnce = 0L
                         com.notdxbi.dxbi.tv.live.LumenHandoff.returnTo = req.channelId to req.channelName
                         com.notdxbi.dxbi.tv.live.LumenHandoff.pending.value = req
+                        // (the channel playing in the corner stops: Lumen's film takes over the screen and the sound)
+                        com.notdxbi.dxbi.tv.live.LiveMiniPlayer.stop(store)
                     }, expands = true)
                 }
                 com.notdxbi.dxbi.tv.lumen.RoundButton(Icons.Filled.MoreHoriz, "More", { menu = true },

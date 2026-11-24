@@ -23,6 +23,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioCapabilities
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import com.notdxbi.dxbi.tv.LipSync
+import com.notdxbi.dxbi.tv.LipSyncSink
 import androidx.media3.exoplayer.dash.DashMediaSource
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -102,6 +104,7 @@ class LiveExoEngine(
             enableFloatOutput: Boolean,
             enableAudioTrackPlaybackParams: Boolean,
         ): AudioSink {
+            LipSync.load(context)
             val builder = if (PlayerActivity.passthroughEnabled(context)) {
                 DefaultAudioSink.Builder(context)
             } else {
@@ -113,6 +116,7 @@ class LiveExoEngine(
                 .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                 .setAudioProcessors(arrayOf(sound))
                 .build()
+                .let { LipSyncSink(it) }
         }
     }
 
@@ -487,6 +491,11 @@ class LiveExoEngine(
         _videoInfo.value = LiveVideoInfo()
         _audioTracks.value = emptyList()
         _subtitleTracks.value = emptyList()
+    }
+
+    /** Picture and sound stop at once (the player itself is let go of later) */
+    fun silence() {
+        player?.let { it.volume = 0f; it.playWhenReady = false }
     }
 
     fun togglePause() {

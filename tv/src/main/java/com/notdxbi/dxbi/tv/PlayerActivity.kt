@@ -93,6 +93,7 @@ class PlayerActivity : AppCompatActivity() {
         }
 
         override fun buildAudioSink(context: android.content.Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink {
+            LipSync.load(context)
             // HDMI passthrough is on by default for known-good devices (Google TV Streamer, Sony, Mi Box) and off
             // by default on new/unknown devices, with a per-device override in Settings → Player.
             val builder = if (passthroughEnabled(context)) {
@@ -106,6 +107,7 @@ class PlayerActivity : AppCompatActivity() {
                 .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                 .setAudioProcessors(arrayOf(sound))
                 .build()
+                .let { LipSyncSink(it) }
         }
     }
 
@@ -882,6 +884,9 @@ class PlayerActivity : AppCompatActivity() {
             HeldPlayer.hold(HeldPlayer.Kept(exoNow, sound, subtitleDelay, currentUrl, heldVideo, subtitlesHidden))
             player = null
         }
+        // (the picture is on a surface of its own that doesn't move with the window as it closes: left showing, a strip of
+        // the last frame showed past the black as the player went. It goes first, so only black is left to close)
+        playerView.videoSurfaceView?.visibility = View.INVISIBLE
         finish()
         // (failed while loading: the app's loading screen is already behind it, so no slide)
         if ((error != null && loading?.showing == true) || toNext || switchingAway) {

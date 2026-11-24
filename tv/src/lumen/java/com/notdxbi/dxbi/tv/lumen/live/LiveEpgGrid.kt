@@ -108,7 +108,6 @@ import java.util.Date
 private enum class EpgRowFilter(val label: String) {
     ALL("All"),
     PLAYABLE("Playable"),
-    CATCHUP("Catch-up"),
     ENTERTAINMENT("Entertainment"),
     SPORTS("Sports"),
     CINEMA("Cinema"),
@@ -202,7 +201,6 @@ fun LiveEpgGrid(
 
     var activeFilter by remember(isSportsMode) { mutableStateOf(EpgRowFilter.ALL) }
     var activeDay by remember(isSportsMode) { mutableStateOf(EpgDayChip.NOW) }
-    var filterExpanded by remember { mutableStateOf(false) }
     var followLive by remember { mutableStateOf(true) }
     var pastUnlocked by remember { mutableStateOf(false) }
     var focusedRowIdx by remember { mutableIntStateOf(0) }
@@ -233,12 +231,11 @@ fun LiveEpgGrid(
 
     val availableFilters = remember(rows, isSportsMode) {
         if (isSportsMode) {
-            listOf(EpgRowFilter.ALL, EpgRowFilter.PLAYABLE, EpgRowFilter.CATCHUP)
+            listOf(EpgRowFilter.ALL, EpgRowFilter.PLAYABLE)
         } else {
             EpgRowFilter.entries.filter { filter ->
                 filter == EpgRowFilter.ALL ||
                     filter == EpgRowFilter.PLAYABLE ||
-                    filter == EpgRowFilter.CATCHUP ||
                     rows.any { matchesFilter(it, filter) }
             }
         }
@@ -375,18 +372,6 @@ fun LiveEpgGrid(
         requestSlotFocus(focusedRowIdx, if (followLive) nowMs else viewportStartMs + 30L * 60_000L)
     }
 
-    fun jumpToDay(chip: EpgDayChip) {
-        activeDay = chip
-        followLive = chip == EpgDayChip.NOW
-        if (chip == EpgDayChip.NOW) {
-            pastUnlocked = false
-        }
-        val targetMs = computeDayChipTargetMs(chip, nowMs, minViewportStartMs, maxViewportStartMs)
-        viewportStartMs = alignDownHalfHour(targetMs).coerceIn(minViewportStartMs, maxViewportStartMs)
-        val focusT = if (chip == EpgDayChip.NOW) nowMs else viewportStartMs + 30L * 60_000L
-        requestSlotFocus(focusedRowIdx, focusT)
-    }
-
     fun panViewport(deltaMs: Long, rowIdx: Int, targetTimeMs: Long) {
         val nextStart = (viewportStartMs + deltaMs).coerceIn(minViewportStartMs, maxViewportStartMs)
         if (nextStart == viewportStartMs) return
@@ -412,7 +397,8 @@ fun LiveEpgGrid(
             return@Column
         }
 
-        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+        // (solid: the channel's colour wash behind the page's top must not show in the gap the guide leaves for the filters)
+        Box(modifier = Modifier.weight(1f).fillMaxWidth().background(Dx.Background)) {
             // (the time strip's band runs the full width, still: when the guide moves aside for the filters, it doesn't
             // leave a gap at its left end)
             Box(Modifier.fillMaxWidth().height(TIME_HEADER_HEIGHT).background(Color(0xFF0A0A0C)))
@@ -1172,7 +1158,6 @@ private fun matchesFilter(row: GuideChannelRow, filter: EpgRowFilter): Boolean {
     return when (filter) {
         EpgRowFilter.ALL -> true
         EpgRowFilter.PLAYABLE -> row.isPlayable
-        EpgRowFilter.CATCHUP -> row.hasCatchup
         EpgRowFilter.ENTERTAINMENT -> "entertain" in cat || "terrestrial" in cat || "general" in cat
         EpgRowFilter.SPORTS -> "sport" in cat
         EpgRowFilter.CINEMA -> "cinema" in cat || "movie" in cat || "film" in cat
@@ -1183,18 +1168,6 @@ private fun matchesFilter(row: GuideChannelRow, filter: EpgRowFilter): Boolean {
 
 private fun alignDownHalfHour(epochMs: Long): Long =
     (epochMs / HALF_HOUR_MS) * HALF_HOUR_MS
-
-private fun dayChipLabel(chip: EpgDayChip, nowMs: Long): String {
-    val cal = Calendar.getInstance().apply { timeInMillis = nowMs }
-    return when (chip) {
-        EpgDayChip.NOW -> "Now"
-        EpgDayChip.TONIGHT -> "Tonight"
-        EpgDayChip.TOMORROW -> "Tomorrow"
-        EpgDayChip.DAY_2 -> LiveTimeFormat.formatWeekdayShort(dayAtHour(cal, 2, 18))
-        EpgDayChip.DAY_3 -> LiveTimeFormat.formatWeekdayShort(dayAtHour(cal, 3, 18))
-        EpgDayChip.DAY_4 -> LiveTimeFormat.formatWeekdayShort(dayAtHour(cal, 4, 18))
-    }
-}
 
 private fun computeDayChipTargetMs(
     chip: EpgDayChip,
@@ -1420,7 +1393,6 @@ internal fun CatchupModal(
 private fun filterIcon(f: EpgRowFilter) = when (f) {
     EpgRowFilter.ALL -> Icons.Filled.Apps
     EpgRowFilter.PLAYABLE -> Icons.Filled.PlayArrow
-    EpgRowFilter.CATCHUP -> Icons.Filled.History
     EpgRowFilter.ENTERTAINMENT -> Icons.Filled.Theaters
     EpgRowFilter.SPORTS -> Icons.Filled.EmojiEvents
     EpgRowFilter.CINEMA -> Icons.Filled.Movie
@@ -1448,17 +1420,17 @@ private fun FilterRail(
     ) {
         Column(
             modifier = Modifier
-                .padding(start = 18.dp, top = 8.dp)
-                .width(204.dp),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
+                .padding(start = 40.dp, top = 18.dp)
+                .width(180.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Show", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp))
+            Text("Show", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted, modifier = Modifier.padding(start = 16.dp, bottom = 2.dp))
             filters.filter { it != EpgRowFilter.PLAYABLE }.forEach { f ->
                 Surface(
                     onClick = { onPick(f) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(38.dp)
+                        .height(44.dp)
                         .focusRequester(requesters.getValue(f))
                         .onPreviewKeyEvent { ev ->
                             if (ev.type != KeyEventType.KeyDown) false
@@ -1469,7 +1441,7 @@ private fun FilterRail(
                                 else -> false
                             }
                         },
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
                     colors = ClickableSurfaceDefaults.colors(
                         containerColor = if (f == active) Color.White.copy(alpha = 0.16f) else Color.Transparent,
                         contentColor = Color.White,
@@ -1479,9 +1451,9 @@ private fun FilterRail(
                     scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
                 ) {
                     Row(
-                        Modifier.fillMaxSize().padding(horizontal = 14.dp),
+                        Modifier.fillMaxSize().padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
                         Icon(filterIcon(f), contentDescription = null, modifier = Modifier.size(20.dp), tint = LocalContentColor.current)
                         Text(f.label, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = LocalContentColor.current, maxLines = 1)
@@ -1492,18 +1464,15 @@ private fun FilterRail(
     }
 }
 
-/** The guide's own scrolling: the row the remote is on glides to a steady place on screen, in the main app's own spring (no bounce; it carries on smoothly when the next press comes) */
+/**
+ * The guide's scrolling is all [com.notdxbi.dxbi.tv.lumen.PageScroller]'s (each row centres itself once as the remote
+ * moves into it), as Home's is. Compose's own bring-into-view is turned off here: each row hands its programmes' requests
+ * on as a point at its top, which this used to move to a fifth of the way down, so every Left or Right shifted the page.
+ */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 private val guideScrollSpec = object : androidx.compose.foundation.gestures.BringIntoViewSpec {
-    override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> =
-        androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 170f)
-
-    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-        // (the focused row's top rests a fifth of the way down; a row already close enough stays put)
-        val rest = containerSize * 0.2f
-        val delta = offset - rest
-        return if (kotlin.math.abs(delta) < 6f) 0f else delta
-    }
+    override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> = com.notdxbi.dxbi.tv.lumen.PageGlide
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = 0f
 }
 
 

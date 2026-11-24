@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
+import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
@@ -504,6 +505,11 @@ class LivePlayerActivity : AppCompatActivity() {
         val scrubActive = scrubStateFlow.value.active
         val conflictOpen = viewerConflictFlow.value != null
 
+        // Back on the Watch in Lumen card only puts the card away ("Back: not now"), the player stays
+        if (event.keyCode == KeyEvent.KEYCODE_BACK && LumenHandoff.offer.value != null && !osdOpen && !conflictOpen) {
+            if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) LumenHandoff.dismiss()
+            return true
+        }
         if (event.action == KeyEvent.ACTION_DOWN) {
             if (conflictOpen || (LumenHandoff.offer.value != null && !osdOpen)) {
                 return super.dispatchKeyEvent(event)
@@ -1521,11 +1527,15 @@ class LivePlayerActivity : AppCompatActivity() {
         LumenHandoff.startMsOnce = if (fromStart) 0L else offer.joinMs
         LumenHandoff.returnTo = offer.request.channelId to offer.request.channelName
         LumenHandoff.pending.value = offer.request
-        // the channel's let go of (most lines allow one connection) and Lumen's screens take over
+        // the player goes the moment it's pressed: the picture and sound stop and the screen closes at once, and the
+        // channel's let go of as it closes (onDestroy; most lines allow one connection). Letting go first held the live
+        // picture on screen, frozen, until Lumen's own player came up.
         tuneJob?.cancel()
         stopPresenceIfNeeded()
-        exoEngine.releaseCurrentSync()
-        finish()
+        exoEngine.silence()
+        playerView.visibility = View.INVISIBLE
+        closeScreen()
+        @Suppress("DEPRECATION") overridePendingTransition(0, 0)
     }
 
     private fun handleBackNavigation() {
@@ -1560,14 +1570,20 @@ class LivePlayerActivity : AppCompatActivity() {
                 presenceHeartbeatJob = null
                 exoEngine.detachPlayerView(playerView)
                 LiveMiniPlayer.keep(session, store)
-                finish()
+                closeScreen()
             }
             else -> {
                 stopPresenceIfNeeded()
                 exoEngine.releaseCurrentSync()
-                finish()
+                closeScreen()
             }
         }
+    }
+
+    /** Closes the player with only black left to animate (the picture's own surface doesn't move with the window) */
+    private fun closeScreen() {
+        playerView.videoSurfaceView?.visibility = View.INVISIBLE
+        finish()
     }
 
     private fun hideSystemBars() {

@@ -572,6 +572,19 @@ fun Modifier.keepsSideways(left: Boolean = false): Modifier = focusProperties {
     }
 }.focusGroup()
 
+/**
+ * A row's own scroll state, made so that when the page is about to bring the row on screen, all the cards that will show
+ * in it are built ahead (in the time spare between frames). Compose's default builds only the first two, and the rest
+ * were built in the middle of the page's glide: on a Mi Box that frame was missed and the page jumped.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun rememberShelfState(initialIndex: Int = 0): androidx.compose.foundation.lazy.LazyListState =
+    androidx.compose.foundation.lazy.rememberLazyListState(
+        initialFirstVisibleItemIndex = initialIndex,
+        prefetchStrategy = remember { androidx.compose.foundation.lazy.LazyListPrefetchStrategy(nestedPrefetchItemCount = 8) },
+    )
+
 /** A titled row of cards that scrolls sideways as the remote moves along it */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -587,6 +600,7 @@ fun Shelf(title: String, modifier: Modifier = Modifier, spacing: Dp = 18.dp, con
         ShelfTitle(title, rowLift) { rowFocused.value }
         CompositionLocalProvider(LocalBringIntoViewSpec provides rowScrolling, LocalRowLift provides rowLift) {
             LazyRow(
+                state = rememberShelfState(),
                 // (up or down into the row, the remote lands on the card in the same column it came from: the rows' cards line
                 // up in columns (rememberRowScrolling), Harry's grid; it doesn't jump back to the card it was last on there)
                 modifier = Modifier.keepsSideways(),

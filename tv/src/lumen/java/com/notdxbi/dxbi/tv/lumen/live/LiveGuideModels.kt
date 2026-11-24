@@ -64,7 +64,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 
-/** Top-level Live TV navigation sections in [LiveSideRail]. */
+/** Live TV's pages, chosen under Live TV in the menu */
 enum class LiveSection(val label: String) {
     SEARCH("Search"),
     TV_GUIDE("TV Guide"),
@@ -73,17 +73,12 @@ enum class LiveSection(val label: String) {
     SETTINGS("Settings"),
 }
 
-/** Content displayed inside [LiveHeroHeader] based on current D-pad focus. */
+/** What the guide header shows, from what the remote is on */
 sealed interface HeroSelection {
     data class Programme(
         val row: GuideChannelRow,
         val programme: EpgProgramme?,
         val enrichment: EpgEnrichment? = null,
-    ) : HeroSelection
-
-    data class Fixture(
-        val fixture: SportsFixture,
-        val resolvedStreams: List<ResolvedFixtureStream> = emptyList(),
     ) : HeroSelection
 
     data class Channel(
@@ -101,15 +96,10 @@ sealed interface HeroSelection {
 
 /** Apple TV / Lumen black glass colour tokens for Live TV. */
 internal object LivePalette {
-    val HeroBg = Dx.Background
-    val RailBg = Color(0xEB141416)
-    val CardBg = Dx.Raised
     val GlassFill = Color.White.copy(alpha = 0.08f)
     val GlassBorder = Color.White.copy(alpha = 0.14f)
     val CellBg = Color(0xFF151517)
     val CellLiveBg = Color(0xFF3D3D44)
-    val CellFocusedBg = Color.White
-    val CellPastBg = Color(0xFF0D0D0E)
     val Hairline = Color.White.copy(alpha = 0.09f)
     val LiveRed = Color(0xFFE5484D)
     val LiveGreen = Color(0xFF30D158)
@@ -124,7 +114,6 @@ internal object LiveTimeFormat {
             override fun initialValue() = SimpleDateFormat(pattern, locale)
         }
 
-    private val time12h = local("h:mma", Locale.UK)
     private val time24h = local("HH:mm", Locale.UK)
     private val dayHeader = local("EEE d MMM", Locale.UK)
     private val weekdayShort = local("EEE", Locale.UK)
@@ -150,35 +139,6 @@ internal object LiveTimeFormat {
         val m = (total / 60) % 60
         val s = total % 60
         return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
-    }
-
-    fun formatFixtureWhen(startMs: Long, nowMs: Long): String {
-        val startCal = Calendar.getInstance().apply { timeInMillis = startMs }
-        val nowCal = Calendar.getInstance().apply { timeInMillis = nowMs }
-        val dayDiff = dayDelta(nowCal, startCal)
-        val clock = formatTime24h(startMs)
-        return when (dayDiff) {
-            0 -> "Today · $clock"
-            1 -> "Tomorrow · $clock"
-            -1 -> "Yesterday · $clock"
-            else -> "${Dates.formatShortDay(startMs)} · $clock"
-        }
-    }
-
-    private fun dayDelta(a: Calendar, b: Calendar): Int {
-        val ca = (a.clone() as Calendar).apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        val cb = (b.clone() as Calendar).apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        return ((cb.timeInMillis - ca.timeInMillis) / 86_400_000L).toInt()
     }
 }
 
@@ -343,60 +303,6 @@ internal fun channelMonogram(name: String): String {
         }
     }
     return joined.ifEmpty { words[0].take(3).uppercase() }
-}
-
-/** Renders a channel or team logo with a crisp slate monogram fallback if absent or failing to load. */
-@Composable
-internal fun ChannelLogo(
-    logoUrl: String?,
-    name: String,
-    size: Dp,
-    modifier: Modifier = Modifier,
-    corner: Dp = 8.dp,
-) {
-    val cleanUrl = logoUrl?.trim()?.takeIf { it.isNotEmpty() }
-    var failed by remember(cleanUrl) { mutableStateOf(false) }
-    val shape = RoundedCornerShape(corner)
-    val paletteIdx = remember(name) { abs(name.hashCode()) % MONOGRAM_GRADIENTS.size }
-    val gradient = MONOGRAM_GRADIENTS[paletteIdx]
-
-    Box(
-        modifier = modifier
-            .size(size)
-            .clip(shape)
-            .background(
-                if (cleanUrl != null && !failed) {
-                    Brush.verticalGradient(listOf(LivePalette.LogoPlate.copy(alpha = 0.85f), LivePalette.LogoPlate.copy(alpha = 0.72f)))
-                } else {
-                    Brush.linearGradient(gradient)
-                },
-            )
-            .border(1.dp, Color.White.copy(alpha = 0.2f), shape),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (cleanUrl != null && !failed) {
-            val density = androidx.compose.ui.platform.LocalDensity.current.density
-            AsyncImage(
-                model = crispLogoUrl(cleanUrl, (size.value * density * 1.5f).toInt().coerceAtLeast(96)),
-                contentDescription = name,
-                contentScale = ContentScale.Fit,
-                filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
-                onError = { failed = true },
-                modifier = Modifier
-                    .size(size - 6.dp)
-                    .padding(1.dp),
-            )
-        } else {
-            val fontSize = (size.value * 0.31f).coerceIn(9f, 16f).sp
-            Text(
-                text = channelMonogram(name),
-                fontSize = fontSize,
-                fontWeight = FontWeight.ExtraBold,
-                color = Color.White,
-                maxLines = 1,
-            )
-        }
-    }
 }
 
 /**
@@ -626,7 +532,7 @@ internal fun Modifier.liveGlass(shape: Shape = RoundedCornerShape(22.dp)): Modif
  * Frosted glass over the live picture: the picture behind the box, blurred, under a dark tint (see LiveFrost), with the
  * glass sheen and rim. Until a copy of the picture is in, the plain dark glass.
  */
-internal fun Modifier.liveFrost(shape: Shape = RoundedCornerShape(22.dp)): Modifier = this.then(Modifier.composed {
+internal fun Modifier.liveFrost(shape: Shape = RoundedCornerShape(22.dp), rim: Boolean = true): Modifier = this.then(Modifier.composed {
     val f by com.notdxbi.dxbi.tv.live.LiveFrost.frame.collectAsState()
     androidx.compose.runtime.DisposableEffect(Unit) {
         com.notdxbi.dxbi.tv.live.LiveFrost.wanted++
@@ -652,14 +558,27 @@ internal fun Modifier.liveFrost(shape: Shape = RoundedCornerShape(22.dp)): Modif
             }
         }
         .background(GlassSheen, shape)
-        .border(1.dp, GlassRim, shape)
+        .then(if (rim) Modifier.border(1.dp, GlassRim, shape) else Modifier)
 })
 
 /** The tint over the frosted picture: dark enough that white words read over a bright scene */
 private val FrostTint = Color(0x8C121216)
 
-/** ESPN's small team logos, asked for at the size they're drawn (twice over) so they're sharp */
-internal fun crispLogoUrl(url: String, px: Int): String {
-    val m = Regex("""https?://a\d*\.espncdn\.com(/i/teamlogos/[^?\s]+)""").find(url) ?: return url
-    return "https://a.espncdn.com/combiner/i?img=${m.groupValues[1]}&w=$px&h=$px&cquality=90"
+/** The guide header's picture (and the mini player in its place) */
+internal val MINI_W = 216.dp
+internal val MINI_H = 122.dp
+
+/** "4K50 HDR", "1080p", "SD": a feed's quality in a few characters */
+internal fun formatCompactQuality(quality: lumos.iptv.StreamQuality?): String? {
+    if (quality == null) return null
+    val base = when {
+        quality.height >= 2160 -> "4K"
+        quality.height >= 1080 -> "1080p"
+        quality.height >= 720 -> "720p"
+        quality.height > 0 -> "SD"
+        else -> null
+    } ?: return null
+    val fpsPart = quality.fps?.takeIf { it >= 50 }?.toString().orEmpty()
+    val hdrPart = if (quality.hdr) " HDR" else ""
+    return "$base$fpsPart$hdrPart"
 }
