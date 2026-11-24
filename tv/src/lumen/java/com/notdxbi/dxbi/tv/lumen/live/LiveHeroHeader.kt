@@ -255,16 +255,11 @@ private fun ProgrammeHeroContent(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            val live = programme?.isOnAt(nowMs) == true
-            if (live) {
-                Box(Modifier.size(8.dp).clip(CircleShape).background(LivePalette.LiveRed))
-            }
             if (!logoUrl.isNullOrBlank()) {
                 LandscapeChannelLogo(logoUrl = logoUrl, name = channelName, width = 112.dp, height = 28.dp, plain = true)
             } else {
                 Text(channelName, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
             }
-            if (hasCatchup && statusLabel != "CATCH-UP") Text("Catch-up", fontSize = 13.sp, color = Dx.Amber)
         }
 
         Text(

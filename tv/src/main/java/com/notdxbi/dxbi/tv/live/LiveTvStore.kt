@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -966,6 +967,61 @@ class LiveTvStore(
 
     /** Formula 1's drivers' and constructors' standings */
     suspend fun f1Standings(series: String = "f1"): org.json.JSONObject? = engine.f1Standings(series)
+
+    /** A race weekend in the replay addon: its round, place, and the sessions it has (in the order to show them) */
+    data class MotorRound(val round: Int, val place: String, val feedId: String, val feedType: String, val sessions: List<MotorSession>)
+    data class MotorSession(val label: String, val videoId: String)
+
+    private var motorCache: Pair<Long, List<MotorRound>>? = null
+
+    /**
+     * Formula 1's weekends in the replay addon (Formulio), newest round first, with the sessions worth watching (race,
+     * qualifying, sprint, practice). Empty when the addon isn't installed or has nothing.
+     */
+    suspend fun motorReplays(): List<MotorRound> {
+        motorCache?.takeIf { System.currentTimeMillis() - it.first < 10 * 60_000L }?.let { return it.second }
+        val series = engine.addonSeries("formulio", listOf("Sky F1", "F1TV (English)", "Sky F1 UHD")) ?: return emptyList()
+        val order = listOf("Race", "Sprint", "Qualifying", "Sprint Qualifying", "Free Practice Three", "Free Practice Two", "Free Practice One")
+        val rounds = series.videos.mapNotNull { (id, title) ->
+            val round = id.split(':').getOrNull(1)?.toIntOrNull()
+            // two ways the addon words a title: "Race - Las Vegas Grand Prix", and "F1 2026 R21 Las Vegas Race Sky Sports F1 UHD …"
+            val dash = Regex("""^(.+?) - (.+?)( Grand Prix)?$""").find(title)
+            val long = Regex("""^F1 \d{4} R(\d+) (.+?) Sky Sports""").find(title)
+            val (r, place, sessionText) = when {
+                long != null -> {
+                    val rest = long.groupValues[2]
+                    val sess = order.sortedByDescending { it.length }.firstOrNull { rest.endsWith(it) } ?: return@mapNotNull null
+                    Triple(long.groupValues[1].toInt(), rest.removeSuffix(sess).trim(), sess)
+                }
+                dash != null && round != null -> Triple(round, dash.groupValues[2].trim(), dash.groupValues[1].trim())
+                else -> return@mapNotNull null
+            }
+            val session = order.firstOrNull { it.equals(sessionText, true) } ?: return@mapNotNull null
+            Triple(r, place, MotorSession(session, id))
+        }.groupBy { it.first }.map { (round, list) ->
+            MotorRound(round, list.first().second, series.id, series.type, list.map { it.third }.sortedBy { order.indexOf(it.label).let { i -> if (i < 0) 99 else i } })
+        }.sortedByDescending { it.round }
+        motorCache = System.currentTimeMillis() to rounds
+        android.util.Log.i("lumos-formulio", "replays: ${rounds.size} weekends, newest ${rounds.firstOrNull()?.let { it.place + " " + it.sessions.joinToString { s -> s.label } }}")
+        return rounds
+    }
+
+    /** The next weekends' races, which the day's scoreboard doesn't list: asked for by the next few Sundays */
+    suspend fun upcomingRaces(sport: String, leagueCode: String): List<SportsFixture> {
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.UK)
+        val cal = java.util.Calendar.getInstance()
+        val days: List<String> = (0..3).map { _ ->
+            while (cal.get(java.util.Calendar.DAY_OF_WEEK) != java.util.Calendar.SUNDAY) cal.add(java.util.Calendar.DAY_OF_YEAR, 1)
+            fmt.format(cal.time).also { cal.add(java.util.Calendar.DAY_OF_YEAR, 1) }
+        }
+        return kotlinx.coroutines.coroutineScope {
+            val calls = days.map { d: String -> async { runCatching { engine.sportsFixtures(sport, d) }.getOrDefault(emptyList<SportsFixture>()) } }
+            calls.awaitAll().flatten()
+        }.filter { it.league.equals(leagueCode, true) && it.status == lumos.iptv.FixtureStatus.UPCOMING }.distinctBy { it.id }.sortedBy { it.startMs }
+    }
+
+    /** (logs what the replay addon offers: its catalogs and ids) */
+    suspend fun probeAddon(nameLike: String): String = engine.probeAddon(nameLike)
 
     /** What the channel is showing, as a Lumen title (its IMDb id), for "Watch in Lumen"; null if not found */
     suspend fun findInLumen(channel: CanonicalChannel, programme: EpgProgramme): EpgEnrichment? = runCatching {

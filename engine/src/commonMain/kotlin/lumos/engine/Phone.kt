@@ -508,6 +508,50 @@ class Phone(private val lumos: Lumos) {
         }
     }
 
+    /** A series an addon offers: its videos (id and title), as an addon lists them */
+    data class AddonSeries(val addonName: String, val id: String, val type: String, val name: String, val videos: List<Pair<String, String>>)
+
+    /**
+     * The first catalog title of the addon (found by part of its name) whose name is [prefer] (the first of those that
+     * exist, in order; else the first title), with its videos. Null when there's no such addon or it didn't answer.
+     */
+    suspend fun addonSeries(nameLike: String, prefer: List<String>): AddonSeries? {
+        for ((a, m) in lumos.engine.manifests()) {
+            if (!m.name.contains(nameLike, true) && !m.id.contains(nameLike, true)) continue
+            val c = m.catalogs.firstOrNull { it.requiredExtras.isEmpty() } ?: continue
+            val metas = withTimeoutOrNull(8_000L) { runCatching { a.catalog(c.type, c.id) }.getOrNull() }.orEmpty()
+            val pick = prefer.firstNotNullOfOrNull { p -> metas.firstOrNull { it.name.equals(p, true) } } ?: metas.firstOrNull() ?: continue
+            val meta = withTimeoutOrNull(10_000L) { runCatching { a.meta(pick.type, pick.id) }.getOrNull() } ?: continue
+            return AddonSeries(m.name, pick.id, pick.type, pick.name, meta.videos.map { it.id to (it.title ?: "") })
+        }
+        return null
+    }
+
+    /**
+     * What an addon (found by part of its name or id) offers, as text for a log: its manifest, its first catalog's
+     * titles, and for the first title its videos and how many streams the first video has. Nothing private: no
+     * addresses, only names, ids and counts.
+     */
+    suspend fun probeAddon(nameLike: String): String {
+        val out = StringBuilder()
+        for ((a, m) in lumos.engine.manifests()) {
+            if (!m.name.contains(nameLike, true) && !m.id.contains(nameLike, true)) continue
+            out.append("addon ${m.id} '${m.name}' v${m.version} types=${m.types} prefixes=${m.idPrefixes} resources=${m.resources.keys}\n")
+            for (c in m.catalogs) out.append("  catalog ${c.type}/${c.id} '${c.name}' extras=${c.extras} required=${c.requiredExtras}\n")
+            val c = m.catalogs.firstOrNull { it.requiredExtras.isEmpty() } ?: continue
+            val metas = withTimeoutOrNull(8_000L) { runCatching { a.catalog(c.type, c.id) }.getOrNull() }.orEmpty()
+            out.append("  ${c.id}: ${metas.size} titles: " + metas.take(14).joinToString { "${it.id}=${it.name}" } + "\n")
+            val first = metas.firstOrNull() ?: continue
+            val meta = withTimeoutOrNull(8_000L) { runCatching { a.meta(first.type, first.id) }.getOrNull() }
+            out.append("  meta ${first.id}: ${meta?.videos?.size ?: 0} videos: " + meta?.videos.orEmpty().joinToString("\n    ") { "${it.id}=${it.title?.take(110)}" } + "\n")
+            val v = meta?.videos?.firstOrNull()
+            val id = v?.id ?: first.id
+            val streams = withTimeoutOrNull(15_000L) { runCatching { a.streams(first.type, id) }.getOrNull() }.orEmpty()
+            out.append("  streams for $id: ${streams.size}: " + streams.take(4).joinToString { "${it.name}|${it.title?.take(60)}" } + "\n")
+        }
+        return out.toString().ifBlank { "no addon matching '$nameLike'" }
+    }
+
     /** How many of the main addons' streams must fail before a search-based addon's is picked while theirs are left */
     private val LAST_RESORT_AFTER = 3
 

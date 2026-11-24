@@ -818,6 +818,16 @@ class Engine(context: Context) {
         runCatching { core.phone.hasStreams(type, videoId) }.getOrDefault(false)
     }
 
+    /** A replay addon's series (its videos), found by part of its name */
+    suspend fun addonSeries(nameLike: String, prefer: List<String>): lumos.engine.Phone.AddonSeries? = withContext(Dispatchers.IO) {
+        runCatching { core.phone.addonSeries(nameLike, prefer) }.getOrNull()
+    }
+
+    /** What an addon offers (names, ids and counts), for the log */
+    suspend fun probeAddon(nameLike: String): String = withContext(Dispatchers.IO) {
+        runCatching { core.phone.probeAddon(nameLike) }.getOrElse { "probe failed: ${it.javaClass.simpleName}" }
+    }
+
     /** Formula 1's standings as JSON ({season, drivers, constructors}); null when it can't be had */
     suspend fun f1Standings(series: String = "f1"): org.json.JSONObject? = withContext(Dispatchers.IO) {
         runCatching { org.json.JSONObject(core.f1Standings(series)) }.getOrNull()

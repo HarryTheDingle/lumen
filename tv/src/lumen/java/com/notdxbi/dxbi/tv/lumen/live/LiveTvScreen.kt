@@ -413,30 +413,6 @@ private fun CornerMiniPlayerCard(
                         ),
                 )
 
-                // Top-left live / catch-up status pill
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(8.dp)
-                        .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(50))
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    Box(
-                        Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(if (session.catchupProgramme != null) Dx.Amber else LivePalette.LiveRed),
-                    )
-                    Text(
-                        text = if (session.catchupProgramme != null) "CATCH-UP" else "LIVE",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                    )
-                }
-
                 if (isBuffering) {
                     Box(
                         modifier = Modifier
@@ -469,14 +445,6 @@ private fun CornerMiniPlayerCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = if (focused) "OK: Full screen · Hold: Stop" else "OK: Full screen",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (focused) Color.White else Dx.Muted,
-                        maxLines = 1,
                     )
                 }
             }

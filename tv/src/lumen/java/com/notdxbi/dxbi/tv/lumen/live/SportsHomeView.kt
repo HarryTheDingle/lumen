@@ -80,7 +80,7 @@ private fun SportsFixture.isRacing() =
 /** A sport's tile: the sport, its words, its icon. [ALL] is the whole hub (every sport's matches) */
 internal enum class SportTile(val label: String, val filter: SportFilter?, val icon: ImageVector) {
     FOOTBALL("Football", SportFilter.FOOTBALL, Icons.Filled.SportsSoccer),
-    F1("Formula 1", SportFilter.F1, Icons.Filled.SportsMotorsports),
+    F1("Motorsports", SportFilter.F1, Icons.Filled.SportsMotorsports),
     NFL("NFL", SportFilter.NFL, Icons.Filled.SportsFootball),
     NBA("NBA", SportFilter.NBA, Icons.Filled.SportsBasketball),
     NHL("NHL", SportFilter.NHL, Icons.Filled.SportsHockey),
@@ -123,9 +123,13 @@ fun SportsHomeView(
     var openMatch by remember { mutableStateOf<SportsFixture?>(null) }
     var series by remember { mutableStateOf(Series.F1) }
     var standings by remember { mutableStateOf<org.json.JSONObject?>(null) }
+    var rounds by remember { mutableStateOf<List<LiveTvStore.MotorRound>>(emptyList()) }
+    var comingRaces by remember { mutableStateOf<List<SportsFixture>>(emptyList()) }
+    var focusedMatch by remember { mutableStateOf<SportsFixture?>(null) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     val sportPrefs = remember { context.getSharedPreferences("lumen_sports", android.content.Context.MODE_PRIVATE) }
+    var favRacers by remember { mutableStateOf(sportPrefs.getStringSet("racers", null)?.toSet() ?: emptySet()) }
     var favouriteSports by remember {
         mutableStateOf(sportPrefs.getStringSet("favourites", null)?.toSet() ?: setOf(SportTile.FOOTBALL.name, SportTile.F1.name))
     }
@@ -151,7 +155,10 @@ fun SportsHomeView(
     LaunchedEffect(tile, series) {
         if (tile == SportTile.F1) {
             standings = null
+            comingRaces = emptyList()
             store.loadSportsFixtures(sport = series.sport)
+            scope.launch { comingRaces = store.upcomingRaces(series.sport, series.code) }
+            if (series == Series.F1) scope.launch { rounds = store.motorReplays() }
             standings = store.f1Standings(series.code)
         } else {
             store.loadSportsFixtures()
@@ -161,6 +168,7 @@ fun SportsHomeView(
     val favTeamIds = remember(prefs.favouriteTeams) { prefs.favouriteTeams.mapTo(HashSet()) { it.teamId } }
 
     fun toggleReminder(f: SportsFixture) {
+        android.widget.Toast.makeText(context, if ("fixture:${f.id}" in remindedIds) "Reminder removed" else "We'll remind you before ${fixtureTitle(f)} starts", android.widget.Toast.LENGTH_SHORT).show()
         LiveReminders.toggle(
             context,
             LiveReminders.Reminder(
@@ -172,6 +180,18 @@ fun SportsHomeView(
                 fixtureId = f.id,
             ),
         )
+    }
+    fun playMotor(r: LiveTvStore.MotorRound, session: LiveTvStore.MotorSession) {
+        com.notdxbi.dxbi.tv.live.LumenHandoff.startMsOnce = null
+        com.notdxbi.dxbi.tv.live.LumenHandoff.returnTo = null
+        com.notdxbi.dxbi.tv.live.LumenHandoff.pending.value = com.notdxbi.dxbi.tv.live.LumenHandoff.Request(
+            id = r.feedId, type = r.feedType, name = "${r.place} ${session.label}", background = null,
+            videoId = session.videoId, channelId = "", channelName = "",
+        )
+    }
+    fun toggleRacer(key: String) {
+        favRacers = if (key in favRacers) favRacers - key else favRacers + key
+        sportPrefs.edit().putStringSet("racers", favRacers).apply()
     }
     fun toggleFavouriteSport(t: SportTile) {
         favouriteSports = if (t.name in favouriteSports) favouriteSports - t.name else favouriteSports + t.name
@@ -209,7 +229,7 @@ fun SportsHomeView(
                 val f1 = remember(fixtures, series) {
                     fixtures.filter { it.isRacing() && it.league.equals(series.code, true) }.sortedBy { it.startMs }
                 }
-                val next = f1.firstOrNull { it.status == FixtureStatus.LIVE } ?: f1.firstOrNull { it.status == FixtureStatus.UPCOMING }
+                val next = f1.firstOrNull { it.status == FixtureStatus.LIVE } ?: (f1.filter { it.status == FixtureStatus.UPCOMING } + comingRaces).distinctBy { it.id }.minByOrNull { it.startMs }
                 LazyColumn(state = lists, contentPadding = PaddingValues(bottom = 40.dp)) {
                     item(key = "series") {
                         Row(Modifier.padding(horizontal = 32.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -217,22 +237,31 @@ fun SportsHomeView(
                         }
                     }
                     item(key = "hero") {
-                        val replays = f1.filter { it.status == FixtureStatus.FINAL }.sortedByDescending { it.startMs }.take(3)
-                        val shown = next ?: replays.firstOrNull()
-                        Row(Modifier.padding(horizontal = 32.dp, vertical = 8.dp).fillMaxWidth().height(160.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        val done = f1.filter { it.status == FixtureStatus.FINAL }.sortedByDescending { it.startMs }
+                        val shown = next ?: done.firstOrNull()
+                        // (the replay addon's weekend for the one shown: replays are only offered when it has them)
+                        fun roundFor(f: SportsFixture?) = f?.let { x -> rounds.firstOrNull { placeMatches(it.place, x.name + " " + (x.venue ?: "")) } }
+                        val shownRound = if (shown?.status == FixtureStatus.FINAL) roundFor(shown) else null
+                        val replayRound = shownRound ?: rounds.firstOrNull()
+                        Row(Modifier.padding(horizontal = 32.dp, vertical = 8.dp).fillMaxWidth().height(184.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                             shown?.let { n ->
+                                val race = shownRound?.sessions?.firstOrNull { it.label == "Race" } ?: shownRound?.sessions?.firstOrNull()
                                 RaceHero(
                                     fixture = n, nowMs = nowMs, reminded = "fixture:${n.id}" in remindedIds,
                                     wash = Color(0xFFE10600),
-                                    onWatch = { if (n.status == FixtureStatus.FINAL) store.watchReplay(context, n) else store.playFixture(context, n) },
+                                    canReplay = race != null,
+                                    onWatch = {
+                                        if (n.status == FixtureStatus.FINAL) { if (race != null && shownRound != null) playMotor(shownRound, race) }
+                                        else store.playFixture(context, n)
+                                    },
                                     onRemind = { toggleReminder(n) },
                                     modifier = Modifier.weight(1.3f).fillMaxHeight(),
                                 )
                             }
-                            ReplaysPanel(replays, onPick = { store.watchReplay(context, it) }, modifier = Modifier.weight(1f).fillMaxHeight())
+                            ReplaysPanel(replayRound, onPick = { r, sess -> playMotor(r, sess) }, modifier = Modifier.weight(1f).fillMaxHeight())
                         }
                     }
-                    standings?.let { st -> item(key = "standings") { F1Standings(st, Modifier.padding(horizontal = 32.dp, vertical = 8.dp)) } }
+                    standings?.let { st -> item(key = "standings") { F1Standings(st, favRacers, ::toggleRacer, Modifier.padding(horizontal = 32.dp, vertical = 8.dp)) } }
                     fixtureSection("Live now", f1.filter { it.status == FixtureStatus.LIVE }, nowMs, hideSportsScores, remindedIds) { store.playFixture(context, it) }
                     fixtureSection("Coming up", f1.filter { it.status == FixtureStatus.UPCOMING }.drop(if (next?.status == FixtureStatus.UPCOMING) 1 else 0).take(8), nowMs, hideSportsScores, remindedIds) { toggleReminder(it) }
                     if (f1.isEmpty()) item(key = "empty") {
@@ -256,7 +285,13 @@ fun SportsHomeView(
                 val events = pool.filterNot { sided(it) }
                 val heroEvent = events.firstOrNull { it.status == FixtureStatus.LIVE } ?: events.filter { it.status == FixtureStatus.UPCOMING }.minByOrNull { it.startMs }
                     ?: events.filter { it.status == FixtureStatus.FINAL }.maxByOrNull { it.startMs }
-                LazyColumn(state = lists, contentPadding = PaddingValues(bottom = 40.dp)) {
+                val detailFor = focusedMatch?.takeIf { f -> pool.any { it.id == f.id } } ?: (live + upcoming).firstOrNull { sided(it) }
+                Column(Modifier.fillMaxSize()) {
+                    // (pinned: it stays while the cards scroll beneath)
+                    detailFor?.let { d ->
+                        MatchDetail(d, nowMs, hideSportsScores, reminded = "fixture:${d.id}" in remindedIds, modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp).fillMaxWidth().height(138.dp))
+                    }
+                                    LazyColumn(Modifier.weight(1f), state = lists, contentPadding = PaddingValues(bottom = 40.dp)) {
                     item(key = "title") {
                         Row(Modifier.fillMaxWidth().padding(start = 32.dp, end = 32.dp, top = 22.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("${tile.label} · ${dayLabel(nowMs, nowMs)}", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
@@ -268,20 +303,22 @@ fun SportsHomeView(
                             RaceHero(
                                 fixture = h, nowMs = nowMs, reminded = "fixture:${h.id}" in remindedIds,
                                 wash = tintFor(tile.label),
-                                onWatch = { if (h.status == FixtureStatus.FINAL) store.watchReplay(context, h) else store.playFixture(context, h) }, onRemind = { toggleReminder(h) },
+                                canReplay = false,
+                                onWatch = { if (h.status != FixtureStatus.FINAL) store.playFixture(context, h) }, onRemind = { toggleReminder(h) },
                                 modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp).fillMaxWidth().height(150.dp),
                             )
                         }
                     }
-                    panelSection("Live now", live.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds) { openMatch = it }
-                    panelSection("Coming up", upcoming.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds) { toggleReminder(it) }
-                    panelSection("Results", past.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds) { openMatch = it }
+                    panelSection("Live now", live.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds, { focusedMatch = it }) { store.playFixture(context, it) }
+                    panelSection("Coming up", upcoming.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds, { focusedMatch = it }) { toggleReminder(it) }
+                    panelSection("Results", past.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds, { focusedMatch = it }) { openMatch = it }
                     eventSection("Events", events.filter { it != heroEvent }.sortedBy { if (it.status == FixtureStatus.FINAL) Long.MAX_VALUE - it.startMs else it.startMs }.take(12), tintFor(tile.label), nowMs) {
                         if (it.status == FixtureStatus.LIVE) store.playFixture(context, it) else toggleReminder(it)
                     }
                     if (pool.isEmpty()) item(key = "empty") {
                         Text("No ${tile.label} matches coming up.", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(start = 48.dp, top = 24.dp))
                     }
+                }
                 }
             }
         }
@@ -359,6 +396,58 @@ private fun androidx.compose.foundation.lazy.LazyListScope.eventSection(
     }
 }
 
+/** The match the remote is on, big: both sides, the score or kick-off (with a countdown), the channel, and what OK does */
+@Composable
+private fun MatchDetail(f: SportsFixture, nowMs: Long, hideScores: Boolean, reminded: Boolean, modifier: Modifier = Modifier) {
+    val home = f.home; val away = f.away
+    val a = tintFor(home?.name ?: f.name); val b = tintFor(away?.name ?: f.leagueName)
+    val shape = RoundedCornerShape(Dx.RCard + 4.dp)
+    val live = f.status == FixtureStatus.LIVE
+    Box(
+        modifier.liveGlass(shape).clip(shape).drawBehind {
+            drawRect(Brush.radialGradient(listOf(a.copy(alpha = 0.40f), Color.Transparent), center = Offset(0f, size.height / 2f), radius = size.width * 0.5f))
+            drawRect(Brush.radialGradient(listOf(b.copy(alpha = 0.40f), Color.Transparent), center = Offset(size.width, size.height / 2f), radius = size.width * 0.5f))
+        },
+    ) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.width(150.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                CrestBadge(logoUrl = home?.logoUrl, name = home?.name ?: f.name, size = 52.dp)
+                Text(home?.name ?: "", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+            }
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(listOfNotNull(f.leagueName.takeIf { it.isNotBlank() }, f.venue).joinToString("  ·  "), fontSize = 12.sp, color = Color.White.copy(alpha = 0.65f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                when {
+                    f.status == FixtureStatus.UPCOMING -> {
+                        val left = (f.startMs - nowMs).coerceAtLeast(0L)
+                        Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            if (left >= 86_400_000L) CountUnit(left / 86_400_000L, "days")
+                            CountUnit((left / 3_600_000L) % 24, "hours"); CountUnit((left / 60_000L) % 60, "minutes")
+                        }
+                        Text("${dayLabel(f.startMs, nowMs)} · ${timeLabel(f.startMs)}", fontSize = 13.sp, color = Color.White.copy(alpha = 0.8f))
+                    }
+                    else -> {
+                        val sc = if (hideScores || home?.score == null) "v" else "${home.score}  –  ${away?.score ?: "0"}"
+                        Text(sc, style = TextStyle(fontFamily = Condensed, fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFeatureSettings = "tnum"))
+                        Text(if (live) "Live${f.clock?.let { " · $it" } ?: ""}" else "Full time", fontSize = 13.sp, color = Color.White.copy(alpha = 0.8f))
+                    }
+                }
+                Text(
+                    (f.ukChannelName?.let { "On $it" } ?: "No channel listed") + "  ·  " + when {
+                        live -> "OK to watch"
+                        f.status == FixtureStatus.UPCOMING -> if (reminded) "Reminder set · OK to remove" else "OK to set a reminder"
+                        else -> "OK for the match page"
+                    },
+                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            Column(Modifier.width(150.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                CrestBadge(logoUrl = away?.logoUrl, name = away?.name ?: f.leagueName, size = 52.dp)
+                Text(away?.name ?: "", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+            }
+        }
+    }
+}
+
 /** An event with no two sides (a golf tournament, a race weekend): its name, where, and when, on a wash of the sport's colour */
 @Composable
 private fun EventPanel(f: SportsFixture, tint: Color, nowMs: Long, onPick: () -> Unit, modifier: Modifier = Modifier) {
@@ -397,6 +486,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.panelSection(
     nowMs: Long,
     hideScores: Boolean,
     favTeamIds: Set<String>,
+    onFocusMatch: (SportsFixture) -> Unit,
     onPick: (SportsFixture) -> Unit,
 ) {
     if (list.isEmpty()) return
@@ -406,7 +496,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.panelSection(
     items(list.chunked(2), key = { row -> "$title:${row.first().id}" }) { row ->
         Row(Modifier.padding(horizontal = 32.dp, vertical = 6.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             row.forEach { f ->
-                MatchPanel(f, nowMs, hideScores, mine = f.home?.id in favTeamIds || f.away?.id in favTeamIds, onPick = { onPick(f) }, modifier = Modifier.weight(1f))
+                MatchPanel(f, nowMs, hideScores, mine = f.home?.id in favTeamIds || f.away?.id in favTeamIds, onPick = { onPick(f) }, modifier = Modifier.weight(1f), onFocus = { onFocusMatch(f) })
             }
             if (row.size == 1) Spacer(Modifier.weight(1f))
         }
@@ -415,11 +505,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.panelSection(
 
 /** A match as a glass panel: each side's colour washing in from its edge, crests, the score or the kick-off */
 @Composable
-internal fun MatchPanel(f: SportsFixture, nowMs: Long, hideScores: Boolean, mine: Boolean, onPick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun MatchPanel(f: SportsFixture, nowMs: Long, hideScores: Boolean, mine: Boolean, onPick: () -> Unit, modifier: Modifier = Modifier, onFocus: (() -> Unit)? = null) {
     val home = f.home; val away = f.away
     val a = tintFor(home?.name ?: f.name); val b = tintFor(away?.name ?: f.leagueName)
     GlassTile(
         onClick = onPick,
+        onFocus = onFocus,
         modifier = modifier.height(84.dp),
         shape = RoundedCornerShape(Dx.RCard + 4.dp),
         fillColor = Color(0xFF17171A),
@@ -436,11 +527,12 @@ internal fun MatchPanel(f: SportsFixture, nowMs: Long, hideScores: Boolean, mine
                     Text(home?.shortName ?: home?.name ?: f.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
                 }
                 val showScore = f.status != FixtureStatus.UPCOMING && !hideScores && home?.score != null
-                Column(Modifier.width(104.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.width(132.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     if (showScore) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("${home?.score}", style = TextStyle(fontFamily = Condensed, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = if (away?.winner == true) ink.copy(alpha = 0.5f) else ink, fontFeatureSettings = "tnum"))
-                            Text("${away?.score ?: "0"}", style = TextStyle(fontFamily = Condensed, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = if (home?.winner == true) ink.copy(alpha = 0.5f) else ink, fontFeatureSettings = "tnum"))
+                        val big = ((home?.score?.length ?: 1).coerceAtLeast(away?.score?.length ?: 1)) >= 3
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (big) 8.dp else 12.dp)) {
+                            Text("${home?.score}", softWrap = false, maxLines = 1, style = TextStyle(fontFamily = Condensed, fontSize = if (big) 28.sp else 32.sp, fontWeight = FontWeight.Bold, color = if (away?.winner == true) ink.copy(alpha = 0.5f) else ink, fontFeatureSettings = "tnum"))
+                            Text("${away?.score ?: "0"}", softWrap = false, maxLines = 1, style = TextStyle(fontFamily = Condensed, fontSize = if (big) 28.sp else 32.sp, fontWeight = FontWeight.Bold, color = if (home?.winner == true) ink.copy(alpha = 0.5f) else ink, fontFeatureSettings = "tnum"))
                         }
                     } else {
                         Text(if (f.status == FixtureStatus.UPCOMING) timeLabel(f.startMs) else "v", style = TextStyle(fontFamily = Condensed, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = ink, fontFeatureSettings = "tnum"))
@@ -466,32 +558,39 @@ internal fun MatchPanel(f: SportsFixture, nowMs: Long, hideScores: Boolean, mine
     }
 }
 
-/** The latest finished sessions, to play (TorBox has them ready when the replay addon found them) */
+/** The latest weekend's sessions in the replay addon, to play; only what the addon has */
 @Composable
-private fun ReplaysPanel(list: List<SportsFixture>, onPick: (SportsFixture) -> Unit, modifier: Modifier = Modifier) {
+private fun ReplaysPanel(round: LiveTvStore.MotorRound?, onPick: (LiveTvStore.MotorRound, LiveTvStore.MotorSession) -> Unit, modifier: Modifier = Modifier) {
     Column(modifier.liveGlass(RoundedCornerShape(Dx.RCard + 4.dp)).padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Replays", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(start = 6.dp, bottom = 2.dp))
-        if (list.isEmpty()) Text("None yet.", fontSize = 13.sp, color = Dx.Muted, modifier = Modifier.padding(start = 6.dp))
-        list.forEach { f ->
+        Text(if (round != null) "Replays · ${round.place}" else "Replays", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(start = 6.dp, bottom = 2.dp), maxLines = 1)
+        if (round == null) Text("No replays yet.", fontSize = 13.sp, color = Dx.Muted, modifier = Modifier.padding(start = 6.dp))
+        round?.sessions?.take(4)?.forEach { sess ->
             GlassTile(
-                onClick = { onPick(f) },
-                modifier = Modifier.fillMaxWidth().height(34.dp),
+                onClick = { onPick(round, sess) },
+                modifier = Modifier.fillMaxWidth().height(28.dp),
                 shape = RoundedCornerShape(Dx.RCard),
                 fillColor = Color.White.copy(alpha = 0.06f),
                 focusedScale = Dx.FocusRow,
             ) { _, ink ->
                 Row(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     androidx.tv.material3.Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = ink, modifier = Modifier.size(16.dp))
-                    Text(f.name.ifBlank { f.leagueName }, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Text(sess.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 }
             }
         }
     }
 }
 
+/** Whether a replay addon's place ("Las Vegas", "Mexican", "United States") is the race named like [text] */
+private fun placeMatches(place: String, text: String): Boolean {
+    fun norm(x: String) = java.text.Normalizer.normalize(x.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "")
+    val words = norm(text).split(Regex("[^a-z]+")).filter { it.length >= 4 }
+    return norm(place).split(Regex("[^a-z]+")).filter { it.length >= 4 }.any { p -> words.any { w -> w.startsWith(p.take(4)) || p.startsWith(w.take(4)) } }
+}
+
 /** The next (or live) race: its name and place, the countdown, and what OK does */
 @Composable
-private fun RaceHero(fixture: SportsFixture, nowMs: Long, reminded: Boolean, onWatch: () -> Unit, onRemind: () -> Unit, modifier: Modifier = Modifier, wash: Color = Color(0xFFE10600)) {
+private fun RaceHero(fixture: SportsFixture, nowMs: Long, reminded: Boolean, onWatch: () -> Unit, onRemind: () -> Unit, modifier: Modifier = Modifier, wash: Color = Color(0xFFE10600), canReplay: Boolean = true) {
     val live = fixture.status == FixtureStatus.LIVE
     val finished = fixture.status == FixtureStatus.FINAL
     val shape = RoundedCornerShape(Dx.RCard + 4.dp)
@@ -508,7 +607,7 @@ private fun RaceHero(fixture: SportsFixture, nowMs: Long, reminded: Boolean, onW
                 Text(listOfNotNull(fixture.venue, dayLabel(fixture.startMs, nowMs) + " " + timeLabel(fixture.startMs), fixture.ukChannelName).joinToString("  ·  "), fontSize = 13.sp, color = Dx.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (live) LiveChip(label = "Watch", selected = true, onClick = onWatch)
-                    else if (finished) LiveChip(label = "Watch replay", selected = true, onClick = onWatch)
+                    else if (finished) { if (canReplay) LiveChip(label = "Watch replay", selected = true, onClick = onWatch) }
                     else LiveChip(label = if (reminded) "Reminder set" else "Remind me", selected = reminded, onClick = onRemind)
                 }
             }
@@ -653,24 +752,24 @@ private val DRIVER_TEAMS = mapOf(
     "perez" to "Cadillac", "pérez" to "Cadillac", "bottas" to "Cadillac", "tsunoda" to "Red Bull",
 )
 
-/** A racing series' championship: drivers and constructors side by side, each row in its team's colour */
+/** A racing series' championship: drivers and constructors side by side, each row in its team's colour; OK favourites one */
 @Composable
-private fun F1Standings(json: org.json.JSONObject, modifier: Modifier) {
+private fun F1Standings(json: org.json.JSONObject, favourites: Set<String>, onToggle: (String) -> Unit, modifier: Modifier) {
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         listOf("drivers" to "Drivers", "constructors" to "Constructors").forEach { (key, title) ->
             val rows = json.optJSONArray(key) ?: return@forEach
             if (rows.length() == 0) return@forEach
             val shape = RoundedCornerShape(Dx.RCard + 4.dp)
-            val leaderTeam = rows.getJSONObject(0).optString("name").let { n -> if (key == "drivers") DRIVER_TEAMS[n.substringAfterLast(' ').lowercase()] ?: "" else n }
-            val wash = teamColour(leaderTeam)
             val top = rows.getJSONObject(0).optString("points").toFloatOrNull() ?: 1f
             Column(
-                Modifier.weight(1f).liveGlass(shape).clip(shape)
-                    .drawBehind { drawRect(Brush.radialGradient(listOf(wash.copy(alpha = 0.34f), Color.Transparent), center = Offset(0f, 0f), radius = size.width * 0.9f)) }
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                Modifier.weight(1f).clip(shape).background(Color(0xFF0E0E10))
+                    // (a dark glow, as the mock-up's: a faint light from the top edge)
+                    .drawBehind { drawRect(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.07f), Color.Transparent), center = Offset(size.width / 2f, 0f), radius = size.width * 0.7f)) }
+                    .border(1.dp, GlassRim, shape)
+                    .padding(horizontal = 12.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
+                Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
                     Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
                     Text("Points", fontSize = 12.sp, color = Dx.Muted)
                 }
@@ -681,15 +780,28 @@ private fun F1Standings(json: org.json.JSONObject, modifier: Modifier) {
                     val colour = teamColour(team)
                     val pts = r.optString("points")
                     val frac = ((pts.toFloatOrNull() ?: 0f) / top).coerceIn(0f, 1f)
-                    Row(Modifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(r.optString("rank"), style = TextStyle(fontFamily = Condensed, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Dx.Muted, fontFeatureSettings = "tnum"), modifier = Modifier.width(26.dp))
-                        Box(Modifier.width(4.dp).height(24.dp).clip(RoundedCornerShape(2.dp)).background(colour))
-                        Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                            Text(name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (key == "drivers" && team.isNotEmpty()) Text(team, fontSize = 11.sp, color = Dx.Muted, maxLines = 1)
-                            else Box(Modifier.padding(top = 3.dp).fillMaxWidth(frac * 0.9f).height(3.dp).clip(RoundedCornerShape(2.dp)).background(colour.copy(alpha = 0.8f)))
+                    val fav = name in favourites
+                    GlassTile(
+                        onClick = { onToggle(name) },
+                        modifier = Modifier.fillMaxWidth().height(40.dp),
+                        shape = RoundedCornerShape(Dx.RCard),
+                        fillColor = if (fav) Color.White.copy(alpha = 0.10f) else Color.Transparent,
+                        borderColor = Color.Transparent,
+                        focusedScale = Dx.FocusRow,
+                    ) { _, ink ->
+                        Row(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(r.optString("rank"), style = TextStyle(fontFamily = Condensed, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = ink.copy(alpha = 0.6f), fontFeatureSettings = "tnum"), modifier = Modifier.width(26.dp))
+                            Box(Modifier.width(4.dp).height(24.dp).clip(RoundedCornerShape(2.dp)).background(colour))
+                            Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (fav) androidx.tv.material3.Icon(Icons.Filled.Star, contentDescription = "Favourite", tint = ink.copy(alpha = 0.85f), modifier = Modifier.padding(start = 6.dp).size(12.dp))
+                                }
+                                if (key == "drivers" && team.isNotEmpty()) Text(team, fontSize = 11.sp, color = ink.copy(alpha = 0.6f), maxLines = 1)
+                                else Box(Modifier.padding(top = 3.dp).fillMaxWidth(frac * 0.9f).height(3.dp).clip(RoundedCornerShape(2.dp)).background(colour.copy(alpha = 0.8f)))
+                            }
+                            Text(pts, style = TextStyle(fontFamily = Condensed, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = ink, fontFeatureSettings = "tnum"))
                         }
-                        Text(pts, style = TextStyle(fontFamily = Condensed, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFeatureSettings = "tnum"))
                     }
                 }
             }
