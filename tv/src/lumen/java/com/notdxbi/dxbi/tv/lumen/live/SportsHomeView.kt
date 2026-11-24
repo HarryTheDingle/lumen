@@ -40,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusProperties
 import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
@@ -198,9 +199,23 @@ fun SportsHomeView(
         sportPrefs.edit().putStringSet("favourites", favouriteSports).apply()
     }
 
+    // (Up from a sport's page lands back on that sport's tile, not on whichever tile is above the remote)
+    val chosenTile = remember { FocusRequester() }
+    val tileRow = androidx.compose.foundation.lazy.rememberLazyListState()
     Column(Modifier.fillMaxSize().background(Dx.Background)) {
         LazyRow(
+            state = tileRow,
             modifier = Modifier
+                .focusProperties {
+                    onEnter = {
+                        val idx = tiles.indexOf(tile)
+                        if (requestedFocusDirection == androidx.compose.ui.focus.FocusDirection.Up &&
+                            tileRow.layoutInfo.visibleItemsInfo.any { it.index == idx }
+                        ) {
+                            chosenTile.requestFocus()
+                        }
+                    }
+                }
                 .background(Dx.Background)
                 .padding(top = 14.dp)
                 // (back up on the tiles: the page goes to its top)
@@ -217,6 +232,7 @@ fun SportsHomeView(
                     onClick = { tile = t },
                     onLongClick = { toggleFavouriteSport(t) },
                     modifier = (if (i == 0) Modifier.focusRequester(contentFocusRequester) else Modifier)
+                        .then(if (t == tile) Modifier.focusRequester(chosenTile) else Modifier)
                         .onPreviewKeyEvent { ev ->
                             if (i == 0 && ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionLeft) { onMoveToRail(); true } else false
                         },

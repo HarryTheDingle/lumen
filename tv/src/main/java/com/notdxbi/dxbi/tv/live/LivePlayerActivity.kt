@@ -648,6 +648,9 @@ class LivePlayerActivity : AppCompatActivity() {
         startChannelTune(channel = target, preferredStreamId = null, catchup = null, suppressOsd = false)
     }
 
+    /** Set while a tune retries after waiting for the channel lists, so it doesn't wait twice */
+    private var waitedForChannels = false
+
     private fun startChannelTune(
         channel: CanonicalChannel,
         preferredStreamId: String?,
@@ -700,11 +703,36 @@ class LivePlayerActivity : AppCompatActivity() {
         }
         activeCandidates = candidates
 
+        // (Live TV's first open: the providers' channel lists may still be loading. Show the loading screen and wait for
+        // them, then try again; "no stream" only once they've all answered and this channel still has none)
+        if (candidates.isEmpty() && catchup == null && !waitedForChannels) {
+            playbackStateFlow.value = LivePlaybackState.Resolving(channel)
+            tuneJob = lifecycleScope.launch {
+                val started = System.currentTimeMillis()
+                var fresh: CanonicalChannel? = null
+                while (System.currentTimeMillis() - started < 30_000L) {
+                    fresh = liveStore.channels.value.firstOrNull { it.id == channel.id && it.streams.isNotEmpty() }
+                    if (fresh != null) break
+                    val ui = liveStore.uiState.value
+                    // (lists all in and still nothing: give it a few seconds more, then say so)
+                    if (!ui.loading && !ui.refreshing && ui.lastLoadedAtMs > 0L && System.currentTimeMillis() - started > 4_000L) break
+                    delay(400L)
+                }
+                waitedForChannels = true
+                try {
+                    startChannelTune(fresh ?: channel, preferredStreamId, null, null, suppressOsd, skipConflictCheck)
+                } finally {
+                    waitedForChannels = false
+                }
+            }
+            return
+        }
+
         if (candidates.isEmpty()) {
             stopPresenceIfNeeded()
             playbackStateFlow.value = LivePlaybackState.Unavailable(
                 channel = channel,
-                reason = if (catchup != null) "Catch-up archive is unavailable for this channel" else "No streams configured for this channel",
+                reason = if (catchup != null) "This programme can't be played again on this channel." else "None of your providers has this channel at the moment.",
             )
             hideZapBanner()
             showOsd(autoHide = false)

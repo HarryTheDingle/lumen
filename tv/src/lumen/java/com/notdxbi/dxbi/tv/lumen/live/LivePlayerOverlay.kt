@@ -64,6 +64,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -223,12 +226,7 @@ fun LivePlayerOverlay(
         }
 
         // Tuning / failover / buffering status banner centered cleanly at top
-        TuningStatusBanner(
-            state = state.playbackState,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 28.dp),
-        )
+        TuningStatusBanner(state = state.playbackState)
 
         // Bottom 240dp gradient scrim + SeekLine + 3-zone controls
         AnimatedVisibility(
@@ -411,7 +409,7 @@ private fun BottomOsdScrim(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(if (stripChannels.isEmpty()) 260.dp else if (expanded) 420.dp else 310.dp)
+            .height(if (stripChannels.isEmpty()) 260.dp else if (expanded) 340.dp else 250.dp)
             .background(
                 Brush.verticalGradient(
                     0f to Color.Transparent,
@@ -559,6 +557,7 @@ private fun SettingChip(icon: ImageVector, label: String, onClick: () -> Unit) {
 }
 
 /** TiviMate-style: the channels around this one along the bottom, each with what's on now; OK goes to it */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ChannelStrip(
     entries: List<Pair<CanonicalChannel, EpgProgramme?>>,
@@ -572,7 +571,16 @@ private fun ChannelStrip(
     val currentTile = remember { FocusRequester() }
     val nowMs = System.currentTimeMillis()
 
-    LaunchedEffect(currentChannelId) { runCatching { listState.scrollToItem(currentIdx) } }
+    // (the channel playing sits in the middle, with those either side fading out towards the edges)
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    LaunchedEffect(currentChannelId) {
+        runCatching {
+            listState.scrollToItem(currentIdx + 1)
+            val view = listState.layoutInfo.viewportSize.width
+            val tile = with(density) { 300.dp.toPx() }
+            listState.scrollBy(-((view - tile) / 2f).coerceAtLeast(0f))
+        }
+    }
     LaunchedEffect(focusTick) {
         if (focusTick > 0L) {
             delay(120)
@@ -580,16 +588,33 @@ private fun ChannelStrip(
         }
     }
 
+    // (the tiles at the sides fade out rather than being cut off by the screen's edge; the chosen one stays central)
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides CentreSpec) {
     androidx.compose.foundation.lazy.LazyRow(
         state = listState,
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp)
+            .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+            .drawWithContent {
+                drawContent()
+                val edge = 90.dp.toPx() / size.width
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        0f to Color.Transparent, edge to Color.Black,
+                        1f - edge to Color.Black, 1f to Color.Transparent,
+                    ),
+                    blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+                )
+            },
+        contentPadding = PaddingValues(horizontal = 40.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item(key = "guide") {
             Surface(
                 onClick = onOpenGuide,
-                modifier = Modifier.width(120.dp).height(112.dp).border(1.dp, GlassRim, RoundedCornerShape(14.dp)),
-                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+                modifier = Modifier.width(96.dp).height(STRIP_HEIGHT),
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = Color.White.copy(alpha = 0.10f),
                     contentColor = Color.White,
@@ -599,18 +624,19 @@ private fun ChannelStrip(
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
             ) {
                 Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                    Icon(Icons.AutoMirrored.Filled.FormatListBulleted, contentDescription = null, modifier = Modifier.size(26.dp), tint = LocalContentColor.current)
-                    Spacer(Modifier.height(6.dp))
-                    Text("Guide", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = LocalContentColor.current)
+                    Icon(Icons.AutoMirrored.Filled.FormatListBulleted, contentDescription = null, modifier = Modifier.size(20.dp), tint = LocalContentColor.current)
+                    Spacer(Modifier.height(4.dp))
+                    Text("Guide", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = LocalContentColor.current)
                 }
             }
         }
         items(entries, key = { it.first.id }) { (channel, prog) ->
             val playing = channel.id == currentChannelId
+            val logo = remember(channel.id) { tileLogoFor(channel) }
             Surface(
                 onClick = { onZap(channel) },
-                modifier = Modifier.width(250.dp).height(112.dp).border(1.dp, GlassRim, RoundedCornerShape(14.dp)).then(if (playing) Modifier.focusRequester(currentTile) else Modifier),
-                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+                modifier = Modifier.width(300.dp).height(STRIP_HEIGHT).then(if (playing) Modifier.focusRequester(currentTile) else Modifier),
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = if (playing) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f),
                     contentColor = Color.White,
@@ -620,31 +646,34 @@ private fun ChannelStrip(
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
             ) {
                 val ink = LocalContentColor.current
-                Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxSize().padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // the channel's logo tile says which it is (its name in words was one more line)
+                    ChannelTile(logoUrl = logo, name = channel.name, width = 80.dp, height = 46.dp, corner = 7.dp)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(
-                            text = channel.number?.toString() ?: "",
-                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = ink.copy(alpha = 0.6f),
-                            style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
+                            text = prog?.title ?: channel.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = ink,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
-                        Text(
-                            text = channel.name, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = ink,
-                            maxLines = 2, overflow = TextOverflow.Clip, modifier = Modifier.weight(1f),
-                        )
-                        if (playing) Box(Modifier.size(7.dp).clip(CircleShape).background(LivePalette.LiveRed))
-                    }
-                    Text(
-                        text = prog?.title ?: "No information", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = ink,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    )
-                    Box(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)).background(ink.copy(alpha = 0.2f))) {
-                        Box(Modifier.fillMaxHeight().fillMaxWidth((prog?.progressAt(nowMs) ?: 0f).coerceIn(0f, 1f)).background(ink))
+                        Box(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)).background(ink.copy(alpha = 0.2f))) {
+                            Box(Modifier.fillMaxHeight().fillMaxWidth((prog?.progressAt(nowMs) ?: 0f).coerceIn(0f, 1f)).background(ink))
+                        }
                     }
                 }
             }
         }
     }
+    }
 }
+
+/** Keeps the chosen tile of a row in the middle */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private object CentreSpec : androidx.compose.foundation.gestures.BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
+        offset - (containerSize - size) / 2f
+}
+
+/** How tall the quick channel changer's tiles are */
+private val STRIP_HEIGHT = 62.dp
 
 @Composable
 private fun PlayerTextButton(label: String, onClick: () -> Unit) {
@@ -842,31 +871,33 @@ private fun PlayerIconButton(
     }
 }
 
+/**
+ * A channel loading: its tile, a spinner and "Loading <channel>" in the middle (no feed names, counts or reasons);
+ * buffering during play is just the spinner
+ */
 @Composable
 private fun TuningStatusBanner(
     state: LivePlaybackState,
     modifier: Modifier = Modifier,
 ) {
-    val message = when (state) {
-        is LivePlaybackState.Resolving -> "Resolving ${state.channel.name}…"
-        is LivePlaybackState.Tuning -> "Tuning ${state.stream.sourceName} (${state.attempt}/${state.total}) · ${state.stream.quality.badge}"
-        is LivePlaybackState.FailingOver -> "Switching to ${state.nextStream.sourceName} (${state.reason})"
-        is LivePlaybackState.Buffering -> if (state.elapsedMs >= 1200L) "Buffering…" else null
+    val channel = when (state) {
+        is LivePlaybackState.Resolving -> state.channel
+        is LivePlaybackState.Tuning -> state.channel
+        is LivePlaybackState.FailingOver -> state.channel
         else -> null
-    } ?: return
-
-    Box(
-        modifier = modifier
-            .liveGlass(RoundedCornerShape(14.dp))
-            .border(1.dp, PANEL_BORDER, RoundedCornerShape(14.dp))
-            .padding(horizontal = 16.dp, vertical = 9.dp),
-    ) {
-        Text(
-            text = message,
-            color = Color.White,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
+    }
+    if (channel != null) {
+        val logo = remember(channel.id) { tileLogoFor(channel) }
+        LiveLoading(
+            message = "Loading ${channel.name}",
+            logoUrl = logo,
+            channelName = channel.name,
+            modifier = Modifier.background(Color.Black.copy(alpha = 0.55f)),
         )
+        return
+    }
+    if (state is LivePlaybackState.Buffering && state.elapsedMs >= 1200L) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LiveSpinner(40.dp) }
     }
 }
 
@@ -890,14 +921,7 @@ private fun ZapBanner(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        LandscapeChannelLogo(
-            logoUrl = state.channel.logoUrl,
-            name = state.channel.name,
-            width = 72.dp,
-            height = 34.dp,
-            corner = 9.dp,
-            plain = true,
-        )
+        ChannelTile(logoUrl = remember(state.channel.id) { tileLogoFor(state.channel) }, name = state.channel.name, width = 72.dp, height = 40.dp)
 
         Column(
             modifier = Modifier.weight(1f),

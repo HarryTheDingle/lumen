@@ -1,5 +1,6 @@
 package com.notdxbi.dxbi.tv.live
 
+import kotlinx.coroutines.flow.first
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -664,8 +665,22 @@ class LiveTvStore(
         val channel = row.linkedChannel
         if (channel != null && row.isPlayable) {
             playLive(context, channel, streamId = row.bestStream?.id, zapChannelIds = zapChannelIds)
+        } else if (_uiState.value.loading || _uiState.value.refreshing || _channels.value.isEmpty()) {
+            // (the providers' lists are still loading: play it as soon as it's linked, rather than saying there's none)
+            showToast(context, "Loading ${row.guideChannel.name}…")
+            scope.launch {
+                val ready = kotlinx.coroutines.withTimeoutOrNull(30_000L) {
+                    _mainGuideRows.first { rows: List<GuideChannelRow> -> rows.any { it.guideChannel.id == row.guideChannel.id && it.isPlayable && it.linkedChannel != null } }
+                        .first { it.guideChannel.id == row.guideChannel.id && it.isPlayable }
+                }
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    val ch = ready?.linkedChannel
+                    if (ready != null && ch != null) playLive(context, ch, streamId = ready.bestStream?.id, zapChannelIds = zapChannelIds)
+                    else showToast(context, "None of your providers has ${row.guideChannel.name} at the moment")
+                }
+            }
         } else {
-            showToast(context, "No IPTV stream linked for ${row.guideChannel.name}")
+            showToast(context, "None of your providers has ${row.guideChannel.name} at the moment")
         }
     }
 

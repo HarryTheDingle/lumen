@@ -255,11 +255,7 @@ private fun ProgrammeHeroContent(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (!logoUrl.isNullOrBlank()) {
-                LandscapeChannelLogo(logoUrl = logoUrl, name = channelName, width = 112.dp, height = 28.dp, plain = true)
-            } else {
-                Text(channelName, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
-            }
+            ChannelTile(logoUrl = logoUrl, name = channelName, width = 70.dp, height = 34.dp, corner = 7.dp)
         }
 
         Text(
@@ -465,20 +461,10 @@ private fun HeroArtworkPane(
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(Color.White.copy(alpha = 0.08f))
-                        .border(1.dp, LivePalette.GlassBorder, RoundedCornerShape(18.dp))
-                        .padding(horizontal = 24.dp, vertical = 18.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    LandscapeChannelLogo(
-                        logoUrl = fallbackLogo,
-                        name = fallbackLabel,
-                        width = 132.dp,
-                        height = 68.dp,
-                        corner = 12.dp,
-                    )
+                    // no picture for the programme: the channel's tile in its place
+                    ChannelTile(logoUrl = fallbackLogo, name = fallbackLabel, width = 180.dp, height = 101.dp, corner = 12.dp)
                 }
             }
         }

@@ -1,5 +1,6 @@
 package com.notdxbi.dxbi.tv.lumen.live
 
+import kotlinx.coroutines.flow.first
 import android.view.LayoutInflater
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -76,6 +77,15 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
 
     LaunchedEffect(Unit) {
         store.ensureLoaded()
+    }
+    // (first open: the loading screen until the providers and guide have answered; "no channels" only after that)
+    var settled by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.withTimeoutOrNull(30_000L) {
+            delay(1_200L)
+            androidx.compose.runtime.snapshotFlow { store.uiState.value }.first { !it.loading && !it.refreshing }
+        }
+        settled = true
     }
 
     val uiState by store.uiState.collectAsState()
@@ -252,7 +262,9 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when (activeSection) {
                     LiveSection.TV_GUIDE -> {
-                        if (sources.isEmpty() && channels.isEmpty() && mainGuideRows.isEmpty() && !uiState.loading) {
+                        if (mainGuideRows.isEmpty() && (!settled || uiState.loading)) {
+                            LiveLoading(message = "Finding your channels…")
+                        } else if (sources.isEmpty() && channels.isEmpty() && mainGuideRows.isEmpty() && !uiState.loading) {
                             EmptyLiveTvSetup(
                                 pairing = pairing,
                                 contentFocusRequester = contentRequester,

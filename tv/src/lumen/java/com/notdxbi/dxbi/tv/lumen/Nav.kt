@@ -39,6 +39,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.foundation.border
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -118,6 +120,8 @@ class Nav {
     val tabFocus = FocusRequester()
     /** The menu down the left is open */
     var menuOpen by mutableStateOf(false)
+    /** How far the menu is open (0 to 1, with its animation): Lumen's screen frosts behind it by this much */
+    var menuFrost by mutableStateOf(0f)
     /** When it last closed (the remote lands back on the corner then, which mustn't open it again) */
     var menuClosedAt = 0L
     /** When the remote last moved up or left */
@@ -335,6 +339,8 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
         tween(if (shown) 330 else 200, easing = Dx.Ease),
         label = "menu",
     )
+    LaunchedEffect(Unit) { androidx.compose.runtime.snapshotFlow { t }.collect { nav.menuFrost = it } }
+    DisposableEffect(Unit) { onDispose { nav.menuFrost = 0f } }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     fun close() {
         if (!shown) return
@@ -376,7 +382,11 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
                 Modifier
                     .matchParentSize()
                     .graphicsLayer { alpha = t }
-                    .background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.65f), 0.45f to Color.Transparent)),
+                    .background(
+                        // (frosted: Lumen's screen behind is blurred, so the dimming can be lighter and the panel see-through)
+                        if (FROST_OK) Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.42f), 0.6f to Color.Black.copy(alpha = 0.12f))
+                        else Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.65f), 0.45f to Color.Transparent),
+                    ),
             )
             Column(
                 Modifier
@@ -390,7 +400,12 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
                         transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
                     }
                     .width(230.dp)
-                    .background(Dx.Raised2.copy(alpha = 0.94f), RoundedCornerShape(Dx.RPanel))
+                    .then(
+                        if (FROST_OK) Modifier
+                            .background(Color(0x8C2C2C31), RoundedCornerShape(Dx.RPanel))
+                            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(Dx.RPanel))
+                        else Modifier.background(Dx.Raised2.copy(alpha = 0.94f), RoundedCornerShape(Dx.RPanel)),
+                    )
                     .padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
@@ -649,3 +664,6 @@ fun Stillness.alpha(): Float {
     val a by animateFloatAsState(if (faded) 0f else 1f, tween(if (faded) 1200 else 250), label = "stillness")
     return a
 }
+
+/** The menu frosts Lumen's screen behind it where the TV can blur (Android 12 and later) */
+internal val FROST_OK = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S

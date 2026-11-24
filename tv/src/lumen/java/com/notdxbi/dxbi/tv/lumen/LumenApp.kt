@@ -201,7 +201,12 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
     Box(Modifier.fillMaxSize().onPreviewKeyEvent {
         if (it.type == KeyEventType.KeyDown && (it.key == Key.DirectionUp || it.key == Key.DirectionLeft)) nav.movedAt = System.currentTimeMillis()
         false
-    }.holdBackForMenu()) {
+    }.holdBackForMenu().graphicsLayer {
+        // frosted glass behind the menu: the screen blurs as it opens (read here, at draw time, so nothing recomposes)
+        val f = nav.menuFrost
+        val r = (28.dp.toPx() * f)
+        renderEffect = if (FROST_OK && r > 0.5f) androidx.compose.ui.graphics.BlurEffect(r, r, androidx.compose.ui.graphics.TileMode.Clamp) else null
+    }) {
     // a new screen's content comes up a moment after the menu closes, as Apple TV's pages do
     key(nav.tab) {
         val rise = remember { androidx.compose.animation.core.Animatable(0f) }

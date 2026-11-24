@@ -386,7 +386,7 @@ fun LiveEpgGrid(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = if (rows.isEmpty()) "TV guide data is loading or unavailable." else "No channels match ${activeFilter.label}.",
+                    text = if (rows.isEmpty()) "The TV guide isn't available right now." else "No channels match ${activeFilter.label}.",
                     fontSize = 15.sp,
                     color = Dx.Muted,
                 )
@@ -665,20 +665,29 @@ fun LiveEpgGrid(
                         .padding(start = LEFT_CHANNEL_WIDTH + 1.dp),
                 ) {
                     val xOffset = maxWidth * fraction
+                    // TiviMate's way: everything already shown (left of now) sits under a light wash, so the past reads
+                    // lighter than what's still to come, and a see-through blue line marks the time
                     Box(
                         modifier = Modifier
-                            .offset(x = xOffset - 3.dp, y = TIME_HEADER_HEIGHT - 3.dp)
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(Dx.Blue),
+                            .padding(top = TIME_HEADER_HEIGHT)
+                            .width(xOffset)
+                            .fillMaxHeight()
+                            .background(Color.White.copy(alpha = 0.075f)),
                     )
                     Box(
                         modifier = Modifier
                             .padding(top = TIME_HEADER_HEIGHT)
-                            .offset(x = xOffset - 1.dp)
-                            .width(2.dp)
+                            .offset(x = xOffset - 2.dp)
+                            .width(4.dp)
                             .fillMaxHeight()
-                            .background(Dx.Blue.copy(alpha = 0.9f)),
+                            .background(Dx.Blue.copy(alpha = 0.55f)),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .offset(x = xOffset - 4.dp, y = TIME_HEADER_HEIGHT - 4.dp)
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(Dx.Blue),
                     )
                 }
             }
@@ -848,47 +857,24 @@ private fun GuideChannelViewportRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    text = row.guideChannel.name,
-                    fontSize = 14.sp,
-                    lineHeight = 17.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.White,
-                    // (the whole name, over up to three lines: never cut short with dots)
-                    maxLines = 3,
-                    overflow = TextOverflow.Clip,
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    val numberText = row.guideChannel.number?.toString()
-                        ?: if (!row.isPlayable) "Unlinked" else ""
-                    if (numberText.isNotEmpty()) {
-                        Text(
-                            text = numberText,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Dx.Muted,
-                            maxLines = 1,
-                        )
-                    }
+            // the channel's logo as a tile in its colour (no name in words: the logo says it)
+            ChannelTile(
+                logoUrl = row.logoUrl,
+                name = row.guideChannel.name,
+                width = 92.dp,
+                height = 42.dp,
+                modifier = Modifier.graphicsLayer { alpha = if (row.isPlayable) 1f else 0.45f },
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                row.guideChannel.number?.let {
+                    Text(text = it.toString(), fontSize = 11.sp, fontWeight = FontWeight.Medium, color = Dx.Muted, maxLines = 1)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (row.hasCatchup) {
-                        Icon(
-                            imageVector = Icons.Filled.History,
-                            contentDescription = "Catch-up available",
-                            tint = Dx.Amber,
-                            modifier = Modifier.size(11.dp),
-                        )
+                        Icon(imageVector = Icons.Filled.History, contentDescription = "Catch-up available", tint = Dx.Muted, modifier = Modifier.size(11.dp))
                     }
                     if (isFavourite) {
-                        Icon(
-                            imageVector = Icons.Filled.Favorite,
-                            contentDescription = "Favourite",
-                            tint = Color(0xFFFF6B81),
-                            modifier = Modifier.size(11.dp),
-                        )
+                        Icon(imageVector = Icons.Filled.Favorite, contentDescription = "Favourite", tint = Color(0xFFFF6B81), modifier = Modifier.size(11.dp))
                     }
                 }
             }
@@ -992,7 +978,7 @@ private fun ProgrammeViewportCell(
 ) {
     val bg = when {
         isLive -> LivePalette.CellLiveBg
-        isPastUnavailable -> LivePalette.CellPastBg
+        // (the past isn't darkened: the wash left of the now line makes it lighter, TiviMate's way)
         else -> LivePalette.CellBg
     }
     val borderColor = when {
@@ -1010,7 +996,7 @@ private fun ProgrammeViewportCell(
         focusedFillColor = Color.White,
         borderColor = borderColor,
         focusedScale = 1.0f,
-        sheen = borderColor == Color.Transparent,
+        sheen = false,
     ) { focused, ink ->
         val textAlpha = if (!focused && isPastUnavailable) 0.45f else 1f
         Column(
@@ -1159,8 +1145,8 @@ private fun handleSlotClick(
             } else {
                 Toast.makeText(
                     context,
-                    if (linked == null) "No IPTV stream linked for ${row.guideChannel.name}"
-                    else "Catch-up unavailable on ${row.guideChannel.name}",
+                    if (linked == null) "None of your providers has ${row.guideChannel.name} at the moment"
+                    else "${row.guideChannel.name} can't play this again",
                     Toast.LENGTH_SHORT,
                 ).show()
             }
