@@ -1,5 +1,7 @@
 name: Lumen TV and phone
 
+# NOTE (this branch): builds the phone app only. Lumen TV 3.x is built from the Lumos repository, not from this tree.
+
 # Publishing a release builds Lumen for Android TV and Lumen for Android phones (and the Pixel Fold) and attaches
 # lumen-tv.apk and lumen-phone.apk (and the plugin, which the apps refresh by themselves) to it. Installed copies
 # look at this repository's latest release and offer the update, each taking its own file.
@@ -48,8 +50,7 @@ jobs:
 
       - name: Build
         run: |
-          ./gradlew assembleLumenRelease assembleLumenphoneRelease --no-daemon
-          cp app/build/outputs/apk/lumen/release/app-lumen-release.apk lumen-tv.apk
+          ./gradlew assembleLumenphoneRelease --no-daemon
           cp app/build/outputs/apk/lumenphone/release/app-lumenphone-release.apk lumen-phone.apk
         env:
           DXBI_TV_KEYSTORE: ${{ runner.temp }}/lumen-release.jks
@@ -62,13 +63,12 @@ jobs:
         with:
           name: lumen-apks
           path: |
-            tv/lumen-tv.apk
             tv/lumen-phone.apk
           if-no-files-found: error
 
       - name: Attach to the release
         if: github.event_name == 'release'
         working-directory: .
-        run: gh release upload "${{ github.event.release.tag_name }}" tv/lumen-tv.apk tv/lumen-phone.apk dxbi.plugin.js --clobber
+        run: gh release upload "${{ github.event.release.tag_name }}" tv/lumen-phone.apk --clobber
         env:
           GH_TOKEN: ${{ github.token }}

@@ -2,6 +2,10 @@
 
 Lumen's own history starts here. The history of the dx.bi code it's built on is in [docs/dxbi/CHANGELOG.md](docs/dxbi/CHANGELOG.md).
 
+## 2.30.34
+
+- Lumen for Android phones and tablets: a Live TV tab. It signs in with your Stremio account, brings across the IPTV providers on your Lumen account (or add one by pasting your provider's message), and has a guide (list or timeline), Find a channel, a live player (swipe to change channel, picture-in-picture, feeds, audio and subtitles), reminders, and Sports (football and other team sports with match pages, Formula 1 with standings and replays, adding teams). "Watch in Lumen" opens a channel's film or episode in Lumen.
+
 ## 2.30.33
 
 - Fixes Lumen going wrong after a whole episode on some TVs: Search finding nothing and no stream playing, until the app's cache was cleared by hand. Lumen now clears its page cache whenever a player closes (the episode ends, you back out, or Next up), and if no addon answers at all when you press Play, it clears its cache and starts itself again, so the next Play works.
