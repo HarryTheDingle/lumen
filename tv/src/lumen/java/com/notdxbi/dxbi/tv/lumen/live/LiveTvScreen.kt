@@ -284,40 +284,10 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
                             hideSportsScores = prefs.hideSportsScores,
                             contentFocusRequester = contentRequester,
                             onMoveToRail = { nav.menuOpen = true },
-                            allSports = {
-                            SportsFixturesView(
-                                store = store,
-                                favourites = favSet,
-                                epgVersion = epgVersion,
-                                hideSportsScores = prefs.hideSportsScores,
-                                nowMs = nowMs,
-                                contentFocusRequester = contentRequester,
-                                onMoveToRail = { nav.menuOpen = true },
-                                onFocusFixture = { fixture, resolved ->
-                                    heroSelection = HeroSelection.Fixture(fixture, resolved)
-                                },
-                                onFocusSlot = { row, prog ->
-                                    heroSelection = HeroSelection.Programme(row = row, programme = prog)
-                                },
-                                onOpenCatchup = { ch -> catchupChannel = ch },
-                                onEmptyFocus = { title, subtitle ->
-                                    heroSelection = HeroSelection.Empty(title, subtitle)
-                                },
-                            )
-                            },
                         )
                     }
 
-                    LiveSection.FAVOURITES -> {
-                        LiveFavouritesView(
-                            store = store,
-                            nowMs = nowMs,
-                            miniPlayerActive = miniPlayerActive,
-                            contentFocusRequester = contentRequester,
-                            onMoveToRail = { nav.menuOpen = true },
-                            onOpenCatchup = { ch -> catchupChannel = ch },
-                        )
-                    }
+                    LiveSection.FAVOURITES -> Unit
 
                     LiveSection.SEARCH -> {
                         LiveSearchView(
@@ -328,6 +298,10 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
                             contentFocusRequester = contentRequester,
                             onMoveToRail = { nav.menuOpen = true },
                             onOpenCatchup = { ch -> catchupChannel = ch },
+                            onOpenSport = { sport ->
+                                context.getSharedPreferences("lumen_sports", android.content.Context.MODE_PRIVATE).edit().putString("start", sport).apply()
+                                nav.liveSection = LiveSection.SPORTS
+                            },
                         )
                     }
 

@@ -63,7 +63,7 @@ fun LiveHeroHeader(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(200.dp)
+            .height(150.dp)
             .background(LivePalette.HeroBg),
     ) {
         // the words and picture fade across as the remote moves (the same programme updates in place)
@@ -196,8 +196,8 @@ fun LiveHeroHeader(
 }
 
 /** The mini player's size in the header */
-internal val MINI_W = 240.dp
-internal val MINI_H = 135.dp
+internal val MINI_W = 204.dp
+internal val MINI_H = 115.dp
 
 private fun heroKey(sel: HeroSelection): String = when (sel) {
     is HeroSelection.Programme -> "p:${sel.row.guideChannel.id}:${sel.programme?.startMs}"
@@ -247,8 +247,8 @@ private fun ProgrammeHeroContent(
         ?: if (isPlayable) "Live broadcast on $channelName" else "Link an IPTV source in Settings to watch $channelName"
 
     Column(
-        modifier = modifier.padding(horizontal = 24.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(7.dp),
+        modifier = modifier.padding(horizontal = 24.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         // the channel's logo, nothing else on the line (its name, number and "on now" were words round a picture)
         Row(
@@ -260,7 +260,7 @@ private fun ProgrammeHeroContent(
                 Box(Modifier.size(8.dp).clip(CircleShape).background(LivePalette.LiveRed))
             }
             if (!logoUrl.isNullOrBlank()) {
-                LandscapeChannelLogo(logoUrl = logoUrl, name = channelName, width = 140.dp, height = 40.dp, plain = true)
+                LandscapeChannelLogo(logoUrl = logoUrl, name = channelName, width = 112.dp, height = 28.dp, plain = true)
             } else {
                 Text(channelName, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
             }
@@ -269,7 +269,7 @@ private fun ProgrammeHeroContent(
 
         Text(
             text = title,
-            fontSize = 26.sp,
+            fontSize = 24.sp,
             letterSpacing = (-0.3).sp,
             fontWeight = FontWeight.Bold,
             color = Color.White,
@@ -302,7 +302,7 @@ private fun ProgrammeHeroContent(
             fontSize = 13.sp,
             lineHeight = 18.sp,
             color = Dx.Muted,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
     }

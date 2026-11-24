@@ -38,6 +38,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -406,7 +411,7 @@ private fun BottomOsdScrim(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(if (stripChannels.isEmpty()) 240.dp else if (expanded) 360.dp else 290.dp)
+            .height(if (stripChannels.isEmpty()) 240.dp else if (expanded) 340.dp else 290.dp)
             .background(
                 Brush.verticalGradient(
                     0f to Color.Transparent,
@@ -484,31 +489,8 @@ private fun BottomOsdScrim(
                 }
             }
 
-            // Few controls, as the Apple TV app: play/pause, watch from the start, and Options for everything else
-            if (expanded || stripChannels.isEmpty()) Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                PlayerIconButton(
-                    icon = if (state.isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
-                    contentDescription = if (state.isPaused) "Play" else "Pause",
-                    onClick = actions.onTogglePause,
-                    modifier = Modifier.focusRequester(playFocus),
-                )
-                if (state.isCatchup) {
-                    PlayerTextButton("Back to live", onClick = actions.onGoLive)
-                } else if (state.channel.hasCatchup && state.nowProgramme != null) {
-                    PlayerTextButton("Watch from start", onClick = actions.onWatchFromStart)
-                }
-                Spacer(Modifier.weight(1f))
-                PlayerIconButton(
-                    icon = Icons.Filled.MoreHoriz,
-                    contentDescription = "Options",
-                    active = state.activePanel == LiveOverlayPanel.MORE,
-                    onClick = { actions.onOpenPanel(LiveOverlayPanel.MORE) },
-                )
-            }
+            // (without a strip the controls sit under the bar; with one they're below it, TiviMate's way)
+            if (stripChannels.isEmpty()) ControlsRow(state, actions, playFocus, Modifier.padding(top = 6.dp))
 
             if (stripChannels.isNotEmpty() && !state.isCatchup) {
                 ChannelStrip(
@@ -519,6 +501,59 @@ private fun BottomOsdScrim(
                     onOpenGuide = { actions.onOpenPanel(LiveOverlayPanel.MINI_GUIDE) },
                 )
             }
+            // the second Down: play/pause and the settings, below the channels
+            if (stripChannels.isNotEmpty() && expanded) ControlsRow(state, actions, playFocus, Modifier.padding(top = 4.dp))
+        }
+    }
+}
+
+/** Play/pause, from the start or back to live, and the settings (audio, subtitles, picture, sound, feeds, more) */
+@Composable
+private fun ControlsRow(state: LiveOverlayState, actions: LiveOverlayActions, playFocus: FocusRequester, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        PlayerIconButton(
+            icon = if (state.isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+            contentDescription = if (state.isPaused) "Play" else "Pause",
+            onClick = actions.onTogglePause,
+            modifier = Modifier.focusRequester(playFocus),
+        )
+        if (state.isCatchup) {
+            PlayerTextButton("Back to live", onClick = actions.onGoLive)
+        } else if (state.channel.hasCatchup && state.nowProgramme != null) {
+            PlayerTextButton("Watch from start", onClick = actions.onWatchFromStart)
+        }
+        Spacer(Modifier.weight(1f))
+        SettingChip(Icons.Filled.Audiotrack, "Audio") { actions.onOpenPanel(LiveOverlayPanel.AUDIO) }
+        SettingChip(Icons.Filled.ClosedCaption, "Subtitles") { actions.onOpenPanel(LiveOverlayPanel.SUBTITLES) }
+        SettingChip(Icons.Filled.AspectRatio, state.zoomMode.label, actions.onCycleZoom)
+        SettingChip(Icons.Filled.GraphicEq, state.soundModeLabel, actions.onCycleSoundMode)
+        SettingChip(Icons.Filled.SwapHoriz, "Feeds") { actions.onOpenPanel(LiveOverlayPanel.FEEDS) }
+        SettingChip(Icons.Filled.MoreHoriz, "Options") { actions.onOpenPanel(LiveOverlayPanel.MORE) }
+    }
+}
+
+/** One setting: its icon and what it's set to, on glass */
+@Composable
+private fun SettingChip(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.border(1.dp, GlassRim, RoundedCornerShape(50)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.White.copy(alpha = 0.12f),
+            contentColor = Color.White,
+            focusedContainerColor = Color.White,
+            focusedContentColor = Color.Black,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
+    ) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = LocalContentColor.current, maxLines = 1)
         }
     }
 }
@@ -553,7 +588,7 @@ private fun ChannelStrip(
         item(key = "guide") {
             Surface(
                 onClick = onOpenGuide,
-                modifier = Modifier.width(120.dp).height(112.dp),
+                modifier = Modifier.width(120.dp).height(112.dp).border(1.dp, GlassRim, RoundedCornerShape(14.dp)),
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = Color.White.copy(alpha = 0.10f),
@@ -574,7 +609,7 @@ private fun ChannelStrip(
             val playing = channel.id == currentChannelId
             Surface(
                 onClick = { onZap(channel) },
-                modifier = Modifier.width(250.dp).height(112.dp).then(if (playing) Modifier.focusRequester(currentTile) else Modifier),
+                modifier = Modifier.width(250.dp).height(112.dp).border(1.dp, GlassRim, RoundedCornerShape(14.dp)).then(if (playing) Modifier.focusRequester(currentTile) else Modifier),
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = if (playing) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f),

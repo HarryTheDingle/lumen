@@ -101,7 +101,7 @@ internal object LivePalette {
     val GlassFill = Color.White.copy(alpha = 0.08f)
     val GlassBorder = Color.White.copy(alpha = 0.14f)
     val CellBg = Color(0xFF151517)
-    val CellLiveBg = Color(0xFF242427)
+    val CellLiveBg = Color(0xFF3D3D44)
     val CellFocusedBg = Color.White
     val CellPastBg = Color(0xFF0D0D0E)
     val Hairline = Color.White.copy(alpha = 0.09f)
@@ -199,7 +199,7 @@ internal fun GlassTile(
     borderColor: Color = LivePalette.GlassBorder,
     focusedScale: Float = 1.025f,
     /** The soft glass sheen and rim while it isn't chosen (cells in the guide, cards) */
-    sheen: Boolean = false,
+    sheen: Boolean = fillColor != Color.Transparent,
     onFocus: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
     content: @Composable BoxScope.(focused: Boolean, ink: Color) -> Unit,

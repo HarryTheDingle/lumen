@@ -145,7 +145,9 @@ private const val HALF_HOUR_MS = 30L * 60_000L
 private const val PAN_STEP_MS = 60L * 60_000L
 private const val HOLD_LEFT_UNLOCK_MS = 320L
 private val LEFT_CHANNEL_WIDTH = 188.dp
-private val ROW_HEIGHT = 70.dp
+private val ROW_HEIGHT = 52.dp
+/** The row the remote is on grows (to show a programme's whole name) */
+private val ROW_HEIGHT_FOCUSED = 76.dp
 private val TIME_HEADER_HEIGHT = 32.dp
 
 /**
@@ -473,6 +475,7 @@ fun LiveEpgGrid(
                             nowMs = nowMs,
                             pastUnlocked = pastUnlocked,
                             rowCount = filteredRows.size,
+                            focusedRow = focusedRowIdx == rowIdx,
                             contentFocusRequester = contentFocusRequester,
                             slotRequester = { slotIdx -> slotRequesterFor(rowKeys[rowIdx], slotIdx) },
                             onFocusSlot = { slot ->
@@ -809,6 +812,7 @@ private fun GuideChannelViewportRow(
     nowMs: Long,
     pastUnlocked: Boolean,
     rowCount: Int,
+    focusedRow: Boolean,
     contentFocusRequester: FocusRequester,
     slotRequester: (Int) -> FocusRequester,
     onFocusSlot: (ViewportSlot) -> Unit,
@@ -819,10 +823,15 @@ private fun GuideChannelViewportRow(
     onNavigateLeftKeyDown: (Int, Int) -> Boolean,
     onNavigateLeftKeyUp: () -> Boolean,
 ) {
+    val rowHeight by androidx.compose.animation.core.animateDpAsState(
+        if (focusedRow) ROW_HEIGHT_FOCUSED else ROW_HEIGHT,
+        tween(Dx.Fast, easing = Dx.Ease),
+        label = "row-height",
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(ROW_HEIGHT),
+            .height(rowHeight),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // Purely visual left channel column (zero focus stops!)
@@ -892,9 +901,9 @@ private fun GuideChannelViewportRow(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .padding(horizontal = 4.dp, vertical = 4.dp)
+                .padding(horizontal = 6.dp, vertical = 5.dp)
                 .focusGroup(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             slots.forEachIndexed { slotIdx, slot ->
                 val prog = slot.programme
@@ -951,6 +960,7 @@ private fun GuideChannelViewportRow(
                     isPastCatchup = isPastCatchup,
                     isPastUnavailable = isPastUnavailable,
                     isSport = prog?.isLiveSport == true,
+                    rowFocused = focusedRow,
                     onFocus = { onFocusSlot(slot) },
                     onClick = { onClickSlot(slot) },
                     onLongClick = { onLongClickSlot(slot) },
@@ -969,6 +979,7 @@ private fun ProgrammeViewportCell(
     isPastCatchup: Boolean,
     isPastUnavailable: Boolean,
     isSport: Boolean,
+    rowFocused: Boolean,
     onFocus: () -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -993,7 +1004,7 @@ private fun ProgrammeViewportCell(
         fillColor = bg,
         focusedFillColor = Color.White,
         borderColor = borderColor,
-        focusedScale = 1.02f,
+        focusedScale = 1.0f,
         sheen = borderColor == Color.Transparent,
     ) { focused, ink ->
         val textAlpha = if (!focused && isPastUnavailable) 0.45f else 1f
@@ -1019,9 +1030,10 @@ private fun ProgrammeViewportCell(
                     text = title,
                     fontSize = 13.sp,
                     lineHeight = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = if (isLive && !focused) FontWeight.Bold else FontWeight.SemiBold,
                     color = ink.copy(alpha = textAlpha),
-                    maxLines = 2,
+                    // (one line; the row the remote is on has room for the whole name)
+                    maxLines = if (rowFocused) 2 else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
