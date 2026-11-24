@@ -123,11 +123,9 @@ class LiveExoEngine(
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
+    // (ExoPlayer's own way of reading a transport stream: with access units "detected" the Sony drew about 9 frames a second
+    // of Sky Cinema Action while TiviMate, using the plain reader, drew 25)
     private val tsExtractorsFactory = DefaultExtractorsFactory()
-        .setTsExtractorFlags(
-            DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
-                DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS,
-        )
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private var player: ExoPlayer? = null
@@ -135,6 +133,7 @@ class LiveExoEngine(
     private var soundProcessor: SoundMode? = null
     private var currentSoundMode = SoundMode.MODES[0]
     private var watchdogJob: Job? = null
+    private var lastStatsLogMs = 0L
     private var generation = 0L
 
     private val _videoInfo = MutableStateFlow(LiveVideoInfo())
@@ -362,6 +361,8 @@ class LiveExoEngine(
         _isPaused.value = false
 
         watchdogJob = scope.launch {
+            var slowWindowStartMs = 0L
+            var slowWindowFrames = 0
             val tuneStartedAt = SystemClock.elapsedRealtime()
             while (isActive && tuneGen == generation && !terminalFired) {
                 delay(500L)
@@ -402,10 +403,37 @@ class LiveExoEngine(
                     continue
                 }
 
+                if (!resolved.isCatchup && now - lastStatsLogMs >= 5_000L) {
+                    lastStatsLogMs = now
+                    val vf = exo.videoFormat
+                    val vc = exo.videoDecoderCounters?.also { it.ensureUpdated() }
+                    android.util.Log.i("lumos-live", "stats: ${vf?.sampleMimeType} ${vf?.width}x${vf?.height} fps=${vf?.frameRate} bitrate=${vf?.bitrate} " +
+                        "decoder=${vc?.let { "rendered=${it.renderedOutputBufferCount} dropped=${it.droppedBufferCount} skipped=${it.skippedOutputBufferCount} maxDroppedInRow=${it.maxConsecutiveDroppedBufferCount}" }} " +
+                        "buffered=${buffered - pos}ms state=${exo.playbackState}")
+                }
+
                 if (!resolved.isCatchup && exo.playbackState == Player.STATE_READY) {
                     val hasVideo = exo.videoFormat != null
                     exo.videoDecoderCounters?.ensureUpdated()
                     val renderedFrames = exo.videoDecoderCounters?.renderedOutputBufferCount ?: 0
+                    // (a picture the decoder throws away as late, so it draws a frame or so a second while the sound plays on: this
+                    // feed can't be shown on this TV; the next one is tried, as for a freeze)
+                    if (hasVideo && exo.videoDecoderCounters != null) {
+                        if (slowWindowStartMs == 0L) {
+                            slowWindowStartMs = now
+                            slowWindowFrames = renderedFrames
+                        } else if (now - slowWindowStartMs >= 10_000L) {
+                            val fps = (renderedFrames - slowWindowFrames) * 1000.0 / (now - slowWindowStartMs)
+                            val dropped = exo.videoDecoderCounters?.droppedBufferCount ?: 0
+                            if (fps < 4.0 && dropped > 50) {
+                                android.util.Log.i("lumos-live", "too slow: ${"%.1f".format(fps)} fps drawn, $dropped dropped, ${exo.videoFormat?.sampleMimeType} ${exo.videoFormat?.width}x${exo.videoFormat?.height}")
+                                fireFailureOnce("Video too slow")
+                                break
+                            }
+                            slowWindowStartMs = now
+                            slowWindowFrames = renderedFrames
+                        }
+                    }
                     val progressed = if (hasVideo && exo.videoDecoderCounters != null) {
                         // (frames only: a frozen picture with the sound still going moves the position on, and was never caught)
                         renderedFrames > lastRenderedFrames
