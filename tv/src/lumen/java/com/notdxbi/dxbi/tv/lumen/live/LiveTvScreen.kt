@@ -1,5 +1,8 @@
 package com.notdxbi.dxbi.tv.lumen.live
 
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.foundation.border
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Settings
@@ -226,7 +229,7 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
         Column(modifier = Modifier.fillMaxSize()) {
             // the page's name top left (the clock is top right, as on all of Lumen's screens): its own strip, so nothing
             // below runs under either
-            LivePageTag(activeSection)
+            LivePageTag(activeSection, nav)
             if (showHero) {
                 GuideHeader(
                     selection = headerHero,
@@ -527,7 +530,7 @@ private data class ProgrammeTarget(val row: lumos.iptv.GuideChannelRow, val prog
 
 /** The Live TV page's name in a small capsule top left, as Lumen's other screens have (it isn't chosen with the remote) */
 @Composable
-private fun LivePageTag(section: LiveSection) {
+private fun LivePageTag(section: LiveSection, nav: Nav) {
     val (label, icon) = when (section) {
         LiveSection.SEARCH -> "Find a channel" to androidx.compose.material.icons.Icons.Filled.Search
         LiveSection.SPORTS -> "Sports" to androidx.compose.material.icons.Icons.Filled.EmojiEvents
@@ -537,7 +540,11 @@ private fun LivePageTag(section: LiveSection) {
     Box(Modifier.fillMaxWidth().height(66.dp)) {
         Row(
             Modifier.padding(start = Dx.Gutter - 8.dp, top = 22.dp)
-                .background(Color.White.copy(alpha = 0.10f), RoundedCornerShape(50))
+                // (the menu grows out of this pill: it fades as the menu covers it)
+                .onGloballyPositioned { nav.tagSize = it.size }
+                .graphicsLayer { alpha = if (nav.menuOpen) (1f - nav.menuFrost * 4f).coerceIn(0f, 1f) else 1f }
+                .background(com.notdxbi.dxbi.tv.lumen.PILL_GLASS, RoundedCornerShape(50))
+                .border(1.dp, GlassRim, RoundedCornerShape(50))
                 .padding(start = 6.dp, end = 14.dp, top = 5.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

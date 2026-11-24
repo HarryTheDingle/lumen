@@ -1,5 +1,7 @@
 package com.notdxbi.dxbi.tv.lumen.live
 
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import android.view.KeyEvent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -134,9 +136,15 @@ fun LivePlayerOverlay(
         }
     }
 
+    // (a setting's panel closing sends the remote back to the button that opened it, not to play)
+    val panelButtons = remember { LiveOverlayPanel.entries.associateWith { FocusRequester() } }
+    var lastPanel by remember { mutableStateOf(LiveOverlayPanel.NONE) }
     LaunchedEffect(state.osdVisible, state.activePanel) {
+        val from = lastPanel
+        lastPanel = state.activePanel
         if (state.osdVisible && state.activePanel == LiveOverlayPanel.NONE && !state.scrub.active) {
             delay(40)
+            if (from != LiveOverlayPanel.NONE && runCatching { panelButtons.getValue(from).requestFocus() }.isSuccess) return@LaunchedEffect
             runCatching { playFocus.requestFocus() }
         }
     }
@@ -240,6 +248,7 @@ fun LivePlayerOverlay(
                 actions = actions,
                 seekFocus = seekFocus,
                 playFocus = playFocus,
+                panelButtons = panelButtons,
             )
         }
 
@@ -328,6 +337,7 @@ private fun BottomOsdScrim(
     actions: LiveOverlayActions,
     seekFocus: FocusRequester,
     playFocus: FocusRequester,
+    panelButtons: Map<LiveOverlayPanel, FocusRequester>,
 ) {
     val stripChannels by com.notdxbi.dxbi.tv.live.LivePlayerExtras.stripChannels.collectAsState()
     val stripTick by com.notdxbi.dxbi.tv.live.LivePlayerExtras.focusStripTick.collectAsState()
@@ -481,7 +491,7 @@ private fun BottomOsdScrim(
             }
 
             // (without a strip the controls sit under the bar; with one they're below it, TiviMate's way)
-            if (stripChannels.isEmpty()) ControlsRow(state, actions, playFocus, Modifier.padding(top = 6.dp))
+            if (stripChannels.isEmpty()) ControlsRow(state, actions, playFocus, panelButtons, Modifier.padding(top = 6.dp))
 
             if (stripChannels.isNotEmpty() && !state.isCatchup) {
                 ChannelStrip(
@@ -490,63 +500,92 @@ private fun BottomOsdScrim(
                     focusTick = stripTick,
                     onZap = actions.onZapChannel,
                     onOpenGuide = { actions.onOpenPanel(LiveOverlayPanel.MINI_GUIDE) },
+                    guideFocus = panelButtons.getValue(LiveOverlayPanel.MINI_GUIDE),
                 )
             }
             // the second Down: play/pause and the settings, below the channels
-            if (stripChannels.isNotEmpty() && expanded) ControlsRow(state, actions, playFocus, Modifier.padding(top = 10.dp))
+            if (stripChannels.isNotEmpty() && expanded) ControlsRow(state, actions, playFocus, panelButtons, Modifier.padding(top = 10.dp))
         }
     }
 }
 
 /** Play/pause, from the start or back to live, and the settings (audio, subtitles, picture, sound, feeds, more) */
 @Composable
-private fun ControlsRow(state: LiveOverlayState, actions: LiveOverlayActions, playFocus: FocusRequester, modifier: Modifier = Modifier) {
+private fun ControlsRow(state: LiveOverlayState, actions: LiveOverlayActions, playFocus: FocusRequester, panelButtons: Map<LiveOverlayPanel, FocusRequester>, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        PlayerIconButton(
-            icon = if (state.isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
-            contentDescription = if (state.isPaused) "Play" else "Pause",
-            onClick = actions.onTogglePause,
-            modifier = Modifier.focusRequester(playFocus),
-        )
+        SpringButton(onClick = actions.onTogglePause, round = true, modifier = Modifier.focusRequester(playFocus)) { ink ->
+            Icon(if (state.isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause, contentDescription = if (state.isPaused) "Play" else "Pause", tint = ink, modifier = Modifier.size(24.dp))
+        }
         if (state.isCatchup) {
-            PlayerTextButton("Back to live", onClick = actions.onGoLive)
+            SettingChip(Icons.Filled.Replay10, "Back to live", onClick = actions.onGoLive)
         } else if (state.channel.hasCatchup && state.nowProgramme != null) {
-            PlayerTextButton("Watch from start", onClick = actions.onWatchFromStart)
+            SettingChip(Icons.Filled.Replay10, "Watch from start", onClick = actions.onWatchFromStart)
         }
         Spacer(Modifier.weight(1f))
-        SettingChip(Icons.Filled.Audiotrack, "Audio") { actions.onOpenPanel(LiveOverlayPanel.AUDIO) }
-        SettingChip(Icons.Filled.ClosedCaption, "Subtitles") { actions.onOpenPanel(LiveOverlayPanel.SUBTITLES) }
-        SettingChip(Icons.Filled.AspectRatio, state.zoomMode.label, actions.onCycleZoom)
-        SettingChip(Icons.Filled.GraphicEq, state.soundModeLabel, actions.onCycleSoundMode)
-        SettingChip(Icons.Filled.SwapHoriz, "Feeds") { actions.onOpenPanel(LiveOverlayPanel.FEEDS) }
-        SettingChip(Icons.Filled.MoreHoriz, "Options") { actions.onOpenPanel(LiveOverlayPanel.MORE) }
+        SettingChip(Icons.Filled.Audiotrack, "Audio", Modifier.focusRequester(panelButtons.getValue(LiveOverlayPanel.AUDIO))) { actions.onOpenPanel(LiveOverlayPanel.AUDIO) }
+        SettingChip(Icons.Filled.ClosedCaption, "Subtitles", Modifier.focusRequester(panelButtons.getValue(LiveOverlayPanel.SUBTITLES))) { actions.onOpenPanel(LiveOverlayPanel.SUBTITLES) }
+        SettingChip(Icons.Filled.AspectRatio, state.zoomMode.label, onClick = actions.onCycleZoom)
+        SettingChip(Icons.Filled.GraphicEq, state.soundModeLabel, onClick = actions.onCycleSoundMode)
+        SettingChip(Icons.Filled.SwapHoriz, "Feeds", Modifier.focusRequester(panelButtons.getValue(LiveOverlayPanel.FEEDS))) { actions.onOpenPanel(LiveOverlayPanel.FEEDS) }
+        // (the rest of the options: round, just the dots, so the row never runs out of room)
+        SpringButton(onClick = { actions.onOpenPanel(LiveOverlayPanel.MORE) }, round = true, modifier = Modifier.focusRequester(panelButtons.getValue(LiveOverlayPanel.MORE))) { ink ->
+            Icon(Icons.Filled.MoreHoriz, contentDescription = "Options", tint = ink, modifier = Modifier.size(22.dp))
+        }
     }
 }
 
 /** One setting: its icon and what it's set to, on glass */
 @Composable
-private fun SettingChip(icon: ImageVector, label: String, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.border(1.dp, GlassRim, RoundedCornerShape(50)),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.White.copy(alpha = 0.12f),
-            contentColor = Color.White,
-            focusedContainerColor = Color.White,
-            focusedContentColor = Color.Black,
-        ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
-    ) {
-        Row(Modifier.padding(horizontal = 18.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
-            Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = LocalContentColor.current, maxLines = 1)
+private fun SettingChip(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    SpringButton(onClick = onClick, modifier = modifier) { ink ->
+        Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(18.dp))
+            Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, softWrap = false)
         }
     }
+}
+
+/**
+ * A player button on glass that springs when the remote moves onto it, as Lumen's cards do: it swells a little and turns
+ * white with a soft settle, and eases back as the remote moves on (the TV library's buttons snapped in a few frames).
+ * OK presses it when let go.
+ */
+@Composable
+private fun SpringButton(onClick: () -> Unit, modifier: Modifier = Modifier, round: Boolean = false, content: @Composable (Color) -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val k by androidx.compose.animation.core.animateFloatAsState(
+        if (focused) 1f else 0f,
+        androidx.compose.animation.core.spring(dampingRatio = 0.72f, stiffness = 190f),
+        label = "button",
+    )
+    val shape = if (round) CircleShape else RoundedCornerShape(50)
+    val fill = androidx.compose.ui.graphics.lerp(Color.White.copy(alpha = 0.12f), Color.White, k.coerceIn(0f, 1f))
+    val ink = androidx.compose.ui.graphics.lerp(Color.White, Color.Black, k.coerceIn(0f, 1f))
+    var pressed by remember { mutableStateOf(false) }
+    Box(
+        modifier
+            .height(42.dp)
+            .then(if (round) Modifier.width(42.dp) else Modifier)
+            .graphicsLayer { val sc = 1f + 0.08f * k; scaleX = sc; scaleY = sc }
+            .onFocusChanged { focused = it.isFocused }
+            .onKeyEvent { e ->
+                val select = e.key == androidx.compose.ui.input.key.Key.DirectionCenter || e.key == androidx.compose.ui.input.key.Key.Enter || e.key == androidx.compose.ui.input.key.Key.NumPadEnter
+                if (!select) return@onKeyEvent false
+                when (e.type) {
+                    androidx.compose.ui.input.key.KeyEventType.KeyDown -> { if (e.nativeKeyEvent.repeatCount == 0) pressed = true; true }
+                    androidx.compose.ui.input.key.KeyEventType.KeyUp -> { if (pressed) { pressed = false; onClick() }; true }
+                    else -> false
+                }
+            }
+            .focusable()
+            .background(fill, shape)
+            .border(1.dp, GlassRim, shape),
+        contentAlignment = Alignment.Center,
+    ) { content(ink) }
 }
 
 /** TiviMate-style: the channels around this one along the bottom, each with what's on now; OK goes to it */
@@ -558,6 +597,7 @@ private fun ChannelStrip(
     focusTick: Long,
     onZap: (CanonicalChannel) -> Unit,
     onOpenGuide: () -> Unit,
+    guideFocus: FocusRequester,
 ) {
     val currentIdx = entries.indexOfFirst { it.first.id == currentChannelId }.coerceAtLeast(0)
     val listState = rememberLazyListState()
@@ -580,6 +620,7 @@ private fun ChannelStrip(
             runCatching { currentTile.requestFocus() }
         }
     }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { StripPreview.value = null } }
 
     // (the tiles at the sides fade out rather than being cut off by the screen's edge; the chosen one stays central)
     androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides CentreSpec) {
@@ -587,6 +628,7 @@ private fun ChannelStrip(
         state = listState,
         modifier = Modifier
             .fillMaxWidth()
+            .onFocusChanged { if (!it.hasFocus) StripPreview.value = null }
             .padding(top = 4.dp)
             .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
             .drawWithContent {
@@ -606,7 +648,7 @@ private fun ChannelStrip(
         item(key = "guide") {
             Surface(
                 onClick = onOpenGuide,
-                modifier = Modifier.width(96.dp).height(STRIP_HEIGHT),
+                modifier = Modifier.width(96.dp).height(STRIP_HEIGHT).focusRequester(guideFocus).onFocusChanged { if (it.isFocused) StripPreview.value = null },
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = Color.White.copy(alpha = 0.10f),
@@ -628,7 +670,8 @@ private fun ChannelStrip(
             val logo = remember(channel.id) { tileLogoFor(channel) }
             Surface(
                 onClick = { onZap(channel) },
-                modifier = Modifier.width(300.dp).height(STRIP_HEIGHT).then(if (playing) Modifier.focusRequester(currentTile) else Modifier),
+                modifier = Modifier.width(300.dp).height(STRIP_HEIGHT).then(if (playing) Modifier.focusRequester(currentTile) else Modifier)
+                    .onFocusChanged { if (it.isFocused) StripPreview.value = channel to prog },
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = if (playing) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f),
@@ -664,6 +707,9 @@ private object CentreSpec : androidx.compose.foundation.gestures.BringIntoViewSp
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
         offset - (containerSize - size) / 2f
 }
+
+/** The channel the remote is on in the player's strip (the top box shows it), or null on the one playing */
+private val StripPreview = androidx.compose.runtime.mutableStateOf<Pair<CanonicalChannel, EpgProgramme?>?>(null)
 
 /** How tall the quick channel changer's tiles are */
 private val STRIP_HEIGHT = 62.dp
@@ -899,12 +945,15 @@ private fun ZapBanner(
     state: LiveOverlayState,
     modifier: Modifier = Modifier,
 ) {
+    // (the remote on another channel in the strip below: this box shows that one, larger and easier to read)
+    val preview = StripPreview.value?.takeIf { it.first.id != state.channel.id }
+    val channel = preview?.first ?: state.channel
     val activeStream = state.streams.firstOrNull { it.id == state.activeStreamId } ?: state.streams.firstOrNull()
-    val qualityBadge = formatFormatBadges(state.videoInfo)
+    val qualityBadge = if (preview != null) null else formatFormatBadges(state.videoInfo)
         ?: formatCompactQuality(activeStream?.quality)
     val nowMs = System.currentTimeMillis()
-    val nowProg = state.nowProgramme
-    val nextProg = state.nextProgramme
+    val nowProg = if (preview != null) preview.second else state.nowProgramme
+    val nextProg = if (preview != null) null else state.nextProgramme
 
     Row(
         modifier = modifier
@@ -914,7 +963,7 @@ private fun ZapBanner(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        ChannelTile(logoUrl = remember(state.channel.id) { tileLogoFor(state.channel) }, name = state.channel.name, width = 72.dp, height = 40.dp)
+        ChannelTile(logoUrl = remember(channel.id) { tileLogoFor(channel) }, name = channel.name, width = 72.dp, height = 40.dp)
 
         Column(
             modifier = Modifier.weight(1f),
@@ -924,7 +973,7 @@ private fun ZapBanner(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                state.channel.number?.let { num ->
+                channel.number?.let { num ->
                     Text(
                         text = num.toString(),
                         fontSize = 13.sp,
@@ -933,7 +982,7 @@ private fun ZapBanner(
                     )
                 }
                 Text(
-                    text = state.channel.name,
+                    text = channel.name,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,

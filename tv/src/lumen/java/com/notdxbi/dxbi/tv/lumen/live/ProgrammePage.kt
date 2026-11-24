@@ -39,6 +39,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -222,7 +227,20 @@ internal fun ProgrammePage(
     val later = prog.startMs > nowMs
     val canCatchup = !later && row.hasCatchup && linked != null
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    // (opened by holding OK: that same press is still down, and its repeats and release mustn't press the first button;
+    // the page answers OK once it's been let go and pressed again)
+    var armed by remember { mutableStateOf(false) }
+    Box(
+        Modifier.fillMaxSize().background(Color.Black).onPreviewKeyEvent { e ->
+            val select = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
+            if (!select || armed) return@onPreviewKeyEvent false
+            when {
+                e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0 -> { armed = true; false }
+                e.type == KeyEventType.KeyUp -> { armed = true; true }
+                else -> true
+            }
+        },
+    ) {
         if (art != null) {
             AsyncImage(model = art, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         } else {
@@ -239,7 +257,7 @@ internal fun ProgrammePage(
             modifier = Modifier.padding(start = 40.dp, top = 40.dp, end = 300.dp),
         )
 
-        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(bottom = 22.dp)) {
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(bottom = 12.dp)) {
             Column(Modifier.padding(horizontal = 40.dp).widthIn(max = 640.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(
                     listOfNotNull(programmeWhen(prog, nowMs), row.guideChannel.name, prog.subtitle?.takeIf { it.isNotBlank() }).joinToString(" · "),
@@ -274,8 +292,8 @@ internal fun ProgrammePage(
             if (schedule.size > 1) {
                 Spacer(Modifier.height(20.dp))
                 Text("On ${row.guideChannel.name}", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(start = 40.dp))
-                Spacer(Modifier.height(8.dp))
-                LazyRow(contentPadding = PaddingValues(horizontal = 40.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                // (room above and below for a card to lift into, so its rim isn't cut off)
+                LazyRow(contentPadding = PaddingValues(horizontal = 40.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                     items(schedule, key = { it.id }) { p ->
                         ScheduleCard(p, enrichments[p.id]?.backdrop ?: p.iconUrl, row, here = p.id == prog.id, nowMs = nowMs) { prog = p }
                     }
@@ -296,31 +314,23 @@ internal fun ProgrammePage(
 
 @Composable
 private fun ScheduleCard(p: EpgProgramme, art: String?, row: GuideChannelRow, here: Boolean, nowMs: Long, onClick: () -> Unit) {
-    Column(Modifier.width(196.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Surface(
-            onClick = onClick,
-            modifier = Modifier.width(196.dp).height(110.dp).then(if (here) Modifier.border(2.dp, Color.White, RoundedCornerShape(10.dp)) else Modifier),
-            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-            colors = ClickableSurfaceDefaults.colors(containerColor = Color(0xFF1C1C1F), focusedContainerColor = Color(0xFF1C1C1F)),
-            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
-            border = androidx.tv.material3.ClickableSurfaceDefaults.border(
-                focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(2.dp, Color.White), shape = RoundedCornerShape(10.dp)),
-            ),
-        ) {
-            Box(Modifier.fillMaxSize()) {
+    // Lumen's own card (as the films on Home): it lifts when chosen, with the glass rim
+    Column(Modifier.width(196.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        com.notdxbi.dxbi.tv.lumen.FocusCard(onClick = onClick, modifier = Modifier.width(196.dp).height(110.dp), corner = 10.dp) {
+            Box(Modifier.fillMaxSize().background(Color(0xFF1C1C1F))) {
                 var failed by remember(art) { mutableStateOf(false) }
                 if (!art.isNullOrBlank() && !failed) {
                     AsyncImage(model = art, contentDescription = null, contentScale = ContentScale.Crop, onError = { failed = true }, modifier = Modifier.fillMaxSize())
                 } else {
-                    ChannelTile(logoUrl = row.logoUrl, name = row.guideChannel.name, width = 196.dp, height = 110.dp, corner = 10.dp)
+                    ChannelTile(logoUrl = row.logoUrl, name = row.guideChannel.name, width = 196.dp, height = 110.dp, corner = 0.dp)
                 }
                 Text(
-                    if (p.isOnAt(nowMs)) "On now" else LiveTimeFormat.formatTime24h(p.startMs),
+                    when { here -> "Showing"; p.isOnAt(nowMs) -> "On now"; else -> LiveTimeFormat.formatTime24h(p.startMs) },
                     fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
                     modifier = Modifier.padding(8.dp).background(Color.Black.copy(alpha = 0.65f), CircleShape).padding(horizontal = 8.dp, vertical = 2.dp),
                 )
             }
         }
-        Text(p.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(p.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (here) Color.White else Color.White.copy(alpha = 0.8f), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

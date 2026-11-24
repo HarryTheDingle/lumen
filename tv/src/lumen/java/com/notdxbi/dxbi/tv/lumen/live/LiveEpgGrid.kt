@@ -218,8 +218,8 @@ fun LiveEpgGrid(
     val railShift by androidx.compose.animation.core.animateDpAsState(if (filterRailOpen) 236.dp else 0.dp, androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 200f), label = "rail-shift")
     val railShiftPx = with(androidx.compose.ui.platform.LocalDensity.current) { railShift.toPx() }
     val railRequesters = remember { EpgRowFilter.entries.associateWith { FocusRequester() } }
-    // (no filters any more, for a cleaner guide: Left from the first programme opens Lumen's menu)
-    fun openRail() { onMoveToRail() }
+    // the filters, down the left: Left from the first programme opens them (a second Left there opens Lumen's menu)
+    fun openRail() { filterRailOpen = true }
     var longPressTarget by remember { mutableStateOf<LongPressTarget?>(null) }
     var streamPickerRow by remember { mutableStateOf<GuideChannelRow?>(null) }
 

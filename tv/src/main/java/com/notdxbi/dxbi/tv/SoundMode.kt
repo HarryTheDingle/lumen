@@ -60,6 +60,7 @@ class SoundMode : BaseAudioProcessor() {
     private var release = 0f
 
     override fun onConfigure(input: AudioFormat): AudioFormat {
+        android.util.Log.i("lumen-sound", "sound in: encoding=${input.encoding} channels=${input.channelCount} rate=${input.sampleRate} (${if (input.encoding == C.ENCODING_PCM_16BIT) "modes work" else "modes can't change this sound"})")
         if (input.encoding != C.ENCODING_PCM_16BIT) return AudioFormat.NOT_SET
         shelf.size(input.channelCount)
         peak.size(input.channelCount)
@@ -107,8 +108,17 @@ class SoundMode : BaseAudioProcessor() {
         val surround = m.surround / 0.707f
         while (samples.remaining() >= channels * 2) {
             var level = 0f
+            for (c in 0 until channels) frame[c] = samples.short / 32768f
+            if (channels == 2) {
+                // stereo has no centre channel: voices sit in the middle (what's the same in both), so lift that and
+                // lower what differs between left and right (music, effects, crowd)
+                val mid = (frame[0] + frame[1]) * 0.5f * centre
+                val side = (frame[0] - frame[1]) * 0.5f * surround
+                frame[0] = mid + side
+                frame[1] = mid - side
+            }
             for (c in 0 until channels) {
-                var v = samples.short / 32768f
+                var v = frame[c]
                 // 5.1 and 7.1: FL FR C LFE then the rest
                 if (channels >= 6) { if (c == 2) v *= centre else if (c >= 4) v *= surround }
                 v = peak.step(shelf.step(v, c), c)

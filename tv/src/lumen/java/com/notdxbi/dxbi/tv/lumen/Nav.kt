@@ -1,5 +1,7 @@
 package com.notdxbi.dxbi.tv.lumen
 
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.animation.animateContentSize
 import android.view.WindowManager
 import androidx.compose.animation.core.animateFloatAsState
@@ -122,6 +124,8 @@ class Nav {
     var menuOpen by mutableStateOf(false)
     /** How far the menu is open (0 to 1, with its animation): Lumen's screen frosts behind it by this much */
     var menuFrost by mutableStateOf(0f)
+    /** The screen's name pill's size (px): the menu grows out of it */
+    var tagSize by mutableStateOf(androidx.compose.ui.unit.IntSize.Zero)
     /** When it last closed (the remote lands back on the corner then, which mustn't open it again) */
     var menuClosedAt = 0L
     /** When the remote last moved up or left */
@@ -296,7 +300,8 @@ fun LumenClock(modifier: Modifier = Modifier) {
     Box(
         modifier
             .padding(top = 22.dp, end = Dx.Gutter - 8.dp)
-            .background(CLOCK_FILL, RoundedCornerShape(50))
+            .background(PILL_GLASS, RoundedCornerShape(50))
+            .border(1.dp, com.notdxbi.dxbi.tv.lumen.live.GlassRim, RoundedCornerShape(50))
             .padding(horizontal = 14.dp, vertical = 6.dp),
     ) {
         Text(
@@ -306,8 +311,8 @@ fun LumenClock(modifier: Modifier = Modifier) {
     }
 }
 
-/** The clock's capsule: see-through grey, so it shows on black pages and over pictures alike */
-internal val CLOCK_FILL = Color(0xA62A2A2E)
+/** The screen's name and the clock: the player buttons' glass (light, see-through), on black pages and pictures alike */
+internal val PILL_GLASS = Color.White.copy(alpha = 0.14f)
 
 /** Asks for the remote's focus once the window's up (a moment after it opens) */
 @Composable
@@ -325,11 +330,16 @@ fun FocusOnOpen(requester: FocusRequester, key: Any? = Unit) {
 @Composable
 fun ScreenTag(nav: Nav) {
     // (gone the moment the menu starts to grow out of it: the menu is where it goes, not something behind it)
-    Box(Modifier.padding(start = Dx.Gutter - 8.dp, top = 22.dp).graphicsLayer { alpha = if (nav.menuOpen) 0f else 1f }) {
+    Box(
+        Modifier.padding(start = Dx.Gutter - 8.dp, top = 22.dp)
+            .onGloballyPositioned { nav.tagSize = it.size }
+            .graphicsLayer { alpha = if (nav.menuOpen) (1f - nav.menuFrost * 4f).coerceIn(0f, 1f) else 1f },
+    ) {
         val shape = RoundedCornerShape(50)
         Surface(
             onClick = { nav.menuOpen = true },
             modifier = Modifier
+                .border(1.dp, com.notdxbi.dxbi.tv.lumen.live.GlassRim, shape)
                 .focusRequester(nav.tabFocus)
                 // (only when the remote moved it there: not the app's first focus, nor coming back from the menu)
                 .onFocusChanged {
@@ -338,7 +348,8 @@ fun ScreenTag(nav: Nav) {
                 },
             shape = ClickableSurfaceDefaults.shape(shape),
             colors = ClickableSurfaceDefaults.colors(
-                containerColor = Color.Black.copy(alpha = 0.28f),
+                // the same glass as the player's buttons: a light see-through fill with a fine rim
+                containerColor = PILL_GLASS,
                 contentColor = Color.White,
                 focusedContainerColor = Color.White,
                 focusedContentColor = Color.Black,
@@ -367,19 +378,21 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
     // (the window itself doesn't animate: a fade of the whole window was all it had, and it looked like a pop)
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { shown = true }
+    // (a spring: it grows quickly and settles softly, and eases back into the pill on the way out)
     val t by animateFloatAsState(
         if (shown) 1f else 0f,
-        tween(if (shown) 330 else 200, easing = Dx.Ease),
+        if (shown) androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 230f)
+        else androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 420f),
         label = "menu",
     )
-    LaunchedEffect(Unit) { androidx.compose.runtime.snapshotFlow { t }.collect { nav.menuFrost = it } }
+    LaunchedEffect(Unit) { androidx.compose.runtime.snapshotFlow { t }.collect { nav.menuFrost = it.coerceIn(0f, 1f) } }
     DisposableEffect(Unit) { onDispose { nav.menuFrost = 0f } }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     fun close() {
         if (!shown) return
         shown = false
         scope.launch {
-            delay(200)
+            delay(260)
             nav.menuClosedAt = System.currentTimeMillis()
             nav.menuOpen = false
         }
@@ -421,24 +434,45 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
                         else Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.65f), 0.45f to Color.Transparent),
                     ),
             )
+            // the menu is the pill growing: it starts as the pill (its size, its round ends, in the same place) and opens
+            // down and across into the panel, its words fading in once there's room for them
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            val pill = nav.tagSize.takeIf { it.width > 0 } ?: with(density) { androidx.compose.ui.unit.IntSize(108.dp.roundToPx(), 32.dp.roundToPx()) }
+            val panelR = with(density) { Dx.RPanel.toPx() }
+            val rimW = with(density) { 1.dp.toPx() }
+            val fill = if (FROST_OK) Color(0x8C2C2C31) else Dx.Raised2.copy(alpha = 0.94f)
+            fun grow(size: androidx.compose.ui.geometry.Size): androidx.compose.ui.geometry.RoundRect {
+                val k = t
+                val w = (pill.width + (size.width - pill.width) * k).coerceIn(pill.width.toFloat(), size.width * 1.03f)
+                val h = (pill.height + (size.height - pill.height) * k).coerceIn(pill.height.toFloat(), size.height * 1.03f)
+                val r = pill.height / 2f + (panelR - pill.height / 2f) * k.coerceIn(0f, 1f)
+                return androidx.compose.ui.geometry.RoundRect(0f, 0f, w, h, androidx.compose.ui.geometry.CornerRadius(r))
+            }
+            Box(
+                Modifier
+                    .padding(start = Dx.Gutter - 8.dp, top = 22.dp)
+                    .width(230.dp)
+                    .graphicsLayer {
+                        clip = true
+                        val rr = grow(size)
+                        shape = object : androidx.compose.ui.graphics.Shape {
+                            override fun createOutline(size: androidx.compose.ui.geometry.Size, layoutDirection: androidx.compose.ui.unit.LayoutDirection, density: androidx.compose.ui.unit.Density) =
+                                androidx.compose.ui.graphics.Outline.Rounded(rr)
+                        }
+                    }
+                    .drawWithContent {
+                        val rr = grow(size)
+                        drawRoundRect(fill, size = androidx.compose.ui.geometry.Size(rr.width, rr.height), cornerRadius = rr.topLeftCornerRadius)
+                        drawContent()
+                        drawRoundRect(
+                            com.notdxbi.dxbi.tv.lumen.live.GlassRim, size = androidx.compose.ui.geometry.Size(rr.width, rr.height),
+                            cornerRadius = rr.topLeftCornerRadius, style = androidx.compose.ui.graphics.drawscope.Stroke(rimW),
+                        )
+                    },
+            ) {
             Column(
                 Modifier
-                    .padding(start = Dx.Gutter - 14.dp, top = 18.dp)
-                    // grows out of the name in the corner it came from (as Apple TV's does): a small box there, then
-                    // opening down and across, its words fading in as it goes
-                    .graphicsLayer {
-                        scaleX = 0.45f + 0.55f * t
-                        scaleY = 0.18f + 0.82f * t
-                        alpha = (t * 2.4f).coerceAtMost(1f)
-                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
-                    }
-                    .width(230.dp)
-                    .then(
-                        if (FROST_OK) Modifier
-                            .background(Color(0x8C2C2C31), RoundedCornerShape(Dx.RPanel))
-                            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(Dx.RPanel))
-                        else Modifier.background(Dx.Raised2.copy(alpha = 0.94f), RoundedCornerShape(Dx.RPanel)),
-                    )
+                    .graphicsLayer { alpha = ((t - 0.3f) / 0.45f).coerceIn(0f, 1f) }
                     .padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
@@ -491,6 +525,7 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
                         close()
                     }
                 }
+            }
             }
         }
     }
