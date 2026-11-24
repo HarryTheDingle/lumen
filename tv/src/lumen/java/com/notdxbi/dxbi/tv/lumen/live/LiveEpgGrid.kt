@@ -626,10 +626,10 @@ fun LiveEpgGrid(
             // Subtle Dx.Blue playhead line strictly below the time ruler with a small dot on the header divider
             if (nowMs in viewportStartMs..viewportEndMs) {
                 val fraction = ((nowMs - viewportStartMs).toFloat() / VIEWPORT_DURATION_MS.toFloat()).coerceIn(0f, 1f)
-                // behind the programmes: it shows in the gaps, never across a title
+                // over the programmes, in Lumen's blue
                 BoxWithConstraints(
                     modifier = Modifier
-                        .zIndex(-1f)
+                        .zIndex(5f)
                         .fillMaxSize()
                         .padding(start = LEFT_CHANNEL_WIDTH + 1.dp),
                 ) {
@@ -639,15 +639,15 @@ fun LiveEpgGrid(
                             .offset(x = xOffset - 3.dp, y = TIME_HEADER_HEIGHT - 3.dp)
                             .size(6.dp)
                             .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.9f)),
+                            .background(Dx.Blue),
                     )
                     Box(
                         modifier = Modifier
                             .padding(top = TIME_HEADER_HEIGHT)
                             .offset(x = xOffset)
-                            .width(1.5.dp)
+                            .width(2.dp)
                             .fillMaxHeight()
-                            .background(Color.White.copy(alpha = 0.7f)),
+                            .background(Dx.Blue.copy(alpha = 0.9f)),
                     )
                 }
             }

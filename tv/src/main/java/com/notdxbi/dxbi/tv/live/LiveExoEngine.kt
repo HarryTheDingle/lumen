@@ -241,6 +241,8 @@ class LiveExoEngine(
             }
         }
 
+        // (Lumen's player kept paused after Back holds the TV's audio output and focus: with it kept, the channel played with no sound)
+        com.notdxbi.dxbi.tv.HeldPlayer.release()
         val sound = SoundMode().also { it.mode = currentSoundMode }
         soundProcessor = sound
         val renderers = LiveRenderersFactory(appContext, sound)
