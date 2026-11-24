@@ -204,6 +204,7 @@ private fun RailItem(
         LiveSection.SEARCH -> "Search"
         LiveSection.TV_GUIDE -> "Guide"
         LiveSection.SPORTS -> "Sports"
+        LiveSection.SPORTS_GUIDE -> "Sports guide"
         LiveSection.FAVOURITES -> "Favs"
         LiveSection.SETTINGS -> "Settings"
     }
@@ -276,6 +277,7 @@ private fun sectionIcon(section: LiveSection): ImageVector = when (section) {
     LiveSection.SEARCH -> Icons.Filled.Search
     LiveSection.TV_GUIDE -> Icons.Filled.LiveTv
     LiveSection.SPORTS -> Icons.Filled.EmojiEvents
+    LiveSection.SPORTS_GUIDE -> Icons.Filled.LiveTv
     LiveSection.FAVOURITES -> Icons.Filled.Favorite
     LiveSection.SETTINGS -> Icons.Filled.Settings
 }

@@ -483,6 +483,31 @@ class Phone(private val lumos: Lumos) {
     /** The index Just press Play picked in the list last shown */
     private var lastPick = -1
 
+    /**
+     * Whether any stream addon has a stream for this video (the id for a film, the episode's for a series): true as soon as
+     * one answers with something, false once all have answered with nothing or the time's up. Nothing is opened or kept.
+     */
+    suspend fun hasStreams(type: String, videoId: String): Boolean {
+        warmed[videoId]?.takeIf { lumos.clock() - it.first < WARM_MS && it.second.isNotEmpty() }?.let { return true }
+        val addons = lumos.engine.addons
+        val found = kotlinx.coroutines.CompletableDeferred<Boolean>()
+        return coroutineScope {
+            val jobs = addons.map { a ->
+                launch {
+                    val m = withTimeoutOrNull(Engine.MANIFEST_MS) { runCatching { a.manifest() }.getOrNull() }
+                    if (m != null && m.answers("stream", type, videoId)) {
+                        val list = withTimeoutOrNull(Engine.STREAMS_MS) { runCatching { a.streams(type, videoId) }.getOrNull() }
+                        if (!list.isNullOrEmpty()) found.complete(true)
+                    }
+                }
+            }
+            launch { jobs.forEach { it.join() }; found.complete(false) }
+            val result = found.await()
+            coroutineContext[Job]?.children?.forEach { it.cancel() }
+            result
+        }
+    }
+
     /** How many of the main addons' streams must fail before a search-based addon's is picked while theirs are left */
     private val LAST_RESORT_AFTER = 3
 

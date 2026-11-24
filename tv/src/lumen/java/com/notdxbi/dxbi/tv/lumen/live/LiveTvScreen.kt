@@ -189,13 +189,13 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
 
     // The guide always has its header; the other pages get the same one (the small screen top left, the programme's
     // words and picture beside it) while something is playing, so Back from a match lands on the same layout
-    val showHero = activeSection == LiveSection.TV_GUIDE || miniSession != null
+    val showHero = activeSection == LiveSection.TV_GUIDE || activeSection == LiveSection.SPORTS_GUIDE || miniSession != null
     val playingNow = remember(miniSession?.channel?.id, nowMs / 60_000L) {
         miniSession?.let { s ->
             store.programmesInWindow(s.channel, nowMs, nowMs + 1).firstOrNull()
         }
     }
-    val headerHero = if (activeSection == LiveSection.TV_GUIDE) resolvedHero
+    val headerHero = if (activeSection == LiveSection.TV_GUIDE || activeSection == LiveSection.SPORTS_GUIDE) resolvedHero
     else miniSession?.let { HeroSelection.Channel(it.channel, playingNow, null, playingNow?.id?.let { id -> enrichments[id] }) } ?: resolvedHero
 
     Box(
@@ -268,8 +268,33 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
                                     heroSelection = HeroSelection.Programme(row = row, programme = prog)
                                 },
                                 onOpenCatchup = { ch -> catchupChannel = ch },
+                                playingChannelId = miniSession?.channel?.id,
+                                returnedKey = resumedAt,
                             )
                         }
+                    }
+
+                    LiveSection.SPORTS_GUIDE -> {
+                        // (the sports channels' guide, the same page as the Guide: its header, its grid, nothing stacked above it)
+                        val sportsRows by store.sportsLiveRows.collectAsState()
+                        val sportsFixtures by store.sportsFixtures.collectAsState()
+                        val sportsLoading by store.sportsLoading.collectAsState()
+                        LaunchedEffect(Unit) { if (sportsFixtures.isEmpty() && !sportsLoading) store.loadSportsFixtures() }
+                        LiveEpgGrid(
+                            rows = sportsRows,
+                            store = store,
+                            favourites = favSet,
+                            epgVersion = epgVersion,
+                            isSportsMode = true,
+                            contentFocusRequester = contentRequester,
+                            onMoveToRail = { nav.menuOpen = true },
+                            onFocusSlot = { row, prog ->
+                                heroSelection = HeroSelection.Programme(row = row, programme = prog)
+                            },
+                            onOpenCatchup = { ch -> catchupChannel = ch },
+                            playingChannelId = miniSession?.channel?.id,
+                            returnedKey = resumedAt,
+                        )
                     }
 
                     LiveSection.SPORTS -> {

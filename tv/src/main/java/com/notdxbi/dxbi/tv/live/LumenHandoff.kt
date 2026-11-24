@@ -18,6 +18,8 @@ object LumenHandoff {
         /** How far into it the channel is */
         val joinMs: Long,
         val request: Request,
+        /** False when Lumen has no stream for it: the offer is to start it from the beginning from the channel's catch-up */
+        val viaLumen: Boolean = true,
     )
 
     data class Request(

@@ -978,6 +978,9 @@ class LiveTvStore(
         )
     }.getOrNull()?.takeIf { !it.imdbId.isNullOrBlank() }
 
+    /** Whether Lumen's stream addons have anything for this film (its IMDb id) or episode (tt…:season:episode) */
+    suspend fun hasStreams(type: String, videoId: String): Boolean = engine.hasStreams(type, videoId)
+
     /** Like Lumen's own player: the TV may close the main screen while the player has it (the Mi Box does when short of
      *  memory), and coming back must not ask Who's watching? again */
     private fun markPlayerOpen(context: Context) {

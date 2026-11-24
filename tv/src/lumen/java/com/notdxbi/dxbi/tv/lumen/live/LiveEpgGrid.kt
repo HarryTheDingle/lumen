@@ -157,6 +157,9 @@ fun LiveEpgGrid(
     onFocusSlot: (GuideChannelRow, EpgProgramme?) -> Unit,
     onOpenCatchup: (CanonicalChannel) -> Unit,
     modifier: Modifier = Modifier,
+    /** The channel that was playing, and a number that changes each time the screen comes back (from the player): the guide goes to it */
+    playingChannelId: String? = null,
+    returnedKey: Long = 0L,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -284,6 +287,16 @@ fun LiveEpgGrid(
             if (runCatching { contentFocusRequester.requestFocus() }.isSuccess) {
                 didInitialFocus = true
             }
+        }
+    }
+
+    // Back from the player: the guide is on the channel that was playing (zapping there moves it on from the row it was opened on)
+    LaunchedEffect(returnedKey, filteredRows.size) {
+        if (returnedKey == 0L || playingChannelId == null || filteredRows.isEmpty()) return@LaunchedEffect
+        val idx = filteredRows.indexOfFirst { it.linkedChannel?.id == playingChannelId }
+        if (idx >= 0) {
+            delay(150)
+            requestSlotFocus(idx, nowMs)
         }
     }
 

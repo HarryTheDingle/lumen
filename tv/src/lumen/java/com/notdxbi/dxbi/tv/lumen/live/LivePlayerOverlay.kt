@@ -1432,12 +1432,20 @@ private fun LumenOfferCard(offer: com.notdxbi.dxbi.tv.live.LumenHandoff.Offer, o
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text("In Lumen · ${offer.label}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted)
+        Text(if (offer.viaLumen) "In Lumen · ${offer.label}" else "Started $join ago · ${offer.label}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted)
         Text(offer.name, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text("Watch it in Lumen for a much sharper picture. When it ends you can come back to the channel.", fontSize = 13.sp, color = Dx.Muted)
-        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            LiveChip(label = if (mins >= 2) "From $join" else "Watch", selected = true, onClick = { onWatch(false) }, modifier = Modifier.focusRequester(first))
-            if (mins >= 2) LiveChip(label = "From the start", selected = false, onClick = { onWatch(true) })
+        if (offer.viaLumen) {
+            Text("Watch it in Lumen for a much sharper picture. When it ends you can come back to the channel.", fontSize = 13.sp, color = Dx.Muted)
+            Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                LiveChip(label = if (mins >= 2) "From $join" else "Watch", selected = true, onClick = { onWatch(false) }, modifier = Modifier.focusRequester(first))
+                if (mins >= 2) LiveChip(label = "From the start", selected = false, onClick = { onWatch(true) })
+            }
+        } else {
+            Text("Watch it from the beginning, from the channel's catch-up.", fontSize = 13.sp, color = Dx.Muted)
+            Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                LiveChip(label = "From the start", selected = true, onClick = { onWatch(true) }, modifier = Modifier.focusRequester(first))
+                LiveChip(label = "Keep watching live", selected = false, onClick = { com.notdxbi.dxbi.tv.live.LumenHandoff.dismiss() })
+            }
         }
         Text("Back: not now", fontSize = 11.sp, color = Dx.Faint)
     }

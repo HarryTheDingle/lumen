@@ -1388,15 +1388,22 @@ class LivePlayerActivity : AppCompatActivity() {
                 episode != null -> Triple("series", "$imdb:${episode.first}:${episode.second}", "S${episode.first}, E${episode.second}")
                 else -> return@launch
             }
+            // (only offered when Lumen's addons have a stream for it; otherwise, from the channel's own catch-up, the start of it)
+            val streamsId = videoId ?: imdb
+            val viaLumen = kotlinx.coroutines.withTimeoutOrNull(16_000L) { store?.hasStreams(type, streamsId) } == true
+            if (currentChannelFlow.value.id != channel.id) return@launch
+            val joinMs = (now - prog.startMs).coerceAtLeast(0L)
+            if (!viaLumen && !(channel.hasCatchup && joinMs >= 2 * 60_000L)) return@launch
             LumenHandoff.offer.value = LumenHandoff.Offer(
                 programmeKey = "${channel.id}:${prog.startMs}",
                 name = prog.title.replace(Regex("^(?:new|film|movie)\\s*:\\s*", RegexOption.IGNORE_CASE), ""),
                 label = label,
-                joinMs = (now - prog.startMs).coerceAtLeast(0L),
+                joinMs = joinMs,
                 request = LumenHandoff.Request(
                     id = imdb, type = type, name = prog.title, background = found.backdrop,
                     videoId = videoId, channelId = channel.id, channelName = channel.name,
                 ),
+                viaLumen = viaLumen,
             )
             // (an offer that isn't taken goes after a while)
             delay(10_000L)
@@ -1407,6 +1414,12 @@ class LivePlayerActivity : AppCompatActivity() {
     private fun watchInLumen(fromStart: Boolean) {
         val offer = LumenHandoff.offer.value ?: return
         LumenHandoff.dismiss()
+        if (!offer.viaLumen) {
+            // (no stream in Lumen: the programme from the beginning, from the channel's catch-up)
+            val prog = store?.nowAndNext(currentChannelFlow.value, System.currentTimeMillis())?.first ?: return
+            startChannelTune(channel = currentChannelFlow.value, preferredStreamId = activeStreamIdFlow.value, catchup = prog)
+            return
+        }
         LumenHandoff.startMsOnce = if (fromStart) 0L else offer.joinMs
         LumenHandoff.returnTo = offer.request.channelId to offer.request.channelName
         LumenHandoff.pending.value = offer.request
