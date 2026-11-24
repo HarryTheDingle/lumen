@@ -1,5 +1,6 @@
 package com.notdxbi.dxbi.tv.lumen.live
 
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.border
@@ -76,6 +77,7 @@ import lumos.iptv.CanonicalChannel
  * conditional [LiveHeroHeader], viewport-clamped [LiveEpgGrid], unified [SportsFixturesView],
  * [LiveFavouritesView], [LiveSearchView], [LiveSettingsView], and Sky-style corner mini-player.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun LiveTvScreen(engine: Engine, nav: Nav) {
     val context = LocalContext.current
@@ -226,6 +228,33 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
             .fillMaxSize()
             .background(Dx.Background),
     ) {
+        // a soft wash of the highlighted channel's colour behind the guide's top (one gradient, its colour easing across
+        // as the remote moves: next to nothing for the TV to draw)
+        if (activeSection == LiveSection.TV_GUIDE) {
+            val washName = when (val sel = headerHero) {
+                is HeroSelection.Programme -> sel.row.guideChannel.name
+                is HeroSelection.Channel -> sel.channel.name
+                else -> null
+            }
+            val wash by androidx.compose.animation.animateColorAsState(
+                washName?.let { channelWashColour(it) } ?: Color.Transparent,
+                androidx.compose.animation.core.tween(700, easing = Dx.Ease),
+                label = "wash",
+            )
+            Box(
+                Modifier.fillMaxWidth().height(300.dp).drawBehind {
+                    drawRect(
+                        Brush.radialGradient(
+                            0f to wash.copy(alpha = wash.alpha * 0.5f),
+                            0.55f to wash.copy(alpha = wash.alpha * 0.16f),
+                            1f to Color.Transparent,
+                            center = androidx.compose.ui.geometry.Offset(size.width * 0.18f, 0f),
+                            radius = size.width * 0.75f,
+                        ),
+                    )
+                },
+            )
+        }
         Column(modifier = Modifier.fillMaxSize()) {
             // the page's name top left (the clock is top right, as on all of Lumen's screens): its own strip, so nothing
             // below runs under either
@@ -270,6 +299,8 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
                 )
             }
 
+            // (Home's page glide for every page here: the guide has its own, softer, for its short rows)
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides com.notdxbi.dxbi.tv.lumen.CentredScrolling) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when (activeSection) {
                     LiveSection.TV_GUIDE -> {
@@ -339,6 +370,7 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
                         )
                     }
                 }
+            }
             }
         }
 

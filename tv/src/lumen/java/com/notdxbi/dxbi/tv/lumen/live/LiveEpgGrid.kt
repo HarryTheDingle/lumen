@@ -1,5 +1,7 @@
 package com.notdxbi.dxbi.tv.lumen.live
 
+import com.notdxbi.dxbi.tv.lumen.centredWhenFocused
+import androidx.compose.ui.layout.onGloballyPositioned
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -146,9 +148,9 @@ private const val HALF_HOUR_MS = 30L * 60_000L
 private const val PAN_STEP_MS = 60L * 60_000L
 private const val HOLD_LEFT_UNLOCK_MS = 320L
 private val LEFT_CHANNEL_WIDTH = 140.dp
-private val ROW_HEIGHT = 52.dp
+private val ROW_HEIGHT = 56.dp
 /** The row the remote is on grows (to show a programme's whole name) */
-private val ROW_HEIGHT_FOCUSED = 76.dp
+private val ROW_HEIGHT_FOCUSED = 80.dp
 private val TIME_HEADER_HEIGHT = 40.dp
 
 /**
@@ -280,6 +282,9 @@ fun LiveEpgGrid(
     }
 
     val listState = rememberLazyListState()
+    val pageScroller = remember(listState) {
+        com.notdxbi.dxbi.tv.lumen.PageScroller(listState, scope).also { it.glideSpec = androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 32f) }
+    }
     val slotRequesters = remember { mutableStateMapOf<String, FocusRequester>() }
 
     fun slotRequesterFor(rowId: String, slotIdx: Int): FocusRequester =
@@ -408,6 +413,9 @@ fun LiveEpgGrid(
         }
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            // (the time strip's band runs the full width, still: when the guide moves aside for the filters, it doesn't
+            // leave a gap at its left end)
+            Box(Modifier.fillMaxWidth().height(TIME_HEADER_HEIGHT).background(Color(0xFF0A0A0C)))
             FilterRail(
                 open = filterRailOpen,
                 filters = availableFilters,
@@ -473,10 +481,13 @@ fun LiveEpgGrid(
                         .background(LivePalette.Hairline),
                 )
 
-                androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides guideScrollSpec) {
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides guideScrollSpec,
+                    com.notdxbi.dxbi.tv.lumen.LocalPageScroller provides pageScroller,
+                ) {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().onGloballyPositioned { pageScroller.viewport = it },
                     contentPadding = PaddingValues(bottom = 32.dp),
                 ) {
                     itemsIndexed(filteredRows, key = { i, _ -> rowKeys[i] }) { rowIdx, row ->
@@ -686,15 +697,15 @@ fun LiveEpgGrid(
                     Box(
                         modifier = Modifier
                             .padding(top = TIME_HEADER_HEIGHT)
-                            .offset(x = xOffset - 2.dp)
-                            .width(4.dp)
+                            .offset(x = xOffset - 1.dp)
+                            .width(2.dp)
                             .fillMaxHeight()
-                            .background(Dx.Blue.copy(alpha = 0.55f)),
+                            .background(Dx.Blue.copy(alpha = 0.6f)),
                     )
                     Box(
                         modifier = Modifier
-                            .offset(x = xOffset - 4.dp, y = TIME_HEADER_HEIGHT - 4.dp)
-                            .size(8.dp)
+                            .offset(x = xOffset - 3.dp, y = TIME_HEADER_HEIGHT - 3.dp)
+                            .size(6.dp)
                             .clip(CircleShape)
                             .background(Dx.Blue),
                     )
@@ -852,12 +863,20 @@ private fun GuideChannelViewportRow(
     onNavigateLeftKeyDown: (Int, Int) -> Boolean,
     onNavigateLeftKeyUp: () -> Boolean,
 ) {
-    // (the row grows at once: animating a row's height re-measures every cell in it each frame, and the Mi Box dropped frames)
-    val rowHeight = if (focusedRow) ROW_HEIGHT_FOCUSED else ROW_HEIGHT
+    // (the chosen row opens out to show its titles in full, with a soft spring as the page glides: at once, it shoved
+    // every row under it, a jolt Home's rows never have)
+    val rowHeight by androidx.compose.animation.core.animateDpAsState(
+        if (focusedRow) ROW_HEIGHT_FOCUSED else ROW_HEIGHT,
+        androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 140f),
+        label = "row",
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(rowHeight),
+            .height(rowHeight)
+            // Home's page glide: moving into a row centres it in one soft glide, decided once (the guide's own scroll
+            // re-aimed every frame and hopped in a few)
+            .centredWhenFocused(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // Purely visual left channel column (zero focus stops!)
@@ -986,7 +1005,7 @@ private fun ProgrammeViewportCell(
         fillColor = bg,
         focusedFillColor = Color.White,
         borderColor = borderColor,
-        focusedScale = 1.0f,
+        focusedScale = 1.03f,
         sheen = false,
     ) { focused, ink ->
         val textAlpha = if (!focused && isPastUnavailable) 0.45f else 1f
@@ -1015,7 +1034,7 @@ private fun ProgrammeViewportCell(
                     fontWeight = if (isLive && !focused) FontWeight.Bold else FontWeight.SemiBold,
                     color = ink.copy(alpha = textAlpha),
                     // (one line; the row the remote is on has room for the whole name)
-                    maxLines = if (rowFocused) 2 else 1,
+                    maxLines = if (rowFocused) 3 else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }

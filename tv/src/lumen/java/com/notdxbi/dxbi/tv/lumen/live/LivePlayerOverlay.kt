@@ -600,19 +600,26 @@ private fun ChannelStrip(
     guideFocus: FocusRequester,
 ) {
     val currentIdx = entries.indexOfFirst { it.first.id == currentChannelId }.coerceAtLeast(0)
-    val listState = rememberLazyListState()
     val currentTile = remember { FocusRequester() }
     val nowMs = System.currentTimeMillis()
 
-    // (the channel playing sits in the middle, with those either side fading out towards the edges)
+    // (the channel playing sits in the middle, with those either side fading out towards the edges. The list starts
+    // there, worked out from the sizes, so nothing slides into place as the strip comes up)
     val density = androidx.compose.ui.platform.LocalDensity.current
+    val viewportDp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp - 112
+    fun centred(idx: Int): Pair<Int, Int> {
+        var i = idx + 1
+        var left = viewportDp / 2f - 150f
+        while (i > 0 && left > 40f) { i--; left -= if (i == 0) 108f else 312f }
+        return i to with(density) { (40f - left).coerceAtLeast(0f).dp.roundToPx() }
+    }
+    val start = remember { centred(currentIdx) }
+    val listState = rememberLazyListState(start.first, start.second)
+    var firstPlace by remember { mutableStateOf(true) }
     LaunchedEffect(currentChannelId) {
-        runCatching {
-            listState.scrollToItem(currentIdx + 1)
-            val view = listState.layoutInfo.viewportSize.width
-            val tile = with(density) { 300.dp.toPx() }
-            listState.scrollBy(-((view - tile) / 2f).coerceAtLeast(0f))
-        }
+        if (firstPlace) { firstPlace = false; return@LaunchedEffect }
+        val (i, o) = centred(currentIdx)
+        runCatching { listState.scrollToItem(i, o) }
     }
     LaunchedEffect(focusTick) {
         if (focusTick > 0L) {
@@ -668,20 +675,15 @@ private fun ChannelStrip(
         items(entries, key = { it.first.id }) { (channel, prog) ->
             val playing = channel.id == currentChannelId
             val logo = remember(channel.id) { tileLogoFor(channel) }
-            Surface(
+            // Lumen's card (as the films on Home): it lifts when chosen, with the glass rim
+            com.notdxbi.dxbi.tv.lumen.FocusCard(
                 onClick = { onZap(channel) },
                 modifier = Modifier.width(300.dp).height(STRIP_HEIGHT).then(if (playing) Modifier.focusRequester(currentTile) else Modifier)
-                    .onFocusChanged { if (it.isFocused) StripPreview.value = channel to prog },
-                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
-                colors = ClickableSurfaceDefaults.colors(
-                    containerColor = if (playing) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f),
-                    contentColor = Color.White,
-                    focusedContainerColor = Color.White,
-                    focusedContentColor = Color.Black,
-                ),
-                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+                    .onFocusChanged { if (it.isFocused || it.hasFocus) StripPreview.value = channel to prog },
+                corner = 12.dp,
             ) {
-                val ink = LocalContentColor.current
+                Box(Modifier.fillMaxSize().background(if (playing) Color.White.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.10f))) {
+                val ink = Color.White
                 Row(Modifier.fillMaxSize().padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     // the channel's logo tile says which it is (its name in words was one more line)
                     ChannelTile(logoUrl = logo, name = channel.name, width = 80.dp, height = 46.dp, corner = 7.dp)
@@ -695,6 +697,7 @@ private fun ChannelStrip(
                         }
                     }
                 }
+                }
             }
         }
     }
@@ -704,6 +707,7 @@ private fun ChannelStrip(
 /** Keeps the chosen tile of a row in the middle */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 private object CentreSpec : androidx.compose.foundation.gestures.BringIntoViewSpec {
+    override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> get() = com.notdxbi.dxbi.tv.lumen.RowGlide
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
         offset - (containerSize - size) / 2f
 }

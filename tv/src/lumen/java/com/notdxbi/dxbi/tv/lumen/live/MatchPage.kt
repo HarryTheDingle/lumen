@@ -105,7 +105,7 @@ fun MatchPage(
                                     when (status) {
                                         "LIVE" -> "  Live" + (m?.optString("clock")?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "")
                                         "FINAL" -> "Full time"
-                                        else -> "Kick-off " + java.text.SimpleDateFormat("EEE d MMM, h:mma", java.util.Locale.UK).format(java.util.Date(fixture.startMs)).replace("AM", "am").replace("PM", "pm")
+                                        else -> "Kick-off " + java.text.SimpleDateFormat("EEE d MMM, HH:mm", java.util.Locale.UK).format(java.util.Date(fixture.startMs))
                                     },
                                     fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
                                 )

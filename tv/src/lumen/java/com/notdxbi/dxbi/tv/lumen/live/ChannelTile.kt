@@ -95,12 +95,12 @@ private val BRAND_COLOURS: List<Pair<String, Long>> = listOf(
     "bbc parliament" to 0xFF1E5C3A, "bbc scotland" to 0xFF233E8B, "bbc alba" to 0xFF2C5E8E,
     "cbbc" to 0xFF5A9E1E, "cbeebies" to 0xFFE5A100,
     // ITV
-    "itvbe" to 0xFFB8306E, "itv quiz" to 0xFFF04B4B, "itv4" to 0xFF2E7D5B, "itv 4" to 0xFF2E7D5B,
-    "itv3" to 0xFF5A2E9A, "itv 3" to 0xFF5A2E9A, "itv2" to 0xFF3D24C8, "itv 2" to 0xFF3D24C8,
-    "itv1" to 0xFF22677A, "itv 1" to 0xFF22677A, "itv" to 0xFF22677A, "stv" to 0xFF1E5AA8,
+    "itvbe" to 0xFFB8306E, "itv quiz" to 0xFFF04B4B, "itv4" to 0xFF1F5A41, "itv 4" to 0xFF1F5A41,
+    "itv3" to 0xFF3E1F6E, "itv 3" to 0xFF3E1F6E, "itv2" to 0xFF3D24C8, "itv 2" to 0xFF3D24C8,
+    "itv1" to 0xFF1D5566, "itv 1" to 0xFF1D5566, "itv" to 0xFF1D5566, "stv" to 0xFF1E5AA8,
     // Channel 4 family
     "film4" to 0xFF5B2A86, "film 4" to 0xFF5B2A86, "more4" to 0xFF1A7F7A, "more 4" to 0xFF1A7F7A,
-    "e4" to 0xFF6E2C8F, "4seven" to 0xFF2D2D6E, "channel 4" to 0xFF3A3A40,
+    "e4" to 0xFF6E2C8F, "4seven" to 0xFF2D2D6E, "channel 4" to 0xFF1E1E21,
     // Channel 5 family
     "5usa" to 0xFF1F3F8F, "5 usa" to 0xFF1F3F8F, "5star" to 0xFFB23A7A, "5 star" to 0xFFB23A7A,
     "5action" to 0xFF8F1F1F, "channel 5" to 0xFF2D1B5E,
@@ -109,23 +109,23 @@ private val BRAND_COLOURS: List<Pair<String, Long>> = listOf(
     "sky sports premier" to 0xFF3D0A5A, "sky sports football" to 0xFF1B5E20, "sky sports cricket" to 0xFF0D5E3A,
     "sky sports golf" to 0xFF1C5E2E, "sky sports" to 0xFF0B2A6F, "sky atlantic" to 0xFF0A3B5C,
     "sky showcase" to 0xFF1F5FA8, "sky news" to 0xFFB4001C, "sky max" to 0xFF4E2A84, "sky witness" to 0xFF8E2B6E,
-    "sky comedy" to 0xFFC27A00, "sky crime" to 0xFF5A1F1F, "sky documentaries" to 0xFF00757F, "sky history" to 0xFFA4161A,
+    "sky comedy" to 0xFFC27A00, "sky crime" to 0xFFF2C200, "sky documentaries" to 0xFF00757F, "sky history" to 0xFFA4161A,
     "sky nature" to 0xFF2E7D32, "sky arts" to 0xFF6A1B9A, "sky kids" to 0xFF0E7FC2, "sky mix" to 0xFF2B4FA8,
     "sky replay" to 0xFF3B3B8F, "sky sci-fi" to 0xFF243A6E, "sky" to 0xFF1F5FA8,
     // TNT, Premier, Eurosport
     "tnt sports" to 0xFF2A1458, "premier sports" to 0xFF5A1A6E, "eurosport" to 0xFF102A6E, "laliga" to 0xFFD2232A,
     "racing tv" to 0xFF1E5631, "sky sports racing" to 0xFF1E5631, "mutv" to 0xFFC8102E, "lfctv" to 0xFFC8102E,
     // UKTV
-    "u&gold" to 0xFFF2A02B, "u & gold" to 0xFFF2A02B, "gold" to 0xFFF2A02B,
-    "u&dave" to 0xFF1E8CC8, "dave" to 0xFF1E8CC8, "u&alibi" to 0xFF4A2F7A, "alibi" to 0xFF4A2F7A,
-    "u&drama" to 0xFFB8306E, "drama" to 0xFFB8306E, "u&w" to 0xFF9C2BA0, "u&yesterday" to 0xFF6E4A1E, "yesterday" to 0xFF6E4A1E,
+    "u&gold" to 0xFF2A2118, "u & gold" to 0xFF2A2118, "gold" to 0xFF2A2118,
+    "u&dave" to 0xFF0E2A44, "dave" to 0xFF0E2A44, "u&alibi" to 0xFF2A1840, "alibi" to 0xFF2A1840,
+    "u&drama" to 0xFF4A1030, "drama" to 0xFF4A1030, "u&w" to 0xFF3A1240, "u&yesterday" to 0xFF6E4A1E, "yesterday" to 0xFF6E4A1E,
     "u&eden" to 0xFF2E7D32, "eden" to 0xFF2E7D32,
     // Discovery / Warner
     "discovery" to 0xFF0071CE, "dmax" to 0xFF2B2B2B, "quest red" to 0xFFB5122E, "quest" to 0xFFE4002B,
     "really" to 0xFFE04A8A, "food network" to 0xFFD84315, "hgtv" to 0xFF2E7D32, "tlc" to 0xFF1E5AA8,
     "animal planet" to 0xFF2E7D32, "investigation discovery" to 0xFF8E1B1B,
     // others
-    "national geographic" to 0xFF3A3A40, "nat geo" to 0xFF3A3A40, "comedy central" to 0xFF2B2B2B,
+    "national geographic" to 0xFF3A3A40, "nat geo" to 0xFF3A3A40, "comedy central" to 0xFF1E1E21,
     "mtv" to 0xFF2B2B2B, "nickelodeon" to 0xFFE65100, "nick jr" to 0xFF6A1B9A, "nicktoons" to 0xFFE65100,
     "disney" to 0xFF113CCF, "cartoon network" to 0xFF2B2B2B, "boomerang" to 0xFF1E5AA8, "cartoonito" to 0xFF1E88E5,
     "s4c" to 0xFFD9531E, "rte" to 0xFF1B4F8C, "virgin media" to 0xFFC8102E, "tg4" to 0xFF2C6E8E,
@@ -147,3 +147,21 @@ internal fun tileLogoFor(channel: lumos.iptv.CanonicalChannel): String? =
     com.notdxbi.dxbi.tv.live.LiveTvRuntime.currentStore()?.mainGuideRows?.value
         ?.firstOrNull { it.linkedChannel?.id == channel.id }?.guideChannel?.logoUrl?.takeIf { it.isNotBlank() }
         ?: channel.logoUrl
+
+
+/**
+ * The colour the guide washes its top with for a channel: its tile's colour, or where the tile is dark (its logo
+ * carries the colour), the colour people know the channel by
+ */
+private val WASH: List<Pair<String, Long>> = listOf(
+    "national geographic" to 0xFFE5B800, "nat geo" to 0xFFE5B800, "comedy central" to 0xFFE5B800, "channel 4" to 0xFF5DBB3F,
+    "u&gold" to 0xFFF2A02B, "gold" to 0xFFF2A02B, "u&dave" to 0xFF1E8CC8, "dave" to 0xFF1E8CC8, "u&alibi" to 0xFF6A3FA8,
+    "alibi" to 0xFF6A3FA8, "u&drama" to 0xFFD0367E, "drama" to 0xFFD0367E, "u&w" to 0xFF9C2BA0, "itv1" to 0xFF2A9DB5, "itv 1" to 0xFF2A9DB5,
+    "itv" to 0xFF2A9DB5, "dmax" to 0xFFE36B1C, "cartoon network" to 0xFF8E8E8E, "mtv" to 0xFFE5B800,
+)
+
+internal fun channelWashColour(name: String): Color {
+    val n = name.lowercase().replace(Regex("\\s+(hd|uhd|fhd|4k|sd|\\+1)\\b"), "").trim()
+    WASH.firstOrNull { (key, _) -> n.startsWith(key) || n.contains(" $key") || n == key }?.let { return Color(it.second) }
+    return channelBrandColour(name)
+}

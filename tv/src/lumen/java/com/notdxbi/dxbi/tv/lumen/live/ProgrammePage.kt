@@ -1,5 +1,6 @@
 package com.notdxbi.dxbi.tv.lumen.live
 
+import androidx.compose.material.icons.filled.Movie
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -191,6 +192,7 @@ private fun PageButton(label: String?, icon: ImageVector, onClick: () -> Unit, m
  * A programme's page (OK on one still to come, or OK held on any): its picture across the screen, the title top left,
  * then along the bottom one line of when and where, the buttons, and what else is on that channel.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun ProgrammePage(
     store: LiveTvStore,
@@ -215,6 +217,25 @@ internal fun ProgrammePage(
     val schedule = remember(row.guideChannel.id, nowMs / 300_000L) {
         store.programmesForWindow(channel = linked, guideChannelId = row.guideChannel.id, fromMs = nowMs, toMs = nowMs + 12 * 3_600_000L)
             .filter { it.endMs > nowMs }.take(12)
+    }
+    // Lumen has it (a film, or an episode the guide numbers) and has a stream for it: offered as Watch in Lumen
+    var inLumen by remember(prog.id) { mutableStateOf<com.notdxbi.dxbi.tv.live.LumenHandoff.Request?>(null) }
+    LaunchedEffect(prog.id) {
+        val ch = linked ?: return@LaunchedEffect
+        if (prog.isLiveSport || Regex("news|sport|weather|live", RegexOption.IGNORE_CASE).containsMatchIn(prog.category.orEmpty())) return@LaunchedEffect
+        val found = runCatching { store.findInLumen(ch, prog) }.getOrNull() ?: return@LaunchedEffect
+        val imdb = found.imdbId ?: return@LaunchedEffect
+        val episode = com.notdxbi.dxbi.tv.live.LumenHandoff.episodeOf(prog.subtitle, prog.title, prog.description)
+        val (type, videoId) = when {
+            found.mediaType == "movie" -> "movie" to null
+            episode != null -> "series" to "$imdb:${episode.first}:${episode.second}"
+            else -> return@LaunchedEffect
+        }
+        val has = kotlinx.coroutines.withTimeoutOrNull(10_000L) { runCatching { store.hasStreams(type, videoId ?: imdb) }.getOrDefault(false) } == true
+        if (has) inLumen = com.notdxbi.dxbi.tv.live.LumenHandoff.Request(
+            id = imdb, type = type, name = prog.title, background = found.backdrop,
+            videoId = videoId, channelId = ch.id, channelName = ch.name,
+        )
     }
     val rid = "prog:${row.guideChannel.id}:${prog.startMs}"
     var reminded by remember(rid) { mutableStateOf(LiveReminders.has(rid)) }
@@ -268,24 +289,38 @@ internal fun ProgrammePage(
             Spacer(Modifier.height(14.dp))
             Row(Modifier.padding(horizontal = 40.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val watch: () -> Unit = { onClose(); store.playGuideRow(context, row, zapChannelIds = zapChannelIds) }
+                // the film pages' own buttons: the first white, the rest round, opening out with their name when chosen
                 when {
                     later -> {
-                        PageButton(if (reminded) "Reminder set" else "Remind me", if (reminded) Icons.Filled.Check else Icons.Filled.Notifications, {
+                        com.notdxbi.dxbi.tv.lumen.PlayButton(if (reminded) "Reminder set" else "Remind me", {
                             LiveReminders.toggle(context, LiveReminders.Reminder(id = rid, title = prog.title, startMs = prog.startMs, channelId = linked?.id, channelName = row.guideChannel.name))
                             reminded = LiveReminders.has(rid)
-                        }, Modifier.focusRequester(first))
-                        if (row.isPlayable) PageButton("Watch channel", Icons.Filled.PlayArrow, watch)
+                        }, Modifier.focusRequester(first), icon = if (reminded) Icons.Filled.Check else Icons.Filled.Notifications)
+                        if (row.isPlayable) com.notdxbi.dxbi.tv.lumen.RoundButton(Icons.Filled.PlayArrow, "Watch channel", watch, expands = true)
                     }
                     onNow -> {
-                        PageButton("Watch channel", Icons.Filled.PlayArrow, watch, Modifier.focusRequester(first))
-                        if (canCatchup) PageButton("Watch from start", Icons.Filled.Replay, { onClose(); store.playCatchup(context, linked!!, prog, zapChannelIds = zapChannelIds) })
+                        com.notdxbi.dxbi.tv.lumen.PlayButton("Watch channel", watch, Modifier.focusRequester(first))
+                        if (canCatchup) com.notdxbi.dxbi.tv.lumen.RoundButton(Icons.Filled.Replay, "Watch from start", { onClose(); store.playCatchup(context, linked!!, prog, zapChannelIds = zapChannelIds) }, expands = true)
                     }
                     else -> {
-                        if (canCatchup) PageButton("Watch", Icons.Filled.PlayArrow, { onClose(); store.playCatchup(context, linked!!, prog, zapChannelIds = zapChannelIds) }, Modifier.focusRequester(first))
-                        if (row.isPlayable) PageButton("Watch channel", Icons.Filled.PlayArrow, watch, if (!canCatchup) Modifier.focusRequester(first) else Modifier)
+                        if (canCatchup) com.notdxbi.dxbi.tv.lumen.PlayButton("Watch", { onClose(); store.playCatchup(context, linked!!, prog, zapChannelIds = zapChannelIds) }, Modifier.focusRequester(first))
+                        if (row.isPlayable) {
+                            if (canCatchup) com.notdxbi.dxbi.tv.lumen.RoundButton(Icons.Filled.PlayArrow, "Watch channel", watch, expands = true)
+                            else com.notdxbi.dxbi.tv.lumen.PlayButton("Watch channel", watch, Modifier.focusRequester(first))
+                        }
                     }
                 }
-                PageButton(null, Icons.Filled.MoreHoriz, { menu = true }, if (later || onNow || canCatchup || row.isPlayable) Modifier else Modifier.focusRequester(first))
+                inLumen?.let { req ->
+                    com.notdxbi.dxbi.tv.lumen.RoundButton(Icons.Filled.Movie, "Watch in Lumen", {
+                        onClose()
+                        // (from the start, in Lumen's picture; when it ends Lumen offers this channel again)
+                        com.notdxbi.dxbi.tv.live.LumenHandoff.startMsOnce = 0L
+                        com.notdxbi.dxbi.tv.live.LumenHandoff.returnTo = req.channelId to req.channelName
+                        com.notdxbi.dxbi.tv.live.LumenHandoff.pending.value = req
+                    }, expands = true)
+                }
+                com.notdxbi.dxbi.tv.lumen.RoundButton(Icons.Filled.MoreHoriz, "More", { menu = true },
+                    if (later || onNow || canCatchup || row.isPlayable) Modifier else Modifier.focusRequester(first), expands = true)
                 Spacer(Modifier.weight(1f))
                 ChannelTile(logoUrl = row.logoUrl, name = row.guideChannel.name, width = 86.dp, height = 48.dp, corner = 8.dp)
             }
@@ -293,10 +328,12 @@ internal fun ProgrammePage(
                 Spacer(Modifier.height(20.dp))
                 Text("On ${row.guideChannel.name}", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(start = 40.dp))
                 // (room above and below for a card to lift into, so its rim isn't cut off)
+                androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides com.notdxbi.dxbi.tv.lumen.rememberRowScrolling(gutter = 40.dp)) {
                 LazyRow(contentPadding = PaddingValues(horizontal = 40.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                     items(schedule, key = { it.id }) { p ->
                         ScheduleCard(p, enrichments[p.id]?.backdrop ?: p.iconUrl, row, here = p.id == prog.id, nowMs = nowMs) { prog = p }
                     }
+                }
                 }
             }
         }

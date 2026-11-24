@@ -396,6 +396,9 @@ class PageScroller(val list: androidx.compose.foundation.lazy.LazyListState, pri
      * The page's one way of moving: [delta] px in the glide that suits its length, replacing whatever else was moving it
      * (never two at once). Asked again for the move already under way, it does nothing.
      */
+    /** A page of short rows (the TV guide) glides by this instead, so a row's small move takes as long as Home's */
+    var glideSpec: androidx.compose.animation.core.AnimationSpec<Float>? = null
+
     fun move(delta: Float, viewportPx: Float = viewport?.size?.height?.toFloat() ?: list.layoutInfo.viewportSize.height.toFloat()) {
         val vp = viewportPx.coerceAtLeast(1f)
         if (kotlin.math.abs(delta) < 1f) return
@@ -407,7 +410,7 @@ class PageScroller(val list: androidx.compose.foundation.lazy.LazyListState, pri
         job = scope.launch {
             list.scroll {
                 var last = 0f
-                androidx.compose.animation.core.animate(0f, delta, animationSpec = glide(delta, vp)) { v, _ ->
+                androidx.compose.animation.core.animate(0f, delta, animationSpec = glideSpec ?: glide(delta, vp)) { v, _ ->
                     scrollBy(v - last)
                     last = v
                     if (gen == mine) done = v

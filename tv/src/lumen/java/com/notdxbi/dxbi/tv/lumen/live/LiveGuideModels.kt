@@ -1,5 +1,6 @@
 package com.notdxbi.dxbi.tv.lumen.live
 
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.layout.positionInWindow
@@ -212,7 +213,8 @@ internal fun GlassTile(
     var focused by remember { mutableStateOf(false) }
     val lift by animateFloatAsState(
         targetValue = if (focused) 1f else 0f,
-        animationSpec = spring(dampingRatio = 1f, stiffness = 320f),
+        // (a soft spring, as Lumen's cards: the white fills in as it lifts, and eases out as the remote moves on)
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = 210f),
         label = "glass-tile-lift",
     )
     val glass = remember { GlassState() }
@@ -222,7 +224,8 @@ internal fun GlassTile(
 
     var pressed by remember { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
-    val ink = if (focused) Color.Black else Color.White
+    // (the words turn dark once the white is most of the way in, so they always read)
+    val ink = if (lift >= 0.45f) Color.Black else Color.White
 
     Box(
         modifier = modifier
@@ -245,7 +248,10 @@ internal fun GlassTile(
             }
             // (a tile asked for no edge has none until the remote's on it: plain words, as Apple TV's)
             .then(if (focused || borderColor != Color.Transparent) Modifier.glassEdge(shape, glass, tracked = focused) { lift } else Modifier)
-            .background(if (focused) focusedFillColor else fillColor, shape)
+            .drawBehind {
+                val k = lift.coerceIn(0f, 1f)
+                drawOutline(shape.createOutline(size, layoutDirection, this), androidx.compose.ui.graphics.lerp(fillColor, focusedFillColor, k))
+            }
             .then(if (sheen && !focused) Modifier.background(GlassSheen, shape).border(1.dp, GlassRim, shape) else Modifier)
             .then(if (focused || borderColor != Color.Transparent) Modifier.border(1.dp, if (focused) Color.White.copy(alpha = 0.65f) else borderColor, shape) else Modifier)
             .onKeyEvent { e ->

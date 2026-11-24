@@ -264,7 +264,7 @@ internal fun MicButton(listening: Boolean, onClick: () -> Unit, modifier: Modifi
 
 /** Apple TV's letters: a to z six across (or the numbers), then Space, delete and Clear */
 @Composable
-private fun Letters(first: FocusRequester, onUpFromTop: () -> Unit, onType: (String) -> Unit, onDelete: () -> Unit, onClear: () -> Unit, modifier: Modifier = Modifier) {
+internal fun Letters(first: FocusRequester, onUpFromTop: () -> Unit, onType: (String) -> Unit, onDelete: () -> Unit, onClear: () -> Unit, modifier: Modifier = Modifier) {
     var numbers by remember { mutableStateOf(false) }
     var onToggle by remember { mutableStateOf(false) }
     val keys = if (numbers) "1234567890".map { it.toString() } else ('a'..'z').map { it.toString() }

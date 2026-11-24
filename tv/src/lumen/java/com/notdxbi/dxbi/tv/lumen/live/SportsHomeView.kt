@@ -106,6 +106,7 @@ private fun tintFor(name: String): Color = PANEL_TINTS[kotlin.math.abs(name.hash
  * matches as glass panels in each side's colours, your teams first and marked. Formula 1 has its own page: the next
  * race, the championships, the weekends.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun SportsHomeView(
     store: LiveTvStore,
@@ -203,6 +204,7 @@ fun SportsHomeView(
     val chosenTile = remember { FocusRequester() }
     val tileRow = androidx.compose.foundation.lazy.rememberLazyListState()
     Column(Modifier.fillMaxSize().background(Dx.Background)) {
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides com.notdxbi.dxbi.tv.lumen.rememberRowScrolling()) {
         LazyRow(
             state = tileRow,
             modifier = Modifier
@@ -238,6 +240,7 @@ fun SportsHomeView(
                         },
                 )
             }
+        }
         }
 
         when (tile) {
@@ -732,7 +735,8 @@ private fun fixtureTitle(f: SportsFixture): String {
     return if (h != null && a != null) "${h.shortName ?: h.name} v ${a.shortName ?: a.name}" else f.shortName ?: f.name
 }
 
-private fun timeLabel(ms: Long): String = SimpleDateFormat("h:mma", Locale.UK).format(Date(ms)).lowercase()
+/** A match's time on the 24-hour clock, in the TV's own time zone (the times come in as UTC) */
+private fun timeLabel(ms: Long): String = SimpleDateFormat("HH:mm", Locale.UK).format(Date(ms))
 
 private fun dayLabel(ms: Long, nowMs: Long): String {
     val day = SimpleDateFormat("yyyyMMdd", Locale.UK)
