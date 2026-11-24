@@ -376,7 +376,7 @@ fun ChainPage(nav: Nav, stremio: Stremio, firstName: String, firstRow: List<Titl
                             // only the posters swap for skeleton shapes while it loads, so nothing jumps or collapses)
                             Box(Modifier.padding(bottom = 8.dp).onGloballyPositioned { tops[i] = it.positionInParent().y }) {
                                 if (rows.isEmpty() && i == 0 && firstRow != null) {
-                                    Text("Nothing to show here", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter, vertical = 24.dp))
+                                    Text("Nothing here yet", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter, vertical = 24.dp))
                                 } else {
                                     ChainRowView(
                                         rows.getOrNull(i), if (i == 0) firstName else null, if (i == 0) first else null,

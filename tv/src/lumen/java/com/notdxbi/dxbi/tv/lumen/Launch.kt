@@ -56,7 +56,7 @@ import kotlinx.coroutines.launch
 /**
  * Play, everywhere (Home, a card, a title's page): opens the title, finds the best stream and starts it,
  * saying what it's doing on a loading screen over the title's picture (the steps and a bar) until the
- * player's up. There's no list of streams to choose from on the way: … → Choose a Stream has that.
+ * player's up. There's no list of streams to choose from on the way: … → Choose a stream has that.
  */
 @Stable
 class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
@@ -200,7 +200,7 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
                 val option = stremio.streams()?.picked
                 if (option == null) {
                     LoadingHandoff.clear()
-                    fail("Couldn't play a stream", "None of the best few would play here. Try … → Choose a Stream on the title's page.")
+                    fail("Couldn't play a stream", "None of the best few would play here. Open the title page, then … → Choose a stream.")
                 } else starting(option)
             }
             return
@@ -210,7 +210,7 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
             if (title != null) {
                 LoadingHandoff.clear()
                 if (next) fail("Couldn't start the next episode", "Try it from the show's page.")
-                else fail("Couldn't play a stream", "None of the best few would play here. Try … → Choose a Stream on the title's page.")
+                else fail("Couldn't play a stream", "None of the best few would play here. Open the title page, then … → Choose a stream.")
             }
         }
     }
@@ -252,7 +252,7 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
         // 1. The title (and for a show, which episode)
         val now = stremio.details.value
         if (now?.metaId != t.id || (wanted != null && now.videoId != wanted)) stremio.open(t.type, t.id, wanted)
-        var d = awaitDetails(t.id, 0.03f, 0.12f) ?: return fail("Couldn't open ${t.name}", "Check the TV's connection and try again.")
+        var d = awaitDetails(t.id, 0.03f, 0.12f) ?: return fail("Couldn't open ${t.name}", "Check your connection and try again.")
         mark("title open")
         val video = wanted ?: nextVideo(d)?.id
         if (video != null && d.videoId != video) {
@@ -332,7 +332,7 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
             if (c != null && c.settled && pick == null) return fail("No streams found", "Your addons may not have this one yet.")
             delay(400)
         }
-        fail("Couldn't find a stream that plays", "Try … → Choose a Stream on the title's page.")
+        fail("Couldn't find a stream that plays", "Open the title page, then … → Choose a stream.")
     }
 
     /** 4. The stream chosen: off to the player (the loading screen goes once it's up) */
@@ -351,7 +351,7 @@ class Launcher(private val stremio: Stremio, scope: CoroutineScope) {
             stremio.reject(option, why)
             // (quietly: the next best goes in its place, and only when none plays does the screen say anything went wrong)
             step = step.copy(progress = 0.85f)
-            option = stremio.streams()?.picked ?: return fail("Couldn't find a stream that plays", "Try … → Choose a Stream on the title's page.")
+            option = stremio.streams()?.picked ?: return fail("Couldn't find a stream that plays", "Open the title page, then … → Choose a stream.")
         }
         mark("stream checked")
         val what = listOfNotNull(option.quality, if (option.dv) "Dolby Vision" else if (option.hdr) "HDR" else null).joinToString(" · ")

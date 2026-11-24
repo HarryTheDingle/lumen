@@ -373,7 +373,7 @@ private fun Found(
                 tabs.forEachIndexed { i, name -> TabPill(name, i == tab, onFocus = { onTab(i) }, modifier = Modifier.focusRequester(tabFocus[i])) }
             }
             if (titles.isEmpty()) {
-                Text(if (loading) "Searching…" else "Nothing found for \"${previewing ?: typed}\".", fontSize = 15.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter))
+                Text(if (loading) "Searching…" else "No results for “${previewing ?: typed}”.", fontSize = 15.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter))
             } else {
                 LazyHorizontalGrid(
                     rows = GridCells.Fixed(3),

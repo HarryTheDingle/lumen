@@ -80,7 +80,7 @@ object Dx {
     /** A card's face before its picture comes */
     val Raised = Color(0xFF1C1C1E)
     val Muted = Color.White.copy(alpha = 0.62f)
-    val Faint = Color.White.copy(alpha = 0.4f)
+    val Faint = Color.White.copy(alpha = 0.5f)
     /** TV-safe margin at the screen's sides */
     val Gutter = 48.dp
     val Poster = 124.dp
@@ -221,7 +221,7 @@ fun TitleLogo(title: Title, maxHeight: Dp, maxWidth: Dp, textSize: TextUnit, mod
 fun Badge(text: String, colour: Color = Color.White) {
     Text(
         text,
-        fontSize = 11.sp,
+        fontSize = 12.sp,
         fontWeight = FontWeight.Bold,
         color = colour,
         modifier = Modifier

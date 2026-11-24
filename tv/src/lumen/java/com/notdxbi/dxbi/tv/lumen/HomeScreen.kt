@@ -327,8 +327,8 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
             if (rows.isEmpty() && ready) {
                 item(key = "empty") {
                     Column(Modifier.fillMaxWidth().padding(64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Nothing to show yet", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                        Text("Install addons on your Stremio account to fill Home.", fontSize = 15.sp, color = Dx.Muted)
+                        Text("Nothing here yet", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("Add addons to your Stremio account to fill Home.", fontSize = 15.sp, color = Dx.Muted)
                     }
                 }
             }

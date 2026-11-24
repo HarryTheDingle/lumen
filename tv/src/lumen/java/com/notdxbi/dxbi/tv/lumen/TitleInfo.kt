@@ -207,7 +207,7 @@ fun streamBadges(best: StreamOption?): List<String> {
 fun FormatBadge(text: String) {
     Text(
         text,
-        fontSize = 10.sp,
+        fontSize = 12.sp,
         fontWeight = FontWeight.Bold,
         color = Color.White.copy(alpha = 0.9f),
         maxLines = 1,

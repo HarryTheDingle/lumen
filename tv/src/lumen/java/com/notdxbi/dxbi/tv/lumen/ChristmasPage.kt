@@ -74,8 +74,8 @@ fun ChristmasPage(feed: DiscoverFeed, nav: Nav) {
                         val d = data
                         Text(
                             when {
-                                d == null && done -> "Couldn't reach the catalogs. Check the TV's connection."
-                                d == null -> "Loading…"
+                                d == null && done -> "Can't connect. Check your connection and try again."
+                                d == null -> "Loading titles…"
                                 d.daysToChristmas == 0 -> "It's Christmas Day!"
                                 d.daysToChristmas == 1 -> "1 day to Christmas"
                                 else -> "${d.daysToChristmas} days to Christmas"

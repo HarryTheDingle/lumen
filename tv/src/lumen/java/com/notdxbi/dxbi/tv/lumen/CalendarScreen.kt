@@ -216,7 +216,7 @@ private fun DayCell(n: Int, isToday: Boolean, past: Boolean, items: List<Entry>,
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    "$n", fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                    "$n", fontSize = 12.sp, fontWeight = FontWeight.Bold,
                     color = when { isToday -> Color.Black; past -> Color.White.copy(alpha = 0.4f); else -> Color.White },
                 )
             }
@@ -229,7 +229,7 @@ private fun DayCell(n: Int, isToday: Boolean, past: Boolean, items: List<Entry>,
                     }
                     if (items.size > 2) {
                         Box(Modifier.width(22.dp).height(33.dp).background(Color.White.copy(alpha = 0.14f), RoundedCornerShape(3.dp)), contentAlignment = Alignment.Center) {
-                            Text("+${items.size - 1}", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("+${items.size - 1}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     }
                 }
@@ -245,7 +245,7 @@ private fun DayList(day: Long, today: Long, items: List<Entry>, loading: Boolean
         Text(dayHeading(day, today), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
         when {
             loading -> Text("Looking up dates…", fontSize = 15.sp, color = Dx.Muted)
-            items.isEmpty() -> Text("Nothing out this day.", fontSize = 15.sp, color = Dx.Muted)
+            items.isEmpty() -> Text("Nothing out on this day.", fontSize = 15.sp, color = Dx.Muted)
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
             itemsIndexed(items, key = { _, e -> e.title.id + e.line }) { i, e ->

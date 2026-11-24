@@ -188,7 +188,7 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
                                 AsyncImage(model = p.icon, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(24.dp).clip(RoundedCornerShape(6.dp)).background(p.colour.copy(alpha = 0.4f)))
                             })
                         }
-                        if (loadedFor != selected && loadedFor != null) Text("Loading…", fontSize = 14.sp, color = Dx.Muted, modifier = Modifier.padding(start = 8.dp))
+                        if (loadedFor != selected && loadedFor != null) Text("Loading titles…", fontSize = 14.sp, color = Dx.Muted, modifier = Modifier.padding(start = 8.dp))
                     }
                 }
                 // For You: what's on the page, each a press away (so the Genres, Franchises and digital rows are found)
@@ -214,7 +214,7 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
                     items(3, key = { "loading-$it" }) { LoadingShelf(null) }
                 } else if (rows.isEmpty() && loadedFor == selected) {
                     item(key = "empty") {
-                        Text("Couldn't reach the catalogs. Check the TV's connection.", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter))
+                        Text("Can't connect. Check your connection and try again.", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter))
                     }
                 }
                 rows.forEachIndexed { i, row ->

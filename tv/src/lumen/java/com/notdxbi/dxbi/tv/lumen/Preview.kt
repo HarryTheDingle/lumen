@@ -420,7 +420,7 @@ fun PosterFace(
             if (strip) GrowStrip(title, room, grow)
             if (strip && caption != null) Text(
                 caption,
-                fontSize = 11.sp, letterSpacing = (-0.1).sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 8.dp, vertical = 8.dp)
                     .graphicsLayer { alpha = ((grow() - 0.5f) * 2f).coerceIn(0f, 1f) },
             )
@@ -463,7 +463,7 @@ fun PosterFace(
             Text(
                 caption,
                 // (small enough for "TV Show · Comedy" across a poster)
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 letterSpacing = (-0.1).sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Color.White,

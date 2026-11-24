@@ -517,10 +517,10 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVid
                                     // card's hold menu; only a real IMDb title, which is all Stremio can be told about)
                                     if (!inList && Regex("""tt\d+""").matches(title.id)) add(Action("Not Interested", Icons.Filled.VisibilityOff) {
                                         stremio.notInterested(title)
-                                        Toast.makeText(context, "Not interested: it'll be left out of your recommendations", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Got it. It won't be recommended again.", Toast.LENGTH_SHORT).show()
                                         nav.back()
                                     })
-                                    if (d?.videoId != null) add(Action("Choose a Stream", Icons.AutoMirrored.Filled.List) {
+                                    if (d?.videoId != null) add(Action("Choose a stream", Icons.AutoMirrored.Filled.List) {
                                         streamsOpen = true
                                     })
                                 }
@@ -561,7 +561,7 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVid
                                     menu = episodeName(v) to buildList {
                                         add(Action("Play", Icons.Filled.PlayArrow) { start(v.id) })
                                         if (v.id == d.resumeVideoId && d.resumeMs > 0) add(Action("Start from the Beginning", Icons.Filled.Replay) { start(v.id, fromStart = true) })
-                                        add(Action("Choose a Stream", Icons.AutoMirrored.Filled.List) {
+                                        add(Action("Choose a stream", Icons.AutoMirrored.Filled.List) {
                                             choices = null
                                             stremio.open(ref.type, ref.id, v.id)
                                             streamsOpen = true
@@ -650,7 +650,7 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVid
             stremio.setRating(title, score)
             // (a rating means they've seen it: marked watched too, if it isn't; taking the rating off leaves that be)
             if (score != null && !title.watched) stremio.setWatched(true)
-            Toast.makeText(context, if (score == null) "Rating removed" else "Rated $score/10", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, if (score == null) "Rating removed" else "Rated $score out of 10", Toast.LENGTH_SHORT).show()
         }
     }
 }
@@ -899,7 +899,7 @@ fun Facts(title: Title, reviews: Reviews?, badges: List<String> = emptyList(), n
         // (a film that isn't on digital yet, whatever cinema copies are about: said plainly)
         notice?.let {
             Text(
-                it.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Black, maxLines = 1,
+                it.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Black, maxLines = 1,
                 modifier = Modifier.background(Color(0xFFFFC94D), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
             )
         }
@@ -1125,10 +1125,10 @@ private fun EpisodeCard(v: Video, fallbackArt: String?, isCurrent: Boolean, blur
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            v.episode?.let { Text(if (showSeason && v.season != null && v.season != 0) "S${v.season} · EPISODE $it" else "EPISODE $it", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = if (isCurrent) Color.White else Dx.Muted) }
+            v.episode?.let { Text(if (showSeason && v.season != null && v.season != 0) "S${v.season} · EPISODE $it" else "EPISODE $it", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (isCurrent) Color.White else Dx.Muted) }
             if (v.title.isNotEmpty()) Text(v.title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
             v.overview?.let { Text(it, fontSize = 12.sp, color = Color.White.copy(alpha = 0.75f), maxLines = 4, overflow = TextOverflow.Ellipsis, lineHeight = 16.sp) }
-            releasedText(v)?.let { Text(it, fontSize = 11.sp, color = Dx.Muted, modifier = Modifier.padding(top = 2.dp)) }
+            releasedText(v)?.let { Text(it, fontSize = 12.sp, color = Dx.Muted, modifier = Modifier.padding(top = 2.dp)) }
         }
     }
 }
@@ -1178,7 +1178,7 @@ fun Person(name: String, role: String?, photo: String?, size: Dp = 96.dp, onClic
             }
         }
         Text(name, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 2, textAlign = TextAlign.Center, lineHeight = 16.sp)
-        if (!role.isNullOrEmpty()) Text(role, fontSize = 11.sp, color = Dx.Muted, maxLines = 2, textAlign = TextAlign.Center)
+        if (!role.isNullOrEmpty()) Text(role, fontSize = 12.sp, color = Dx.Muted, maxLines = 2, textAlign = TextAlign.Center)
     }
 }
 
@@ -1297,7 +1297,7 @@ private fun ScoresSheet(name: String, reviews: Reviews, onDismiss: () -> Unit) {
                         Text(sc.value, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
-                reviews.scoresFrom?.let { Text("Scores from $it", fontSize = 12.sp, color = Dx.Faint) }
+                reviews.scoresFrom?.let { Text("Scores from $it", fontSize = 12.sp, color = Dx.Muted) }
                 Surface(
                     onClick = onDismiss,
                     modifier = Modifier.align(Alignment.CenterHorizontally).focusRequester(close),

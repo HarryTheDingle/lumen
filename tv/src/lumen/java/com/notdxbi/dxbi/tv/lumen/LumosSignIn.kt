@@ -55,7 +55,7 @@ fun LumosSignIn(stremio: Stremio) {
         while (true) {
             val made = runCatching { engine.startSignIn() }.getOrNull()
             pending = made
-            if (made == null) { status = "Couldn't reach $name. Check the TV's connection."; delay(15_000); continue }
+            if (made == null) { status = "Can't connect to $name. Check your connection and try again."; delay(15_000); continue }
             val until = System.currentTimeMillis() + 9 * 60_000
             while (System.currentTimeMillis() < until) {
                 delay(3_000)
@@ -128,7 +128,7 @@ fun LumosAddons(stremio: Stremio) {
         while (true) {
             val made = stremio.linkCreate()
             link = made
-            if (made == null) { status = "Couldn't reach Stremio. Trying again…"; delay(15_000); continue }
+            if (made == null) { status = "Can't connect to Stremio. Trying again…"; delay(15_000); continue }
             val until = System.currentTimeMillis() + 4 * 60_000
             while (System.currentTimeMillis() < until) {
                 delay(3_000)

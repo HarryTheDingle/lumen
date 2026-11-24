@@ -81,7 +81,7 @@ fun AiSearchPanel(ai: AiSearch, onRetry: () -> Unit) {
             AiPhase.Listening -> Status(if (ai.prompt.isBlank()) "Listening…" else ai.prompt, hint = if (ai.prompt.isBlank()) "Say what you feel like watching" else "Listening…")
             AiPhase.Finding -> Status("Finding titles…", spinner = true, hint = ai.prompt)
             AiPhase.Failed -> Status("Couldn't search right now", retry = onRetry)
-            AiPhase.Empty -> Status("Nothing matched, try describing it differently", retry = onRetry)
+            AiPhase.Empty -> Status("No matches. Try describing it differently.", retry = onRetry)
             AiPhase.NeedsText -> Status("Type what you're after in the box, then choose Ask AI")
             AiPhase.Ready, AiPhase.Idle -> {}
         }

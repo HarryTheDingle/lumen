@@ -190,7 +190,7 @@ fun GenrePage(nav: Nav, feed: DiscoverFeed, name: String) {
                 if (r == null) {
                     items(3, key = { "loading-$it" }) { LoadingShelf(null) }
                 } else if (r.isEmpty()) {
-                    item(key = "empty") { Text("Nothing here right now. Check the TV's connection.", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter)) }
+                    item(key = "empty") { Text("Nothing here yet. Check your connection.", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter)) }
                 }
                 r?.forEachIndexed { i, (n, list) ->
                     item(key = n) {

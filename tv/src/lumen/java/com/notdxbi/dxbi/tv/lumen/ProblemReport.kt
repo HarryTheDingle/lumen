@@ -32,7 +32,7 @@ object ProblemReport {
             result.onSuccess { id ->
                 UpdatePanel.show(activity, "Report sent", "Tell Harry the reference ${id.chunked(3).joinToString(" ")} and what you were doing.\n\nIt has the last 30 minutes of what ${com.notdxbi.dxbi.tv.BuildConfig.APP_NAME} did, with passwords and keys taken out.", listOf(UpdatePanel.Choice("OK") {}))
             }.onFailure { e ->
-                UpdatePanel.show(activity, "The report didn't send", (e.message?.takeIf { it.length < 160 } ?: "Check the TV's connection.") + "\n\nTry again in a moment.", listOf(UpdatePanel.Choice("OK") {}))
+                UpdatePanel.show(activity, "The report didn't send", (e.message?.takeIf { it.length < 160 } ?: "Check your connection.") + "\n\nTry again in a moment.", listOf(UpdatePanel.Choice("OK") {}))
             }
         }
     }

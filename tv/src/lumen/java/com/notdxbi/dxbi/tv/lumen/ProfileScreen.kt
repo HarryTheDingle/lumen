@@ -110,7 +110,7 @@ fun ProfilePicker(stremio: Stremio, onDone: () -> Unit) {
                         if (viewers.size < 8) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Circle(onClick = { screen = NEW }) {
                                 Box(Modifier.size(112.dp).background(Color.White.copy(alpha = 0.12f), CircleShape), contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Filled.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(44.dp))
+                                    Icon(Icons.Filled.Add, contentDescription = "Add profile", tint = Color.White, modifier = Modifier.size(44.dp))
                                 }
                             }
                             Text("Add Profile", fontSize = 15.sp, color = Dx.Muted)
@@ -145,7 +145,7 @@ private fun ProfileEditor(stremio: Stremio, viewer: Viewer?, count: Int, onClose
             ProfileColours.forEach { c ->
                 Circle(onClick = { colour = c }, selected = c == colour) {
                     Box(Modifier.size(34.dp).background(profileColour(c), CircleShape), contentAlignment = Alignment.Center) {
-                        if (c == colour) Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        if (c == colour) Icon(Icons.Filled.Check, contentDescription = "Selected", tint = Color.White, modifier = Modifier.size(20.dp))
                     }
                 }
             }

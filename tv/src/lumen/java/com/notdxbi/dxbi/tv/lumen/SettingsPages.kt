@@ -118,7 +118,7 @@ fun NetworksScreen(stremio: Stremio) {
                 }
                 val list = networks
                 if (list == null) {
-                    item(key = "loading") { Text("Loading…", fontSize = 15.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter, vertical = 20.dp)) }
+                    item(key = "loading") { Text("Loading networks…", fontSize = 15.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter, vertical = 20.dp)) }
                 } else if (list.isEmpty()) {
                     item(key = "none") {
                         Text("No networks yet. Play something, and the speed it really gets here is remembered.", fontSize = 15.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter, vertical = 20.dp).widthIn(max = 760.dp))

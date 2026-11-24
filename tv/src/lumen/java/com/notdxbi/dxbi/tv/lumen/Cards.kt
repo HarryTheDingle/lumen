@@ -637,7 +637,7 @@ fun AiringCard(item: Airing, onClick: () -> Unit, width: Dp = 300.dp) {
             Column(Modifier.align(Alignment.BottomStart).padding(12.dp)) {
                 Text(
                     if (item.out) "NEW EPISODE" else item.countdown.uppercase(),
-                    fontSize = 10.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = if (item.out) Color.White else Dx.Muted,
                 )

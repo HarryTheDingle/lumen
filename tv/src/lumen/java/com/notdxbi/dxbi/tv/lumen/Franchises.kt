@@ -133,7 +133,7 @@ fun FranchisePage(stremio: Stremio, nav: Nav, id: String, name: String) {
                         }
                     }
                     if (franchise == null || (franchise.films.isEmpty() && franchise.series.isEmpty())) {
-                        item(key = "empty") { Text("Nothing listed for this one.", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter)) }
+                        item(key = "empty") { Text("Nothing listed yet.", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = Dx.Gutter)) }
                     }
                     if (franchise != null && franchise.films.isNotEmpty()) {
                         item(key = "films") {

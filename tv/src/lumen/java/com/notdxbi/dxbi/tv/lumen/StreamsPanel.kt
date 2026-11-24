@@ -167,7 +167,7 @@ private fun Best(best: StreamOption, sameAsLastTime: Boolean, modifier: Modifier
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(30.dp))
+            Icon(Icons.Filled.PlayArrow, contentDescription = "Play", modifier = Modifier.size(30.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(if (sameAsLastTime) "Play · Same as Last Time" else "Play the Best Stream", fontSize = 17.sp, fontWeight = FontWeight.Bold)
                 Text(
@@ -240,8 +240,8 @@ private fun StreamRow(s: StreamOption, picked: Boolean, modifier: Modifier, onCl
                 if (s.addon != s.provider) s.addon else null,
             ).filter { it.isNotEmpty() }
             if (facts.isNotEmpty()) Text(facts.joinToString(" · "), fontSize = 12.sp, color = Dx.Muted, maxLines = 2)
-            s.claimNote?.let { Text(it, fontSize = 11.sp, color = Dx.Muted) }
-            if (s.lesser) Text("Upscaled, high frame rate or 3D: may not look as good as it says", fontSize = 11.sp, color = Dx.Faint)
+            s.claimNote?.let { Text(it, fontSize = 12.sp, color = Dx.Muted) }
+            if (s.lesser) Text("Upscaled, high frame rate or 3D: may not look as good as it says", fontSize = 12.sp, color = Dx.Muted)
         }
     }
 }
@@ -251,8 +251,8 @@ private fun StreamRow(s: StreamOption, picked: Boolean, modifier: Modifier, onCl
 private fun Filled(text: String) {
     Text(
         text,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.Black,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
         color = Color.Black,
         modifier = Modifier.background(Color.White, RoundedCornerShape(4.dp)).border(1.dp, Color.White, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 1.dp),
     )
@@ -261,7 +261,7 @@ private fun Filled(text: String) {
 @Composable
 private fun Status(choices: StreamChoices?, none: Boolean, nothingShown: Boolean) {
     val text = when {
-        choices == null || !choices.settled -> if (none) "Finding streams…" else "More addons answering…"
+        choices == null || !choices.settled -> if (none) "Finding streams…" else "Checking more addons…"
         none -> "No streams. Your addons may not have this one yet."
         nothingShown -> "Nothing matches those filters."
         else -> return

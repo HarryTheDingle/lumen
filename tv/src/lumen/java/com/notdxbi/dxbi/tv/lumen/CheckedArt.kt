@@ -149,7 +149,7 @@ object CheckedArt {
         scope.launch {
             val ok = wrong(tt)
             kotlinx.coroutines.withContext(Dispatchers.Main) {
-                android.widget.Toast.makeText(app, if (ok) "Thanks: finding a better picture for $name" else "Couldn't reach the server: try again in a moment", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(app, if (ok) "Thanks. Finding a better picture for $name." else "Can't connect. Try again in a moment.", android.widget.Toast.LENGTH_SHORT).show()
             }
         }
     }
