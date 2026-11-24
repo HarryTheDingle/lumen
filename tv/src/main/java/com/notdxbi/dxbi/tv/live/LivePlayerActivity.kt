@@ -506,6 +506,22 @@ class LivePlayerActivity : AppCompatActivity() {
             if (conflictOpen || (LumenHandoff.offer.value != null && !osdOpen)) {
                 return super.dispatchKeyEvent(event)
             }
+            val digit = when (event.keyCode) {
+                in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> event.keyCode - KeyEvent.KEYCODE_0
+                in KeyEvent.KEYCODE_NUMPAD_0..KeyEvent.KEYCODE_NUMPAD_9 -> event.keyCode - KeyEvent.KEYCODE_NUMPAD_0
+                else -> -1
+            }
+            if (digit >= 0 && !unavailable && event.repeatCount == 0) {
+                typeChannelDigit(digit)
+                return true
+            }
+            // (OK with a number typed goes to it at once)
+            if (LivePlayerExtras.numberEntry.value.isNotEmpty() &&
+                (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)
+            ) {
+                commitChannelNumber()
+                return true
+            }
             when (event.keyCode) {
                 KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP -> {
                     zapRelative(+1, showBannerOnly = !osdOpen)
@@ -567,7 +583,9 @@ class LivePlayerActivity : AppCompatActivity() {
                         return true
                     }
                     KeyEvent.KEYCODE_DPAD_DOWN -> {
-                        zapRelative(+1, showBannerOnly = true)
+                        // (the controls, on the channel strip, as in TiviMate: the channel is chosen there, not zapped past)
+                        LivePlayerExtras.focusStripTick.value = System.currentTimeMillis()
+                        showOsd(autoHide = true)
                         return true
                     }
                     KeyEvent.KEYCODE_DPAD_CENTER,
@@ -585,6 +603,41 @@ class LivePlayerActivity : AppCompatActivity() {
             }
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    private var numberJob: Job? = null
+
+    /** A digit on the remote: the channel number being typed, gone to a moment after the last one (or at once on OK) */
+    private fun typeChannelDigit(d: Int) {
+        val typed = (LivePlayerExtras.numberEntry.value + d).takeLast(4)
+        LivePlayerExtras.numberMessage.value = ""
+        LivePlayerExtras.numberEntry.value = typed
+        numberJob?.cancel()
+        numberJob = lifecycleScope.launch {
+            delay(1_600L)
+            commitChannelNumber()
+        }
+    }
+
+    private fun commitChannelNumber() {
+        numberJob?.cancel()
+        val typed = LivePlayerExtras.numberEntry.value
+        LivePlayerExtras.numberEntry.value = ""
+        val n = typed.toIntOrNull() ?: return
+        val liveStore = store ?: return
+        val target = orderedZapChannels(liveStore).firstOrNull { it.number == n }
+            ?: liveStore.channels.value.firstOrNull { it.number == n }
+        if (target == null) {
+            LivePlayerExtras.numberMessage.value = "No channel $n"
+            numberJob = lifecycleScope.launch {
+                delay(1_600L)
+                LivePlayerExtras.numberMessage.value = ""
+            }
+            return
+        }
+        if (target.id == currentChannelFlow.value.id) return
+        liveStore.recordRecent(target.id)
+        startChannelTune(channel = target, preferredStreamId = null, catchup = null, suppressOsd = false)
     }
 
     private fun startChannelTune(
@@ -1111,6 +1164,19 @@ class LivePlayerActivity : AppCompatActivity() {
                 pinnedStreamId = prefs.preferredStreamByChannel[ch.id],
                 miniGuideChannels = miniGuide,
             )
+        }
+
+        // the strip of channels along the bottom of the controls: those around the playing one, with what's on now
+        lifecycleScope.launch {
+            combine(osdVisibleFlow, currentChannelFlow, liveStore.nowNextByChannel) { open, ch, nowNext ->
+                if (!open) {
+                    emptyList()
+                } else {
+                    val list = orderedZapChannels(liveStore)
+                    val at = list.indexOfFirst { it.id == ch.id }.coerceAtLeast(0)
+                    list.drop((at - 3).coerceAtLeast(0)).take(40).map { c -> c to nowNext[c.id]?.first }
+                }
+            }.flowOn(Dispatchers.Default).collect { LivePlayerExtras.stripChannels.value = it }
         }
 
         return combine(baseFlow, mediaFlow, timingFlow, metaFlow, guideFlow) { base, media, timing, meta, guide ->

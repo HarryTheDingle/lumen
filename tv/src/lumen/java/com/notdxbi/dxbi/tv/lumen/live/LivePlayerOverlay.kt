@@ -195,6 +195,27 @@ fun LivePlayerOverlay(
             TopOsdScrim(state = state)
         }
 
+        // The channel number being typed on the remote
+        val typedNumber by com.notdxbi.dxbi.tv.live.LivePlayerExtras.numberEntry.collectAsState()
+        val numberMessage by com.notdxbi.dxbi.tv.live.LivePlayerExtras.numberMessage.collectAsState()
+        if (typedNumber.isNotEmpty() || numberMessage.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 70.dp, end = 56.dp)
+                    .background(Color(0xE8141418), RoundedCornerShape(16.dp))
+                    .border(1.dp, LivePalette.GlassBorder, RoundedCornerShape(16.dp))
+                    .padding(horizontal = 22.dp, vertical = 12.dp),
+            ) {
+                Text(
+                    text = if (typedNumber.isNotEmpty()) typedNumber else numberMessage,
+                    fontSize = if (typedNumber.isNotEmpty()) 38.sp else 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                )
+            }
+        }
+
         // Tuning / failover / buffering status banner centered cleanly at top
         TuningStatusBanner(
             state = state.playbackState,
@@ -311,6 +332,8 @@ private fun BottomOsdScrim(
     seekFocus: FocusRequester,
     playFocus: FocusRequester,
 ) {
+    val stripChannels by com.notdxbi.dxbi.tv.live.LivePlayerExtras.stripChannels.collectAsState()
+    val stripTick by com.notdxbi.dxbi.tv.live.LivePlayerExtras.focusStripTick.collectAsState()
     val nowMs = System.currentTimeMillis()
     val canScrubLive = !state.isCatchup && state.channel.hasCatchup && state.nowProgramme != null
     val canSeek = state.isCatchup || canScrubLive
@@ -373,7 +396,7 @@ private fun BottomOsdScrim(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(240.dp)
+            .height(if (stripChannels.isEmpty()) 240.dp else 360.dp)
             .background(
                 Brush.verticalGradient(
                     0f to Color.Transparent,
@@ -475,6 +498,103 @@ private fun BottomOsdScrim(
                     active = state.activePanel == LiveOverlayPanel.MORE,
                     onClick = { actions.onOpenPanel(LiveOverlayPanel.MORE) },
                 )
+            }
+
+            if (stripChannels.isNotEmpty() && !state.isCatchup) {
+                ChannelStrip(
+                    entries = stripChannels,
+                    currentChannelId = state.channel.id,
+                    focusTick = stripTick,
+                    onZap = actions.onZapChannel,
+                    onOpenGuide = { actions.onOpenPanel(LiveOverlayPanel.MINI_GUIDE) },
+                )
+            }
+        }
+    }
+}
+
+/** TiviMate-style: the channels around this one along the bottom, each with what's on now; OK goes to it */
+@Composable
+private fun ChannelStrip(
+    entries: List<Pair<CanonicalChannel, EpgProgramme?>>,
+    currentChannelId: String,
+    focusTick: Long,
+    onZap: (CanonicalChannel) -> Unit,
+    onOpenGuide: () -> Unit,
+) {
+    val currentIdx = entries.indexOfFirst { it.first.id == currentChannelId }.coerceAtLeast(0)
+    val listState = rememberLazyListState()
+    val currentTile = remember { FocusRequester() }
+    val nowMs = System.currentTimeMillis()
+
+    LaunchedEffect(currentChannelId) { runCatching { listState.scrollToItem(currentIdx) } }
+    LaunchedEffect(focusTick) {
+        if (focusTick > 0L) {
+            delay(120)
+            runCatching { currentTile.requestFocus() }
+        }
+    }
+
+    androidx.compose.foundation.lazy.LazyRow(
+        state = listState,
+        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item(key = "guide") {
+            Surface(
+                onClick = onOpenGuide,
+                modifier = Modifier.width(120.dp).height(96.dp),
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = Color.White.copy(alpha = 0.10f),
+                    contentColor = Color.White,
+                    focusedContainerColor = Color.White,
+                    focusedContentColor = Color.Black,
+                ),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+            ) {
+                Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    Icon(Icons.AutoMirrored.Filled.FormatListBulleted, contentDescription = null, modifier = Modifier.size(26.dp), tint = LocalContentColor.current)
+                    Spacer(Modifier.height(6.dp))
+                    Text("Guide", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = LocalContentColor.current)
+                }
+            }
+        }
+        items(entries, key = { it.first.id }) { (channel, prog) ->
+            val playing = channel.id == currentChannelId
+            Surface(
+                onClick = { onZap(channel) },
+                modifier = Modifier.width(210.dp).height(96.dp).then(if (playing) Modifier.focusRequester(currentTile) else Modifier),
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = if (playing) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f),
+                    contentColor = Color.White,
+                    focusedContainerColor = Color.White,
+                    focusedContentColor = Color.Black,
+                ),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+            ) {
+                val ink = LocalContentColor.current
+                Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = channel.number?.toString() ?: "",
+                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = ink.copy(alpha = 0.6f),
+                        )
+                        Text(
+                            text = channel.name, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = ink,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                        )
+                        if (playing) Box(Modifier.size(7.dp).clip(CircleShape).background(LivePalette.LiveRed))
+                    }
+                    Text(
+                        text = prog?.title ?: "No information", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = ink,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                    Box(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)).background(ink.copy(alpha = 0.2f))) {
+                        Box(Modifier.fillMaxHeight().fillMaxWidth((prog?.progressAt(nowMs) ?: 0f).coerceIn(0f, 1f)).background(ink))
+                    }
+                }
             }
         }
     }
@@ -710,7 +830,7 @@ private fun ZapBanner(
     modifier: Modifier = Modifier,
 ) {
     val activeStream = state.streams.firstOrNull { it.id == state.activeStreamId } ?: state.streams.firstOrNull()
-    val qualityBadge = formatCompactTechBadge(state.videoInfo)
+    val qualityBadge = formatFormatBadges(state.videoInfo)
         ?: formatCompactQuality(activeStream?.quality)
     val nowMs = System.currentTimeMillis()
     val nowProg = state.nowProgramme
@@ -1395,6 +1515,22 @@ private fun PanelRow(
             }
         }
     }
+}
+
+/** "FHD · 50 fps · Stereo": what the picture and sound are, as TiviMate's badges (plain words, not pills) */
+private fun formatFormatBadges(info: LiveVideoInfo): String? {
+    val res = when {
+        info.height >= 2160 -> "4K"
+        info.height >= 1080 -> "FHD"
+        info.height >= 720 -> "HD"
+        info.height > 0 -> "SD"
+        else -> return null
+    }
+    val parts = mutableListOf(res)
+    if (info.fps >= 49f) parts += "${"%.0f".format(info.fps)} fps"
+    if (info.hdrLabel.isNotBlank()) parts += info.hdrLabel
+    if (info.audioChannels > 0) parts += channelCountName(info.audioChannels)
+    return parts.joinToString(" · ")
 }
 
 private fun formatCompactTechBadge(info: LiveVideoInfo): String? {
