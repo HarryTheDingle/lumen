@@ -210,6 +210,8 @@ fun PageWindow(
     fadeIn: Boolean = true,
     /** Black behind everything in the window (fading in with the page): nothing of the page under it shows through, even where the page is clear for a trailer playing behind it */
     solid: Boolean = false,
+    /** The clock in the top right corner (the menu has the time in it already) */
+    clock: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     Dialog(
@@ -273,8 +275,39 @@ fun PageWindow(
                 scaleX = sc
                 scaleY = sc
             }.onFocusChanged { hasFocus = it.hasFocus }.holdBackForMenu()) { content() }
+        // (the clock stays still over the page as it fades in and out: it's the one under it, in the same place)
+        if (clock) Box(Modifier.fillMaxSize()) { LumenClock(Modifier.align(Alignment.TopEnd)) }
     }
 }
+
+/**
+ * The time, in a small capsule in the top right corner: on every screen of Lumen, the twin of the screen's name on the
+ * left. The players show theirs in the same place with their controls (and none while just the picture shows).
+ */
+@Composable
+fun LumenClock(modifier: Modifier = Modifier) {
+    var now by remember { mutableStateOf(com.notdxbi.dxbi.tv.phone.Dates.formatTime()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = com.notdxbi.dxbi.tv.phone.Dates.formatTime()
+            delay(60_000L - System.currentTimeMillis() % 60_000L + 30L)
+        }
+    }
+    Box(
+        modifier
+            .padding(top = 22.dp, end = Dx.Gutter - 8.dp)
+            .background(CLOCK_FILL, RoundedCornerShape(50))
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+    ) {
+        Text(
+            now, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
+            style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
+        )
+    }
+}
+
+/** The clock's capsule: see-through grey, so it shows on black pages and over pictures alike */
+internal val CLOCK_FILL = Color(0xA62A2A2E)
 
 /** Asks for the remote's focus once the window's up (a moment after it opens) */
 @Composable
@@ -368,7 +401,7 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
             backAt = now
             android.widget.Toast.makeText(context, "Press Back again to leave ${com.notdxbi.dxbi.tv.BuildConfig.APP_NAME}", android.widget.Toast.LENGTH_SHORT).show()
         }
-    }, windowAnimation = false, fadeIn = false) {
+    }, windowAnimation = false, fadeIn = false, clock = false) {
         FocusOnOpen(chosen)
         Box(
             Modifier

@@ -105,6 +105,7 @@ fun LiveSearchView(
     val channels by store.channels.collectAsState()
     val mainGuideRows by store.mainGuideRows.collectAsState()
     val nowNextMap by store.nowNextByChannel.collectAsState()
+    val favourites by store.favourites.collectAsState()
     val sportsFixtures by store.sportsFixtures.collectAsState()
     val sportsLoading by store.sportsLoading.collectAsState()
     val epgVersion by store.epgVersion.collectAsState()
@@ -153,7 +154,7 @@ fun LiveSearchView(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(start = 24.dp, top = 16.dp, bottom = 12.dp, end = if (miniPlayerActive) 316.dp else 24.dp),
+            .padding(start = 40.dp, top = 4.dp, bottom = 12.dp, end = 40.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         val voice = com.notdxbi.dxbi.tv.phone.rememberVoiceTyping { said -> query = said }
@@ -171,52 +172,17 @@ fun LiveSearchView(
             if (query.isNotEmpty()) LiveChip(label = "Clear", selected = false, onClick = { query = "" })
         }
 
-        // categories
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            itemsIndexed(SearchScope.entries.toList(), key = { _, s -> s.name }) { i, s ->
-                LiveChip(label = s.label, selected = scope == s, onClick = { scope = s }, modifier = if (i == 0) onLeft else Modifier)
-            }
-        }
-        // sports: each opens its page
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            itemsIndexed(SportTile.entries.toList(), key = { _, t -> t.name }) { i, t ->
-                GlassTile(
-                    onClick = { onOpenSport(t.name) },
-                    modifier = (if (i == 0) onLeft else Modifier).height(36.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    fillColor = LivePalette.GlassFill,
-                    sheen = true,
-                    focusedScale = Dx.FocusButton,
-                ) { _, ink ->
-                    Row(Modifier.padding(horizontal = 14.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(t.icon, contentDescription = null, tint = ink, modifier = Modifier.size(16.dp))
-                        Text(t.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1)
-                    }
-                }
-            }
-        }
-
         val current = bundle
         when {
-            query.isBlank() -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                item(key = "h") { LiveSectionHeading(if (scope == SearchScope.CATCHUP) "Catch-up" else "On now", "${browse.size} channels") }
-                if (browse.isEmpty()) item(key = "none") { Text("No ${scope.label.lowercase()} channels right now.", fontSize = 14.sp, color = Dx.Muted) }
-                items(browse.chunked(2), key = { it.first().id }) { pair ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        pair.forEach { ch ->
-                            val nowProg = nowNextMap[ch.id]?.first
-                            SearchRow(
-                                number = ch.number?.toString(),
-                                title = ch.name,
-                                subtitle = nowProg?.let { "${it.title} · ${it.remainingMinutesAt(nowMs)}m left" } ?: ch.category.label,
-                                tag = if (scope == SearchScope.CATCHUP) "${ch.maxCatchupDays}d" else null,
-                                onClick = { if (scope == SearchScope.CATCHUP) onOpenCatchup(ch) else store.playLive(context, ch) },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                        if (pair.size == 1) Spacer(Modifier.weight(1f))
-                    }
+            query.isBlank() -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                val favs = favourites.filter { it.streams.isNotEmpty() }
+                if (favs.isNotEmpty()) {
+                    item(key = "h:fav") { TileHeading("Favourite channels") }
+                    tileRows("fav", favs, nowNextMap, nowMs) { store.playLive(context, it) }
                 }
+                item(key = "h:all") { TileHeading("All channels") }
+                if (browse.isEmpty()) item(key = "none") { Text("Your channels are still loading.", fontSize = 14.sp, color = Dx.Muted) }
+                tileRows("all", browse, nowNextMap, nowMs) { store.playLive(context, it) }
             }
             current == null -> Text("Searching…", fontSize = 14.sp, color = Dx.Muted)
             else -> {
@@ -229,16 +195,8 @@ fun LiveSearchView(
                     Text("No results for “${query.trim()}”. Try a channel, show or team name.", fontSize = 14.sp, color = Dx.Muted)
                 } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (chans.isNotEmpty()) {
-                        item(key = "h:ch") { LiveSectionHeading("Channels", "${chans.size}") }
-                        items(chans.take(30).chunked(2), key = { "ch:" + it.first().id }) { pair ->
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                pair.forEach { ch ->
-                                    val nowProg = nowNextMap[ch.id]?.first
-                                    SearchRow(ch.number?.toString(), ch.name, nowProg?.title ?: ch.category.label, null, { store.playLive(context, ch) }, Modifier.weight(1f))
-                                }
-                                if (pair.size == 1) Spacer(Modifier.weight(1f))
-                            }
-                        }
+                        item(key = "h:ch") { TileHeading("Channels") }
+                        tileRows("ch", chans.take(30), nowNextMap, nowMs) { store.playLive(context, it) }
                     }
                     if (fixtures.isNotEmpty()) {
                         item(key = "h:sp") { LiveSectionHeading("Matches", "${fixtures.size}") }
@@ -298,5 +256,49 @@ private fun SearchRow(
             }
             if (tag != null) Text(tag, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = ink.copy(alpha = 0.7f), maxLines = 1)
         }
+    }
+}
+
+
+@Composable
+private fun TileHeading(text: String) {
+    Text(text, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(top = 4.dp))
+}
+
+/** Channels five to a row: each its logo tile, its name and what's on */
+private fun androidx.compose.foundation.lazy.LazyListScope.tileRows(
+    key: String,
+    channels: List<CanonicalChannel>,
+    nowNext: Map<String, Pair<EpgProgramme?, EpgProgramme?>>,
+    nowMs: Long,
+    onPick: (CanonicalChannel) -> Unit,
+) {
+    items(channels.chunked(5), key = { "$key:" + it.first().id }) { row ->
+        Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+            row.forEach { ch -> ChannelCard(ch, nowNext[ch.id]?.first?.title, onClick = { onPick(ch) }) }
+        }
+    }
+}
+
+/** A channel in search: its logo tile (which lifts with a white edge when chosen), its name and what's on now */
+@Composable
+private fun ChannelCard(ch: CanonicalChannel, now: String?, onClick: () -> Unit) {
+    val logo = remember(ch.id) { tileLogoFor(ch) }
+    Column(Modifier.width(156.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        androidx.tv.material3.Surface(
+            onClick = onClick,
+            modifier = Modifier.size(156.dp, 88.dp),
+            shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+            colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color.Transparent),
+            scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+            border = androidx.tv.material3.ClickableSurfaceDefaults.border(
+                focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(2.dp, Color.White), shape = RoundedCornerShape(10.dp)),
+            ),
+        ) {
+            ChannelTile(logoUrl = logo, name = ch.name, width = 156.dp, height = 88.dp, corner = 10.dp)
+        }
+        Spacer(Modifier.size(3.dp))
+        Text(ch.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (now != null) Text(now, fontSize = 11.sp, color = Dx.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

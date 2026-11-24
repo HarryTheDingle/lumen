@@ -88,6 +88,7 @@ fun ProfilePicker(stremio: Stremio, onDone: () -> Unit) {
     val first = remember { FocusRequester() }
 
     Box(Modifier.fillMaxSize().background(Dx.Background), contentAlignment = Alignment.Center) {
+        LumenClock(Modifier.align(Alignment.TopEnd))
         when (val s = screen) {
             is Viewer, NEW -> ProfileEditor(stremio, s as? Viewer, viewers.size) { screen = null }
             else -> {

@@ -229,6 +229,8 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
         }
         }
     }
+    // the time, top right, on every screen (the players have their own, with their controls)
+    LumenClock(Modifier.align(Alignment.TopEnd))
     }
 
     // Apple TV's menu down the left

@@ -145,11 +145,11 @@ private const val FUTURE_WINDOW_MS = 120L * 3_600_000L
 private const val HALF_HOUR_MS = 30L * 60_000L
 private const val PAN_STEP_MS = 60L * 60_000L
 private const val HOLD_LEFT_UNLOCK_MS = 320L
-private val LEFT_CHANNEL_WIDTH = 188.dp
+private val LEFT_CHANNEL_WIDTH = 140.dp
 private val ROW_HEIGHT = 52.dp
 /** The row the remote is on grows (to show a programme's whole name) */
 private val ROW_HEIGHT_FOCUSED = 76.dp
-private val TIME_HEADER_HEIGHT = 32.dp
+private val TIME_HEADER_HEIGHT = 40.dp
 
 /**
  * Deterministic 3-hour viewport-clamped EPG timeline grid shared by TV Guide and Sports Channels.
@@ -174,6 +174,10 @@ fun LiveEpgGrid(
     /** The channel that was playing, and a number that changes each time the screen comes back (from the player): the guide goes to it */
     playingChannelId: String? = null,
     returnedKey: Long = 0L,
+    /** A programme's page: OK on one still to come, or OK held on any */
+    onOpenProgramme: (GuideChannelRow, EpgProgramme, List<String>) -> Unit = { _, _, _ -> },
+    /** Changes when the programme page closes: the remote goes back to the programme it was on */
+    restoreFocusKey: Long = 0L,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -202,6 +206,8 @@ fun LiveEpgGrid(
     var focusedRowIdx by remember { mutableIntStateOf(0) }
     var focusedTimeMs by remember { mutableLongStateOf(nowMs) }
     var focusedIsLive by remember { mutableStateOf(true) }
+    // (where the remote was when a programme's page opened: closing it, the focus first falls on the live programme)
+    var openedFrom by remember { mutableStateOf<Pair<Int, Long>?>(null) }
     var pendingFocus by remember { mutableStateOf<Pair<Int, Long>?>(null) }
     var focusNonce by remember { mutableIntStateOf(0) }
     var didInitialFocus by remember(isSportsMode) { mutableStateOf(false) }
@@ -212,7 +218,8 @@ fun LiveEpgGrid(
     val railShift by androidx.compose.animation.core.animateDpAsState(if (filterRailOpen) 236.dp else 0.dp, androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 200f), label = "rail-shift")
     val railShiftPx = with(androidx.compose.ui.platform.LocalDensity.current) { railShift.toPx() }
     val railRequesters = remember { EpgRowFilter.entries.associateWith { FocusRequester() } }
-    fun openRail() { filterRailOpen = true }
+    // (no filters any more, for a cleaner guide: Left from the first programme opens Lumen's menu)
+    fun openRail() { onMoveToRail() }
     var longPressTarget by remember { mutableStateOf<LongPressTarget?>(null) }
     var streamPickerRow by remember { mutableStateOf<GuideChannelRow?>(null) }
 
@@ -312,6 +319,12 @@ fun LiveEpgGrid(
     }
 
     // Back from the player: the guide is on the channel that was playing (zapping there moves it on from the row it was opened on)
+    LaunchedEffect(restoreFocusKey) {
+        if (restoreFocusKey == 0L) return@LaunchedEffect
+        val (r, t) = openedFrom ?: return@LaunchedEffect
+        delay(60)
+        requestSlotFocus(r, t)
+    }
     LaunchedEffect(returnedKey, filteredRows.size) {
         if (returnedKey == 0L || playingChannelId == null || filteredRows.isEmpty()) return@LaunchedEffect
         val idx = filteredRows.indexOfFirst { it.linkedChannel?.id == playingChannelId }
@@ -432,7 +445,7 @@ fun LiveEpgGrid(
                         contentAlignment = Alignment.CenterStart,
                     ) {
                         Text(
-                            text = (if (activeFilter == EpgRowFilter.ALL) "" else "${activeFilter.label} · ") + "${filteredRows.size} ch · ${LiveTimeFormat.formatDayHeader(viewportStartMs)}",
+                            text = "",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = Dx.Muted,
@@ -473,7 +486,7 @@ fun LiveEpgGrid(
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color.White.copy(alpha = 0.5f),
-                                modifier = Modifier.padding(start = 24.dp, top = 12.dp, bottom = 4.dp),
+                                modifier = Modifier.padding(start = 40.dp, top = 12.dp, bottom = 4.dp),
                             )
                         }
                         val programmes = remember(row.guideChannel.id, viewportStartMs, viewportEndMs, epgVersion) {
@@ -521,10 +534,13 @@ fun LiveEpgGrid(
                                     programme = slot.programme,
                                     nowMs = nowMs,
                                     zapChannelIds = zapChannelIds,
+                                    onOpenProgramme = { r, p -> openedFrom = rowIdx to slot.midMs; onOpenProgramme(r, p, zapChannelIds) },
                                 )
                             },
                             onLongClickSlot = { slot ->
-                                longPressTarget = LongPressTarget(row = row, programme = slot.programme)
+                                val prog = slot.programme
+                                if (prog != null) { openedFrom = rowIdx to slot.midMs; onOpenProgramme(row, prog, zapChannelIds) }
+                                else longPressTarget = LongPressTarget(row = row, programme = null)
                             },
                             onStepRow = { delta ->
                                 val nextRowIdx = rowIdx + delta
@@ -640,13 +656,6 @@ fun LiveEpgGrid(
                                     false
                                 }
                             },
-                        )
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(1.dp)
-                                .background(LivePalette.Hairline),
                         )
                     }
                 }
@@ -806,14 +815,17 @@ private fun ViewportTimeRuler(
                         .height(12.dp)
                         .background(Color.White.copy(alpha = 0.16f)),
                 )
-                Text(
-                    text = LiveTimeFormat.formatTime12h(tickMs),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Dx.Muted,
-                    modifier = Modifier.padding(start = 6.dp),
-                    maxLines = 1,
-                )
+                Column(Modifier.padding(start = 6.dp)) {
+                    Text(
+                        text = LiveTimeFormat.formatTime24h(tickMs),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White,
+                        maxLines = 1,
+                        style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
+                    )
+                    Text(text = rulerDay(tickMs), fontSize = 10.sp, color = Dx.Muted, maxLines = 1)
+                }
             }
         }
     }
@@ -853,7 +865,7 @@ private fun GuideChannelViewportRow(
             modifier = Modifier
                 .width(LEFT_CHANNEL_WIDTH)
                 .fillMaxHeight()
-                .padding(start = 24.dp, end = 10.dp),
+                .padding(start = 40.dp, end = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -865,27 +877,9 @@ private fun GuideChannelViewportRow(
                 height = 42.dp,
                 modifier = Modifier.graphicsLayer { alpha = if (row.isPlayable) 1f else 0.45f },
             )
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                row.guideChannel.number?.let {
-                    Text(text = it.toString(), fontSize = 11.sp, fontWeight = FontWeight.Medium, color = Dx.Muted, maxLines = 1)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (row.hasCatchup) {
-                        Icon(imageVector = Icons.Filled.History, contentDescription = "Catch-up available", tint = Dx.Muted, modifier = Modifier.size(11.dp))
-                    }
-                    if (isFavourite) {
-                        Icon(imageVector = Icons.Filled.Favorite, contentDescription = "Favourite", tint = Color(0xFFFF6B81), modifier = Modifier.size(11.dp))
-                    }
-                }
-            }
         }
 
-        Box(
-            modifier = Modifier
-                .width(1.dp)
-                .fillMaxHeight()
-                .background(LivePalette.Hairline),
-        )
+        Box(Modifier.width(1.dp))
 
         // Proportional 3-hour timeline track
         Row(
@@ -910,11 +904,8 @@ private fun GuideChannelViewportRow(
                     row.isPlayable -> "Live Broadcast · ${row.guideChannel.name}"
                     else -> "No programme guide"
                 }
-                val timeLabel = if (prog != null) {
-                    LiveTimeFormat.formatRange12h(prog.startMs, prog.endMs)
-                } else {
-                    LiveTimeFormat.formatRange12h(slot.startMs, slot.endMs)
-                }
+                // (only when it starts: where it ends shows from where the next one begins)
+                val timeLabel = LiveTimeFormat.formatTime24h(prog?.startMs ?: slot.startMs)
 
                 val cellMod = Modifier
                     .weight(slot.weightMinutes)
@@ -949,7 +940,7 @@ private fun GuideChannelViewportRow(
                     timeLabel = if (tiny) "" else timeLabel,
                     isLive = isLive,
                     isPastCatchup = isPastCatchup,
-                    isPastUnavailable = isPastUnavailable,
+                    isPastUnavailable = isPast,
                     isSport = prog?.isLiveSport == true,
                     rowFocused = focusedRow,
                     onFocus = { onFocusSlot(slot) },
@@ -982,7 +973,7 @@ private fun ProgrammeViewportCell(
         else -> LivePalette.CellBg
     }
     val borderColor = when {
-        isPastCatchup -> Dx.Amber.copy(alpha = 0.30f)
+        isPastCatchup -> Color.Transparent
         else -> Color.Transparent
     }
 
@@ -1029,7 +1020,7 @@ private fun ProgrammeViewportCell(
                 )
             }
             Text(
-                text = if (isPastCatchup) "Catch-up · $timeLabel" else timeLabel,
+                text = timeLabel,
                 fontSize = 11.sp,
                 color = ink.copy(alpha = if (focused) 0.68f else 0.58f * textAlpha),
                 maxLines = 1,
@@ -1134,6 +1125,7 @@ private fun handleSlotClick(
     programme: EpgProgramme?,
     nowMs: Long,
     zapChannelIds: List<String>,
+    onOpenProgramme: (GuideChannelRow, EpgProgramme) -> Unit,
 ) {
     val linked = row.linkedChannel
     when {
@@ -1151,14 +1143,8 @@ private fun handleSlotClick(
                 ).show()
             }
         }
-        else -> {
-            val whenText = "${LiveTimeFormat.formatDayHeader(programme.startMs)} at ${LiveTimeFormat.formatTime12h(programme.startMs)}"
-            Toast.makeText(
-                context,
-                "${programme.title} airs $whenText on ${row.guideChannel.name}",
-                Toast.LENGTH_SHORT,
-            ).show()
-        }
+        // still to come: its page (Remind me, Watch channel)
+        else -> onOpenProgramme(row, programme)
     }
 }
 
@@ -1498,5 +1484,17 @@ private val guideScrollSpec = object : androidx.compose.foundation.gestures.Brin
         val rest = containerSize * 0.2f
         val delta = offset - rest
         return if (kotlin.math.abs(delta) < 6f) 0f else delta
+    }
+}
+
+
+/** "Today", "Tomorrow", "Yesterday" or the weekday, under a time on the ruler */
+private fun rulerDay(ms: Long): String {
+    val c = Calendar.getInstance().apply { timeInMillis = ms }
+    val t = Calendar.getInstance()
+    val d = (c.get(Calendar.YEAR) - t.get(Calendar.YEAR)) * 400 + c.get(Calendar.DAY_OF_YEAR) - t.get(Calendar.DAY_OF_YEAR)
+    return when (d) {
+        0 -> "Today"; 1 -> "Tomorrow"; -1 -> "Yesterday"
+        else -> java.text.SimpleDateFormat("EEEE", java.util.Locale.UK).format(java.util.Date(ms))
     }
 }

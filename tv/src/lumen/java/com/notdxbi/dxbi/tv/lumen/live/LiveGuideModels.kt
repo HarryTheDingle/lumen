@@ -123,14 +123,14 @@ internal object LiveTimeFormat {
     private val dayHeader = local("EEE d MMM", Locale.UK)
     private val weekdayShort = local("EEE", Locale.UK)
 
-    fun formatTime12h(epochMs: Long): String =
-        time12h.get()!!.format(Date(epochMs)).lowercase(Locale.UK)
+    /** (UK guides use the 24-hour clock: Live TV's times all read "16:10", whatever the old names say) */
+    fun formatTime12h(epochMs: Long): String = formatTime24h(epochMs)
 
     fun formatTime24h(epochMs: Long): String =
         time24h.get()!!.format(Date(epochMs))
 
     fun formatRange12h(startMs: Long, endMs: Long): String =
-        "${formatTime12h(startMs)} - ${formatTime12h(endMs)}"
+        "${formatTime24h(startMs)} – ${formatTime24h(endMs)}"
 
     fun formatDayHeader(epochMs: Long): String =
         dayHeader.get()!!.format(Date(epochMs))

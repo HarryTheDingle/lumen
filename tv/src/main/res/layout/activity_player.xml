@@ -233,11 +233,17 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|end"
-        android:layout_marginTop="36dp"
-        android:layout_marginEnd="56dp"
+        android:layout_marginTop="22dp"
+        android:layout_marginEnd="40dp"
+        android:background="@drawable/clock_pill"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:fontFeatureSettings="tnum"
         android:textColor="@android:color/white"
-        android:textSize="17sp"
-        android:textStyle="bold"
+        android:textSize="14sp"
+        android:fontFamily="sans-serif-medium"
         android:visibility="gone" />
 
     <!-- Up next: counts down over the credits, like on a computer -->

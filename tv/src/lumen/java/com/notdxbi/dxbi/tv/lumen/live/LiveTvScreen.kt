@@ -1,5 +1,9 @@
 package com.notdxbi.dxbi.tv.lumen.live
 
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ViewList
 import kotlinx.coroutines.flow.first
 import android.view.LayoutInflater
 import androidx.activity.compose.BackHandler
@@ -103,6 +107,8 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
     val activeSection = nav.liveSection.let { if (it == LiveSection.SETTINGS || it == LiveSection.FAVOURITES) LiveSection.TV_GUIDE else it }
     var railOpen by remember { mutableStateOf(false) }
     var catchupChannel by remember { mutableStateOf<CanonicalChannel?>(null) }
+    var programmePage by remember { mutableStateOf<ProgrammeTarget?>(null) }
+    var pageClosedAt by remember { mutableLongStateOf(0L) }
     var heroSelection by remember {
         mutableStateOf<HeroSelection>(
             HeroSelection.Empty("Live TV", "Loading UK TV guide and channels…"),
@@ -164,7 +170,7 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
 
     // Back first goes to the small screen of what's playing (OK there: back to full screen), then opens Lumen's menu,
     // opened out at Live TV's pages (and not on the Back that just closed the player)
-    BackHandler(enabled = !nav.menuOpen && catchupChannel == null && pairing == null) {
+    BackHandler(enabled = !nav.menuOpen && catchupChannel == null && pairing == null && programmePage == null) {
         if (android.os.SystemClock.uptimeMillis() - resumedAt < 700) return@BackHandler
         if (miniSession != null && !miniFocused && runCatching { miniRequester.requestFocus() }.isSuccess) return@BackHandler
         nav.menuOpen = true
@@ -218,12 +224,13 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
             .background(Dx.Background),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
+            // the page's name top left (the clock is top right, as on all of Lumen's screens): its own strip, so nothing
+            // below runs under either
+            LivePageTag(activeSection)
             if (showHero) {
-                LiveHeroHeader(
+                GuideHeader(
                     selection = headerHero,
-                    hideSportsScores = prefs.hideSportsScores,
                     nowMs = nowMs,
-                    miniPlayerActive = miniPlayerActive,
                     leading = miniSession?.let { session -> {
                         CornerMiniPlayerCard(
                             session = session,
@@ -245,6 +252,7 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
                         store.enrichIfMissing(chId, prog, forceArtwork = true)
                     },
                 )
+                Spacer(Modifier.height(14.dp))
             }
 
             uiState.error?.let { err ->
@@ -286,6 +294,8 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
                                 onOpenCatchup = { ch -> catchupChannel = ch },
                                 playingChannelId = miniSession?.channel?.id,
                                 returnedKey = resumedAt,
+                                onOpenProgramme = { row, prog, zap -> programmePage = ProgrammeTarget(row, prog, zap) },
+                                restoreFocusKey = pageClosedAt,
                             )
                         }
                     }
@@ -327,6 +337,18 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
                     }
                 }
             }
+        }
+
+        programmePage?.let { t ->
+            ProgrammePage(
+                store = store,
+                row = t.row,
+                programme = t.programme,
+                zapChannelIds = t.zap,
+                favourite = t.row.linkedChannel?.id in favSet,
+                onOpenCatchup = { ch -> catchupChannel = ch },
+                onClose = { programmePage = null; pageClosedAt = android.os.SystemClock.uptimeMillis() },
+            )
         }
 
         catchupChannel?.let { selected ->
@@ -495,6 +517,35 @@ private fun EmptyLiveTvSetup(
                     onClick = onStartPairing,
                 )
             }
+        }
+    }
+}
+
+
+/** A programme whose page is open, from the guide */
+private data class ProgrammeTarget(val row: lumos.iptv.GuideChannelRow, val programme: lumos.iptv.EpgProgramme, val zap: List<String>)
+
+/** The Live TV page's name in a small capsule top left, as Lumen's other screens have (it isn't chosen with the remote) */
+@Composable
+private fun LivePageTag(section: LiveSection) {
+    val (label, icon) = when (section) {
+        LiveSection.SEARCH -> "Find a channel" to androidx.compose.material.icons.Icons.Filled.Search
+        LiveSection.SPORTS -> "Sports" to androidx.compose.material.icons.Icons.Filled.EmojiEvents
+        LiveSection.SETTINGS -> "Live TV settings" to androidx.compose.material.icons.Icons.Filled.Settings
+        else -> "Guide" to androidx.compose.material.icons.Icons.Filled.ViewList
+    }
+    Box(Modifier.fillMaxWidth().height(66.dp)) {
+        Row(
+            Modifier.padding(start = Dx.Gutter - 8.dp, top = 22.dp)
+                .background(Color.White.copy(alpha = 0.10f), RoundedCornerShape(50))
+                .padding(start = 6.dp, end = 14.dp, top = 5.dp, bottom = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(22.dp).background(Color.White.copy(alpha = 0.22f), androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
+                androidx.tv.material3.Icon(icon, contentDescription = null, modifier = Modifier.size(13.dp), tint = Color.White)
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
         }
     }
 }

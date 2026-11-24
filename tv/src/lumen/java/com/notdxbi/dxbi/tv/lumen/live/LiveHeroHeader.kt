@@ -196,8 +196,8 @@ fun LiveHeroHeader(
 }
 
 /** The mini player's size in the header */
-internal val MINI_W = 204.dp
-internal val MINI_H = 115.dp
+internal val MINI_W = 216.dp
+internal val MINI_H = 122.dp
 
 private fun heroKey(sel: HeroSelection): String = when (sel) {
     is HeroSelection.Programme -> "p:${sel.row.guideChannel.id}:${sel.programme?.startMs}"

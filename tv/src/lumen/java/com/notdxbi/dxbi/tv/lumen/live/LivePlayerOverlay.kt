@@ -317,15 +317,8 @@ private fun TopOsdScrim(state: LiveOverlayState) {
             ZapBanner(state = state)
         }
 
-        Text(
-            text = Dates.formatTime(),
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.White,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 36.dp, end = 56.dp),
-        )
+        // the same clock, in the same place, as on Lumen's screens
+        com.notdxbi.dxbi.tv.lumen.LumenClock(Modifier.align(Alignment.TopEnd))
     }
 }
 
