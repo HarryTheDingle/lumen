@@ -204,8 +204,7 @@ fun LivePlayerOverlay(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(top = 70.dp, end = 56.dp)
-                    .background(LiveSurface, RoundedCornerShape(22.dp))
-                    .border(1.dp, LivePalette.GlassBorder, RoundedCornerShape(16.dp))
+                    .liveGlass(RoundedCornerShape(22.dp))
                     .padding(horizontal = 22.dp, vertical = 12.dp),
             ) {
                 Text(
@@ -753,7 +752,7 @@ private fun SeekLineBar(
                     // (its own size, whatever the bar allows: the time used to wrap and be cut off)
                     .wrapContentSize(unbounded = true)
                     .onSizeChanged { bubbleWidthPx = it.width }
-                    .background(PANEL_BG, RoundedCornerShape(10.dp))
+                    .liveGlass(RoundedCornerShape(10.dp))
                     .border(1.dp, PANEL_BORDER, RoundedCornerShape(10.dp))
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -823,7 +822,7 @@ private fun TuningStatusBanner(
 
     Box(
         modifier = modifier
-            .background(PANEL_BG, RoundedCornerShape(14.dp))
+            .liveGlass(RoundedCornerShape(14.dp))
             .border(1.dp, PANEL_BORDER, RoundedCornerShape(14.dp))
             .padding(horizontal = 16.dp, vertical = 9.dp),
     ) {
@@ -851,8 +850,7 @@ private fun ZapBanner(
     Row(
         modifier = modifier
             .widthIn(min = 380.dp, max = 560.dp)
-            .background(LiveSurface, RoundedCornerShape(22.dp))
-            .border(1.dp, LivePalette.GlassBorder, RoundedCornerShape(18.dp))
+            .liveGlass(RoundedCornerShape(22.dp))
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -964,8 +962,7 @@ private fun ActiveViewerConflictDialog(
         Column(
             modifier = Modifier
                 .width(560.dp)
-                .background(LiveSurface, RoundedCornerShape(22.dp))
-                .border(1.dp, LivePalette.GlassBorder, RoundedCornerShape(22.dp))
+                .liveGlass(RoundedCornerShape(22.dp))
                 .padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -1059,7 +1056,7 @@ private fun UnavailableDialog(
         Column(
             modifier = Modifier
                 .width(520.dp)
-                .background(PANEL_BG, RoundedCornerShape(22.dp))
+                .liveGlass(RoundedCornerShape(22.dp))
                 .border(1.dp, PANEL_BORDER, RoundedCornerShape(22.dp))
                 .padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -1102,7 +1099,7 @@ private fun FloatingPanelShell(
         modifier = Modifier
             .width(width)
             .heightIn(max = 420.dp)
-            .background(PANEL_BG, RoundedCornerShape(14.dp))
+            .liveGlass(RoundedCornerShape(14.dp))
             .border(1.dp, PANEL_BORDER, RoundedCornerShape(14.dp))
             .padding(10.dp)
             .focusProperties { onExit = { cancelFocusChange() } }
@@ -1576,7 +1573,7 @@ private fun LumenOfferCard(offer: com.notdxbi.dxbi.tv.live.LumenHandoff.Offer, o
     Column(
         modifier = Modifier
             .width(400.dp)
-            .background(LiveSurface, RoundedCornerShape(22.dp))
+            .liveGlass(RoundedCornerShape(22.dp))
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {

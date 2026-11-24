@@ -990,6 +990,7 @@ private fun ProgrammeViewportCell(
         focusedFillColor = Color.White,
         borderColor = borderColor,
         focusedScale = 1.02f,
+        sheen = borderColor == Color.Transparent,
     ) { focused, ink ->
         val textAlpha = if (!focused && isPastUnavailable) 0.45f else 1f
         Column(
@@ -1235,8 +1236,7 @@ private fun StreamFeedPickerDialog(
             Column(
                 modifier = Modifier
                     .width(560.dp)
-                    .background(LiveSurface, RoundedCornerShape(22.dp))
-                    .border(1.dp, LivePalette.GlassBorder, RoundedCornerShape(22.dp))
+                    .liveGlass(RoundedCornerShape(22.dp))
                     .padding(22.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -1317,8 +1317,7 @@ internal fun CatchupModal(
                 modifier = Modifier
                     .width(660.dp)
                     .fillMaxHeight(0.82f)
-                    .background(LiveSurface, RoundedCornerShape(22.dp))
-                    .border(1.dp, LivePalette.GlassBorder, RoundedCornerShape(22.dp))
+                    .liveGlass(RoundedCornerShape(22.dp))
                     .padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -1437,7 +1436,7 @@ private fun FilterRail(
         Column(
             modifier = Modifier
                 .padding(start = 12.dp)
-                .background(LiveSurface, RoundedCornerShape(22.dp))
+                .liveGlass(RoundedCornerShape(22.dp))
                 .padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {

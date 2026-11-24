@@ -198,6 +198,8 @@ internal fun GlassTile(
     focusedFillColor: Color = Color.White,
     borderColor: Color = LivePalette.GlassBorder,
     focusedScale: Float = 1.025f,
+    /** The soft glass sheen and rim while it isn't chosen (cells in the guide, cards) */
+    sheen: Boolean = false,
     onFocus: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
     content: @Composable BoxScope.(focused: Boolean, ink: Color) -> Unit,
@@ -239,6 +241,7 @@ internal fun GlassTile(
             // (a tile asked for no edge has none until the remote's on it: plain words, as Apple TV's)
             .then(if (focused || borderColor != Color.Transparent) Modifier.glassEdge(shape, glass, tracked = focused) { lift } else Modifier)
             .background(if (focused) focusedFillColor else fillColor, shape)
+            .then(if (sheen && !focused) Modifier.background(GlassSheen, shape).border(1.dp, GlassRim, shape) else Modifier)
             .then(if (focused || borderColor != Color.Transparent) Modifier.border(1.dp, if (focused) Color.White.copy(alpha = 0.65f) else borderColor, shape) else Modifier)
             .onKeyEvent { e ->
                 if (!e.isSelectKey()) return@onKeyEvent false
@@ -598,3 +601,11 @@ internal val LiveSurface = Color(0xF2141418)
 
 /** The one duration for overlays coming and going */
 internal const val LIVE_MS = 200
+
+/** Glass, cheap: a soft white sheen from the top and a rim that's brightest at the top edge (no blur, so it costs nothing on a Mi Box) */
+internal val GlassSheen = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.10f), Color.White.copy(alpha = 0.03f)))
+internal val GlassRim = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.05f)))
+
+/** A card or panel over the picture: the dark surface with the glass sheen and rim on it */
+internal fun Modifier.liveGlass(shape: Shape = RoundedCornerShape(22.dp)): Modifier =
+    this.background(LiveSurface, shape).background(GlassSheen, shape).border(1.dp, GlassRim, shape)

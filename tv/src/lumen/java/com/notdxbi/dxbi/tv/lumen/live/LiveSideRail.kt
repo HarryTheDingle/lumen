@@ -120,8 +120,7 @@ fun LiveSideRail(
                     .padding(start = 18.dp, top = 20.dp, bottom = 20.dp)
                     .width(204.dp)
                     .fillMaxHeight()
-                    .background(LivePalette.RailBg, RoundedCornerShape(22.dp))
-                    .border(1.dp, LivePalette.GlassBorder, RoundedCornerShape(22.dp))
+                    .liveGlass(RoundedCornerShape(22.dp))
                     .padding(horizontal = 12.dp, vertical = 16.dp)
                     .onPreviewKeyEvent { e ->
                         if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight) {

@@ -74,7 +74,7 @@ fun ReminderCard(engine: Engine) {
                     .align(Alignment.BottomEnd)
                     .padding(end = 36.dp, bottom = 36.dp)
                     .width(340.dp)
-                    .background(LiveSurface, RoundedCornerShape(22.dp))
+                    .liveGlass(RoundedCornerShape(22.dp))
                     .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {

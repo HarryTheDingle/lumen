@@ -574,8 +574,7 @@ internal fun AddSportsTeamDialog(
                 modifier = Modifier
                     .width(640.dp)
                     .fillMaxHeight(0.80f)
-                    .background(LiveSurface, RoundedCornerShape(22.dp))
-                    .border(1.dp, LivePalette.GlassBorder, RoundedCornerShape(22.dp))
+                    .liveGlass(RoundedCornerShape(22.dp))
                     .padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
