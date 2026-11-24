@@ -830,19 +830,11 @@ private fun GuideChannelViewportRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            LandscapeChannelLogo(
-                logoUrl = row.logoUrl,
-                name = row.guideChannel.name,
-                width = 56.dp,
-                height = 26.dp,
-                corner = 7.dp,
-                plain = true,
-            )
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = row.guideChannel.name,
-                    fontSize = 11.sp,
-                    lineHeight = 13.sp,
+                    fontSize = 14.sp,
+                    lineHeight = 17.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White,
                     // (the whole name, over up to three lines: never cut short with dots)
