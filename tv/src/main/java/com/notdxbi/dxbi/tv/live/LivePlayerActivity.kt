@@ -237,6 +237,8 @@ class LivePlayerActivity : AppCompatActivity() {
             keepScreenOn = true
         }
         exoEngine.attachPlayerView(playerView)
+        // (frosted boxes over the picture: a small blurred copy of it while one shows)
+        LiveFrost.run(lifecycleScope, playerView)
 
         overlayStateFlow = buildOverlayStateFlow(liveStore)
         val actions = LiveOverlayActions(

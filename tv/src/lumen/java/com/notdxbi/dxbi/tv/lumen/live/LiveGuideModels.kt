@@ -1,5 +1,10 @@
 package com.notdxbi.dxbi.tv.lumen.live
 
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.runtime.collectAsState
 import android.view.KeyEvent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -610,6 +615,42 @@ internal val GlassRim = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0
 /** A card or panel over the picture: the dark surface with the glass sheen and rim on it */
 internal fun Modifier.liveGlass(shape: Shape = RoundedCornerShape(22.dp)): Modifier =
     this.background(LiveSurface, shape).background(GlassSheen, shape).border(1.dp, GlassRim, shape)
+
+/**
+ * Frosted glass over the live picture: the picture behind the box, blurred, under a dark tint (see LiveFrost), with the
+ * glass sheen and rim. Until a copy of the picture is in, the plain dark glass.
+ */
+internal fun Modifier.liveFrost(shape: Shape = RoundedCornerShape(22.dp)): Modifier = this.then(Modifier.composed {
+    val f by com.notdxbi.dxbi.tv.live.LiveFrost.frame.collectAsState()
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        com.notdxbi.dxbi.tv.live.LiveFrost.wanted++
+        onDispose { com.notdxbi.dxbi.tv.live.LiveFrost.wanted-- }
+    }
+    var pos by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    Modifier
+        .onGloballyPositioned { pos = it.positionInWindow() }
+        .clip(shape)
+        .drawBehind {
+            val fr = f
+            if (fr == null) {
+                drawRect(LiveSurface)
+            } else {
+                drawRect(Color.Black)
+                drawImage(
+                    image = fr.image,
+                    dstOffset = androidx.compose.ui.unit.IntOffset((fr.left - pos.x).toInt(), (fr.top - pos.y).toInt()),
+                    dstSize = androidx.compose.ui.unit.IntSize(fr.width, fr.height),
+                    filterQuality = androidx.compose.ui.graphics.FilterQuality.Low,
+                )
+                drawRect(FrostTint)
+            }
+        }
+        .background(GlassSheen, shape)
+        .border(1.dp, GlassRim, shape)
+})
+
+/** The tint over the frosted picture: dark enough that white words read over a bright scene */
+private val FrostTint = Color(0x8C121216)
 
 /** ESPN's small team logos, asked for at the size they're drawn (twice over) so they're sharp */
 internal fun crispLogoUrl(url: String, px: Int): String {
