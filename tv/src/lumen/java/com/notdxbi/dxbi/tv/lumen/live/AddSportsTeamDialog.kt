@@ -109,7 +109,7 @@ internal fun AddSportsTeamDialog(
                 modifier = Modifier
                     .width(640.dp)
                     .fillMaxHeight(0.80f)
-                    .liveGlass(RoundedCornerShape(22.dp))
+                    .liveGlass(RoundedCornerShape(Dx.RPanel))
                     .padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -141,21 +141,21 @@ internal fun AddSportsTeamDialog(
                     else -> {
                         LazyColumn(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
-                            contentPadding = PaddingValues(bottom = 12.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                         ) {
                             items(results, key = { "${it.league}:${it.teamId}" }) { team ->
                                 val isFollowed = "${team.league}:${team.teamId}" in followedKeys
                                 Surface(
                                     onClick = { if (isFollowed) onRemoveTeam(team) else onAddTeam(team) },
                                     modifier = Modifier.fillMaxWidth(),
-                                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(Dx.RCard)),
                                     colors = ClickableSurfaceDefaults.colors(
                                         containerColor = if (isFollowed) Dx.Blue.copy(alpha = 0.18f) else LivePalette.GlassFill,
                                         contentColor = Color.White,
                                         focusedContainerColor = Color.White,
                                         focusedContentColor = Color.Black,
                                     ),
-                                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+                                    scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
                                 ) {
                                     val ink = LocalContentColor.current
                                     Row(
@@ -163,11 +163,11 @@ internal fun AddSportsTeamDialog(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                                     ) {
-                                        CrestBadge(logoUrl = team.logoUrl, name = team.name, size = 34.dp)
+                                        CrestBadge(logoUrl = team.logoUrl, name = team.name, size = 36.dp)
                                         Column(Modifier.weight(1f)) {
-                                            Text(team.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = ink)
+                                            Text(team.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                             if (team.leagueName.isNotBlank()) {
-                                                Text(team.leagueName, fontSize = 12.sp, color = ink.copy(alpha = 0.65f))
+                                                Text(team.leagueName, fontSize = 12.sp, color = ink.copy(alpha = 0.65f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                             }
                                         }
                                         Icon(

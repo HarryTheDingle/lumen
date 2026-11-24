@@ -95,7 +95,7 @@ class PlayerLoading(private val info: LoadingHandoff.Info, private val onGone: (
 
     override fun failed(message: String) {
         ready = false
-        step = Launcher.Step("Couldn't play this stream", "$message. Press Back to go back.", 1f, failed = true)
+        step = Launcher.Step("Couldn't play this stream", "${message.trimEnd('.')}. Press Back to go back.", 1f, failed = true)
     }
 
     @Composable

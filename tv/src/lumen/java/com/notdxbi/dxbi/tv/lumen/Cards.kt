@@ -86,7 +86,7 @@ import com.notdxbi.dxbi.tv.phone.episodeLabel
 fun FocusCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    corner: Dp = 12.dp,
+    corner: Dp = Dx.RCard,
     onLongClick: (() -> Unit)? = null,
     /**
      * Px of the card's foot kept out of sight (clipped, and the rim stops short of it), read while drawing: a poster
@@ -181,7 +181,7 @@ private fun androidx.compose.ui.input.key.KeyEvent.isSelect(): Boolean = when (n
  * carries on from wherever the last move had got to, so a second press in the middle of one doesn't stall it, which a
  * timed ease did)
  */
-val PageGlide: androidx.compose.animation.core.AnimationSpec<Float> = androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 130f)
+val PageGlide: androidx.compose.animation.core.AnimationSpec<Float> = androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 130f, visibilityThreshold = 0.5f)
 
 /**
  * The page's glide for a move of [distance] px on a screen [viewport] px tall. A spring takes about as long whatever the
@@ -193,7 +193,7 @@ fun glide(distance: Float, viewport: Float): androidx.compose.animation.core.Ani
     val d = kotlin.math.abs(distance)
     if (d <= row) return PageGlide
     val k = (130f * (row / d) * (row / d)).coerceIn(38f, 130f)
-    return androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = k)
+    return androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = k, visibilityThreshold = 0.5f)
 }
 
 /**
@@ -308,7 +308,7 @@ class PageScroller(val list: androidx.compose.foundation.lazy.LazyListState, pri
         gen++
     }
 
-    suspend fun jumpTo(index: Int, centre: Boolean = false, durationMs: Int = 220, onVisible: (() -> Boolean)? = null) {
+    suspend fun jumpTo(index: Int, centre: Boolean = false, durationMs: Int = Dx.Fast, onVisible: (() -> Boolean)? = null) {
         cancel()
         jumping = true
         try {
@@ -340,7 +340,7 @@ class PageScroller(val list: androidx.compose.foundation.lazy.LazyListState, pri
                         }
                     } else null
                     try {
-                        if (durationMs > 220) {
+                        if (durationMs > Dx.Fast) {
                             val spec = tween<Float>(durationMs, easing = androidx.compose.animation.core.FastOutSlowInEasing)
                             var pass = 0
                             while (pass < 4) {
@@ -486,6 +486,137 @@ fun Modifier.centredWhenFocused(): Modifier {
 @Composable
 fun pageBottomPad(): androidx.compose.ui.unit.Dp = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.5f).dp
 
+@OptIn(ExperimentalFoundationApi::class)
+private class IdlePrefetchScheduler : androidx.compose.foundation.lazy.layout.PrefetchScheduler {
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val queue = ArrayDeque<androidx.compose.foundation.lazy.layout.PrefetchRequest>()
+    private var posted = false
+    private var active = true
+    private var lastScrollMs = 0L
+
+    fun onScrollActivity() {
+        lastScrollMs = android.os.SystemClock.uptimeMillis()
+        if (!active) return
+        if (posted) {
+            handler.removeCallbacks(tick)
+            posted = false
+            scheduleTick(110L)
+        }
+    }
+
+    fun setActive(on: Boolean) {
+        active = on
+        if (!on) {
+            handler.removeCallbacks(tick)
+            posted = false
+            queue.clear()
+        }
+    }
+
+    override fun schedulePrefetch(prefetchRequest: androidx.compose.foundation.lazy.layout.PrefetchRequest) {
+        if (!active) return
+        queue.addLast(prefetchRequest)
+        scheduleTick()
+    }
+
+    private fun scheduleTick(delayMs: Long = 16L) {
+        if (!active || posted || queue.isEmpty()) return
+        val wait = (lastScrollMs + 110L - android.os.SystemClock.uptimeMillis()).coerceAtLeast(delayMs)
+        posted = true
+        handler.postDelayed(tick, wait)
+    }
+
+    private val tick: Runnable = Runnable {
+        posted = false
+        if (!active || queue.isEmpty()) return@Runnable
+        val wait = lastScrollMs + 110L - android.os.SystemClock.uptimeMillis()
+        if (wait > 0L) {
+            scheduleTick(wait)
+            return@Runnable
+        }
+        val req = queue.first()
+        val startNs = System.nanoTime()
+        val scope = object : androidx.compose.foundation.lazy.layout.PrefetchRequestScope {
+            override fun availableTimeNanos(): Long =
+                if (System.nanoTime() - startNs < 16_000_000L) 120_000_000L else 0L
+        }
+        val hasMore = runCatching { with(req) { scope.execute() } }.getOrDefault(false)
+        if (!hasMore && queue.isNotEmpty() && queue.first() === req) queue.removeFirst()
+        if (queue.isNotEmpty()) scheduleTick(8L)
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+class PagePrefetchStrategy : androidx.compose.foundation.lazy.LazyListPrefetchStrategy {
+    private val scheduler = IdlePrefetchScheduler()
+    override val prefetchScheduler: androidx.compose.foundation.lazy.layout.PrefetchScheduler
+        get() = scheduler
+    private val handles = LinkedHashMap<Int, androidx.compose.foundation.lazy.layout.LazyLayoutPrefetchState.PrefetchHandle>()
+
+    private fun clearHandles() {
+        handles.values.forEach { it.cancel() }
+        handles.clear()
+    }
+
+    fun setActive(active: Boolean) {
+        scheduler.setActive(active)
+        if (!active) clearHandles()
+    }
+
+    private fun androidx.compose.foundation.lazy.LazyListPrefetchScope.scheduleIndex(index: Int, total: Int) {
+        if (index in 0 until total && !handles.containsKey(index)) {
+            handles[index] = schedulePrefetch(index)
+        }
+    }
+
+    override fun androidx.compose.foundation.lazy.LazyListPrefetchScope.onVisibleItemsUpdated(
+        layoutInfo: androidx.compose.foundation.lazy.LazyListLayoutInfo,
+    ) {
+        val visible = layoutInfo.visibleItemsInfo
+        val total = layoutInfo.totalItemsCount
+        if (visible.isEmpty()) {
+            clearHandles()
+            return
+        }
+        val first = visible.first().index
+        val last = visible.last().index
+        val it = handles.entries.iterator()
+        while (it.hasNext()) {
+            val entry = it.next()
+            if (entry.key in first..last) {
+                it.remove()
+            } else if (entry.key !in (first - 1)..(last + 2)) {
+                entry.value.cancel()
+                it.remove()
+            }
+        }
+        scheduleIndex(last + 1, total)
+        scheduleIndex(last + 2, total)
+        scheduleIndex(first - 1, total)
+    }
+
+    override fun androidx.compose.foundation.lazy.LazyListPrefetchScope.onScroll(
+        delta: Float,
+        layoutInfo: androidx.compose.foundation.lazy.LazyListLayoutInfo,
+    ) {
+        if (kotlin.math.abs(delta) >= 2f) scheduler.onScrollActivity()
+        val visible = layoutInfo.visibleItemsInfo
+        if (visible.isEmpty()) return
+        val first = visible.first().index
+        val last = visible.last().index
+        val total = layoutInfo.totalItemsCount
+        val targets = if (delta < 0f) intArrayOf(last + 1, last + 2) else intArrayOf(first - 1, first - 2)
+        for (target in targets) {
+            scheduleIndex(target, total)
+        }
+    }
+
+    override fun androidx.compose.foundation.lazy.layout.NestedPrefetchScope.onNestedPrefetch(
+        firstVisibleItemIndex: Int,
+    ) {
+    }
+}
+
 /**
  * A vertical page of rows with [PageScroller] and [BringIntoViewSpec] wired up in one place.
  * Pass [scroller] when the screen also drives the scroller directly (e.g. Home's billboard or TitlePage).
@@ -493,16 +624,24 @@ fun pageBottomPad(): androidx.compose.ui.unit.Dp = (androidx.compose.ui.platform
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PageColumn(
-    state: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
+    state: androidx.compose.foundation.lazy.LazyListState? = null,
     modifier: Modifier = Modifier,
     scroller: PageScroller? = null,
     bringIntoViewSpec: BringIntoViewSpec = CentredScrolling,
     contentPadding: PaddingValues = PaddingValues(bottom = pageBottomPad()),
     verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(16.dp),
+    prefetch: PagePrefetchStrategy? = null,
     content: LazyListScope.() -> Unit,
 ) {
+    val ownedPrefetch = remember { PagePrefetchStrategy() }
+    val listState = state ?: androidx.compose.foundation.lazy.rememberLazyListState(prefetchStrategy = ownedPrefetch)
+    val activePrefetch = if (state == null) ownedPrefetch else prefetch
+    androidx.compose.runtime.DisposableEffect(activePrefetch) {
+        activePrefetch?.setActive(true)
+        onDispose { activePrefetch?.setActive(false) }
+    }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val pageScroller = scroller ?: remember(state) { PageScroller(state, scope) }
+    val pageScroller = scroller ?: remember(listState) { PageScroller(listState, scope) }
     val effectiveSpec = remember(pageScroller, bringIntoViewSpec) {
         object : BringIntoViewSpec {
             override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float>
@@ -519,7 +658,7 @@ fun PageColumn(
         LocalPageScroller provides pageScroller,
     ) {
         androidx.compose.foundation.lazy.LazyColumn(
-            state = state,
+            state = listState,
             modifier = modifier.onGloballyPositioned { pageScroller.viewport = it },
             contentPadding = contentPadding,
             verticalArrangement = verticalArrangement,
@@ -636,7 +775,7 @@ fun BoxScope.PosterName(title: Title, width: Dp) {
     Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.78f))))
     Text(
         title.name,
-        style = TextStyle(fontSize = maxOf(11f, width.value * 0.1f).sp, fontWeight = FontWeight.Bold, shadow = Shadow(Color.Black.copy(alpha = 0.6f), blurRadius = 6f)),
+        style = TextStyle(fontSize = maxOf(12f, width.value * 0.1f).sp, fontWeight = FontWeight.Bold, shadow = Shadow(Color.Black.copy(alpha = 0.6f), blurRadius = 6f)),
         color = Color.White,
         maxLines = 3,
         overflow = TextOverflow.Ellipsis,
@@ -647,7 +786,7 @@ fun BoxScope.PosterName(title: Title, width: Dp) {
 /** New episodes this week: the episode's picture, the show and when */
 @Composable
 fun AiringCard(item: Airing, onClick: () -> Unit, width: Dp = 300.dp) {
-    FocusCard(onClick = onClick, corner = 16.dp, modifier = Modifier.size(width, width * 0.64f)) {
+    FocusCard(onClick = onClick, corner = Dx.RCard, modifier = Modifier.size(width, width * 0.64f)) {
         Box(Modifier.fillMaxSize()) {
             Art(item.still ?: item.background, Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.85f))))
@@ -657,6 +796,8 @@ fun AiringCard(item: Airing, onClick: () -> Unit, width: Dp = 300.dp) {
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = if (item.out) Color.White else Dx.Muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(item.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
@@ -664,6 +805,7 @@ fun AiringCard(item: Airing, onClick: () -> Unit, width: Dp = 300.dp) {
                     fontSize = 12.sp,
                     color = Dx.Muted,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -675,7 +817,7 @@ fun AiringCard(item: Airing, onClick: () -> Unit, width: Dp = 300.dp) {
 fun LoadingShelf(title: String?) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         // (no name yet: a skeleton bar where it'll be)
-        if (title != null) Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Dx.Faint, maxLines = 1, modifier = Modifier.padding(horizontal = Dx.Gutter))
+        if (title != null) Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Dx.Faint, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = Dx.Gutter))
         else Box(Modifier.padding(horizontal = Dx.Gutter, vertical = 4.dp).size(180.dp, 18.dp).skeleton(shape = RoundedCornerShape(Dx.RCard)))
         // (the room under each poster that a chosen card grows into, kept here too, so nothing moves when the row comes)
         Row(Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 20.dp, bottom = 26.dp + CAPTION_ROOM), horizontalArrangement = Arrangement.spacedBy(18.dp)) {

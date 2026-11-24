@@ -95,7 +95,7 @@ fun TitleInfo(
                 modifier = Modifier.glass(RoundedCornerShape(Dx.RCard)).padding(horizontal = 7.dp, vertical = 2.dp),
             )
             TitleLogo(t, maxHeight = 110.dp, maxWidth = 380.dp, textSize = 40.sp, modifier = Modifier.padding(bottom = 4.dp))
-            Text(kindLine(t), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.85f))
+            Text(kindLine(t), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (detailed) {
                 val lead = episode?.let(::episodeLead)?.takeIf { episode.overview != null }
                 val body = if (lead != null) episode.overview else t.description
@@ -105,13 +105,13 @@ fun TitleInfo(
                 t.description?.let {
                     Text(it, fontSize = 14.sp, color = Dx.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 19.sp)
                 }
-                status(t)?.let { Text(it, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White) }
+                status(t)?.let { Text(it, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
         }
     }
     Column(modifier) {
         if (animated) AnimatedContent(title, // (the picture settles first, then the words come up: as Apple TV's billboard does)
-        transitionSpec = { fadeIn(tween(450, delayMillis = 380, easing = Dx.Ease)) togetherWith fadeOut(tween(200, easing = Dx.Ease)) }, label = "title-info",
+        transitionSpec = { fadeIn(tween(450, delayMillis = 380, easing = Dx.Ease)) togetherWith fadeOut(tween(Dx.Fast, easing = Dx.Ease)) }, label = "title-info",
         // (the same title with something changed, as when it's added to the Library, keeps its words where they are)
         contentKey = { it.id }) { info(it) }
         else info(title)
@@ -421,7 +421,7 @@ fun ScoreMark(source: String, value: String, size: androidx.compose.ui.unit.Dp =
         "trakt" -> Box(Modifier.size(size).background(Color(0xFFED1C24), CircleShape), contentAlignment = Alignment.Center) {
             Text("t", fontSize = (size.value * 0.62f).sp, fontWeight = FontWeight.Black, color = Color.White, lineHeight = (size.value * 0.7f).sp)
         }
-        else -> Text(source.take(4), fontSize = (size.value * 0.7f).sp, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.8f))
+        else -> Text(source.take(4), fontSize = maxOf(12f, size.value * 0.7f).sp, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.8f), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -430,7 +430,7 @@ fun ScoreMark(source: String, value: String, size: androidx.compose.ui.unit.Dp =
 fun ScoreChip(source: String, value: String, size: androidx.compose.ui.unit.Dp = 14.dp, fontSize: androidx.compose.ui.unit.TextUnit = 13.sp) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
         ScoreMark(source, value, size)
-        Text(value, fontSize = fontSize, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
+        Text(value, style = androidx.compose.ui.text.TextStyle(fontSize = fontSize, fontWeight = FontWeight.SemiBold, color = Color.White, fontFeatureSettings = "tnum"), maxLines = 1)
     }
 }
 

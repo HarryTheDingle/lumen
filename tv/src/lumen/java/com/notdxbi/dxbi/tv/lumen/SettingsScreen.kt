@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -173,20 +174,20 @@ fun SettingsScreen(stremio: Stremio, nav: Nav) {
             })
         }
         Section.Home -> listOf(
-            Item.Link("taste", "Tune Suggestions", "Tell Lumen what you like so Home suggests more of it.") { tasteState?.tuning = true },
+            Item.Link("taste", "Tune suggestions", "Tell Lumen what you like so Home suggests more of it.") { tasteState?.tuning = true },
         )
         Section.Account -> buildList {
             add(Item.Link("profiles", "Profiles", "Who's watching: add, rename, recolour or remove people (${viewers.size} now). Each has their own Continue Watching, My List and suggestions.") { nav.push(Page.Profiles) })
             val keeps = stremio.engine.keepsStremio
-            add(Item.Link("stremio", if (keeps) "Bring Again from Stremio" else "Bring from Stremio", "Your stream addons and history from your Stremio account, with a code on your phone. While you still use Lumen, what you watch here goes back to Stremio.") { stremio.engine.bringFromStremio() })
-            if (keeps) add(Item.Action("stopStremio", "Stop Keeping Stremio in Step", "Press Again to Stop", "What you watch here stops going to Stremio, and Lumen's watching stops coming here. Your history stays.") {
+            add(Item.Link("stremio", if (keeps) "Bring again from Stremio" else "Bring from Stremio", "Your stream addons and history from your Stremio account, with a code on your phone. While you still use Lumen, what you watch here goes back to Stremio.") { stremio.engine.bringFromStremio() })
+            if (keeps) add(Item.Action("stopStremio", "Stop keeping Stremio in step", "Press again to stop", "What you watch here stops going to Stremio, and Lumen's watching stops coming here. Your history stays.") {
                 stremio.engine.stopKeepingStremio()
             })
-            add(Item.Action("signOut", "Sign Out of ${com.notdxbi.dxbi.tv.BuildConfig.APP_NAME}", "Press Again to Sign Out", "This TV signs out. Your profiles and history stay on your account; sign in again with a code from your iPhone.") { stremio.signOut() })
+            add(Item.Action("signOut", "Sign out of ${com.notdxbi.dxbi.tv.BuildConfig.APP_NAME}", "Press again to sign out", "This TV signs out. Your profiles and history stay on your account; sign in again with a code from your iPhone.") { stremio.signOut() })
         }
         Section.Addons -> buildList {
             addons.forEach { (url, name) ->
-                add(Item.Action("addon:$url", name, "Press Again to Remove", "Press OK twice to remove this addon from this TV. Bring from Stremio adds your addons again.") {
+                add(Item.Action("addon:$url", name, "Press again to remove", "Press OK twice to remove this addon from this TV. Bring from Stremio adds your addons again.") {
                     stremio.engine.removeAddon(url)
                     scope.launch { reload() }
                 })
@@ -199,7 +200,7 @@ fun SettingsScreen(stremio: Stremio, nav: Nav) {
             Item.Info("speed", "This connection", speed ?: "Not measured yet", "From Match my internet speed's last check. Settings → Playback → Networks has more."),
             Item.Info("people", "Profiles", "${viewers.size}"),
             Item.Info("addons", "Addons", "${addons.size}"),
-            Item.Link("report", "Send a Problem Report", "Something went wrong? This sends Harry the last 30 minutes of what ${com.notdxbi.dxbi.tv.BuildConfig.APP_NAME} did (passwords and keys taken out) and shows a reference to tell him.") {
+            Item.Link("report", "Send a problem report", "Something went wrong? This sends Harry the last 30 minutes of what ${com.notdxbi.dxbi.tv.BuildConfig.APP_NAME} did (passwords and keys taken out) and shows a reference to tell him.") {
                 (context as? android.app.Activity)?.let { ProblemReport.send(it, stremio.engine) }
             },
         )
@@ -239,7 +240,7 @@ fun SettingsScreen(stremio: Stremio, nav: Nav) {
            CompositionLocalProvider(LocalBringIntoViewSpec provides KeepInView) {
             AnimatedContent(
                 targetState = section to choosing,
-                transitionSpec = { fadeIn(tween(220, delayMillis = 60, easing = Dx.Ease)) togetherWith fadeOut(tween(120, easing = Dx.Ease)) },
+                transitionSpec = { fadeIn(tween(Dx.Fast, delayMillis = 60, easing = Dx.Ease)) togetherWith fadeOut(tween(120, easing = Dx.Ease)) },
                 label = "settings",
             ) { (shown, open) ->
                 val back = Modifier.focusProperties { left = sectionFocus.getValue(shown) }
@@ -346,7 +347,7 @@ private fun SectionRow(s: Section, chosen: Boolean, modifier: Modifier, onClick:
         Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(s.icon, contentDescription = null, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(14.dp))
-            Text(s.title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(s.title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, modifier = Modifier.size(26.dp), tint = LocalContentColor.current.copy(alpha = 0.5f))
         }
     }
@@ -379,11 +380,11 @@ private fun SettingLine(
         Row(Modifier.padding(horizontal = 18.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = if (warn) Color(0xFFE5484D) else ink, modifier = Modifier.weight(1f),
+                color = if (warn) Dx.Danger else ink, modifier = Modifier.weight(1f),
             )
             if (value != null) {
                 Spacer(Modifier.width(16.dp))
-                Text(value, fontSize = 16.sp, color = ink.copy(alpha = 0.6f), maxLines = 1)
+                Text(value, fontSize = 16.sp, color = ink.copy(alpha = 0.6f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp))
             }
             if (tick) Icon(Icons.Rounded.Check, contentDescription = "In use", modifier = Modifier.size(22.dp))
             if (chevron) {
@@ -476,7 +477,7 @@ private fun liveTvSectionItems(
                 Item.Action(
                     key = "live:remove:${src.id}",
                     title = "Remove ${src.name}",
-                    confirm = "Press Again to Remove",
+                    confirm = "Press again to remove",
                     help = "Press OK twice to remove ${src.name} from your synced IPTV sources.",
                 ) {
                     scope.launch { liveStore.removeSource(src.id) }

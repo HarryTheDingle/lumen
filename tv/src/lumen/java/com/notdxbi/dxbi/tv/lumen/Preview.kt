@@ -97,6 +97,8 @@ class CardActions(
     val turnedDown: StateFlow<Set<String>> = kotlinx.coroutines.flow.MutableStateFlow(emptySet()),
     /** Mark a title watched, or unwatched (which also puts it back to the start) */
     val setWatched: ((Title, Boolean) -> Unit)? = null,
+    val watchedState: androidx.compose.runtime.State<Set<String>>? = null,
+    val turnedDownState: androidx.compose.runtime.State<Set<String>>? = null,
 )
 
 val LocalCardActions = staticCompositionLocalOf<CardActions?> { null }
@@ -110,7 +112,7 @@ fun TitleHoldMenu(title: Title, onOpen: () -> Unit, onDismiss: () -> Unit) {
     val actions = LocalCardActions.current ?: return onDismiss()
     val marks by actions.listMarks.collectAsState()
     val inList = marks[title.id] ?: title.inLibrary
-    val seen = actions.watched.collectAsState().value.contains(title.id) || (title.watched && title.type == "movie")
+    val seen = (actions.watchedState?.value ?: actions.watched.collectAsState().value).contains(title.id) || (title.watched && title.type == "movie")
     val context = androidx.compose.ui.platform.LocalContext.current
     ActionMenu(
         title.name,
@@ -407,9 +409,6 @@ fun PosterFace(
     /** The strip under the poster is up (the chosen card, and while it closes) */
     strip: Boolean = false,
 ) {
-    val actions = LocalCardActions.current
-    val watched = actions?.watched?.collectAsState()?.value?.contains(title.id) == true || (title.watched && title.type == "movie")
-    val dimmed = actions?.turnedDown?.collectAsState()?.value?.contains(title.id) == true
     if (room > 0.dp) {
         Box(Modifier.fillMaxSize()) {
             // the strip (GrowStrip): the poster's own foot carried on, blurred and darkening, only on the chosen card
@@ -427,6 +426,9 @@ fun PosterFace(
         }
         return
     }
+    val actions = LocalCardActions.current
+    val watched = (actions?.watchedState?.value ?: actions?.watched?.collectAsState()?.value)?.contains(title.id) == true || (title.watched && title.type == "movie")
+    val dimmed = (actions?.turnedDownState?.value ?: actions?.turnedDown?.collectAsState()?.value)?.contains(title.id) == true
     Box(Modifier.fillMaxSize()) {
         // (no poster, or one that won't load: its name instead of a blank grey card, as search results had)
         var noArt by remember(title.art) { mutableStateOf(title.art == null) }

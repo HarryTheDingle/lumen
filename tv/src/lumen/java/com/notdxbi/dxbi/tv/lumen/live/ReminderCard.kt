@@ -23,6 +23,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
@@ -72,9 +73,9 @@ fun ReminderCard(engine: Engine) {
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 36.dp, bottom = 36.dp)
-                    .width(340.dp)
-                    .liveGlass(RoundedCornerShape(22.dp))
+                    .padding(end = Dx.Gutter, bottom = Dx.Gutter)
+                    .width(360.dp)
+                    .liveGlass(RoundedCornerShape(Dx.RPanel))
                     .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
@@ -84,9 +85,11 @@ fun ReminderCard(engine: Engine) {
                         mins >= 1 -> "Starts in $mins min" + (due.channelName?.let { " on $it" } ?: "")
                         else -> "Starting now" + (due.channelName?.let { " on $it" } ?: "")
                     },
-                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted,
+                    style = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted, fontFeatureSettings = "tnum"),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                Text(due.title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text(due.title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     LiveChip(label = "Watch", selected = true, onClick = { play() }, modifier = Modifier.focusRequester(watch))
                     LiveChip(label = "Dismiss", selected = false, onClick = { dismiss() })

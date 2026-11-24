@@ -217,7 +217,7 @@ private fun DayCell(n: Int, isToday: Boolean, past: Boolean, items: List<Entry>,
             ) {
                 Text(
                     "$n", fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                    color = when { isToday -> Color.Black; past -> Color.White.copy(alpha = 0.4f); else -> Color.White },
+                    color = when { isToday -> Color.Black; past -> Dx.Faint; else -> Color.White },
                 )
             }
             if (items.isNotEmpty()) {
@@ -264,7 +264,7 @@ private fun DayList(day: Long, today: Long, items: List<Entry>, loading: Boolean
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(e.name, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text(
-                                e.line + if (e.mine) " · In your Library" else "", fontSize = 12.sp, maxLines = 1,
+                                e.line + if (e.mine) " · In your Library" else "", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 color = androidx.tv.material3.LocalContentColor.current.copy(alpha = 0.7f),
                             )
                         }

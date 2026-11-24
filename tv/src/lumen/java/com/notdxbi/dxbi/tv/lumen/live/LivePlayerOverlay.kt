@@ -218,7 +218,7 @@ fun LivePlayerOverlay(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(top = 70.dp, end = 56.dp)
-                    .liveGlass(RoundedCornerShape(22.dp))
+                    .liveGlass(RoundedCornerShape(Dx.RPanel))
                     .padding(horizontal = 22.dp, vertical = 12.dp),
             ) {
                 Text(
@@ -655,15 +655,15 @@ private fun ChannelStrip(
             Surface(
                 onClick = onOpenGuide,
                 modifier = Modifier.width(STRIP_GUIDE_W).height(STRIP_HEIGHT).focusRequester(guideFocus).onFocusChanged { if (it.isFocused) StripPreview.value = null }
-                    .liveFrost(RoundedCornerShape(12.dp)),
-                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                    .liveFrost(RoundedCornerShape(Dx.RCard)),
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(Dx.RCard)),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = Color.Transparent,
                     contentColor = Color.White,
                     focusedContainerColor = Color.White,
                     focusedContentColor = Color.Black,
                 ),
-                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
             ) {
                 Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                     Icon(Icons.AutoMirrored.Filled.FormatListBulleted, contentDescription = null, modifier = Modifier.size(20.dp), tint = LocalContentColor.current)
@@ -680,10 +680,10 @@ private fun ChannelStrip(
                 onClick = { onZap(channel) },
                 modifier = Modifier.width(STRIP_TILE_W).height(STRIP_HEIGHT).then(if (playing) Modifier.focusRequester(currentTile) else Modifier)
                     .onFocusChanged { if (it.isFocused || it.hasFocus) StripPreview.value = channel to prog },
-                corner = 12.dp,
+                corner = Dx.RCard,
             ) {
                 // frosted glass over the picture, as the channel box at the top (the one playing a touch lighter)
-                Box(Modifier.fillMaxSize().liveFrost(RoundedCornerShape(12.dp), rim = false).then(if (playing) Modifier.background(Color.White.copy(alpha = 0.12f)) else Modifier)) {
+                Box(Modifier.fillMaxSize().liveFrost(RoundedCornerShape(Dx.RCard), rim = false).then(if (playing) Modifier.background(Color.White.copy(alpha = 0.12f)) else Modifier)) {
                 val ink = Color.White
                 Row(Modifier.fillMaxSize().padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     // the channel's logo tile says which it is (its name in words was one more line)
@@ -857,7 +857,7 @@ private fun SeekLineBar(
                 if (scrub.deltaLabel.isNotBlank()) {
                     Text(
                         text = scrub.deltaLabel,
-                        style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted, fontFeatureSettings = "tnum"),
+                        style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted, fontFeatureSettings = "tnum"),
                         maxLines = 1,
                         softWrap = false,
                     )
@@ -915,7 +915,7 @@ private fun ZapBanner(
     Row(
         modifier = modifier
             .widthIn(min = 380.dp, max = 560.dp)
-            .liveFrost(RoundedCornerShape(22.dp))
+            .liveFrost(RoundedCornerShape(Dx.RPanel))
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -933,9 +933,7 @@ private fun ZapBanner(
                 channel.number?.let { num ->
                     Text(
                         text = num.toString(),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Dx.Muted,
+                        style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted, fontFeatureSettings = "tnum"),
                     )
                 }
                 Text(
@@ -968,8 +966,7 @@ private fun ZapBanner(
                     )
                     Text(
                         text = LiveTimeFormat.formatRange12h(nowProg.startMs, nowProg.endMs),
-                        fontSize = 11.sp,
-                        color = Dx.Muted,
+                        style = TextStyle(fontSize = 12.sp, color = Dx.Muted, fontFeatureSettings = "tnum"),
                         maxLines = 1,
                     )
                 }
@@ -978,7 +975,7 @@ private fun ZapBanner(
                 }
             } else {
                 Text(
-                    text = "Live Broadcast",
+                    text = "Live broadcast",
                     fontSize = 13.sp,
                     color = Dx.Muted,
                 )
@@ -987,8 +984,7 @@ private fun ZapBanner(
             if (nextProg != null) {
                 Text(
                     text = "Next · ${LiveTimeFormat.formatTime12h(nextProg.startMs)} ${nextProg.title}",
-                    fontSize = 12.sp,
-                    color = Dx.Muted,
+                    style = TextStyle(fontSize = 12.sp, color = Dx.Muted, fontFeatureSettings = "tnum"),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1020,7 +1016,7 @@ private fun ActiveViewerConflictDialog(
         Column(
             modifier = Modifier
                 .width(560.dp)
-                .liveGlass(RoundedCornerShape(22.dp))
+                .liveGlass(RoundedCornerShape(Dx.RPanel))
                 .padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -1044,7 +1040,7 @@ private fun ActiveViewerConflictDialog(
                 }
                 Column {
                     Text(
-                        text = "Active Viewer Warning",
+                        text = "Active viewer warning",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
@@ -1053,6 +1049,8 @@ private fun ActiveViewerConflictDialog(
                         text = conflict.sourceName,
                         fontSize = 13.sp,
                         color = Dx.Muted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -1114,8 +1112,8 @@ private fun UnavailableDialog(
         Column(
             modifier = Modifier
                 .width(520.dp)
-                .liveGlass(RoundedCornerShape(22.dp))
-                .border(1.dp, PANEL_BORDER, RoundedCornerShape(22.dp))
+                .liveGlass(RoundedCornerShape(Dx.RPanel))
+                .border(1.dp, PANEL_BORDER, RoundedCornerShape(Dx.RPanel))
                 .padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -1157,8 +1155,8 @@ private fun FloatingPanelShell(
         modifier = Modifier
             .width(width)
             .heightIn(max = 420.dp)
-            .liveGlass(RoundedCornerShape(14.dp))
-            .border(1.dp, PANEL_BORDER, RoundedCornerShape(14.dp))
+            .liveGlass(RoundedCornerShape(Dx.RPanel))
+            .border(1.dp, PANEL_BORDER, RoundedCornerShape(Dx.RPanel))
             .padding(10.dp)
             .focusProperties { onExit = { cancelFocusChange() } }
             .focusGroup(),
@@ -1174,7 +1172,7 @@ private fun FloatingPanelShell(
                 text = title,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0x99FFFFFF),
+                color = Dx.Muted,
             )
             PanelActionPill(label = "Close", onClick = onClose)
         }
@@ -1198,18 +1196,18 @@ private fun MiniGuidePanel(
         runCatching { firstFocus.requestFocus() }
     }
 
-    FloatingPanelShell(title = "Mini-Guide", width = 460.dp, onClose = onClose) {
+    FloatingPanelShell(title = "Mini-guide", width = 460.dp, onClose = onClose) {
         LazyColumn(
             state = listState,
             verticalArrangement = Arrangement.spacedBy(4.dp),
-            contentPadding = PaddingValues(bottom = 8.dp),
+            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
         ) {
             items(entries, key = { it.first.id }) { (ch, prog) ->
                 val active = ch.id == currentChannelId
                 PanelRow(
                     title = "${ch.number?.let { "$it · " } ?: ""}${ch.name}",
                     subtitle = prog?.title ?: ch.category.label,
-                    badge = if (active) "On Air" else formatCompactQuality(ch.streams.firstOrNull()?.quality),
+                    badge = if (active) "On air" else formatCompactQuality(ch.streams.firstOrNull()?.quality),
                     selected = active,
                     modifier = if (active) Modifier.focusRequester(firstFocus) else Modifier,
                     onClick = { onZap(ch) },
@@ -1237,7 +1235,7 @@ private fun FeedsPanel(
     FloatingPanelShell(title = "Streams", width = 520.dp, onClose = onClose) {
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(6.dp),
-            contentPadding = PaddingValues(bottom = 8.dp),
+            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
         ) {
             items(streams, key = { it.id }) { stream ->
                 val isFirst = streams.firstOrNull()?.id == stream.id
@@ -1265,14 +1263,14 @@ private fun FeedsPanel(
                     )
                     Surface(
                         onClick = { onPin(if (pinned) null else stream) },
-                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(Dx.RCard)),
                         colors = ClickableSurfaceDefaults.colors(
                             containerColor = if (pinned) Dx.Blue.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f),
                             contentColor = Color.White,
                             focusedContainerColor = Color.White,
                             focusedContentColor = Color.Black,
                         ),
-                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+                        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
                     ) {
                         Box(Modifier.padding(10.dp), contentAlignment = Alignment.Center) {
                             Icon(
@@ -1327,7 +1325,7 @@ private fun MorePanel(
     FloatingPanelShell(title = "Options", width = 380.dp, onClose = onClose) {
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(4.dp),
-            contentPadding = PaddingValues(bottom = 8.dp),
+            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
         ) {
             item { PanelSectionLabel("Sound and subtitles") }
             item {
@@ -1426,7 +1424,7 @@ private fun SubtitlesPanel(
     FloatingPanelShell(title = "Subtitles", width = 340.dp, onClose = onClose) {
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(4.dp),
-            contentPadding = PaddingValues(bottom = 8.dp),
+            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
         ) {
             item {
                 PanelRow(
@@ -1472,7 +1470,7 @@ private fun AudioPanel(
     FloatingPanelShell(title = "Audio", width = 360.dp, onClose = onClose) {
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(4.dp),
-            contentPadding = PaddingValues(bottom = 8.dp),
+            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
         ) {
             if (audioTracks.isEmpty()) {
                 item {
@@ -1511,7 +1509,7 @@ private fun PanelSectionLabel(text: String) {
         text = text,
         fontSize = 12.sp,
         fontWeight = FontWeight.Bold,
-        color = Color(0x99FFFFFF),
+        color = Dx.Muted,
         modifier = Modifier.padding(start = 12.dp, top = 8.dp, bottom = 2.dp),
     )
 }
@@ -1520,10 +1518,17 @@ private fun PanelSectionLabel(text: String) {
 private fun StatLine(label: String, value: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(label, fontSize = 13.sp, color = Color(0x99FFFFFF))
-        Text(value, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, fontSize = 13.sp, color = Dx.Muted, maxLines = 1)
+        Text(
+            value,
+            style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.White, fontFeatureSettings = "tnum"),
+            textAlign = TextAlign.End,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
@@ -1543,7 +1548,7 @@ private fun PanelActionPill(
             focusedContainerColor = Color.White,
             focusedContentColor = Color.Black,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
     ) {
         Text(
             text = label,
@@ -1566,14 +1571,14 @@ private fun PanelRow(
     Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(Dx.RCard)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) Color.White.copy(alpha = 0.14f) else Color.Transparent,
             contentColor = if (selected) Color.White else Color(0xCCFFFFFF),
             focusedContainerColor = Color.White,
             focusedContentColor = Color.Black,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
     ) {
         val ink = LocalContentColor.current
         Row(
@@ -1584,17 +1589,14 @@ private fun PanelRow(
             Column(Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    fontSize = 15.sp,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                    color = ink,
+                    style = TextStyle(fontSize = 15.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, color = ink, fontFeatureSettings = "tnum"),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (subtitle.isNotBlank()) {
                     Text(
                         text = subtitle,
-                        fontSize = 12.sp,
-                        color = ink.copy(alpha = 0.65f),
+                        style = TextStyle(fontSize = 12.sp, color = ink.copy(alpha = 0.65f), fontFeatureSettings = "tnum"),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -1603,9 +1605,7 @@ private fun PanelRow(
             if (!badge.isNullOrBlank()) {
                 Text(
                     text = badge,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = ink,
+                    style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ink, fontFeatureSettings = "tnum"),
                 )
             }
         }
@@ -1659,11 +1659,16 @@ private fun LumenOfferCard(offer: com.notdxbi.dxbi.tv.live.LumenHandoff.Offer, o
     Column(
         modifier = Modifier
             .width(400.dp)
-            .liveFrost(RoundedCornerShape(22.dp))
+            .liveFrost(RoundedCornerShape(Dx.RPanel))
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(if (offer.viaLumen) "In Lumen · ${offer.label}" else "Started $join ago · ${offer.label}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted)
+        Text(
+            if (offer.viaLumen) "In Lumen · ${offer.label}" else "Started $join ago · ${offer.label}",
+            style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted, fontFeatureSettings = "tnum"),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
         Text(offer.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (offer.viaLumen) {
             Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1676,6 +1681,6 @@ private fun LumenOfferCard(offer: com.notdxbi.dxbi.tv.live.LumenHandoff.Offer, o
                 LiveChip(label = "Keep watching live", selected = false, onClick = { com.notdxbi.dxbi.tv.live.LumenHandoff.dismiss() })
             }
         }
-        Text("Back: not now", fontSize = 11.sp, color = Dx.Faint)
+        Text("Back: not now", style = TextStyle(fontSize = 12.sp, color = Dx.Faint, fontFeatureSettings = "tnum"))
     }
 }

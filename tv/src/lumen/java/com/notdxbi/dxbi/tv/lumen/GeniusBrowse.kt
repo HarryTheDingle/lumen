@@ -184,7 +184,7 @@ private fun MoodTile(mood: Mood, onClick: () -> Unit) {
             if (art != 0) Picture(art, Modifier.fillMaxSize())
             else Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(mood.top, mood.bottom))))
             Text(
-                mood.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White, lineHeight = 17.sp, maxLines = 3,
+                mood.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White, lineHeight = 17.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.align(Alignment.BottomStart).padding(10.dp),
             )
         }
@@ -270,7 +270,7 @@ private fun DropdownPill(label: String, options: List<String>, chosen: Int, onCh
                             scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
                         ) {
                             Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(name, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, modifier = Modifier.weight(1f))
+                                Text(name, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                                 if (i == chosen) Icon(Icons.Filled.Check, contentDescription = "Chosen", modifier = Modifier.size(16.dp))
                             }
                         }
@@ -448,7 +448,7 @@ private fun ChainRowView(
             // (the skeleton cards sit under the posters, in the same places, and show through as the posters fade)
             if (cardsAlpha < 1f) {
                 Row(
-                    Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 20.dp, bottom = 26.dp).graphicsLayer { alpha = 1f - cardsAlpha },
+                    Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 20.dp, bottom = 26.dp + CAPTION_ROOM).graphicsLayer { alpha = 1f - cardsAlpha },
                     horizontalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
                     repeat(8) { Box(Modifier.size(Dx.Poster, Dx.Poster * 1.5f).skeleton(shape = RoundedCornerShape(Dx.RCard))) }

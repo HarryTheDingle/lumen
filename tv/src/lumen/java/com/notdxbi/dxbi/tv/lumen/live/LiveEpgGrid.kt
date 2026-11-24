@@ -150,7 +150,7 @@ private val LEFT_CHANNEL_WIDTH = 140.dp
 private val ROW_HEIGHT = 56.dp
 /** The row the remote is on grows (to show a programme's whole name) */
 private val ROW_HEIGHT_FOCUSED = 80.dp
-private val TIME_HEADER_HEIGHT = 40.dp
+private val TIME_HEADER_HEIGHT = 44.dp
 
 /**
  * Deterministic 3-hour viewport-clamped EPG timeline grid shared by TV Guide and Sports Channels.
@@ -727,19 +727,19 @@ fun LiveEpgGrid(
                 })
             }
             if (isPastCatchup) {
-                add(Action("Watch Catch-up: ${prog!!.title}", Icons.Filled.History) {
+                add(Action("Watch catch-up: ${prog!!.title}", Icons.Filled.History) {
                     store.playCatchup(context, linked!!, prog, zapChannelIds = zapChannelIds)
                 })
             }
             if (row.isPlayable) {
-                add(Action("Watch Live: ${row.guideChannel.name}", Icons.Filled.PlayArrow) {
+                add(Action("Watch live: ${row.guideChannel.name}", Icons.Filled.PlayArrow) {
                     store.playGuideRow(context, row, zapChannelIds = zapChannelIds)
                 })
             }
             if (linked != null) {
                 add(
                     Action(
-                        label = if (isFav) "Remove from Favourites" else "Add to Favourites",
+                        label = if (isFav) "Remove from favourites" else "Add to favourites",
                         icon = if (isFav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                     ) {
                         store.toggleFavourite(linked.id)
@@ -747,12 +747,12 @@ fun LiveEpgGrid(
                 )
             }
             if (row.hasCatchup && linked != null) {
-                add(Action("Browse Catch-up Archive", Icons.Filled.LiveTv) {
+                add(Action("Browse catch-up archive", Icons.Filled.LiveTv) {
                     onOpenCatchup(linked)
                 })
             }
             if (linked != null && linked.streams.size > 1) {
-                add(Action("Choose Stream Feed (${linked.streams.size})", Icons.Filled.Tune) {
+                add(Action("Choose stream feed (${linked.streams.size})", Icons.Filled.Tune) {
                     streamPickerRow = row
                 })
             }
@@ -821,7 +821,7 @@ private fun ViewportTimeRuler(
                         maxLines = 1,
                         style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
                     )
-                    Text(text = rulerDay(tickMs), fontSize = 10.sp, color = Dx.Muted, maxLines = 1)
+                    Text(text = rulerDay(tickMs), fontSize = 12.sp, color = Dx.Muted, maxLines = 1)
                 }
             }
         }
@@ -880,7 +880,7 @@ private fun GuideChannelViewportRow(
                 name = row.guideChannel.name,
                 width = 92.dp,
                 height = 42.dp,
-                modifier = Modifier.graphicsLayer { alpha = if (row.isPlayable) 1f else 0.45f },
+                modifier = Modifier.graphicsLayer { alpha = if (row.isPlayable) 1f else 0.5f },
             )
         }
 
@@ -906,7 +906,7 @@ private fun GuideChannelViewportRow(
                 val displayTitle = when {
                     prog != null && slot.clippedLeft -> "‹ ${prog.title}"
                     prog != null -> prog.title
-                    row.isPlayable -> "Live Broadcast · ${row.guideChannel.name}"
+                    row.isPlayable -> "Live broadcast · ${row.guideChannel.name}"
                     else -> "No programme guide"
                 }
                 // (only when it starts: where it ends shows from where the next one begins)
@@ -987,14 +987,14 @@ private fun ProgrammeViewportCell(
         onLongClick = onLongClick,
         onFocus = onFocus,
         modifier = modifier,
-        shape = RoundedCornerShape(9.dp),
+        shape = RoundedCornerShape(Dx.RCard),
         fillColor = bg,
         focusedFillColor = Color.White,
         borderColor = borderColor,
-        focusedScale = 1.03f,
+        focusedScale = Dx.FocusRow,
         sheen = false,
     ) { focused, ink ->
-        val textAlpha = if (!focused && isPastUnavailable) 0.45f else 1f
+        val textAlpha = if (!focused && isPastUnavailable) 0.55f else 1f
         Column(
             modifier = Modifier
                 .align(Alignment.CenterStart)
@@ -1026,8 +1026,11 @@ private fun ProgrammeViewportCell(
             }
             Text(
                 text = timeLabel,
-                fontSize = 11.sp,
-                color = ink.copy(alpha = if (focused) 0.68f else 0.58f * textAlpha),
+                style = androidx.compose.ui.text.TextStyle(
+                    fontSize = 12.sp,
+                    color = ink.copy(alpha = if (focused) 0.68f else (0.62f * textAlpha).coerceAtLeast(0.55f)),
+                    fontFeatureSettings = "tnum",
+                ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1221,7 +1224,7 @@ private fun StreamFeedPickerDialog(
             Column(
                 modifier = Modifier
                     .width(560.dp)
-                    .liveGlass(RoundedCornerShape(22.dp))
+                    .liveGlass(RoundedCornerShape(Dx.RPanel))
                     .padding(22.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -1230,12 +1233,12 @@ private fun StreamFeedPickerDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("${channel.name} · Feeds", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("${channel.name} · Feeds", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                     Pill(text = "Close", selected = false, onClick = onClose)
                 }
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
-                    contentPadding = PaddingValues(bottom = 8.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                 ) {
                     itemsIndexed(streams, key = { _, s -> s.id }) { idx, stream ->
                         Surface(
@@ -1243,14 +1246,14 @@ private fun StreamFeedPickerDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .then(if (idx == 0) Modifier.focusRequester(firstFocus) else Modifier),
-                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(Dx.RCard)),
                             colors = ClickableSurfaceDefaults.colors(
                                 containerColor = LivePalette.GlassFill,
                                 contentColor = Color.White,
                                 focusedContainerColor = Color.White,
                                 focusedContentColor = Color.Black,
                             ),
-                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+                            scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
                         ) {
                             val ink = LocalContentColor.current
                             Row(
@@ -1259,11 +1262,13 @@ private fun StreamFeedPickerDialog(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Column(Modifier.weight(1f)) {
-                                    Text(stream.sourceName, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = ink)
+                                    Text(stream.sourceName, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(
                                         "${stream.quality.badge}${if (stream.quality.isRaw) " · RAW" else ""}${if (stream.quality.isBackup) " · Backup" else ""}",
                                         fontSize = 12.sp,
                                         color = ink.copy(alpha = 0.65f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                 }
                                 Text("Watch", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ink)
@@ -1302,7 +1307,7 @@ internal fun CatchupModal(
                 modifier = Modifier
                     .width(660.dp)
                     .fillMaxHeight(0.82f)
-                    .liveGlass(RoundedCornerShape(22.dp))
+                    .liveGlass(RoundedCornerShape(Dx.RPanel))
                     .padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -1312,6 +1317,7 @@ internal fun CatchupModal(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Row(
+                        modifier = Modifier.weight(1f, fill = false),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
@@ -1323,8 +1329,8 @@ internal fun CatchupModal(
                             corner = 8.dp,
                         )
                         Column {
-                            Text("${channel.name} · Catch-up", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            Text("${channel.maxCatchupDays}-day archive", fontSize = 13.sp, color = Dx.Muted)
+                            Text("${channel.name} · Catch-up", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("${channel.maxCatchupDays}-day archive", fontSize = 13.sp, color = Dx.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                     Pill(
@@ -1344,7 +1350,7 @@ internal fun CatchupModal(
                 } else {
                     LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(bottom = 16.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                     ) {
                         itemsIndexed(programmes, key = { _, p -> p.id }) { idx, prog ->
                             Surface(
@@ -1352,14 +1358,14 @@ internal fun CatchupModal(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .then(if (idx == 0) Modifier.focusRequester(episodeFocus) else Modifier),
-                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(Dx.RCard)),
                                 colors = ClickableSurfaceDefaults.colors(
                                     containerColor = LivePalette.GlassFill,
                                     contentColor = Color.White,
                                     focusedContainerColor = Color.White,
                                     focusedContentColor = Color.Black,
                                 ),
-                                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+                                scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
                             ) {
                                 val ink = LocalContentColor.current
                                 Row(
@@ -1375,9 +1381,13 @@ internal fun CatchupModal(
                                     }
                                     Spacer(Modifier.width(12.dp))
                                     Text(
-                                        text = "${Dates.formatShortDay(prog.startMs)} ${Dates.formatTime(Date(prog.startMs))}",
-                                        fontSize = 12.sp,
-                                        color = ink.copy(alpha = 0.75f),
+                                        text = "${Dates.formatShortDay(prog.startMs)} ${LiveTimeFormat.formatTime24h(prog.startMs)}",
+                                        style = androidx.compose.ui.text.TextStyle(
+                                            fontSize = 12.sp,
+                                            color = ink.copy(alpha = 0.75f),
+                                            fontFeatureSettings = "tnum",
+                                        ),
+                                        maxLines = 1,
                                     )
                                 }
                             }

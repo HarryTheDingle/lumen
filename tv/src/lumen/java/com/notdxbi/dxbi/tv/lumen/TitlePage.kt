@@ -504,18 +504,18 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVid
                                 menu = title.name to buildList {
                                     // (a saved place to go back to: the film's, or the episode Play would start's)
                                     val place = d != null && d.resumeMs > 0 && (if (ref.type == "series") nextVideo(d)?.id == d.resumeVideoId else d.resumeVideoId == ref.id)
-                                    if (place) add(Action("Start from the Beginning", Icons.Filled.Replay) { start(d?.let(::nextVideo)?.id, fromStart = true) })
+                                    if (place) add(Action("Start from the beginning", Icons.Filled.Replay) { start(d?.let(::nextVideo)?.id, fromStart = true) })
                                     if (ref.type == "series" && d != null && ready) add(Action("Shuffle", Icons.Filled.Shuffle) { start(d.shuffled()?.id, shuffle = true) })
-                                    if (!title.watched) add(Action("Mark as Watched", Icons.Filled.Visibility) {
+                                    if (!title.watched) add(Action("Mark as watched", Icons.Filled.Visibility) {
                                         stremio.setWatched(true)
                                         // (watched and not rated: ask for a rating, which they can just dismiss)
                                         if (myRating == null) rating = true
                                     })
                                     // (partly seen counts: Unwatched puts it back to the start)
-                                    if (title.watched || (d?.resumeMs ?: 0) > 0) add(Action("Mark as Unwatched", Icons.Filled.VisibilityOff) { stremio.setWatched(false) })
+                                    if (title.watched || (d?.resumeMs ?: 0) > 0) add(Action("Mark as unwatched", Icons.Filled.VisibilityOff) { stremio.setWatched(false) })
                                     // (the library button's other half: not in the Library, so it can be turned down from here, as from a
                                     // card's hold menu; only a real IMDb title, which is all Stremio can be told about)
-                                    if (!inList && Regex("""tt\d+""").matches(title.id)) add(Action("Not Interested", Icons.Filled.VisibilityOff) {
+                                    if (!inList && Regex("""tt\d+""").matches(title.id)) add(Action("Not interested", Icons.Filled.VisibilityOff) {
                                         stremio.notInterested(title)
                                         Toast.makeText(context, "Got it. It won't be recommended again.", Toast.LENGTH_SHORT).show()
                                         nav.back()
@@ -561,15 +561,15 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVid
                                 onMenu = { v ->
                                     menu = episodeName(v) to buildList {
                                         add(Action("Play", Icons.Filled.PlayArrow) { start(v.id) })
-                                        if (v.id == d.resumeVideoId && d.resumeMs > 0) add(Action("Start from the Beginning", Icons.Filled.Replay) { start(v.id, fromStart = true) })
+                                        if (v.id == d.resumeVideoId && d.resumeMs > 0) add(Action("Start from the beginning", Icons.Filled.Replay) { start(v.id, fromStart = true) })
                                         add(Action("Choose a stream", Icons.AutoMirrored.Filled.List) {
                                             choices = null
                                             stremio.open(ref.type, ref.id, v.id)
                                             streamsOpen = true
                                         })
-                                        if (v.watched) add(Action("Mark as Unwatched", Icons.Filled.VisibilityOff) { stremio.setWatched(v.id, false) })
-                                        else add(Action("Mark as Watched", Icons.Filled.Visibility) { stremio.setWatched(v.id, true) })
-                                        if ((v.season ?: 0) > 0 && ((v.episode ?: 0) > 1 || (v.season ?: 0) > 1)) add(Action("Mark Up to Here as Watched", Icons.Filled.DoneAll) { stremio.setWatched(v.id, true, upTo = true) })
+                                        if (v.watched) add(Action("Mark as unwatched", Icons.Filled.VisibilityOff) { stremio.setWatched(v.id, false) })
+                                        else add(Action("Mark as watched", Icons.Filled.Visibility) { stremio.setWatched(v.id, true) })
+                                        if ((v.season ?: 0) > 0 && ((v.episode ?: 0) > 1 || (v.season ?: 0) > 1)) add(Action("Mark up to here as watched", Icons.Filled.DoneAll) { stremio.setWatched(v.id, true, upTo = true) })
                                     }
                                 },
                             )
@@ -587,7 +587,7 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVid
                             // the name, centred over what follows, as a show's is over its episodes (Apple TV's, once the picture has blurred away)
                             if (!hasEpisodes) TitleLogo(title, maxHeight = 46.dp, maxWidth = 320.dp, textSize = 30.sp, centred = true, modifier = Modifier.padding(bottom = 10.dp))
                             if (trailerList.isNotEmpty()) {
-                                Shelf("Trailers") {
+                                Shelf("Trailers", spacing = 40.dp) {
                                     items(trailerList, key = { it.first }) { (yt, name) ->
                                         TrailerCard(yt, if (name.equals("Trailer", true) || name.isBlank()) "${title.name} Trailer" else name) {
                                             watchPaused = false
@@ -805,7 +805,7 @@ private fun Header(
             if (notOut) {
                 // (not out: Apple TV's Add to Up Next, as the Library; nothing to look for again)
                 PlayButton(
-                    if (inList) "In Your Library" else "Add to Library",
+                    if (inList) "In your Library" else "Add to Library",
                     onList,
                     Modifier.focusRequester(playFocus),
                     icon = if (inList) Icons.Filled.Check else Icons.Filled.Add,
@@ -834,7 +834,7 @@ private fun Header(
                     expands = true,
                 )
                 RoundButton(
-                    if (inList) Icons.Filled.Check else Icons.Filled.Add, if (inList) "In Your Library" else "Add to Library", onList,
+                    if (inList) Icons.Filled.Check else Icons.Filled.Add, if (inList) "In your Library" else "Add to Library", onList,
                     if (nothing) Modifier.focusRequester(playFocus) else Modifier,
                     expands = true,
                 )
@@ -1133,15 +1133,15 @@ private fun EpisodeCard(v: Video, fallbackArt: String?, isCurrent: Boolean, blur
             Modifier.fillMaxWidth()
                 .drawBehind {
                     val a = boxAlpha.value
-                    if (a > 0f) drawRoundRect(Color.White.copy(alpha = 0.1f * a), cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx()))
+                    if (a > 0f) drawRoundRect(Color.White.copy(alpha = 0.1f * a), cornerRadius = androidx.compose.ui.geometry.CornerRadius(Dx.RCard.toPx()))
                 }
                 .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            v.episode?.let { Text(if (showSeason && v.season != null && v.season != 0) "S${v.season} · EPISODE $it" else "EPISODE $it", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (isCurrent) Color.White else Dx.Muted) }
+            v.episode?.let { Text(if (showSeason && v.season != null && v.season != 0) "S${v.season} · EPISODE $it" else "EPISODE $it", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (isCurrent) Color.White else Dx.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             if (v.title.isNotEmpty()) Text(v.title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
             v.overview?.let { Text(it, fontSize = 12.sp, color = Color.White.copy(alpha = 0.75f), maxLines = 4, overflow = TextOverflow.Ellipsis, lineHeight = 16.sp) }
-            releasedText(v)?.let { Text(it, fontSize = 12.sp, color = Dx.Muted, modifier = Modifier.padding(top = 2.dp)) }
+            releasedText(v)?.let { Text(it, fontSize = 12.sp, color = Dx.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp)) }
         }
     }
 }
@@ -1190,8 +1190,8 @@ fun Person(name: String, role: String?, photo: String?, size: Dp = 96.dp, onClic
                 )
             }
         }
-        Text(name, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 2, textAlign = TextAlign.Center, lineHeight = 16.sp)
-        if (!role.isNullOrEmpty()) Text(role, fontSize = 12.sp, color = Dx.Muted, maxLines = 2, textAlign = TextAlign.Center)
+        Text(name, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, lineHeight = 16.sp)
+        if (!role.isNullOrEmpty()) Text(role, fontSize = 12.sp, color = Dx.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
     }
 }
 
@@ -1216,7 +1216,7 @@ private fun About(title: Title, d: Details?, facts: TitleFacts?) {
         ) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title.name, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (title.genres.isNotEmpty()) Text(title.genres.take(3).joinToString(", "), fontSize = 12.sp, color = Color.White.copy(alpha = 0.7f))
+                if (title.genres.isNotEmpty()) Text(title.genres.take(3).joinToString(", "), fontSize = 12.sp, color = Color.White.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 title.description?.let { Text(it, fontSize = 13.sp, color = Color.White.copy(alpha = 0.9f), lineHeight = 18.sp, maxLines = 5, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp)) }
             }
         }
@@ -1257,8 +1257,8 @@ private fun InfoColumn(heading: String, rows: List<Pair<String, String>>, modifi
         Text(heading, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.75f))
         rows.forEach { (k, v) ->
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(k, fontSize = 12.sp, color = Dx.Muted)
-                Text(v, fontSize = 14.sp, color = Color.White, lineHeight = 19.sp)
+                Text(k, fontSize = 12.sp, color = Dx.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(v, fontSize = 14.sp, color = Color.White, lineHeight = 19.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -1304,18 +1304,19 @@ private fun ScoresSheet(name: String, reviews: Reviews, onDismiss: () -> Unit) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
                         Box(Modifier.width(52.dp), contentAlignment = Alignment.CenterStart) { ScoreMark(sc.source, sc.value, 24.dp) }
                         Column(Modifier.weight(1f)) {
-                            Text(sc.name.ifEmpty { sc.source }, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-                            if (sc.votes > 0) Text("${java.text.NumberFormat.getIntegerInstance().format(sc.votes)} votes", fontSize = 13.sp, color = Dx.Muted)
+                            Text(sc.name.ifEmpty { sc.source }, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (sc.votes > 0) Text("${java.text.NumberFormat.getIntegerInstance().format(sc.votes)} votes", style = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, color = Dx.Muted, fontFeatureSettings = "tnum"))
                         }
-                        Text(sc.value, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text(sc.value, style = androidx.compose.ui.text.TextStyle(fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFeatureSettings = "tnum"))
                     }
                 }
-                reviews.scoresFrom?.let { Text("Scores from $it", fontSize = 12.sp, color = Dx.Muted) }
+                reviews.scoresFrom?.let { Text("Scores from $it", fontSize = 12.sp, color = Dx.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 Surface(
                     onClick = onDismiss,
                     modifier = Modifier.align(Alignment.CenterHorizontally).focusRequester(close),
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
                     colors = ClickableSurfaceDefaults.colors(containerColor = Color.White.copy(alpha = 0.12f), contentColor = Color.White, focusedContainerColor = Color.White, focusedContentColor = Color.Black),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
                 ) { Text("Done", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 26.dp, vertical = 9.dp)) }
             }
         }
@@ -1350,8 +1351,8 @@ private fun RatingSheet(name: String, current: Int?, onDismiss: () -> Unit, onRa
                     val n = showing
                     if (n != null) {
                         Row(verticalAlignment = Alignment.Bottom) {
-                            Text("$n", fontSize = 54.sp, fontWeight = FontWeight.Bold, color = RatingYellow)
-                            Text("/10", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted, modifier = Modifier.padding(bottom = 10.dp, start = 4.dp))
+                            Text("$n", style = androidx.compose.ui.text.TextStyle(fontSize = 54.sp, fontWeight = FontWeight.Bold, color = RatingYellow, fontFeatureSettings = "tnum"))
+                            Text("/10", style = androidx.compose.ui.text.TextStyle(fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted, fontFeatureSettings = "tnum"), modifier = Modifier.padding(bottom = 10.dp, start = 4.dp))
                         }
                         Text(tiers[n].orEmpty(), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
                     } else {
@@ -1377,7 +1378,7 @@ private fun RatingSheet(name: String, current: Int?, onDismiss: () -> Unit, onRa
                                 scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
                             ) {
                                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text("$score", fontSize = 18.sp, fontWeight = if (mine) FontWeight.Bold else FontWeight.Medium)
+                                    Text("$score", style = androidx.compose.ui.text.TextStyle(fontSize = 18.sp, fontWeight = if (mine) FontWeight.Bold else FontWeight.Medium, fontFeatureSettings = "tnum"))
                                 }
                             }
                         }
@@ -1389,13 +1390,14 @@ private fun RatingSheet(name: String, current: Int?, onDismiss: () -> Unit, onRa
                         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
                         colors = ClickableSurfaceDefaults.colors(
                             containerColor = Color.Transparent,
-                            contentColor = Color(0xFFFF6961),
+                            contentColor = Dx.Danger,
                             focusedContainerColor = Color.White,
                             focusedContentColor = Color(0xFFD70015),
                         ),
+                        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
                         modifier = Modifier.onFocusChanged { if (it.isFocused) showing = null },
                     ) {
-                        Text("Remove Rating", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
+                        Text("Remove rating", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
                     }
                 }
             }
@@ -1407,7 +1409,7 @@ private fun RatingSheet(name: String, current: Int?, onDismiss: () -> Unit, onRa
 @Composable
 private fun TrailerCard(id: String, name: String, onClick: () -> Unit) {
     val width = 270.dp
-    FocusCard(onClick = onClick, corner = 16.dp, modifier = Modifier.size(width, width * 0.64f)) {
+    FocusCard(onClick = onClick, corner = Dx.RCard, modifier = Modifier.size(width, width * 0.64f)) {
         Box(Modifier.fillMaxSize()) {
             // (YouTube's 16:9 picture: the 4:3 one has black bars across it)
             Art("https://img.youtube.com/vi/$id/mqdefault.jpg", Modifier.fillMaxSize())

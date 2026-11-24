@@ -41,6 +41,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -159,11 +160,11 @@ internal fun androidx.compose.ui.input.key.KeyEvent.isSelectKey(): Boolean = whe
 internal fun GlassTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(12.dp),
+    shape: Shape = RoundedCornerShape(Dx.RCard),
     fillColor: Color = LivePalette.GlassFill,
     focusedFillColor: Color = Color.White,
     borderColor: Color = LivePalette.GlassBorder,
-    focusedScale: Float = 1.025f,
+    focusedScale: Float = Dx.FocusRow,
     /** The soft glass sheen and rim while it isn't chosen (cells in the guide, cards) */
     sheen: Boolean = fillColor != Color.Transparent,
     onFocus: (() -> Unit)? = null,
@@ -271,7 +272,7 @@ internal fun GlassPillButton(
         fillColor = fill,
         focusedFillColor = Color.White,
         borderColor = border,
-        focusedScale = 1.05f,
+        focusedScale = Dx.FocusButton,
     ) { focused, ink ->
         Row(
             modifier = Modifier.padding(horizontal = 13.dp, vertical = 6.dp),
@@ -283,8 +284,9 @@ internal fun GlassPillButton(
                 text = label,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = if (focused) Color.Black else if (selected) Color.White else ink.copy(alpha = 0.62f),
+                color = if (focused) Color.Black else if (selected) Color.White else Dx.Muted,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             trailing?.invoke()
         }
@@ -335,7 +337,7 @@ internal fun LandscapeChannelLogo(
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
-                Text(channelMonogram(name), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, maxLines = 1)
+                Text(channelMonogram(name), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         return
@@ -374,10 +376,11 @@ internal fun LandscapeChannelLogo(
         } else {
             Text(
                 text = channelMonogram(name),
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = Color.White,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -420,7 +423,7 @@ internal fun CrestBadge(
                     .padding(1.dp),
             )
         } else {
-            val fontSize = (size.value * 0.34f).coerceIn(8f, 15f).sp
+            val fontSize = (size.value * 0.34f).coerceIn(12f, 15f).sp
             Text(
                 text = channelMonogram(name),
                 fontSize = fontSize,
@@ -442,16 +445,17 @@ internal fun HeroPillBadge(
 ) {
     Box(
         modifier = modifier
-            .background(containerColor, RoundedCornerShape(6.dp))
+            .background(containerColor, RoundedCornerShape(Dx.RSmall))
             .padding(horizontal = 8.dp, vertical = 3.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
-            fontSize = 11.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             color = contentColor,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -502,13 +506,15 @@ internal fun LiveSectionHeading(
             fontWeight = FontWeight.Bold,
             color = Color.White,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
         )
         if (!subtitle.isNullOrBlank()) {
             Text(
                 text = subtitle,
-                fontSize = 12.sp,
-                color = Dx.Muted,
+                style = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = Dx.Muted, fontFeatureSettings = "tnum"),
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -525,14 +531,14 @@ internal val GlassSheen = Brush.verticalGradient(listOf(Color.White.copy(alpha =
 internal val GlassRim = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.05f)))
 
 /** A card or panel over the picture: the dark surface with the glass sheen and rim on it */
-internal fun Modifier.liveGlass(shape: Shape = RoundedCornerShape(22.dp)): Modifier =
+internal fun Modifier.liveGlass(shape: Shape = RoundedCornerShape(Dx.RPanel)): Modifier =
     this.background(LiveSurface, shape).background(GlassSheen, shape).border(1.dp, GlassRim, shape)
 
 /**
  * Frosted glass over the live picture: the picture behind the box, blurred, under a dark tint (see LiveFrost), with the
  * glass sheen and rim. Until a copy of the picture is in, the plain dark glass.
  */
-internal fun Modifier.liveFrost(shape: Shape = RoundedCornerShape(22.dp), rim: Boolean = true): Modifier = this.then(Modifier.composed {
+internal fun Modifier.liveFrost(shape: Shape = RoundedCornerShape(Dx.RPanel), rim: Boolean = true): Modifier = this.then(Modifier.composed {
     val f by com.notdxbi.dxbi.tv.live.LiveFrost.frame.collectAsState()
     androidx.compose.runtime.DisposableEffect(Unit) {
         com.notdxbi.dxbi.tv.live.LiveFrost.wanted++

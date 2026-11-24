@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,9 +55,9 @@ internal fun LiveLoading(
 ) {
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            if (channelName != null) ChannelTile(logoUrl = logoUrl, name = channelName, width = 150.dp, height = 84.dp, corner = 12.dp)
+            if (channelName != null) ChannelTile(logoUrl = logoUrl, name = channelName, width = 150.dp, height = 84.dp, corner = Dx.RCard)
             LiveSpinner()
-            Text(message, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Dx.Muted, textAlign = TextAlign.Center)
+            Text(message, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Dx.Muted, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }

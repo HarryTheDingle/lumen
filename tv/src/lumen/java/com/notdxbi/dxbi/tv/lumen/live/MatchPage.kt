@@ -91,7 +91,7 @@ fun MatchPage(
     PageWindow(onBack = onBack, solid = true) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF111A2C), Color.Black), endY = 900f)),
-            contentPadding = PaddingValues(start = 56.dp, end = 56.dp, top = 36.dp, bottom = 48.dp),
+            contentPadding = PaddingValues(start = Dx.Gutter, end = Dx.Gutter, top = 36.dp, bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(26.dp),
         ) {
             item(key = "score") {
@@ -107,7 +107,7 @@ fun MatchPage(
                                         "FINAL" -> "Full time"
                                         else -> "Kick-off " + java.text.SimpleDateFormat("EEE d MMM, HH:mm", java.util.Locale.UK).format(java.util.Date(fixture.startMs))
                                     },
-                                    fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
+                                    style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, fontFeatureSettings = "tnum"),
                                 )
                             }
                             Text(
@@ -116,7 +116,7 @@ fun MatchPage(
                             )
                             Text(
                                 listOfNotNull(fixture.leagueName.takeIf { it.isNotBlank() }, m?.optString("venue")?.takeIf { it.isNotBlank() && it != "null" }, fixture.ukChannelName).joinToString("  ·  "),
-                                fontSize = 13.sp, color = Dx.Muted,
+                                fontSize = 13.sp, color = Dx.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis,
                             )
                         }
                         Side(away?.optString("name") ?: fixture.away?.name ?: "", away?.optString("logoUrl") ?: fixture.away?.logoUrl)
@@ -143,7 +143,7 @@ fun MatchPage(
             } else if (status != "UPCOMING" && !hideScores) {
                 item(key = "detail") {
                     Section {
-                        Row(horizontalArrangement = Arrangement.spacedBy(56.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(Dx.Gutter)) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Heading("Match events")
                                 val events = m.optJSONArray("events") ?: JSONArray()
@@ -165,7 +165,7 @@ fun MatchPage(
             if (m != null && ((m.optJSONArray("homeLineup")?.length() ?: 0) > 0)) {
                 item(key = "lineups") {
                     Section {
-                        Row(horizontalArrangement = Arrangement.spacedBy(56.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(Dx.Gutter)) {
                             Lineup(home?.optString("name") ?: "", m.optJSONArray("homeLineup"), Modifier.weight(1f))
                             Lineup(away?.optString("name") ?: "", m.optJSONArray("awayLineup"), Modifier.weight(1f))
                         }
@@ -185,15 +185,15 @@ private fun Section(content: @Composable () -> Unit) {
             .fillMaxWidth()
             .onFocusChanged { on = it.isFocused }
             .focusable()
-            .clip(RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(Dx.RPanel))
             .background(Color.White.copy(alpha = 0.05f))
-            .border(1.dp, if (on) Color.White.copy(alpha = 0.6f) else Color.Transparent, RoundedCornerShape(22.dp))
+            .border(1.dp, if (on) Color.White.copy(alpha = 0.6f) else Color.Transparent, RoundedCornerShape(Dx.RPanel))
             .padding(28.dp),
     ) { content() }
 }
 
 @Composable
-private fun Heading(text: String) = Text(text, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(bottom = 6.dp))
+private fun Heading(text: String) = Text(text, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(bottom = 6.dp))
 
 @Composable
 private fun Side(name: String, logo: String?) {
@@ -214,8 +214,8 @@ private fun EventLine(e: JSONObject, homeName: String, awayName: String) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         Text(e.optString("minute"), style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Dx.Muted, fontFeatureSettings = "tnum"), modifier = Modifier.width(52.dp))
         when {
-            kind.contains("yellow", true) -> Box(Modifier.size(10.dp, 14.dp).clip(RoundedCornerShape(2.dp)).background(Color(0xFFFFD60A)))
-            kind.contains("red", true) -> Box(Modifier.size(10.dp, 14.dp).clip(RoundedCornerShape(2.dp)).background(Color(0xFFFF453A)))
+            kind.contains("yellow", true) -> Box(Modifier.size(10.dp, 14.dp).clip(RoundedCornerShape(2.dp)).background(Dx.Amber))
+            kind.contains("red", true) -> Box(Modifier.size(10.dp, 14.dp).clip(RoundedCornerShape(2.dp)).background(Dx.Danger))
             kind.contains("goal", true) || kind.contains("penalty", true) -> Box(Modifier.size(10.dp).clip(CircleShape).background(Color.White))
             else -> Spacer(Modifier.width(10.dp))
         }
@@ -226,7 +226,7 @@ private fun EventLine(e: JSONObject, homeName: String, awayName: String) {
             color = if (kind.contains("Substitution", true)) Dx.Muted else Color.White,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
         )
-        Text(if (e.optBoolean("home")) homeName else awayName, fontSize = 12.sp, color = Dx.Faint, maxLines = 1)
+        Text(if (e.optBoolean("home")) homeName else awayName, fontSize = 12.sp, color = Dx.Faint, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -242,7 +242,7 @@ private fun StatBar(s: JSONObject) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(h, style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFeatureSettings = "tnum"), modifier = Modifier.width(60.dp))
-            Text(s.optString("label"), fontSize = 13.sp, color = Dx.Muted, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
+            Text(s.optString("label"), fontSize = 13.sp, color = Dx.Muted, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             Text(a, style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFeatureSettings = "tnum"), textAlign = TextAlign.End, modifier = Modifier.width(60.dp))
         }
         Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = 0.18f))) {
@@ -260,7 +260,7 @@ private fun Lineup(team: String, players: JSONArray?, modifier: Modifier) {
             val p = list.getJSONObject(i)
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text(p.optString("number"), style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Dx.Muted, fontFeatureSettings = "tnum"), modifier = Modifier.width(30.dp))
-                Text(p.optString("name"), fontSize = 14.sp, color = Color.White, modifier = Modifier.weight(1f), maxLines = 1)
+                Text(p.optString("name"), fontSize = 14.sp, color = Color.White, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(p.optString("position"), fontSize = 12.sp, color = Dx.Faint)
             }
         }

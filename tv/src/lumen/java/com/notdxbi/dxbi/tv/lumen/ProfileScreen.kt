@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -26,6 +27,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,7 +45,7 @@ import com.notdxbi.dxbi.tv.phone.Viewer
 /** Lumen's viewer colours (the plugin accepts only these) */
 val ProfileColours = listOf("#e50914", "#2f80ff", "#1db954", "#f5a524", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316")
 
-private fun profileColour(hex: String?): Color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color(0xFF3A3A3C))
+private fun profileColour(hex: String?): Color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Dx.Raised2)
 
 /** A profile's circle: its colour and first letter, as on Apple TV */
 @Composable
@@ -104,8 +106,8 @@ fun ProfilePicker(stremio: Stremio, onDone: () -> Unit) {
                                     selected = v.id == current?.id && !managing,
                                     modifier = Modifier.then(if (i == 0 || v.id == current?.id) Modifier.focusRequester(first) else Modifier),
                                 ) { ProfileAvatar(v.name, v.colour, 112.dp) }
-                                Text(if (managing) "Edit" else v.name, fontSize = 15.sp, color = if (managing) Dx.Muted else Color.White, maxLines = 1)
-                                if (managing) Text(v.name, fontSize = 13.sp, color = Dx.Muted, maxLines = 1, modifier = Modifier.padding(top = 0.dp))
+                                Text(if (managing) "Edit" else v.name, fontSize = 15.sp, color = if (managing) Dx.Muted else Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 128.dp))
+                                if (managing) Text(v.name, fontSize = 13.sp, color = Dx.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 128.dp))
                             }
                         }
                         if (viewers.size < 8) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -114,7 +116,7 @@ fun ProfilePicker(stremio: Stremio, onDone: () -> Unit) {
                                     Icon(Icons.Filled.Add, contentDescription = "Add profile", tint = Color.White, modifier = Modifier.size(44.dp))
                                 }
                             }
-                            Text("Add Profile", fontSize = 15.sp, color = Dx.Muted)
+                            Text("Add profile", fontSize = 15.sp, color = Dx.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 128.dp))
                         }
                     }
                     Spacer(Modifier.height(44.dp))

@@ -57,7 +57,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import lumos.iptv.IptvSource
 import lumos.iptv.SourceLoadReport
-import java.util.Date
 
 /**
  * Full-height Apple TV frosted glass Live TV settings screen managing spoiler-free mode,
@@ -86,7 +85,7 @@ fun LiveSettingsView(
         modifier = modifier
             .fillMaxSize()
             .padding(end = if (miniPlayerActive) 316.dp else 0.dp),
-        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 18.dp),
+        contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 18.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item(key = "set:title") {
@@ -101,12 +100,12 @@ fun LiveSettingsView(
         }
 
         item(key = "set:hdr:prefs") {
-            LiveSectionHeading("Playback & Guide Preferences")
+            LiveSectionHeading("Playback and guide preferences")
         }
 
         item(key = "set:spoiler") {
             SettingsToggleRow(
-                title = "Hide Sports Scores (Spoiler-Free)",
+                title = "Hide sports scores (spoiler-free)",
                 subtitle = "Mask live and final scores across hero previews, Sports fixtures, and saved team schedules.",
                 checked = prefs.hideSportsScores,
                 onClick = { store.setHideSportsScores(!prefs.hideSportsScores) },
@@ -117,7 +116,7 @@ fun LiveSettingsView(
 
         item(key = "set:nonuk") {
             SettingsToggleRow(
-                title = "Show Non-UK Channels",
+                title = "Show non-UK channels",
                 subtitle = "Include international groups in the channel lineup alongside UK & US Sports.",
                 checked = prefs.showNonUk,
                 onClick = { store.setShowNonUk(!prefs.showNonUk) },
@@ -126,19 +125,19 @@ fun LiveSettingsView(
         }
 
         item(key = "set:hdr:sync") {
-            LiveSectionHeading("Guide & Sources", "${channels.size} channels · $catchupCount catch-up")
+            LiveSectionHeading("Guide and sources", "${channels.size} channels · $catchupCount catch-up")
         }
 
         item(key = "set:refresh") {
             val epgStamp = if (uiState.epgUpdatedAtMs > 0L) {
-                "Last updated ${Dates.formatShortDay(uiState.epgUpdatedAtMs)} ${Dates.formatTime(Date(uiState.epgUpdatedAtMs))}"
+                "Last updated ${Dates.formatShortDay(uiState.epgUpdatedAtMs)} ${LiveTimeFormat.formatTime24h(uiState.epgUpdatedAtMs)}"
             } else {
                 "Fetch latest UK EPG, provider listings, and playlists"
             }
             SettingsActionRow(
-                title = if (uiState.refreshing) "Refreshing Guide…" else "Refresh Guide",
+                title = if (uiState.refreshing) "Refreshing guide…" else "Refresh guide",
                 subtitle = epgStamp,
-                actionLabel = if (uiState.refreshing) "Syncing" else "Refresh Now",
+                actionLabel = if (uiState.refreshing) "Syncing" else "Refresh now",
                 accent = Dx.Blue,
                 icon = Icons.Filled.Refresh,
                 onMoveToRail = onMoveToRail,
@@ -148,9 +147,9 @@ fun LiveSettingsView(
 
         item(key = "set:qr") {
             SettingsActionRow(
-                title = "Add IPTV Source (QR)",
+                title = "Add IPTV source (QR)",
                 subtitle = if (pairing != null) "Pairing active — scan QR with code ${pairing!!.code}" else "Scan a QR code with your phone to add Xtream, M3U, or Stalker sources.",
-                actionLabel = if (pairing != null) "Close QR" else "Pair Phone",
+                actionLabel = if (pairing != null) "Close QR" else "Pair phone",
                 accent = Dx.Blue,
                 icon = Icons.Filled.QrCode2,
                 onMoveToRail = onMoveToRail,
@@ -160,7 +159,7 @@ fun LiveSettingsView(
 
         item(key = "set:hdr:sources") {
             LiveSectionHeading(
-                title = "Connected Sources",
+                title = "Connected sources",
                 subtitle = if (sources.isEmpty()) "None configured" else "${sources.count { it.enabled }}/${sources.size} enabled",
             )
         }
@@ -170,12 +169,12 @@ fun LiveSettingsView(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(LivePalette.GlassFill, RoundedCornerShape(14.dp))
-                        .border(1.dp, LivePalette.GlassBorder, RoundedCornerShape(14.dp))
+                        .background(LivePalette.GlassFill, RoundedCornerShape(Dx.RCard))
+                        .border(1.dp, LivePalette.GlassBorder, RoundedCornerShape(Dx.RCard))
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                 ) {
                     Text(
-                        text = "No IPTV sources added yet. Use Add IPTV Source (QR) above to link Xtream Codes, M3U, or Stalker portals.",
+                        text = "No IPTV sources added yet. Use Add IPTV source (QR) above to link Xtream Codes, M3U, or Stalker portals.",
                         fontSize = 13.sp,
                         color = Dx.Muted,
                     )
@@ -218,11 +217,11 @@ private fun SettingsToggleRow(
                     true
                 } else false
             },
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(Dx.RCard),
         fillColor = LivePalette.GlassFill,
         focusedFillColor = Color.White,
         borderColor = LivePalette.GlassBorder,
-        focusedScale = 1.015f,
+        focusedScale = Dx.FocusRow,
     ) { focused, ink ->
         Row(
             modifier = Modifier
@@ -232,11 +231,11 @@ private fun SettingsToggleRow(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = ink)
+                Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(subtitle, fontSize = 12.sp, color = ink.copy(alpha = 0.65f), maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             HeroPillBadge(
-                text = if (checked) "ON" else "OFF",
+                text = if (checked) "On" else "Off",
                 containerColor = when {
                     checked && focused -> LivePalette.LiveGreen
                     checked -> LivePalette.LiveGreen.copy(alpha = 0.28f)
@@ -273,11 +272,11 @@ private fun SettingsActionRow(
                     true
                 } else false
             },
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(Dx.RCard),
         fillColor = LivePalette.GlassFill,
         focusedFillColor = Color.White,
         borderColor = LivePalette.GlassBorder,
-        focusedScale = 1.015f,
+        focusedScale = Dx.FocusRow,
     ) { focused, ink ->
         Row(
             modifier = Modifier
@@ -288,8 +287,8 @@ private fun SettingsActionRow(
         ) {
             Icon(imageVector = icon, contentDescription = null, tint = ink, modifier = Modifier.size(20.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = ink)
-                Text(subtitle, fontSize = 12.sp, color = ink.copy(alpha = 0.65f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(subtitle, style = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = ink.copy(alpha = 0.65f), fontFeatureSettings = "tnum"), maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             HeroPillBadge(
                 text = actionLabel,
@@ -317,7 +316,7 @@ private fun SourceHealthRow(
         !source.enabled -> Triple("Disabled", Color.White.copy(alpha = 0.1f), Dx.Muted)
         report == null -> Triple("Pending", Dx.Blue.copy(alpha = 0.2f), Color.White)
         report.success -> Triple("${report.streamCount} streams", LivePalette.LiveGreen.copy(alpha = 0.24f), LivePalette.LiveGreen)
-        else -> Triple("Error", LivePalette.LiveRed.copy(alpha = 0.25f), Color(0xFFFF7A7E))
+        else -> Triple("Error", LivePalette.LiveRed.copy(alpha = 0.25f), Dx.Danger)
     }
     val detail = buildString {
         append("$kind · max ${source.maxConnections} conn")
@@ -345,11 +344,11 @@ private fun SourceHealthRow(
                         true
                     } else false
                 },
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(Dx.RCard),
             fillColor = LivePalette.GlassFill,
             focusedFillColor = Color.White,
             borderColor = LivePalette.GlassBorder,
-            focusedScale = 1.015f,
+            focusedScale = Dx.FocusRow,
         ) { focused, ink ->
             Row(
                 modifier = Modifier
@@ -360,7 +359,7 @@ private fun SourceHealthRow(
             ) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(source.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(detail, fontSize = 12.sp, color = ink.copy(alpha = 0.65f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(detail, style = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = ink.copy(alpha = 0.65f), fontFeatureSettings = "tnum"), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 HeroPillBadge(
                     text = statusLabel,
@@ -372,14 +371,14 @@ private fun SourceHealthRow(
 
         Surface(
             onClick = onRemove,
-            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(Dx.RCard)),
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = LivePalette.GlassFill,
-                contentColor = Color(0xFFFF7A7E),
+                contentColor = Dx.Danger,
                 focusedContainerColor = Color.White,
                 focusedContentColor = Color.Black,
             ),
-            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
         ) {
             Box(Modifier.padding(12.dp), contentAlignment = Alignment.Center) {
                 Icon(Icons.Filled.DeleteOutline, contentDescription = "Remove source", modifier = Modifier.size(18.dp))
@@ -462,7 +461,7 @@ internal fun QrSetupCard(
                 )
             }
             Text("or type this code on the setup page", fontSize = 13.sp, color = Dx.Muted)
-            Text(pairing.code, fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp, color = Color.White)
+            Text(pairing.code, style = androidx.compose.ui.text.TextStyle(fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp, color = Color.White, fontFeatureSettings = "tnum"))
             Text("Waiting for your phone…", fontSize = 13.sp, color = Dx.Muted)
         }
     }

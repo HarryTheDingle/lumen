@@ -65,7 +65,7 @@ internal fun LinkRow(title: String, note: String, onClick: () -> Unit) {
         val ink = LocalContentColor.current
         Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(note, fontSize = 12.sp, color = ink.copy(alpha = 0.6f), maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.width(18.dp))
@@ -129,10 +129,10 @@ fun NetworksScreen(stremio: Stremio) {
                         val state = if (n.trusted) "from ${n.readings} reading${if (n.readings == 1) "" else "s"}" else "Checking: a slow reading is measured again"
                         Column(Modifier.padding(horizontal = Dx.Gutter).padding(top = 14.dp).widthIn(max = 900.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(n.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                                Text(n.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                                 if (n.current) Text("  ·  Now", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.85f))
                             }
-                            Text("$speed · $state", fontSize = 13.sp, color = Dx.Muted, modifier = Modifier.padding(bottom = 8.dp))
+                            Text("$speed · $state", fontSize = 13.sp, color = Dx.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(bottom = 8.dp))
                             val isFirst = list.first() == n
                             if (renaming == n.id) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -156,7 +156,7 @@ fun NetworksScreen(stremio: Stremio) {
                                         modifier = if (isFirst) Modifier.focusRequester(first) else Modifier,
                                     )
                                     Pill("Rename", selected = false, onClick = { newName = n.name; renaming = n.id })
-                                    Pill("Measure Again", selected = false, onClick = { update { stremio.setNetwork(n.id, relearn = true) } })
+                                    Pill("Measure again", selected = false, onClick = { update { stremio.setNetwork(n.id, relearn = true) } })
                                     Pill("Forget", selected = false, onClick = { update { stremio.forgetNetwork(n.id) } })
                                 }
                             }

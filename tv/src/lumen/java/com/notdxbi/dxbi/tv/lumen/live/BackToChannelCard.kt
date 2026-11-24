@@ -1,14 +1,11 @@
 package com.notdxbi.dxbi.tv.lumen.live
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,12 +18,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
@@ -65,24 +62,27 @@ fun BackToChannelCard(engine: Engine) {
         goBack()
     }
 
-    PageWindow(onBack = { LumenHandoff.backOffer.value = null }, fadeIn = true) {
+    PageWindow(onBack = { LumenHandoff.backOffer.value = null }, fadeIn = true, clock = false) {
         Box(Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(end = 36.dp, top = 36.dp)
-                    .width(340.dp)
-                    .liveGlass(RoundedCornerShape(22.dp))
+                    .padding(end = Dx.Gutter, top = Dx.Gutter)
+                    .width(360.dp)
+                    .liveGlass(RoundedCornerShape(Dx.RPanel))
                     .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text("Back from Lumen", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted)
-                Text("Back to $channelName live in $left", style = androidx.compose.ui.text.TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFeatureSettings = "tnum"))
-                Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.2f))) {
-                    Box(Modifier.fillMaxHeight().fillMaxWidth((10 - left) / 10f).background(Color.White))
-                }
+                Text(
+                    "Back to $channelName live in $left",
+                    style = androidx.compose.ui.text.TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFeatureSettings = "tnum"),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                com.notdxbi.dxbi.tv.lumen.ProgressLine((10 - left) / 10f, Modifier.fillMaxWidth())
                 Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    LiveChip(label = "Back to $channelName", selected = true, onClick = { goBack() }, modifier = Modifier.focusRequester(back))
+                    LiveChip(label = "Back to channel", selected = true, onClick = { goBack() }, modifier = Modifier.focusRequester(back))
                     LiveChip(label = "Stay in Lumen", selected = false, onClick = { LumenHandoff.backOffer.value = null })
                 }
             }

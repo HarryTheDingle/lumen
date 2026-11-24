@@ -6,6 +6,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -46,7 +48,7 @@ import com.notdxbi.dxbi.tv.phone.StreamChoices
 import com.notdxbi.dxbi.tv.phone.StreamOption
 import kotlinx.coroutines.delay
 
-private enum class Sort(val label: String) { Best("Best Quality"), Seeds("Most Seeds"), Largest("Largest First"), Smallest("Smallest First"), Addon("Addon Order") }
+private enum class Sort(val label: String) { Best("Best quality"), Seeds("Most seeds"), Largest("Largest first"), Smallest("Smallest first"), Addon("Addon order") }
 
 /**
  * The streams for one film or episode, in a panel down the right (as the iPad's stream sheet:
@@ -111,7 +113,7 @@ fun StreamsPanel(choices: StreamChoices?, heading: String, subheading: String?, 
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
                                 item { Pill(sort.label, selected = false, onClick = { sort = Sort.entries[(sort.ordinal + 1) % Sort.entries.size] }) }
                                 if (qualities.size > 1) item {
-                                    Pill(quality ?: "Any Quality", selected = quality != null, onClick = { quality = cycle(qualities, quality) })
+                                    Pill(quality ?: "Any quality", selected = quality != null, onClick = { quality = cycle(qualities, quality) })
                                 }
                                 // IMAX has a chip of its own (it's the one people look for); the rest cycle in Format
                                 if ("IMAX" in formats) item {
@@ -119,13 +121,13 @@ fun StreamsPanel(choices: StreamChoices?, heading: String, subheading: String?, 
                                 }
                                 if (formats.any { it != "IMAX" }) item {
                                     val others = formats.filter { it != "IMAX" }
-                                    Pill(format?.takeIf { it != "IMAX" } ?: "Any Format", selected = format != null && format != "IMAX", onClick = { format = cycle(others, format?.takeIf { it != "IMAX" }) })
+                                    Pill(format?.takeIf { it != "IMAX" } ?: "Any format", selected = format != null && format != "IMAX", onClick = { format = cycle(others, format?.takeIf { it != "IMAX" }) })
                                 }
                                 if (providers.size > 1) item {
-                                    Pill(provider ?: "Any Source", selected = provider != null, onClick = { provider = cycle(providers, provider) })
+                                    Pill(provider ?: "Any source", selected = provider != null, onClick = { provider = cycle(providers, provider) })
                                 }
                                 if (all.any { it.instant } && all.any { !it.instant }) item {
-                                    Pill("Instant Only", selected = instantOnly, onClick = { instantOnly = !instantOnly })
+                                    Pill("Instant only", selected = instantOnly, onClick = { instantOnly = !instantOnly })
                                 }
                             }
                         }
@@ -169,7 +171,7 @@ private fun Best(best: StreamOption, sameAsLastTime: Boolean, modifier: Modifier
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Icon(Icons.Filled.PlayArrow, contentDescription = "Play", modifier = Modifier.size(30.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(if (sameAsLastTime) "Play · Same as Last Time" else "Play the Best Stream", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text(if (sameAsLastTime) "Play · Same as last time" else "Play the best stream", fontSize = 17.sp, fontWeight = FontWeight.Bold)
                 Text(
                     listOfNotNull(best.label, best.provider, best.sizeText, best.bitrateText).filter { it.isNotEmpty() }.joinToString(" · "),
                     fontSize = 13.sp,
@@ -184,6 +186,7 @@ private fun Best(best: StreamOption, sameAsLastTime: Boolean, modifier: Modifier
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StreamRow(s: StreamOption, picked: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val shape = RoundedCornerShape(Dx.RPanel)
@@ -194,7 +197,7 @@ private fun StreamRow(s: StreamOption, picked: Boolean, modifier: Modifier, onCl
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Dx.Raised.copy(alpha = 0.8f),
             contentColor = Color.White,
-            focusedContainerColor = Color(0xFF2C2C2C),
+            focusedContainerColor = Dx.Raised2,
             focusedContentColor = Color.White,
         ),
         border = ClickableSurfaceDefaults.border(
@@ -204,7 +207,7 @@ private fun StreamRow(s: StreamOption, picked: Boolean, modifier: Modifier, onCl
         scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Filled(s.quality)
                 if (s.imax) Filled("IMAX")
                 if (s.dv) Badge("DOLBY VISION") else if (s.hdr10plus) Badge("HDR10+") else if (s.hdr) Badge("HDR")
@@ -213,10 +216,9 @@ private fun StreamRow(s: StreamOption, picked: Boolean, modifier: Modifier, onCl
                 if (s.threeD) Badge("3D")
                 if (s.source.isNotEmpty() && s.source != "Other") Badge(s.source.uppercase(), if (s.source == "CAM") Dx.Danger else Color.White)
                 if (s.codec.isNotEmpty()) Badge(s.codec)
-                Spacer(Modifier.weight(1f))
                 when {
                     s.instant -> Badge("INSTANT", Color(0xFF4ADE80))
-                    s.pending -> Badge("NOT CACHED", Color(0xFFFACC15))
+                    s.pending -> Badge("NOT CACHED", Dx.Amber)
                     s.torrent -> Badge("TORRENT", Dx.Muted)
                 }
             }
@@ -230,6 +232,7 @@ private fun StreamRow(s: StreamOption, picked: Boolean, modifier: Modifier, onCl
                     fontWeight = FontWeight.SemiBold,
                     color = if (s.filename.isEmpty()) Color.White else Dx.Muted,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             val facts = listOfNotNull(
@@ -239,9 +242,9 @@ private fun StreamRow(s: StreamOption, picked: Boolean, modifier: Modifier, onCl
                 s.langs.filter { !it.startsWith("Not listed") }.joinToString(", ").ifEmpty { null },
                 if (s.addon != s.provider) s.addon else null,
             ).filter { it.isNotEmpty() }
-            if (facts.isNotEmpty()) Text(facts.joinToString(" · "), fontSize = 12.sp, color = Dx.Muted, maxLines = 2)
-            s.claimNote?.let { Text(it, fontSize = 12.sp, color = Dx.Muted) }
-            if (s.lesser) Text("Upscaled, high frame rate or 3D: may not look as good as it says", fontSize = 12.sp, color = Dx.Muted)
+            if (facts.isNotEmpty()) Text(facts.joinToString(" · "), fontSize = 12.sp, color = Dx.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            s.claimNote?.let { Text(it, fontSize = 12.sp, color = Dx.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+            if (s.lesser) Text("Upscaled, high frame rate or 3D: may not look as good as it says", fontSize = 12.sp, color = Dx.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }

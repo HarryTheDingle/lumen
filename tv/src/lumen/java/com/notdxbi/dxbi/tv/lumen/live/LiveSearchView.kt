@@ -64,7 +64,6 @@ import lumos.iptv.GuideChannelRow
 import lumos.iptv.LiveSearchResults
 import lumos.iptv.SportsFixture
 import java.util.Calendar
-import java.util.Date
 
 private data class ScopedLiveSearchBundle(
     val epg: LiveSearchResults,
@@ -220,7 +219,7 @@ fun LiveSearchView(
                 androidx.compose.runtime.CompositionLocalProvider(LocalPerRow provides perRow) {
                 val current = bundle
                 when {
-                    query.isBlank() -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    query.isBlank() -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         val favs = favourites.filter { it.streams.isNotEmpty() }
                         if (favs.isNotEmpty()) {
                             item(key = "h:fav") { TileHeading("Favourite channels") }
@@ -239,7 +238,7 @@ fun LiveSearchView(
                         val fixtures = if (scope == SearchScope.ALL || scope == SearchScope.SPORTS) current.fixtures else emptyList()
                         if (chans.isEmpty() && onNow.isEmpty() && catchup.isEmpty() && upcoming.isEmpty() && fixtures.isEmpty()) {
                             Text("No results for “${query.trim()}”. Try a channel, show or team name.", fontSize = 14.sp, color = Dx.Muted)
-                        } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (chans.isNotEmpty()) {
                                 item(key = "h:ch") { TileHeading("Channels") }
                                 tileRows("ch", chans.take(30), nowNextMap, nowMs, perRow) { store.playLive(context, it) }
@@ -247,7 +246,7 @@ fun LiveSearchView(
                             if (fixtures.isNotEmpty()) {
                                 item(key = "h:sp") { TileHeading("Matches") }
                                 items(fixtures.take(12).chunked(2), key = { "sf:" + it.first().id }) { pair ->
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                         pair.forEach { f ->
                                         // (where to see it: the UK channel showing it, or that none is listed yet)
                                         androidx.compose.foundation.layout.Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -257,6 +256,7 @@ fun LiveSearchView(
                                                 if (where != null) "On $where" else "No UK channel listed yet",
                                                 fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                                                 color = if (where != null) Color.White else Dx.Muted,
+                                                maxLines = 1, overflow = TextOverflow.Ellipsis,
                                                 modifier = Modifier.padding(start = 6.dp),
                                             )
                                         }
@@ -269,7 +269,7 @@ fun LiveSearchView(
                                 if (list.isEmpty()) return
                                 item(key = "h:$key") { LiveSectionHeading(title, "${list.size}") }
                                 items(list.take(24).chunked(2), key = { "$key:${it.first().first.id}:${it.first().second.startMs}" }) { pair ->
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                         pair.forEach { (ch, prog) ->
                                             SearchRow(null, prog.title, "${ch.name} · ${Dates.formatShortDay(prog.startMs)} ${LiveTimeFormat.formatRange12h(prog.startMs, prog.endMs)}", tag(prog), { click(ch, prog) }, Modifier.weight(1f))
                                         }
@@ -279,7 +279,7 @@ fun LiveSearchView(
                             }
                             programmes("now", "On now", onNow, { "Live" }) { ch, _ -> store.playLive(context, ch) }
                             programmes("cu", "Catch-up", catchup, { "Catch-up" }) { ch, prog -> store.playCatchup(context, ch, prog) }
-                            programmes("up", "Coming up", upcoming, { Dates.formatTime(Date(it.startMs)) }) { ch, prog ->
+                            programmes("up", "Coming up", upcoming, { LiveTimeFormat.formatTime24h(it.startMs) }) { ch, prog ->
                                 Toast.makeText(context, "${prog.title} airs ${LiveTimeFormat.formatDayHeader(prog.startMs)} at ${LiveTimeFormat.formatTime12h(prog.startMs)} on ${ch.name}", Toast.LENGTH_SHORT).show()
                             }
                         }
@@ -315,9 +315,9 @@ private fun SearchRow(
             if (number != null) Text(number, style = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Bold, color = ink.copy(alpha = 0.55f), fontFeatureSettings = "tnum"), modifier = Modifier.width(30.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(subtitle, fontSize = 12.sp, color = ink.copy(alpha = 0.62f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(subtitle, style = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = ink.copy(alpha = 0.62f), fontFeatureSettings = "tnum"), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            if (tag != null) Text(tag, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = ink.copy(alpha = 0.7f), maxLines = 1)
+            if (tag != null) Text(tag, style = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = ink.copy(alpha = 0.7f), fontFeatureSettings = "tnum"), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -328,7 +328,7 @@ private fun TileHeading(text: String) {
     // (over the grid's first column: the grid is centred, so the heading is too, at the grid's width)
     val perRow = LocalPerRow.current
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-        Text(text, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White,
+        Text(text, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.width(156.dp * perRow + 20.dp * (perRow - 1)).padding(top = 4.dp))
     }
 }
@@ -365,18 +365,18 @@ private fun ChannelCard(ch: CanonicalChannel, now: String?, onClick: () -> Unit)
         androidx.tv.material3.Surface(
             onClick = onClick,
             modifier = Modifier.size(156.dp, 88.dp),
-            shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+            shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(Dx.RCard)),
             colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color.Transparent),
-            scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+            scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
             border = androidx.tv.material3.ClickableSurfaceDefaults.border(
-                focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(2.dp, Color.White), shape = RoundedCornerShape(10.dp)),
+                focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(2.dp, Color.White), shape = RoundedCornerShape(Dx.RCard)),
             ),
         ) {
-            ChannelTile(logoUrl = logo, name = ch.name, width = 156.dp, height = 88.dp, corner = 10.dp)
+            ChannelTile(logoUrl = logo, name = ch.name, width = 156.dp, height = 88.dp, corner = Dx.RCard)
         }
         Spacer(Modifier.size(3.dp))
         Text(ch.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        if (now != null) Text(now, fontSize = 11.sp, color = Dx.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (now != null) Text(now, fontSize = 12.sp, color = Dx.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

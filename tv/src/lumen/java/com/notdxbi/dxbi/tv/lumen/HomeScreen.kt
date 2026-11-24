@@ -206,7 +206,7 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
     BackHandler(enabled = !nav.menuOpen) {
         if (list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 0) {
             scope.launch {
-                pageScroller.jumpTo(0, durationMs = 520, onVisible = { runCatching { top.requestFocus() }.isSuccess })
+                pageScroller.jumpTo(0, durationMs = Dx.Slow, onVisible = { runCatching { top.requestFocus() }.isSuccess })
             }
         } else {
             nav.menuOpen = true
@@ -238,6 +238,7 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
         val geniusFeed = LocalDiscoverFeed.current
         PageColumn(
             state = list,
+            prefetch = nav.homePrefetch,
             modifier = Modifier.graphicsLayer { alpha = uiAlpha },
             scroller = pageScroller,
             bringIntoViewSpec = homeScrolling,
@@ -253,7 +254,7 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
                             onShowing = { showing = it },
                             // (trailers fade in on a title's page only, not on Home)
                             trailerAllowed = false,
-                            muted = nav.menuOpen,
+                            muted = nav.menuOpen || !atTop,
                             onTrailerShowing = { trailerShowing = it },
                             // back up onto its buttons: the whole billboard comes back into view, as at the start
                             // (a moment later: the focus move's own scrolling would otherwise cancel it)
@@ -311,7 +312,7 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
                 }
                 if (airing.isNotEmpty()) {
                     item(key = "airing") {
-                        Shelf("New Episodes This Week") {
+                        Shelf("New Episodes This Week", spacing = 40.dp) {
                             items(airing, key = { it.id }) { a -> AiringCard(a, onClick = { onOpen(Title(id = a.id, type = "series", name = a.name, background = a.background)) }) }
                         }
                     }
@@ -352,7 +353,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.listRows(rows: List<R
     rows.forEach { row ->
         if (row.state == Load.Loading || (row.state == Load.Ready && row.items.isNotEmpty())) item(key = "row-${row.key}") {
             val rank = if (anyNumbered) row.numbered else row.index == 0
-            Box(Modifier.animateItem(fadeInSpec = tween(Dx.Med, easing = Dx.Ease), placementSpec = null, fadeOutSpec = tween(250, easing = Dx.Ease))) {
+            Box(Modifier.animateItem(fadeInSpec = tween(Dx.Med, easing = Dx.Ease), placementSpec = null, fadeOutSpec = tween(Dx.Fast, easing = Dx.Ease))) {
                 ShelfSwap(row.state == Load.Loading, row.heading) {
                     CompositionLocalProvider(LocalRowSays provides rowSays(row.key)) { TitleShelf(row.heading, row.items, onOpen, rank = rank) }
                 }

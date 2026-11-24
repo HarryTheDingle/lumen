@@ -170,6 +170,8 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
     // what a preview card's menu and caption do
     // (the genre and mood tiles' pictures, decoded in the background now rather than on the main thread as rows come)
     LaunchedEffect(Unit) { Pictures.warm(context, GENRES.map { genreDrawable(it.name) } + MOODS.map { moodDrawable(it.name) }.filter { it != 0 }) }
+    val watchedState = stremio.watchedIds.collectAsState()
+    val turnedDownState = stremio.turnedDown.collectAsState()
     val cardActions = remember {
         CardActions(
             play = { play(it) },
@@ -192,6 +194,8 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
                 stremio.notInterested(t)
                 Toast.makeText(context, "${t.name} won't be suggested again", Toast.LENGTH_SHORT).show()
             },
+            watchedState = watchedState,
+            turnedDownState = turnedDownState,
         )
     }
 

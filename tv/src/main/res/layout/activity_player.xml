@@ -275,6 +275,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
+                android:fontFeatureSettings="tnum"
                 android:shadowColor="#FF000000"
                 android:shadowRadius="6"
                 android:textColor="@android:color/white"

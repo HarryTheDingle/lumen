@@ -30,6 +30,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
@@ -90,7 +91,7 @@ fun GenreTile(genre: Genre, portrait: Boolean = false, onClick: () -> Unit) {
     val wide = (LocalConfiguration.current.screenWidthDp * 0.2f).dp
     // (portrait in Search, as posters: the narrower space beside the letters takes more of them)
     val size = if (portrait) androidx.compose.ui.unit.DpSize(Dx.Poster, Dx.Poster * 1.5f) else androidx.compose.ui.unit.DpSize(wide, wide * 0.5625f)
-    FocusCard(onClick = onClick, corner = 12.dp, modifier = Modifier.size(size)) {
+    FocusCard(onClick = onClick, corner = Dx.RCard, modifier = Modifier.size(size)) {
         Box(Modifier.fillMaxSize()) {
             Picture(genreDrawable(genre.name), Modifier.fillMaxSize())
             if (portrait) Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.7f))))
@@ -103,7 +104,8 @@ fun GenreTile(genre: Genre, portrait: Boolean = false, onClick: () -> Unit) {
                 color = Color.White,
                 maxLines = 1,
                 softWrap = false,
-                onTextLayout = { if (it.hasVisualOverflow && nameSize > 9f) nameSize -= 0.5f },
+                overflow = TextOverflow.Ellipsis,
+                onTextLayout = { if (it.hasVisualOverflow && nameSize > 12f) nameSize = maxOf(12f, nameSize - 0.5f) },
                 modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 9.dp, end = 8.dp),
             )
         }
@@ -182,7 +184,7 @@ fun GenrePage(nav: Nav, feed: DiscoverFeed, name: String) {
         val tint = GENRES.firstOrNull { it.name == name }?.tint ?: Dx.Raised
         Box(Modifier.fillMaxSize().background(Dx.Background).background(Brush.verticalGradient(0f to tint.copy(alpha = 0.3f), 0.4f to Dx.Background))) {
             // (the page scrolls as Home and Discover do: without it every move bounced, and again as a card opened)
-            PageColumn(contentPadding = PaddingValues(top = 48.dp, bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            PageColumn(contentPadding = PaddingValues(top = Dx.Gutter, bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 item(key = "title") {
                     Text(name, fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = Dx.Gutter))
                 }
@@ -195,7 +197,7 @@ fun GenrePage(nav: Nav, feed: DiscoverFeed, name: String) {
                 r?.forEachIndexed { i, (n, list) ->
                     item(key = n) {
                         // (the remote starts on the first row)
-                        Shelf(n, Modifier.animateItem(fadeInSpec = tween(Dx.Med, easing = Dx.Ease), placementSpec = null, fadeOutSpec = tween(200, easing = Dx.Ease)).then(if (i == 0) Modifier.focusRequester(first) else Modifier)) {
+                        Shelf(n, Modifier.animateItem(fadeInSpec = tween(Dx.Med, easing = Dx.Ease), placementSpec = null, fadeOutSpec = tween(Dx.Fast, easing = Dx.Ease)).then(if (i == 0) Modifier.focusRequester(first) else Modifier)) {
                             items(list.distinctBy { it.id }, key = { it.id }) { t -> PreviewPosterCard(t, onClick = { nav.open(t) }) }
                         }
                     }

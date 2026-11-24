@@ -105,7 +105,7 @@ class PlayerControls(
                 val open = tucked.first().visibility != View.VISIBLE
                 tucked.forEach { v -> v.visibility = if (open) View.VISIBLE else View.GONE }
                 // (the name and episode in the middle step aside while they're out: the three buttons ran over them)
-                activity.findViewById<View>(R.id.controls_title).animate().alpha(if (open) 0f else 1f).setDuration(180).start()
+                activity.findViewById<View>(R.id.controls_title).animate().alpha(if (open) 0f else 1f).setDuration(200L).start()
                 // (open: on to the first of them, to the left)
                 if (open) tucked.first().requestFocus()
             }
@@ -449,6 +449,7 @@ class PlayerControls(
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             setLineSpacing(0f, 1.35f)
             setPadding(dp(12), 0, dp(12), dp(10))
+            fontFeatureSettings = "tnum"
             isFocusable = true
         }
         panelRows.addView(text)

@@ -188,8 +188,10 @@ fun Logo(height: Dp = 40.dp, modifier: Modifier = Modifier) {
 @Composable
 fun Art(asked: String?, modifier: Modifier = Modifier, contentScale: ContentScale = ContentScale.Crop, onError: (() -> Unit)? = null) {
     val url = fresh(asked)
+    val context = LocalContext.current
+    val cached = remember(url) { url != null && SingletonImageLoader.get(context).memoryCache?.keys?.any { it.key == url } == true }
     // (a skeleton while it comes; the picture fades in over it, the loader's crossfade)
-    var loading by remember(url) { mutableStateOf(url != null) }
+    var loading by remember(url) { mutableStateOf(url != null && !cached) }
     // (the grey under it only while it loads: once the picture's there it's one less shape to draw on every frame)
     Box(modifier.then(if (loading) Modifier.background(Dx.Raised).skeleton() else Modifier)) {
         if (url != null) AsyncImage(

@@ -116,7 +116,7 @@ internal fun GuideHeader(
         else -> Quad(null, null, null, null)
     }
     val art = enrichments?.backdrop?.takeIf { it.isNotBlank() } ?: prog?.iconUrl?.takeIf { it.isNotBlank() }
-    Row(modifier.fillMaxWidth().height(MINI_H).padding(horizontal = 40.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+    Row(modifier.fillMaxWidth().height(MINI_H).padding(horizontal = Dx.Gutter), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
         Box(Modifier.size(MINI_W, MINI_H)) {
             if (leading != null) leading()
             else if (channelName != null) {
@@ -143,14 +143,15 @@ internal fun GuideHeader(
         Column(Modifier.weight(1f).padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             when (selection) {
                 is HeroSelection.Empty -> {
-                    Text(selection.title, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
-                    Text(selection.subtitle, fontSize = 13.sp, color = Dx.Muted, maxLines = 2)
+                    Text(selection.title, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(selection.subtitle, fontSize = 13.sp, color = Dx.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 else -> {
                     Text(prog?.title ?: channelName.orEmpty(), fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         listOfNotNull(prog?.let { programmeWhen(it, nowMs) }, channelName).joinToString(" · "),
-                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.62f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        style = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted, fontFeatureSettings = "tnum"),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                     val about = enrichments?.description?.takeIf { it.isNotBlank() } ?: prog?.description?.takeIf { it.isNotBlank() }
                     if (about != null) Text(about, fontSize = 13.sp, lineHeight = 18.sp, color = Color.White.copy(alpha = 0.82f), maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -249,19 +250,20 @@ internal fun ProgrammePage(
 
         Text(
             prog.title, fontSize = 40.sp, lineHeight = 44.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 40.dp, top = 40.dp, end = 300.dp),
+            modifier = Modifier.padding(start = Dx.Gutter, top = Dx.Gutter, end = 300.dp),
         )
 
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(bottom = 12.dp)) {
-            Column(Modifier.padding(horizontal = 40.dp).widthIn(max = 640.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Column(Modifier.padding(horizontal = Dx.Gutter).widthIn(max = 640.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(
                     listOfNotNull(programmeWhen(prog, nowMs), row.guideChannel.name, prog.subtitle?.takeIf { it.isNotBlank() }).joinToString(" · "),
-                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.66f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted, fontFeatureSettings = "tnum"),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 if (about != null) Text(about, fontSize = 13.sp, lineHeight = 18.sp, color = Color.White.copy(alpha = 0.85f), maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.height(14.dp))
-            Row(Modifier.padding(horizontal = 40.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.padding(horizontal = Dx.Gutter).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val watch: () -> Unit = { onClose(); store.playGuideRow(context, row, zapChannelIds = zapChannelIds) }
                 // the film pages' own buttons: the first white, the rest round, opening out with their name when chosen
                 when {
@@ -302,10 +304,10 @@ internal fun ProgrammePage(
             }
             if (schedule.size > 1) {
                 Spacer(Modifier.height(20.dp))
-                Text("On ${row.guideChannel.name}", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(start = 40.dp))
+                Text("On ${row.guideChannel.name}", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = Dx.Gutter))
                 // (room above and below for a card to lift into, so its rim isn't cut off)
-                androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides com.notdxbi.dxbi.tv.lumen.rememberRowScrolling(gutter = 40.dp)) {
-                LazyRow(contentPadding = PaddingValues(horizontal = 40.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides com.notdxbi.dxbi.tv.lumen.rememberRowScrolling(gutter = Dx.Gutter)) {
+                LazyRow(contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                     items(schedule, key = { it.id }) { p ->
                         ScheduleCard(p, enrichments[p.id]?.backdrop ?: p.iconUrl, row, here = p.id == prog.id, nowMs = nowMs) { prog = p }
                     }
@@ -317,7 +319,7 @@ internal fun ProgrammePage(
 
     if (menu) {
         val actions = buildList {
-            if (linked != null) add(Action(if (favourite) "Remove from Favourites" else "Add to Favourites") { store.toggleFavourite(linked.id) })
+            if (linked != null) add(Action(if (favourite) "Remove from favourites" else "Add to favourites") { store.toggleFavourite(linked.id) })
             if (row.hasCatchup && linked != null) add(Action("Earlier programmes (catch-up)") { onClose(); onOpenCatchup(linked) })
         }
         if (actions.isEmpty()) menu = false
@@ -339,7 +341,7 @@ private fun ScheduleCard(p: EpgProgramme, art: String?, row: GuideChannelRow, he
                 }
                 Text(
                     when { here -> "Showing"; p.isOnAt(nowMs) -> "On now"; else -> LiveTimeFormat.formatTime24h(p.startMs) },
-                    fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
+                    style = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White, fontFeatureSettings = "tnum"),
                     modifier = Modifier.padding(8.dp).background(Color.Black.copy(alpha = 0.65f), CircleShape).padding(horizontal = 8.dp, vertical = 2.dp),
                 )
             }

@@ -61,6 +61,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -131,7 +132,10 @@ class Nav {
     /** When the remote last moved up or left */
     var movedAt = 0L
     /** Home's place, kept while another tab is showing */
-    val homeList = LazyListState()
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+    val homePrefetch = PagePrefetchStrategy()
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+    val homeList = LazyListState(prefetchStrategy = homePrefetch)
     /** Home has had its first look (the remote starts on the billboard's Play just the once) */
     var homeStarted = false
     /** Live TV's page (Find a channel, Guide, Sports), chosen under Live TV in the menu */
@@ -440,7 +444,7 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
             val pill = nav.tagSize.takeIf { it.width > 0 } ?: with(density) { androidx.compose.ui.unit.IntSize(108.dp.roundToPx(), 32.dp.roundToPx()) }
             val panelR = with(density) { Dx.RPanel.toPx() }
             val rimW = with(density) { 1.dp.toPx() }
-            val fill = if (FROST_OK) Color(0x8C2C2C31) else Dx.Raised2.copy(alpha = 0.94f)
+            val fill = if (FROST_OK) Dx.Raised2.copy(alpha = 0.55f) else Dx.Raised2.copy(alpha = 0.94f)
             fun grow(size: androidx.compose.ui.geometry.Size): androidx.compose.ui.geometry.RoundRect {
                 val k = t
                 val w = (pill.width + (size.width - pill.width) * k).coerceIn(pill.width.toFloat(), size.width * 1.03f)
@@ -486,8 +490,11 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
                 Row(Modifier.padding(horizontal = 6.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (viewer != null) ProfileAvatar(viewer.name, viewer.colour, 28.dp) else Avatar(email, 28.dp)
                     Spacer(Modifier.width(10.dp))
-                    Text(viewer?.name ?: email?.substringBefore('@') ?: "Guest", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f))
-                    Text(com.notdxbi.dxbi.tv.phone.Dates.formatTime(), fontSize = 13.sp, color = androidx.tv.material3.LocalContentColor.current.copy(alpha = 0.6f))
+                    Text(viewer?.name ?: email?.substringBefore('@') ?: "Guest", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Text(
+                        com.notdxbi.dxbi.tv.phone.Dates.formatTime(),
+                        style = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = androidx.tv.material3.LocalContentColor.current.copy(alpha = 0.6f), fontFeatureSettings = "tnum"),
+                    )
                 }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -566,7 +573,7 @@ private fun LiveSubItems(nav: Nav, chosen: FocusRequester, onPicked: () -> Unit)
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
                         Spacer(Modifier.width(10.dp))
-                        Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -610,7 +617,7 @@ fun Pill(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             leading?.invoke()
-            if (!compact || focused || selected || leading == null) Text(text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            if (!compact || focused || selected || leading == null) Text(text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -645,7 +652,7 @@ fun ActionMenu(heading: String, actions: List<Action>, onDismiss: () -> Unit) {
                     .padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text(heading, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, modifier = Modifier.padding(start = 10.dp, bottom = 8.dp))
+                Text(heading, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 10.dp, bottom = 8.dp))
                 actions.forEachIndexed { i, a ->
                     val shape = RoundedCornerShape(Dx.RCard)
                     Surface(
@@ -729,7 +736,7 @@ fun rememberStillness(active: Boolean, afterMs: Long = 5000): Stillness {
 /** How visible a screen's words and buttons are: they fade slowly away, and come straight back */
 @Composable
 fun Stillness.alpha(): Float {
-    val a by animateFloatAsState(if (faded) 0f else 1f, tween(if (faded) 1200 else 250), label = "stillness")
+    val a by animateFloatAsState(if (faded) 0f else 1f, tween(if (faded) 1200 else Dx.Fast, easing = Dx.Ease), label = "stillness")
     return a
 }
 

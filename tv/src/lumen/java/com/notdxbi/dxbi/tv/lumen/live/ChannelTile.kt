@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
+import com.notdxbi.dxbi.tv.lumen.Dx
 import kotlin.math.abs
 
 /**
@@ -62,8 +63,8 @@ internal fun ChannelTile(
         } else {
             Text(
                 text = name,
-                fontSize = (height.value * 0.26f).coerceIn(9f, 16f).sp,
-                lineHeight = (height.value * 0.30f).coerceIn(10f, 18f).sp,
+                fontSize = (height.value * 0.26f).coerceIn(12f, 16f).sp,
+                lineHeight = (height.value * 0.30f).coerceIn(14f, 18f).sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
                 textAlign = TextAlign.Center,
@@ -78,7 +79,7 @@ internal fun ChannelTile(
 /** Sky's logos come at 150 px from the guide; tiles on a 4K TV want more */
 private fun sharperSkyLogo(url: String): String = url.replace("/newchanlogos/150/150/", "/newchanlogos/300/300/")
 
-private val NEUTRAL_TILE = Color(0xFF2A2A2E)
+private val NEUTRAL_TILE = Dx.Raised2
 
 /** Muted tiles for channels with no brand colour known, steady per name */
 private val FALLBACK_TILES = listOf(

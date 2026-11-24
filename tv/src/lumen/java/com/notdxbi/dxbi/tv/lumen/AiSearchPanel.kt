@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -43,6 +45,7 @@ import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -60,13 +63,15 @@ fun AskAiButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(50)
     Surface(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.height(50.dp),
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(containerColor = Glass.Fill, contentColor = Color.White, focusedContainerColor = Color.White, focusedContentColor = Color.Black),
         border = ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Glass.Edge), shape = shape)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
     ) {
-        Text("✨  Ask AI", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp))
+        Box(Modifier.fillMaxHeight().padding(horizontal = 18.dp), contentAlignment = Alignment.Center) {
+            Text("✨  Ask AI", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        }
     }
 }
 
@@ -96,15 +101,16 @@ private fun Status(line: String, hint: String? = null, spinner: Boolean = false,
                 Spinner()
                 Spacer(Modifier.width(12.dp))
             }
-            Text(line, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+            Text(line, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 3, overflow = TextOverflow.Ellipsis)
         }
-        if (!hint.isNullOrBlank()) Text(hint, fontSize = 15.sp, color = Dx.Muted)
+        if (!hint.isNullOrBlank()) Text(hint, fontSize = 15.sp, color = Dx.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
         if (retry != null) {
             val shape = RoundedCornerShape(50)
             Surface(
                 onClick = retry,
                 shape = ClickableSurfaceDefaults.shape(shape),
                 colors = ClickableSurfaceDefaults.colors(containerColor = Glass.Fill, contentColor = Color.White, focusedContainerColor = Color.White, focusedContentColor = Color.Black),
+                border = ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Glass.Edge), shape = shape), focusedBorder = androidx.tv.material3.Border.None),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
             ) { Text("Retry", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)) }
         }

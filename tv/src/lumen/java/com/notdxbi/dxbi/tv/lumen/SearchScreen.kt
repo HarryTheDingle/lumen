@@ -44,7 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
@@ -121,8 +121,8 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
         suggestions = if (text.trim().length < 2) emptyList() else top.map { it.name.lowercase() }.distinct().take(8)
     }
     var tab by remember { mutableStateOf(0) }
-    val tabs = listOfNotNull("Top Results", "TV Shows".takeIf { shows.isNotEmpty() }, "Movies".takeIf { films.isNotEmpty() })
-    val shown = when (tabs.getOrNull(tab)) { "TV Shows" -> shows; "Movies" -> films; else -> top }
+    val tabs = listOfNotNull("Top Results", "TV Shows".takeIf { shows.isNotEmpty() }, "Films".takeIf { films.isNotEmpty() })
+    val shown = when (tabs.getOrNull(tab)) { "TV Shows" -> shows; "Films" -> films; else -> top }
 
     // the letters slide away while the remote is over on the right, and come back when it moves left onto them
     var inLetters by remember { mutableStateOf(true) }
@@ -171,7 +171,7 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
                 // (the box last, so it takes whatever width the mic and Ask AI leave)
                 AskAiButton(onClick = { ai.start(text) })
                 Field(
-                    if (voice.listening) "Listening…" else "Movies, shows and more",
+                    if (voice.listening) "Listening…" else "Films, shows and more",
                     if (voice.listening) voice.heard else previewing ?: text,
                     { previewing = null; ai.close(); text = it }, KeyboardType.Text,
                     Modifier.weight(1f).focusRequester(searchBox),
@@ -413,7 +413,7 @@ private fun Suggestion(text: String, typed: String, onFocus: () -> Unit, onClick
                         withStyle(SpanStyle(color = (if (focused) Color.Black else Color.White).copy(alpha = 0.55f))) { append(text.drop(lead.length)) }
                     } else append(text)
                 },
-                fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+                fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -458,7 +458,7 @@ private fun ResultTile(t: Title, modifier: Modifier = Modifier, onClick: () -> U
         scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
     ) {
         Row(Modifier.fillMaxSize().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Art(t.art, Modifier.width(48.dp).height(72.dp).background(Color.Transparent, RoundedCornerShape(Dx.RCard)).then(Modifier.alpha(1f)))
+            Art(t.art, Modifier.width(48.dp).height(72.dp).clip(RoundedCornerShape(Dx.RSmall)))
             Spacer(Modifier.width(12.dp))
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(t.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 18.sp)

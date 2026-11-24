@@ -237,7 +237,7 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
             }
             val wash by androidx.compose.animation.animateColorAsState(
                 washName?.let { channelWashColour(it) } ?: Color.Transparent,
-                androidx.compose.animation.core.tween(700, easing = Dx.Ease),
+                androidx.compose.animation.core.tween(Dx.Slow, easing = Dx.Ease),
                 label = "wash",
             )
             Box(
@@ -290,11 +290,13 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
                 Text(
                     text = err,
                     fontSize = 12.sp,
-                    color = Color(0xFFFF7A7E),
+                    color = Dx.Danger,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(Color(0xFF231317))
-                        .padding(horizontal = 24.dp, vertical = 6.dp),
+                        .padding(horizontal = Dx.Gutter, vertical = 6.dp),
                 )
             }
 
@@ -442,11 +444,11 @@ private fun CornerMiniPlayerCard(
                 .onFocusChanged { onFocusedChange(it.isFocused || it.hasFocus) }
                 .width(MINI_W)
                 .height(MINI_H),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(Dx.RCard),
             fillColor = Color.Black,
             focusedFillColor = Color.Black,
             borderColor = LivePalette.GlassBorder,
-            focusedScale = 1.03f,
+            focusedScale = Dx.FocusRow,
         ) { focused, _ ->
             Box(Modifier.fillMaxSize()) {
                 AndroidView(
@@ -490,7 +492,7 @@ private fun CornerMiniPlayerCard(
                     ) {
                         Text(
                             text = "Buffering…",
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Color.White,
                         )

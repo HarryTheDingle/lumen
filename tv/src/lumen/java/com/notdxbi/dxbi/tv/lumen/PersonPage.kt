@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -76,13 +77,13 @@ fun PersonPage(stremio: Stremio, nav: Nav, page: Page.Person) {
     val firstRow = rows.firstOrNull()?.first
 
     PageWindow(onBack = { nav.back() }, home = first) {
-        Box(Modifier.fillMaxSize().background(Color.Black)) {
+        Box(Modifier.fillMaxSize().background(Dx.Background)) {
             // (as a title's page: what they're best known for, blurred, under the whole page)
             val known = titles("known").firstOrNull() ?: titles("films").firstOrNull() ?: titles("shows").firstOrNull()
             if (known != null) BlurredArt(known.backdrop, Modifier.fillMaxSize(), dim = 0.55f)
             // (the page moves as every other does: the row the remote goes into glides to the middle in one move; with
             // Compose's own scrolling it chased the card as it lifted and settled in two steps)
-            PageColumn(contentPadding = PaddingValues(top = 56.dp, bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(26.dp)) {
+            PageColumn(contentPadding = PaddingValues(top = Dx.Gutter, bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(26.dp)) {
                 item(key = "header") {
                     Row(Modifier.fillMaxWidth().padding(horizontal = Dx.Gutter), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
                         val photo = p?.text("photo") ?: page.photo
@@ -99,14 +100,14 @@ fun PersonPage(stremio: Stremio, nav: Nav, page: Page.Person) {
                             }
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(p?.text("name") ?: page.name, fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            facts(p).forEach { Text(it, fontSize = 15.sp, color = Dx.Muted) }
+                            Text(p?.text("name") ?: page.name, fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            facts(p).forEach { Text(it, fontSize = 15.sp, color = Dx.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                             when {
                                 // (skeleton lines while it loads, as the rest of the app)
                                 !loaded -> {
                                     Box(Modifier.size(200.dp, 14.dp).skeleton(shape = RoundedCornerShape(Dx.RCard)))
                                     Spacer(Modifier.height(4.dp))
-                                    repeat(3) { Box(Modifier.width(if (it == 2) 420.dp else 760.dp).height(14.dp).skeleton(shape = RoundedCornerShape(Dx.RCard))) }
+                                    repeat(3) { Box(Modifier.then(if (it == 2) Modifier.width(420.dp) else Modifier.fillMaxWidth().widthIn(max = 760.dp)).height(14.dp).skeleton(shape = RoundedCornerShape(Dx.RCard))) }
                                 }
                                 p == null -> Text("No details found for ${page.name}.", fontSize = 15.sp, color = Dx.Muted)
                             }
@@ -115,7 +116,7 @@ fun PersonPage(stremio: Stremio, nav: Nav, page: Page.Person) {
                                 // (OK opens the whole biography out, and again closes it)
                                 androidx.tv.material3.Surface(
                                     onClick = { moreText = !moreText },
-                                    modifier = Modifier.focusRequester(first).width(760.dp),
+                                    modifier = Modifier.focusRequester(first).fillMaxWidth().widthIn(max = 760.dp),
                                     // (the same see-through glass box as a title page's About, brightening a little when chosen)
                                     shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(Dx.RPanel)),
                                     colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
