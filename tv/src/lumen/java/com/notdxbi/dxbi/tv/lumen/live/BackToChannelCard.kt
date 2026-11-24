@@ -72,12 +72,12 @@ fun BackToChannelCard(engine: Engine) {
                     .align(Alignment.TopEnd)
                     .padding(end = 36.dp, top = 36.dp)
                     .width(340.dp)
-                    .background(Color(0xEB242426), RoundedCornerShape(22.dp))
+                    .background(LiveSurface, RoundedCornerShape(22.dp))
                     .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text("Back from Lumen", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted)
-                Text("Back to $channelName live in $left", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text("Back to $channelName live in $left", style = androidx.compose.ui.text.TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFeatureSettings = "tnum"))
                 Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.2f))) {
                     Box(Modifier.fillMaxHeight().fillMaxWidth((10 - left) / 10f).background(Color.White))
                 }

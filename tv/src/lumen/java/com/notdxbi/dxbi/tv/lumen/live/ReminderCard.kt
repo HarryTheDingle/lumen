@@ -74,7 +74,7 @@ fun ReminderCard(engine: Engine) {
                     .align(Alignment.BottomEnd)
                     .padding(end = 36.dp, bottom = 36.dp)
                     .width(340.dp)
-                    .background(Color(0xEB242426), RoundedCornerShape(22.dp))
+                    .background(LiveSurface, RoundedCornerShape(22.dp))
                     .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
@@ -86,7 +86,7 @@ fun ReminderCard(engine: Engine) {
                     },
                     fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted,
                 )
-                Text(due.title, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text(due.title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     LiveChip(label = "Watch", selected = true, onClick = { play() }, modifier = Modifier.focusRequester(watch))
                     LiveChip(label = "Dismiss", selected = false, onClick = { dismiss() })

@@ -174,7 +174,7 @@ fun LiveHeroHeader(
                     ) {
                         Text(
                             text = selection.title,
-                            fontSize = 23.sp,
+                            fontSize = 24.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
                         )
@@ -405,7 +405,7 @@ private fun FixtureHeroContent(
 
         Text(
             text = fixture.name,
-            fontSize = 23.sp,
+            fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
             color = Color.White,
             maxLines = 1,

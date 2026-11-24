@@ -453,7 +453,7 @@ private fun CornerMiniPlayerCard(
                     )
                     Text(
                         text = if (session.catchupProgramme != null) "CATCH-UP" else "LIVE",
-                        fontSize = 9.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = Color.White,
                     )
@@ -495,7 +495,7 @@ private fun CornerMiniPlayerCard(
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = if (focused) "OK: Full screen · Hold: Stop" else "OK: Full screen",
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = if (focused) Color.White else Dx.Muted,
                         maxLines = 1,

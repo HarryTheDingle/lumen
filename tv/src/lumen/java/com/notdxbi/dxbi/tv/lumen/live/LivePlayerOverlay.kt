@@ -3,6 +3,7 @@ package com.notdxbi.dxbi.tv.lumen.live
 import android.view.KeyEvent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -100,7 +101,7 @@ import lumos.iptv.LivePlaybackState
 import lumos.iptv.StreamSource
 import kotlin.math.roundToInt
 
-private val PANEL_BG = Color(0xF2141418)
+private val PANEL_BG = LiveSurface
 private val PANEL_BORDER = Color(0x1FFFFFFF)
 
 /**
@@ -163,8 +164,8 @@ fun LivePlayerOverlay(
         // Minimal frosted glass zap banner during Up/Down channel zapping (zero buttons)
         AnimatedVisibility(
             visible = state.zapBannerVisible && !state.osdVisible,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(tween(LIVE_MS)),
+            exit = fadeOut(tween(LIVE_MS)),
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(start = 48.dp, bottom = 36.dp),
@@ -176,8 +177,8 @@ fun LivePlayerOverlay(
         val lumenOffer by com.notdxbi.dxbi.tv.live.LumenHandoff.offer.collectAsState()
         AnimatedVisibility(
             visible = lumenOffer != null && !state.osdVisible,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(tween(LIVE_MS)),
+            exit = fadeOut(tween(LIVE_MS)),
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(start = 48.dp, bottom = 40.dp),
@@ -188,8 +189,8 @@ fun LivePlayerOverlay(
         // Top 130dp gradient scrim (Back button + Clock)
         AnimatedVisibility(
             visible = state.osdVisible,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(tween(LIVE_MS)),
+            exit = fadeOut(tween(LIVE_MS)),
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
             TopOsdScrim(state = state)
@@ -203,7 +204,7 @@ fun LivePlayerOverlay(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(top = 70.dp, end = 56.dp)
-                    .background(Color(0xE8141418), RoundedCornerShape(16.dp))
+                    .background(LiveSurface, RoundedCornerShape(22.dp))
                     .border(1.dp, LivePalette.GlassBorder, RoundedCornerShape(16.dp))
                     .padding(horizontal = 22.dp, vertical = 12.dp),
             ) {
@@ -212,6 +213,7 @@ fun LivePlayerOverlay(
                     fontSize = if (typedNumber.isNotEmpty()) 38.sp else 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
+                    style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
                 )
             }
         }
@@ -227,8 +229,8 @@ fun LivePlayerOverlay(
         // Bottom 240dp gradient scrim + SeekLine + 3-zone controls
         AnimatedVisibility(
             visible = state.osdVisible,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(tween(LIVE_MS)),
+            exit = fadeOut(tween(LIVE_MS)),
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
             BottomOsdScrim(
@@ -242,8 +244,8 @@ fun LivePlayerOverlay(
         // Bottom-right floating panel matching activity_player.xml (@id/panel)
         AnimatedVisibility(
             visible = state.activePanel != LiveOverlayPanel.NONE,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(tween(LIVE_MS)),
+            exit = fadeOut(tween(LIVE_MS)),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 56.dp, bottom = 104.dp, top = 84.dp),
@@ -315,7 +317,7 @@ private fun TopOsdScrim(state: LiveOverlayState) {
 
         Text(
             text = Dates.formatTime(),
-            fontSize = 17.sp,
+            fontSize = 16.sp,
             fontWeight = FontWeight.Bold,
             color = Color.White,
             modifier = Modifier
@@ -589,6 +591,7 @@ private fun ChannelStrip(
                         Text(
                             text = channel.number?.toString() ?: "",
                             fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = ink.copy(alpha = 0.6f),
+                            style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
                         )
                         Text(
                             text = channel.name, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = ink,
@@ -848,7 +851,7 @@ private fun ZapBanner(
     Row(
         modifier = modifier
             .widthIn(min = 380.dp, max = 560.dp)
-            .background(Color(0xE8141418), RoundedCornerShape(18.dp))
+            .background(LiveSurface, RoundedCornerShape(22.dp))
             .border(1.dp, LivePalette.GlassBorder, RoundedCornerShape(18.dp))
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -961,7 +964,7 @@ private fun ActiveViewerConflictDialog(
         Column(
             modifier = Modifier
                 .width(560.dp)
-                .background(Color(0xF518181C), RoundedCornerShape(22.dp))
+                .background(LiveSurface, RoundedCornerShape(22.dp))
                 .border(1.dp, LivePalette.GlassBorder, RoundedCornerShape(22.dp))
                 .padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -1573,12 +1576,12 @@ private fun LumenOfferCard(offer: com.notdxbi.dxbi.tv.live.LumenHandoff.Offer, o
     Column(
         modifier = Modifier
             .width(400.dp)
-            .background(Color(0xEB242426), RoundedCornerShape(22.dp))
+            .background(LiveSurface, RoundedCornerShape(22.dp))
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(if (offer.viaLumen) "In Lumen · ${offer.label}" else "Started $join ago · ${offer.label}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted)
-        Text(offer.name, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(offer.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (offer.viaLumen) {
             Text("Watch it in Lumen for a much sharper picture. When it ends you can come back to the channel.", fontSize = 13.sp, color = Dx.Muted)
             Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {

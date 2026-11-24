@@ -193,7 +193,7 @@ private fun Section(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun Heading(text: String) = Text(text, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(bottom = 6.dp))
+private fun Heading(text: String) = Text(text, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(bottom = 6.dp))
 
 @Composable
 private fun Side(name: String, logo: String?) {

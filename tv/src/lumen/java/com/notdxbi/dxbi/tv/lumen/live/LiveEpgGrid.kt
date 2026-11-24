@@ -4,6 +4,7 @@ import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
@@ -857,7 +858,7 @@ private fun GuideChannelViewportRow(
                     if (numberText.isNotEmpty()) {
                         Text(
                             text = numberText,
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             color = Dx.Muted,
                             maxLines = 1,
@@ -1242,7 +1243,7 @@ private fun StreamFeedPickerDialog(
             Column(
                 modifier = Modifier
                     .width(560.dp)
-                    .background(Color(0xFF16161A), RoundedCornerShape(22.dp))
+                    .background(LiveSurface, RoundedCornerShape(22.dp))
                     .border(1.dp, LivePalette.GlassBorder, RoundedCornerShape(22.dp))
                     .padding(22.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1252,7 +1253,7 @@ private fun StreamFeedPickerDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("${channel.name} · Feeds", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("${channel.name} · Feeds", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     Pill(text = "Close", selected = false, onClick = onClose)
                 }
                 LazyColumn(
@@ -1324,7 +1325,7 @@ internal fun CatchupModal(
                 modifier = Modifier
                     .width(660.dp)
                     .fillMaxHeight(0.82f)
-                    .background(Color(0xFF16161A), RoundedCornerShape(22.dp))
+                    .background(LiveSurface, RoundedCornerShape(22.dp))
                     .border(1.dp, LivePalette.GlassBorder, RoundedCornerShape(22.dp))
                     .padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -1437,14 +1438,14 @@ private fun FilterRail(
 ) {
     AnimatedVisibility(
         visible = open,
-        enter = slideInHorizontally { -it } + fadeIn(),
-        exit = slideOutHorizontally { -it } + fadeOut(),
+        enter = slideInHorizontally(tween(LIVE_MS + 40)) { -it / 2 } + fadeIn(tween(LIVE_MS)),
+        exit = slideOutHorizontally(tween(LIVE_MS)) { -it / 2 } + fadeOut(tween(LIVE_MS)),
         modifier = modifier,
     ) {
         Column(
             modifier = Modifier
                 .padding(start = 12.dp)
-                .background(Color(0xF2141418), RoundedCornerShape(22.dp))
+                .background(LiveSurface, RoundedCornerShape(22.dp))
                 .padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {

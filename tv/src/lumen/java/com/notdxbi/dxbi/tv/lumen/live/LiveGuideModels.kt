@@ -577,7 +577,7 @@ internal fun LiveSectionHeading(
     ) {
         Text(
             text = title,
-            fontSize = 17.sp,
+            fontSize = 16.sp,
             fontWeight = FontWeight.Bold,
             color = Color.White,
             maxLines = 1,
@@ -592,3 +592,9 @@ internal fun LiveSectionHeading(
         }
     }
 }
+
+/** The one surface for cards, panels and rails over the picture */
+internal val LiveSurface = Color(0xF2141418)
+
+/** The one duration for overlays coming and going */
+internal const val LIVE_MS = 200
