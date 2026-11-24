@@ -489,8 +489,7 @@ internal fun CrestBadge(
             .background(
                 if (cleanUrl != null && !failed) LivePalette.CrestPlate
                 else MONOGRAM_GRADIENTS[paletteIdx].first(),
-            )
-            .border(1.dp, Color.White.copy(alpha = 0.24f), shape),
+            ),
         contentAlignment = Alignment.Center,
     ) {
         if (cleanUrl != null && !failed) {

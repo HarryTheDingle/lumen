@@ -567,9 +567,11 @@ private fun ReplaysPanel(round: LiveTvStore.MotorRound?, onPick: (LiveTvStore.Mo
         round?.sessions?.take(4)?.forEach { sess ->
             GlassTile(
                 onClick = { onPick(round, sess) },
-                modifier = Modifier.fillMaxWidth().height(28.dp),
+                modifier = Modifier.fillMaxWidth().height(32.dp),
                 shape = RoundedCornerShape(Dx.RCard),
-                fillColor = Color.White.copy(alpha = 0.06f),
+                // (a row inside the panel: no box of its own until the remote is on it)
+                fillColor = Color.Transparent,
+                borderColor = Color.Transparent,
                 focusedScale = Dx.FocusRow,
             ) { _, ink ->
                 Row(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -785,8 +787,9 @@ private fun F1Standings(json: org.json.JSONObject, favourites: Set<String>, onTo
                         onClick = { onToggle(name) },
                         modifier = Modifier.fillMaxWidth().height(40.dp),
                         shape = RoundedCornerShape(Dx.RCard),
-                        fillColor = if (fav) Color.White.copy(alpha = 0.10f) else Color.Transparent,
+                        fillColor = if (fav) Color.White.copy(alpha = 0.08f) else Color.Transparent,
                         borderColor = Color.Transparent,
+                        sheen = false,
                         focusedScale = Dx.FocusRow,
                     ) { _, ink ->
                         Row(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
