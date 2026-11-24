@@ -436,7 +436,7 @@ class LivePlayerActivity : AppCompatActivity() {
             if (resumedStream != null) {
                 startPresenceTracking(liveStore, resumedStream.sourceId, initialChannel.name, notifyStart = false)
             }
-            showOsd(autoHide = true)
+            // (full screen from the small one: just the picture, no controls)
         } else {
             startChannelTune(
                 channel = initialChannel,
@@ -543,7 +543,7 @@ class LivePlayerActivity : AppCompatActivity() {
                 when (event.keyCode) {
                     KeyEvent.KEYCODE_DPAD_LEFT,
                     KeyEvent.KEYCODE_MEDIA_REWIND -> {
-                        if (!osdOpen) showOsd(autoHide = true)
+                        if (!osdOpen) { LivePlayerExtras.expanded.value = true; showOsd(autoHide = true) }
                         if (stepScrub(-1, event.repeatCount, focusBar = !osdOpen || !seekBarFocused) || seekBarFocused) {
                             pokeOsd()
                             return true
@@ -552,7 +552,7 @@ class LivePlayerActivity : AppCompatActivity() {
                     }
                     KeyEvent.KEYCODE_DPAD_RIGHT,
                     KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
-                        if (!osdOpen) showOsd(autoHide = true)
+                        if (!osdOpen) { LivePlayerExtras.expanded.value = true; showOsd(autoHide = true) }
                         if (stepScrub(+1, event.repeatCount, focusBar = !osdOpen || !seekBarFocused) || seekBarFocused) {
                             pokeOsd()
                             return true
@@ -583,7 +583,8 @@ class LivePlayerActivity : AppCompatActivity() {
                         return true
                     }
                     KeyEvent.KEYCODE_DPAD_DOWN -> {
-                        // (the controls, on the channel strip, as in TiviMate: the channel is chosen there, not zapped past)
+                        // (the channel strip first, as in TiviMate: the channel is chosen there, not zapped past)
+                        LivePlayerExtras.expanded.value = false
                         LivePlayerExtras.focusStripTick.value = System.currentTimeMillis()
                         showOsd(autoHide = true)
                         return true
@@ -594,11 +595,18 @@ class LivePlayerActivity : AppCompatActivity() {
                         // one press pauses, as in Lumen's player and on Apple TV (it used to only bring up the controls)
                         hideZapBanner()
                         exoEngine.togglePause()
+                        LivePlayerExtras.expanded.value = true
                         showOsd(autoHide = true)
                         return true
                     }
                 }
             } else if (osdOpen) {
+                if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && !panelOpen && !LivePlayerExtras.expanded.value && !unavailable) {
+                    // (Down again on the strip: the controls open out above it)
+                    LivePlayerExtras.expanded.value = true
+                    pokeOsd()
+                    return true
+                }
                 pokeOsd()
             }
         }
@@ -668,14 +676,11 @@ class LivePlayerActivity : AppCompatActivity() {
         activeStreamIndex = -1
         lastTuneRequestPreferredStreamId = preferredStreamId
         epgTickFlow.value = System.currentTimeMillis()
-        if (suppressOsd) {
-            osdHideJob?.cancel()
-            osdVisibleFlow.value = false
-            showZapBanner()
-        } else {
-            hideZapBanner()
-            showOsd(autoHide = true)
-        }
+        // (every new channel starts as just the picture: no controls; a zap with Up or CH shows its small box for a moment)
+        osdHideJob?.cancel()
+        osdVisibleFlow.value = false
+        LivePlayerExtras.expanded.value = false
+        if (suppressOsd) showZapBanner() else hideZapBanner()
 
         if (catchup == null && liveStore.nowNextByChannel.value[channel.id]?.first == null) {
             liveStore.fetchChannelEpgIfMissing(channel)
@@ -873,9 +878,6 @@ class LivePlayerActivity : AppCompatActivity() {
                     isCatchup = resolved.isCatchup,
                 )
                 if (!resolved.isCatchup) lookForLumenCopy(liveStore, channel) else LumenHandoff.offer.value = null
-                if (!suppressOsd) {
-                    showOsd(autoHide = true)
-                }
                 return
             }
 
@@ -1440,7 +1442,7 @@ class LivePlayerActivity : AppCompatActivity() {
         lumenOfferJob?.cancel()
         LumenHandoff.offer.value = null
         lumenOfferJob = lifecycleScope.launch {
-            delay(4_000L)
+            delay(1_200L)
             val now = System.currentTimeMillis()
             val prog = liveStore.nowAndNext(channel, now).first ?: return@launch
             if ("${channel.id}:${prog.startMs}" in LumenHandoff.answered) return@launch
@@ -1456,7 +1458,7 @@ class LivePlayerActivity : AppCompatActivity() {
             }
             // (only offered when Lumen's addons have a stream for it; otherwise, from the channel's own catch-up, the start of it)
             val streamsId = videoId ?: imdb
-            val viaLumen = kotlinx.coroutines.withTimeoutOrNull(16_000L) { store?.hasStreams(type, streamsId) } == true
+            val viaLumen = kotlinx.coroutines.withTimeoutOrNull(10_000L) { store?.hasStreams(type, streamsId) } == true
             if (currentChannelFlow.value.id != channel.id) return@launch
             val joinMs = (now - prog.startMs).coerceAtLeast(0L)
             if (!viaLumen && !(channel.hasCatchup && joinMs >= 2 * 60_000L)) return@launch

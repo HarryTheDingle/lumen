@@ -6,6 +6,15 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.ChildCare
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Newspaper
+import androidx.compose.material.icons.filled.Theaters
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
@@ -192,6 +201,10 @@ fun LiveEpgGrid(
     var focusNonce by remember { mutableIntStateOf(0) }
     var didInitialFocus by remember(isSportsMode) { mutableStateOf(false) }
     var holdLeftJob by remember { mutableStateOf<Job?>(null) }
+    // the filters, as icons down the side: Left from the first programme opens them (Back closes them)
+    var filterRailOpen by remember { mutableStateOf(false) }
+    val railRequesters = remember { EpgRowFilter.entries.associateWith { FocusRequester() } }
+    fun openRail() { filterRailOpen = true }
     var longPressTarget by remember { mutableStateOf<LongPressTarget?>(null) }
     var streamPickerRow by remember { mutableStateOf<GuideChannelRow?>(null) }
 
@@ -325,6 +338,17 @@ fun LiveEpgGrid(
         pendingFocus = null
     }
 
+    LaunchedEffect(filterRailOpen) {
+        if (filterRailOpen) {
+            delay(80)
+            runCatching { railRequesters[activeFilter]?.requestFocus() }
+        }
+    }
+    BackHandler(enabled = filterRailOpen) {
+        filterRailOpen = false
+        requestSlotFocus(focusedRowIdx, if (followLive) nowMs else viewportStartMs + 30L * 60_000L)
+    }
+
     fun jumpToDay(chip: EpgDayChip) {
         activeDay = chip
         followLive = chip == EpgDayChip.NOW
@@ -346,101 +370,6 @@ fun LiveEpgGrid(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        // Compact Apple TV glass filter pop-out + real weekday selector bar
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Dx.Background)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                val filterLabel = if (activeFilter == EpgRowFilter.ALL) "Filters" else "Filters · ${activeFilter.label}"
-                LiveChip(
-                    label = filterLabel,
-                    selected = filterExpanded || activeFilter != EpgRowFilter.ALL,
-                    onClick = { filterExpanded = !filterExpanded },
-                    modifier = Modifier.onPreviewKeyEvent { ev ->
-                        if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionLeft) {
-                            onMoveToRail()
-                            true
-                        } else false
-                    },
-                    trailing = {
-                        Icon(
-                            imageVector = if (filterExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                        )
-                    },
-                )
-
-                LazyRow(
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    items(EpgDayChip.entries, key = { it.name }) { chip ->
-                        LiveChip(
-                            label = dayChipLabel(chip, nowMs),
-                            selected = activeDay == chip,
-                            onClick = { jumpToDay(chip) },
-                        )
-                    }
-                }
-
-                if (pastUnlocked) {
-                    HeroPillBadge(
-                        text = "Past Unlocked",
-                        containerColor = Dx.Amber.copy(alpha = 0.22f),
-                        contentColor = Dx.Amber,
-                    )
-                }
-            }
-
-            AnimatedVisibility(
-                visible = filterExpanded,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut(),
-            ) {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    itemsIndexed(availableFilters, key = { _, f -> f.name }) { idx, filter ->
-                        LiveChip(
-                            label = filter.label,
-                            selected = activeFilter == filter,
-                            onClick = {
-                                activeFilter = filter
-                                filterExpanded = false
-                                requestSlotFocus(0, if (followLive) nowMs else viewportStartMs + 30L * 60_000L)
-                            },
-                            modifier = if (idx == 0) {
-                                Modifier.onPreviewKeyEvent { ev ->
-                                    if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionLeft) {
-                                        onMoveToRail()
-                                        true
-                                    } else false
-                                }
-                            } else Modifier,
-                        )
-                    }
-                }
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(LivePalette.Hairline),
-        )
-
         if (filteredRows.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -475,7 +404,7 @@ fun LiveEpgGrid(
                         contentAlignment = Alignment.CenterStart,
                     ) {
                         Text(
-                            text = "${LiveTimeFormat.formatDayHeader(viewportStartMs)} · ${filteredRows.size} ch",
+                            text = (if (activeFilter == EpgRowFilter.ALL) "" else "${activeFilter.label} · ") + "${filteredRows.size} ch · ${LiveTimeFormat.formatDayHeader(viewportStartMs)}",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = Dx.Muted,
@@ -614,7 +543,8 @@ fun LiveEpgGrid(
                                         (prevSlot != null && prevSlot.endMs <= nowMs && slot.endMs > nowMs)
                                     )
 
-                                when {
+                                // (held down, Left moves one programme, not on and on: press it again for the next)
+                                if (!atLiveBoundary && repeatCount >= 1) true else when {
                                     atLiveBoundary -> {
                                         if (repeatCount >= 1) {
                                             holdLeftJob?.cancel()
@@ -657,12 +587,12 @@ fun LiveEpgGrid(
                                             viewportStartMs = nextStart
                                             requestSlotFocus(rowIdx, (prevStart - 15L * 60_000L).coerceAtLeast(nextStart))
                                         } else {
-                                            onMoveToRail()
+                                            openRail()
                                         }
                                         true
                                     }
                                     else -> {
-                                        onMoveToRail()
+                                        openRail()
                                         true
                                     }
                                 }
@@ -673,7 +603,7 @@ fun LiveEpgGrid(
                                     pendingHold.cancel()
                                     holdLeftJob = null
                                     if (!pastUnlocked) {
-                                        onMoveToRail()
+                                        openRail()
                                     }
                                     true
                                 } else {
@@ -720,6 +650,23 @@ fun LiveEpgGrid(
                     )
                 }
             }
+
+            FilterRail(
+                open = filterRailOpen,
+                filters = availableFilters,
+                active = activeFilter,
+                requesters = railRequesters,
+                onPick = { f ->
+                    activeFilter = f
+                    filterRailOpen = false
+                    requestSlotFocus(0, if (followLive) nowMs else viewportStartMs + 30L * 60_000L)
+                },
+                onClose = {
+                    filterRailOpen = false
+                    requestSlotFocus(focusedRowIdx, if (followLive) nowMs else viewportStartMs + 30L * 60_000L)
+                },
+                modifier = Modifier.align(Alignment.CenterStart),
+            )
         }
     }
 
@@ -893,11 +840,13 @@ private fun GuideChannelViewportRow(
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = row.guideChannel.name,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
+                    lineHeight = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    // (the whole name, over up to three lines: never cut short with dots)
+                    maxLines = 3,
+                    overflow = TextOverflow.Clip,
                 )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1456,6 +1405,75 @@ internal fun CatchupModal(
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+private fun filterIcon(f: EpgRowFilter) = when (f) {
+    EpgRowFilter.ALL -> Icons.Filled.Apps
+    EpgRowFilter.PLAYABLE -> Icons.Filled.PlayArrow
+    EpgRowFilter.CATCHUP -> Icons.Filled.History
+    EpgRowFilter.ENTERTAINMENT -> Icons.Filled.Theaters
+    EpgRowFilter.SPORTS -> Icons.Filled.EmojiEvents
+    EpgRowFilter.CINEMA -> Icons.Filled.Movie
+    EpgRowFilter.NEWS -> Icons.Filled.Newspaper
+    EpgRowFilter.KIDS -> Icons.Filled.ChildCare
+}
+
+/** The guide's filters as a column of icons that slides in over its left edge; Right or Back closes it */
+@Composable
+private fun FilterRail(
+    open: Boolean,
+    filters: List<EpgRowFilter>,
+    active: EpgRowFilter,
+    requesters: Map<EpgRowFilter, FocusRequester>,
+    onPick: (EpgRowFilter) -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AnimatedVisibility(
+        visible = open,
+        enter = slideInHorizontally { -it } + fadeIn(),
+        exit = slideOutHorizontally { -it } + fadeOut(),
+        modifier = modifier,
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(start = 12.dp)
+                .background(Color(0xF2141418), RoundedCornerShape(22.dp))
+                .padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            filters.filter { it != EpgRowFilter.PLAYABLE }.forEach { f ->
+                Surface(
+                    onClick = { onPick(f) },
+                    modifier = Modifier
+                        .width(200.dp)
+                        .height(36.dp)
+                        .focusRequester(requesters.getValue(f))
+                        .onPreviewKeyEvent { ev ->
+                            if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionRight) { onClose(); true } else false
+                        },
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = if (f == active) Color.White.copy(alpha = 0.16f) else Color.Transparent,
+                        contentColor = Color.White,
+                        focusedContainerColor = Color.White,
+                        focusedContentColor = Color.Black,
+                    ),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+                ) {
+                    Row(
+                        Modifier.fillMaxSize().padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(filterIcon(f), contentDescription = null, modifier = Modifier.size(20.dp), tint = LocalContentColor.current)
+                        Text(f.label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = LocalContentColor.current, maxLines = 1)
                     }
                 }
             }

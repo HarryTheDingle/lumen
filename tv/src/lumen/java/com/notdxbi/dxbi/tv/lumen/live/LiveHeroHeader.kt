@@ -250,28 +250,20 @@ private fun ProgrammeHeroContent(
         modifier = modifier.padding(horizontal = 24.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        // one plain line, as Apple TV writes it: what's on, the channel, the picture, catch-up
+        // the channel's logo, nothing else on the line (its name, number and "on now" were words round a picture)
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             val live = programme?.isOnAt(nowMs) == true
             if (live) {
-                Box(Modifier.size(7.dp).clip(CircleShape).background(LivePalette.LiveRed))
+                Box(Modifier.size(8.dp).clip(CircleShape).background(LivePalette.LiveRed))
             }
-            Text(
-                text = statusLabel.lowercase().replaceFirstChar { it.uppercase() },
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = when {
-                    live -> Color.White
-                    statusLabel == "CATCH-UP" -> Dx.Amber
-                    else -> Dx.Muted
-                },
-            )
-            Text(channelName, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
-            channelNumber?.let { Text("$it", fontSize = 13.sp, color = Dx.Muted) }
-            if (qualityText != null) Text(qualityText, fontSize = 13.sp, color = Dx.Muted)
+            if (!logoUrl.isNullOrBlank()) {
+                LandscapeChannelLogo(logoUrl = logoUrl, name = channelName, width = 140.dp, height = 40.dp, plain = true)
+            } else {
+                Text(channelName, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
+            }
             if (hasCatchup && statusLabel != "CATCH-UP") Text("Catch-up", fontSize = 13.sp, color = Dx.Amber)
         }
 

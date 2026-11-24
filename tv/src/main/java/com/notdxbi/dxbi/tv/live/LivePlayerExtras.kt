@@ -13,6 +13,8 @@ object LivePlayerExtras {
     val stripChannels = MutableStateFlow<List<Pair<CanonicalChannel, EpgProgramme?>>>(emptyList())
     /** Changes when the controls open on the strip */
     val focusStripTick = MutableStateFlow(0L)
+    /** The controls opened out: Down on the strip again brings up play, Watch from start and Options */
+    val expanded = MutableStateFlow(false)
     /** The digits typed so far */
     val numberEntry = MutableStateFlow("")
     /** A short message about the number just typed ("No channel 77") */

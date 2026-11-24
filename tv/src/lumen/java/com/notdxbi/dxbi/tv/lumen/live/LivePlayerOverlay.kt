@@ -334,6 +334,15 @@ private fun BottomOsdScrim(
 ) {
     val stripChannels by com.notdxbi.dxbi.tv.live.LivePlayerExtras.stripChannels.collectAsState()
     val stripTick by com.notdxbi.dxbi.tv.live.LivePlayerExtras.focusStripTick.collectAsState()
+    val expandedFlag by com.notdxbi.dxbi.tv.live.LivePlayerExtras.expanded.collectAsState()
+    // (catch-up and paused always show their controls; a live channel opens them out with a second Down)
+    val expanded = expandedFlag || state.isPaused || state.isCatchup || state.scrub.active
+    LaunchedEffect(state.osdVisible) {
+        if (!state.osdVisible) com.notdxbi.dxbi.tv.live.LivePlayerExtras.expanded.value = false
+    }
+    LaunchedEffect(expandedFlag) {
+        if (expandedFlag) { delay(80); runCatching { playFocus.requestFocus() } }
+    }
     val nowMs = System.currentTimeMillis()
     val canScrubLive = !state.isCatchup && state.channel.hasCatchup && state.nowProgramme != null
     val canSeek = state.isCatchup || canScrubLive
@@ -396,7 +405,7 @@ private fun BottomOsdScrim(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(if (stripChannels.isEmpty()) 240.dp else 360.dp)
+            .height(if (stripChannels.isEmpty()) 240.dp else if (expanded) 360.dp else 290.dp)
             .background(
                 Brush.verticalGradient(
                     0f to Color.Transparent,
@@ -475,7 +484,7 @@ private fun BottomOsdScrim(
             }
 
             // Few controls, as the Apple TV app: play/pause, watch from the start, and Options for everything else
-            Row(
+            if (expanded || stripChannels.isEmpty()) Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -543,7 +552,7 @@ private fun ChannelStrip(
         item(key = "guide") {
             Surface(
                 onClick = onOpenGuide,
-                modifier = Modifier.width(120.dp).height(96.dp),
+                modifier = Modifier.width(120.dp).height(112.dp),
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = Color.White.copy(alpha = 0.10f),
@@ -564,7 +573,7 @@ private fun ChannelStrip(
             val playing = channel.id == currentChannelId
             Surface(
                 onClick = { onZap(channel) },
-                modifier = Modifier.width(210.dp).height(96.dp).then(if (playing) Modifier.focusRequester(currentTile) else Modifier),
+                modifier = Modifier.width(250.dp).height(112.dp).then(if (playing) Modifier.focusRequester(currentTile) else Modifier),
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = if (playing) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f),
@@ -583,7 +592,7 @@ private fun ChannelStrip(
                         )
                         Text(
                             text = channel.name, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = ink,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                            maxLines = 2, overflow = TextOverflow.Clip, modifier = Modifier.weight(1f),
                         )
                         if (playing) Box(Modifier.size(7.dp).clip(CircleShape).background(LivePalette.LiveRed))
                     }

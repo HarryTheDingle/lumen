@@ -367,7 +367,7 @@ class Phone(private val lumos: Lumos) {
                         if (streamsVideo != videoId) return@withLock
                         found = found + list.orEmpty()
                         addonStates = addonStates.toMutableList().also { it[i] = (m?.name ?: a.base) to if (list == null) "Err" else "Ready" }
-                        timings = timings + "${m?.name ?: "addon ${i + 1}"}: ${list?.size ?: "no answer"} in ${began.elapsedNow().inWholeMilliseconds} ms"
+                        timings = timings + "${m?.name ?: "addon ${i + 1}"}: ${list?.size ?: "no answer"}${if (list.isNullOrEmpty() && a.lastStatus !in 0..299) " (HTTP ${a.lastStatus})" else ""} in ${began.elapsedNow().inWholeMilliseconds} ms"
                         touchStreams()
                     }
                 }

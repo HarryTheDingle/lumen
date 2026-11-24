@@ -138,8 +138,12 @@ class Addon(url: String, private val http: HttpClient) {
         return "$base/$resource/${type.encodeURLPathPart()}/${id.encodeURLPathPart()}$tail.json"
     }
 
+    /** The HTTP status of the last answer (0: none yet): an empty list from an addon that errored looked like no streams */
+    @kotlin.concurrent.Volatile var lastStatus: Int = 0
+
     private suspend fun get(url: String): JsonObject? {
         val r = http.get(url)
+        lastStatus = r.status.value
         if (!r.status.isSuccess()) return null
         return json.parseToJsonElement(r.bodyAsText()).obj()
     }

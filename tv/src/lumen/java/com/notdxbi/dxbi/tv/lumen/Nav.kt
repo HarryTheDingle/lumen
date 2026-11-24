@@ -454,7 +454,6 @@ private fun LiveSubItems(nav: Nav, chosen: FocusRequester, onPicked: () -> Unit)
         Triple(com.notdxbi.dxbi.tv.lumen.live.LiveSection.SEARCH, "Find a channel", Icons.Filled.Search),
         Triple(com.notdxbi.dxbi.tv.lumen.live.LiveSection.TV_GUIDE, "Guide", Icons.Filled.ViewList),
         Triple(com.notdxbi.dxbi.tv.lumen.live.LiveSection.SPORTS, "Sports", Icons.Filled.EmojiEvents),
-        Triple(com.notdxbi.dxbi.tv.lumen.live.LiveSection.SPORTS_GUIDE, "Sports guide", Icons.Filled.ViewList),
     )
     Box(Modifier.fillMaxWidth().padding(start = 22.dp, top = 2.dp, bottom = 4.dp)) {
         // a thin line down the side shows these belong to Live TV

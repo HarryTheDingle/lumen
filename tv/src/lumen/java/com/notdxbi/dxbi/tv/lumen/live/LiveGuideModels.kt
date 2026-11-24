@@ -63,7 +63,6 @@ enum class LiveSection(val label: String) {
     SEARCH("Search"),
     TV_GUIDE("TV Guide"),
     SPORTS("Sports"),
-    SPORTS_GUIDE("Sports guide"),
     FAVOURITES("Favourites"),
     SETTINGS("Settings"),
 }
