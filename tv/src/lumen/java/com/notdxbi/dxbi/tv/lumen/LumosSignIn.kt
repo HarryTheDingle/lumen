@@ -90,7 +90,7 @@ fun LumosSignIn(stremio: Stremio) {
     Row(Modifier.fillMaxSize().background(Dx.Background), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
         Column(Modifier.width(380.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text("Sign in with Stremio", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-            androidx.compose.foundation.layout.Box(Modifier.size(260.dp).background(Color.White, RoundedCornerShape(20.dp)).padding(14.dp)) {
+            androidx.compose.foundation.layout.Box(Modifier.size(260.dp).background(Color.White, RoundedCornerShape(Dx.RPanel)).padding(14.dp)) {
                 link?.let { AsyncImage(model = it.qrUrl, contentDescription = "QR code to sign in with Stremio", modifier = Modifier.fillMaxSize()) }
             }
             Text("Scan with your phone, or go to link.stremio.com and enter", fontSize = 14.sp, color = Dx.Muted, textAlign = TextAlign.Center)
@@ -147,7 +147,7 @@ fun LumosAddons(stremio: Stremio) {
     Row(Modifier.fillMaxSize().background(Dx.Background), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
         Column(Modifier.width(380.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text("Scan with your phone", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-            androidx.compose.foundation.layout.Box(Modifier.size(260.dp).background(Color.White, RoundedCornerShape(20.dp)).padding(14.dp)) {
+            androidx.compose.foundation.layout.Box(Modifier.size(260.dp).background(Color.White, RoundedCornerShape(Dx.RPanel)).padding(14.dp)) {
                 link?.let { AsyncImage(model = it.qrUrl, contentDescription = "QR code to sign in to Stremio", modifier = Modifier.fillMaxSize()) }
             }
             Text("or go to link.stremio.com and enter", fontSize = 14.sp, color = Dx.Muted)

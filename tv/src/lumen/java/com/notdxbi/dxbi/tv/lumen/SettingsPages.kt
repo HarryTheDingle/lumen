@@ -53,14 +53,14 @@ internal fun LinkRow(title: String, note: String, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         modifier = Modifier.padding(horizontal = Dx.Gutter - 14.dp).widthIn(max = 788.dp).fillMaxWidth(),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(Dx.RCard)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
             contentColor = Color.White,
             focusedContainerColor = Color.White,
             focusedContentColor = Color.Black,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
     ) {
         val ink = LocalContentColor.current
         Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {

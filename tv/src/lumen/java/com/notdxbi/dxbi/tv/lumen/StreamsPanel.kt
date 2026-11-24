@@ -152,7 +152,7 @@ private fun cycle(options: List<String>, now: String?): String? {
 
 @Composable
 private fun Best(best: StreamOption, sameAsLastTime: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(Dx.RPanel)
     Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
@@ -164,7 +164,7 @@ private fun Best(best: StreamOption, sameAsLastTime: Boolean, modifier: Modifier
             focusedContentColor = Color.Black,
         ),
         border = ClickableSurfaceDefaults.border(focusedBorder = Border.None),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Icon(Icons.Filled.PlayArrow, contentDescription = "Play", modifier = Modifier.size(30.dp))
@@ -186,7 +186,7 @@ private fun Best(best: StreamOption, sameAsLastTime: Boolean, modifier: Modifier
 
 @Composable
 private fun StreamRow(s: StreamOption, picked: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(Dx.RPanel)
     Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
@@ -201,7 +201,7 @@ private fun StreamRow(s: StreamOption, picked: Boolean, modifier: Modifier, onCl
             border = if (picked) Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)), shape = shape) else Border.None,
             focusedBorder = Border(BorderStroke(2.5.dp, Color.White), shape = shape),
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -211,7 +211,7 @@ private fun StreamRow(s: StreamOption, picked: Boolean, modifier: Modifier, onCl
                 if (s.atmos) Badge("ATMOS")
                 if (s.openMatte) Badge("OPEN MATTE")
                 if (s.threeD) Badge("3D")
-                if (s.source.isNotEmpty() && s.source != "Other") Badge(s.source.uppercase(), if (s.source == "CAM") Color(0xFFFF6B6B) else Color.White)
+                if (s.source.isNotEmpty() && s.source != "Other") Badge(s.source.uppercase(), if (s.source == "CAM") Dx.Danger else Color.White)
                 if (s.codec.isNotEmpty()) Badge(s.codec)
                 Spacer(Modifier.weight(1f))
                 when {
@@ -254,7 +254,7 @@ private fun Filled(text: String) {
         fontSize = 12.sp,
         fontWeight = FontWeight.Bold,
         color = Color.Black,
-        modifier = Modifier.background(Color.White, RoundedCornerShape(4.dp)).border(1.dp, Color.White, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 1.dp),
+        modifier = Modifier.background(Color.White, RoundedCornerShape(Dx.RSmall)).border(1.dp, Color.White, RoundedCornerShape(Dx.RSmall)).padding(horizontal = 6.dp, vertical = 1.dp),
     )
 }
 

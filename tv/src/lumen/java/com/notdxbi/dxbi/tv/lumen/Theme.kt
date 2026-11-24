@@ -79,6 +79,21 @@ object Dx {
     val Background = Color.Black
     /** A card's face before its picture comes */
     val Raised = Color(0xFF1C1C1E)
+    /** A panel's face where Raised is too close to what's behind it */
+    val Raised2 = Color(0xFF2A2A2E)
+    val Danger = Color(0xFFFF6B6B)
+    /** Focus growth: list rows, buttons and pills, round things (avatars, keys) */
+    const val FocusRow = 1.03f
+    const val FocusButton = 1.06f
+    const val FocusRound = 1.1f
+    /** Corner radii: badges, cards, panels */
+    val RSmall = 4.dp
+    val RCard = 12.dp
+    val RPanel = 24.dp
+    /** Animation durations (ms): quick, medium, slow */
+    const val Fast = 200
+    const val Med = 320
+    const val Slow = 480
     val Muted = Color.White.copy(alpha = 0.62f)
     val Faint = Color.White.copy(alpha = 0.5f)
     /** TV-safe margin at the screen's sides */
@@ -257,7 +272,7 @@ fun Avatar(email: String?, size: Dp = 36.dp) {
         Modifier
             .size(size)
             .clip(CircleShape)
-            .background(Brush.verticalGradient(listOf(Color(0xFF5999BF), Color(0xFF33668C))))
+            .background(Brush.verticalGradient(listOf(Color(0xFF4A4A4C), Color(0xFF3A3A3C))))
             .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape),
         contentAlignment = Alignment.Center,
     ) {
@@ -295,7 +310,7 @@ fun BlurredArt(url: String?, modifier: Modifier = Modifier, dim: Float = 0.42f) 
         }
     }
     Box(modifier.background(Color(0xFF14181C))) {
-        androidx.compose.animation.AnimatedVisibility(image != null, enter = androidx.compose.animation.fadeIn(tween(400)), modifier = Modifier.fillMaxSize()) {
+        androidx.compose.animation.AnimatedVisibility(image != null, enter = androidx.compose.animation.fadeIn(tween(Dx.Med)), modifier = Modifier.fillMaxSize()) {
             image?.let {
                 Image(it, contentDescription = null, contentScale = ContentScale.Crop, filterQuality = androidx.compose.ui.graphics.FilterQuality.High, modifier = Modifier.fillMaxSize())
             }

@@ -207,7 +207,7 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
         val rise = remember { androidx.compose.animation.core.Animatable(0f) }
         LaunchedEffect(Unit) {
             delay(150)
-            rise.animateTo(1f, tween(380))
+            rise.animateTo(1f, tween(Dx.Med))
         }
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = rise.value }) {
         when (nav.tab) {
@@ -301,7 +301,7 @@ fun Field(
     onChange: (String) -> Unit,
     type: KeyboardType,
     modifier: Modifier = Modifier,
-    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(12.dp),
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(Dx.RCard),
     /** Set true to open the keyboard without OK being pressed (Search, as it opens) */
     open: Boolean = false,
     leading: (@Composable () -> Unit)? = null,
@@ -394,7 +394,7 @@ fun Field(
                 focusedContentColor = Color.Black,
             ),
             
-            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
         ) {
             val shown = if (password) "•".repeat(value.length) else value
             androidx.compose.foundation.layout.Row(

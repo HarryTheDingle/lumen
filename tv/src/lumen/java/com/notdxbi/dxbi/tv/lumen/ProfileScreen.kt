@@ -43,7 +43,7 @@ import com.notdxbi.dxbi.tv.phone.Viewer
 /** Lumen's viewer colours (the plugin accepts only these) */
 val ProfileColours = listOf("#e50914", "#2f80ff", "#1db954", "#f5a524", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316")
 
-private fun profileColour(hex: String?): Color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color(0xFF33668C))
+private fun profileColour(hex: String?): Color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color(0xFF3A3A3C))
 
 /** A profile's circle: its colour and first letter, as on Apple TV */
 @Composable
@@ -69,7 +69,7 @@ private fun Circle(onClick: () -> Unit, modifier: Modifier = Modifier, selected:
             border = if (selected) Border(BorderStroke(2.dp, Color.White.copy(alpha = 0.5f))) else Border.None,
             focusedBorder = Border(BorderStroke(4.dp, Color.White)),
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRound),
     ) { content() }
 }
 
@@ -159,7 +159,7 @@ private fun ProfileEditor(stremio: Stremio, viewer: Viewer?, count: Int, onClose
                 }
             })
             Pill("Cancel", selected = false, onClick = onClose)
-            if (viewer != null && count > 1) Pill(if (confirm) "Press again to delete" else "Delete", selected = confirm, tint = Color(0xFFFF6B6B), onClick = {
+            if (viewer != null && count > 1) Pill(if (confirm) "Press again to delete" else "Delete", selected = confirm, tint = Dx.Danger, onClick = {
                 if (confirm) { stremio.removeViewer(viewer.id); onClose() } else confirm = true
             })
         }

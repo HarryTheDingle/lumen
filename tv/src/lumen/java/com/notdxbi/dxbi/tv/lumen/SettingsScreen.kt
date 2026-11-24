@@ -341,7 +341,7 @@ private fun SectionRow(s: Section, chosen: Boolean, modifier: Modifier, onClick:
             focusedContainerColor = Color.White,
             focusedContentColor = Color.Black,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
     ) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(s.icon, contentDescription = null, modifier = Modifier.size(22.dp))
@@ -373,7 +373,7 @@ private fun SettingLine(
             focusedContainerColor = Color.White,
             focusedContentColor = Color.Black,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
     ) {
         val ink = LocalContentColor.current
         Row(Modifier.padding(horizontal = 18.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -106,7 +106,7 @@ class PlayerLoading(private val info: LoadingHandoff.Info, private val onGone: (
             ready -> step.copy(progress = 1f)
             else -> step.copy(progress = 0.96f)
         }
-        val fade by animateFloatAsState(if (fading) 0f else 1f, tween(450), label = "loading-fade", finishedListener = {
+        val fade by animateFloatAsState(if (fading) 0f else 1f, tween(Dx.Slow), label = "loading-fade", finishedListener = {
             if (fading) {
                 showing = false
                 onGone()

@@ -241,17 +241,17 @@ fun PageWindow(
         val leaving = fadeIn && LocalLeaving.current
         // (a page with another over it recedes a little, as Apple TV's does)
         val covered = fadeIn && LocalCovered.current
-        val recede by androidx.compose.animation.core.animateFloatAsState(if (covered) 1f else 0f, tween(450, easing = soft), label = "recede")
+        val recede by androidx.compose.animation.core.animateFloatAsState(if (covered) 1f else 0f, tween(Dx.Slow, easing = soft), label = "recede")
         LaunchedEffect(Unit) {
             if (fadeIn) {
                 delay(100)
-                rise.animateTo(1f, tween(500, easing = soft))
+                rise.animateTo(1f, tween(Dx.Slow, easing = soft))
             }
         }
         LaunchedEffect(leaving) {
             // (a little longer than it came in, easing right out, so it's gone before the window is: it was taken away
             // after a fixed 300 ms while the fade, started a frame or two late, still had a sliver to go, a pop at the end)
-            if (leaving) rise.animateTo(0f, tween(380, easing = androidx.compose.animation.core.CubicBezierEasing(0.4f, 0f, 0.2f, 1f)))
+            if (leaving) rise.animateTo(0f, tween(Dx.Med, easing = androidx.compose.animation.core.CubicBezierEasing(0.4f, 0f, 0.2f, 1f)))
         }
         if (solid && window != null) {
             val backing = remember { android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK) }
@@ -306,7 +306,7 @@ fun ScreenTag(nav: Nav) {
                 focusedContainerColor = Color.White,
                 focusedContentColor = Color.Black,
             ),
-            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
         ) {
             Row(Modifier.padding(start = 6.dp, end = 14.dp, top = 5.dp, bottom = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(22.dp).background(Color.White.copy(alpha = 0.22f), CircleShape), contentAlignment = Alignment.Center) {
@@ -390,7 +390,7 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
                         transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
                     }
                     .width(230.dp)
-                    .background(Color(0xFF2A2A2E).copy(alpha = 0.92f), RoundedCornerShape(24.dp))
+                    .background(Dx.Raised2.copy(alpha = 0.94f), RoundedCornerShape(Dx.RPanel))
                     .padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
@@ -399,7 +399,7 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
                     onClick = { close(); nav.push(Page.Profiles) },
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
                     colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, contentColor = Color.White, focusedContainerColor = Color.White, focusedContentColor = Color.Black),
-                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
                 ) {
                 Row(Modifier.padding(horizontal = 6.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (viewer != null) ProfileAvatar(viewer.name, viewer.colour, 28.dp) else Avatar(email, 28.dp)
@@ -428,7 +428,7 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
                             focusedContainerColor = Color.White,
                             focusedContentColor = Color.Black,
                         ),
-                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+                        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
                     ) {
                         Row(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(t.icon, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -478,7 +478,7 @@ private fun LiveSubItems(nav: Nav, chosen: FocusRequester, onPicked: () -> Unit)
                         focusedContainerColor = Color.White,
                         focusedContentColor = Color.Black,
                     ),
-                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
                 ) {
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
@@ -518,11 +518,11 @@ fun Pill(
             focusedContainerColor = Color.White,
             focusedContentColor = Color.Black,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
     ) {
         Row(
             Modifier.padding(start = if (leading != null) 8.dp else 16.dp, end = if (compact && !focused && !selected && leading != null) 8.dp else 16.dp, top = 7.dp, bottom = 7.dp)
-                .animateContentSize(androidx.compose.animation.core.tween(220)),
+                .animateContentSize(androidx.compose.animation.core.tween(Dx.Fast)),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -558,13 +558,13 @@ fun ActionMenu(heading: String, actions: List<Action>, onDismiss: () -> Unit) {
             Column(
                 Modifier
                     .width(380.dp)
-                    .background(Color(0xFF181818), RoundedCornerShape(22.dp))
+                    .background(Dx.Raised, RoundedCornerShape(Dx.RPanel))
                     .padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(heading, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, modifier = Modifier.padding(start = 10.dp, bottom = 8.dp))
                 actions.forEachIndexed { i, a ->
-                    val shape = RoundedCornerShape(12.dp)
+                    val shape = RoundedCornerShape(Dx.RCard)
                     Surface(
                         onClick = {
                             onDismiss()
@@ -578,7 +578,7 @@ fun ActionMenu(heading: String, actions: List<Action>, onDismiss: () -> Unit) {
                             focusedContainerColor = Color.White,
                             focusedContentColor = Color.Black,
                         ),
-                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+                        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
                     ) {
                         Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                             a.icon?.let {

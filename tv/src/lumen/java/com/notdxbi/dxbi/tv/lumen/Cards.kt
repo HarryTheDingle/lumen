@@ -359,7 +359,7 @@ class PageScroller(val list: androidx.compose.foundation.lazy.LazyListState, pri
                                     (index - list.firstVisibleItemIndex) * per - extra - (first?.offset?.let { -it } ?: 0) - target
                                 }
                                 if (kotlin.math.abs(delta) < 1f) break
-                                val passSpec = if (pass == 1) spec else tween(160, easing = androidx.compose.animation.core.LinearOutSlowInEasing)
+                                val passSpec = if (pass == 1) spec else tween(Dx.Fast, easing = androidx.compose.animation.core.LinearOutSlowInEasing)
                                 val moved = list.animateScrollBy(delta, passSpec)
                                 if (visible != null || kotlin.math.abs(moved) < 1f) break
                             }
@@ -370,7 +370,7 @@ class PageScroller(val list: androidx.compose.foundation.lazy.LazyListState, pri
                                 val target = if (centre) ((viewport - finalItem.size) / 2f).coerceAtLeast(0f) else 0f
                                 val rem = finalItem.offset - target
                                 if (kotlin.math.abs(rem) >= 1f) {
-                                    list.animateScrollBy(rem, tween(160, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
+                                    list.animateScrollBy(rem, tween(Dx.Fast, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
                                 }
                             }
                         } else {
@@ -528,7 +528,7 @@ fun PageColumn(
 /** Shelf heading isolated in its own scope so row focus changes never recompose the LazyRow below */
 @Composable
 private fun ShelfTitle(title: String, lift: RowLift, focused: () -> Boolean) {
-    val titleAlpha = animateFloatAsState(if (focused()) 1f else 0.6f, tween(320), label = "row-title")
+    val titleAlpha = animateFloatAsState(if (focused()) 1f else 0.6f, tween(Dx.Med), label = "row-title")
     val up = with(androidx.compose.ui.platform.LocalDensity.current) { 10.dp.toPx() }
     var right by remember { mutableStateOf(0f) }
     // (eased like the card's own lift: up as a card under it is chosen, back down as the remote moves on past it)
@@ -659,10 +659,10 @@ fun LoadingShelf(title: String?) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         // (no name yet: a skeleton bar where it'll be)
         if (title != null) Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Dx.Faint, maxLines = 1, modifier = Modifier.padding(horizontal = Dx.Gutter))
-        else Box(Modifier.padding(horizontal = Dx.Gutter, vertical = 4.dp).size(180.dp, 18.dp).skeleton(shape = RoundedCornerShape(6.dp)))
+        else Box(Modifier.padding(horizontal = Dx.Gutter, vertical = 4.dp).size(180.dp, 18.dp).skeleton(shape = RoundedCornerShape(Dx.RCard)))
         // (the room under each poster that a chosen card grows into, kept here too, so nothing moves when the row comes)
         Row(Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 20.dp, bottom = 26.dp + CAPTION_ROOM), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-            repeat(8) { Box(Modifier.size(Dx.Poster, Dx.Poster * 1.5f).skeleton(shape = RoundedCornerShape(12.dp))) }
+            repeat(8) { Box(Modifier.size(Dx.Poster, Dx.Poster * 1.5f).skeleton(shape = RoundedCornerShape(Dx.RCard))) }
         }
     }
 }
@@ -670,7 +670,7 @@ fun LoadingShelf(title: String?) {
 /** A grid's poster still loading */
 @Composable
 fun LoadingPoster() {
-    Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).skeleton(shape = RoundedCornerShape(12.dp)))
+    Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).skeleton(shape = RoundedCornerShape(Dx.RCard)))
 }
 
 /**
@@ -678,7 +678,7 @@ fun LoadingPoster() {
  */
 @Composable
 fun ShelfSwap(loading: Boolean, title: String, content: @Composable () -> Unit) {
-    androidx.compose.animation.Crossfade(loading, animationSpec = tween(420, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "shelf") { l ->
+    androidx.compose.animation.Crossfade(loading, animationSpec = tween(Dx.Med, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "shelf") { l ->
         if (l) LoadingShelf(title) else content()
     }
 }

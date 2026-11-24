@@ -64,7 +64,7 @@ fun AskAiButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(containerColor = Glass.Fill, contentColor = Color.White, focusedContainerColor = Color.White, focusedContentColor = Color.Black),
         border = ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Glass.Edge), shape = shape)),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
     ) {
         Text("✨  Ask AI", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp))
     }
@@ -105,7 +105,7 @@ private fun Status(line: String, hint: String? = null, spinner: Boolean = false,
                 onClick = retry,
                 shape = ClickableSurfaceDefaults.shape(shape),
                 colors = ClickableSurfaceDefaults.colors(containerColor = Glass.Fill, contentColor = Color.White, focusedContainerColor = Color.White, focusedContentColor = Color.Black),
-                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
             ) { Text("Retry", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)) }
         }
     }

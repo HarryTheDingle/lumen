@@ -88,7 +88,7 @@ fun PersonPage(stremio: Stremio, nav: Nav, page: Page.Person) {
                         val photo = p?.text("photo") ?: page.photo
                         var waiting by remember(photo) { mutableStateOf(photo != null || !loaded) }
                         var failed by remember(photo) { mutableStateOf(false) }
-                        Box(Modifier.size(190.dp).clip(CircleShape).background(Color(0xFF444444)).skeleton(waiting && !failed, CircleShape), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(190.dp).clip(CircleShape).background(Dx.Raised).skeleton(waiting && !failed, CircleShape), contentAlignment = Alignment.Center) {
                             if (failed || (photo == null && loaded)) Text(page.name.split(' ').mapNotNull { it.firstOrNull() }.take(2).joinToString(""), fontSize = 60.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
                             photo?.let {
                                 AsyncImage(
@@ -104,9 +104,9 @@ fun PersonPage(stremio: Stremio, nav: Nav, page: Page.Person) {
                             when {
                                 // (skeleton lines while it loads, as the rest of the app)
                                 !loaded -> {
-                                    Box(Modifier.size(200.dp, 14.dp).skeleton(shape = RoundedCornerShape(6.dp)))
+                                    Box(Modifier.size(200.dp, 14.dp).skeleton(shape = RoundedCornerShape(Dx.RCard)))
                                     Spacer(Modifier.height(4.dp))
-                                    repeat(3) { Box(Modifier.width(if (it == 2) 420.dp else 760.dp).height(14.dp).skeleton(shape = RoundedCornerShape(6.dp))) }
+                                    repeat(3) { Box(Modifier.width(if (it == 2) 420.dp else 760.dp).height(14.dp).skeleton(shape = RoundedCornerShape(Dx.RCard))) }
                                 }
                                 p == null -> Text("No details found for ${page.name}.", fontSize = 15.sp, color = Dx.Muted)
                             }
@@ -117,15 +117,15 @@ fun PersonPage(stremio: Stremio, nav: Nav, page: Page.Person) {
                                     onClick = { moreText = !moreText },
                                     modifier = Modifier.focusRequester(first).width(760.dp),
                                     // (the same see-through glass box as a title page's About, brightening a little when chosen)
-                                    shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(16.dp)),
+                                    shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(Dx.RPanel)),
                                     colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
                                         containerColor = Glass.Fill,
                                         contentColor = Color.White,
                                         focusedContainerColor = Color.White.copy(alpha = 0.32f),
                                         focusedContentColor = Color.White,
                                     ),
-                                    border = androidx.tv.material3.ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Glass.Edge), shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp))),
-                                    scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+                                    border = androidx.tv.material3.ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Glass.Edge), shape = androidx.compose.foundation.shape.RoundedCornerShape(Dx.RPanel))),
+                                    scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
                                 ) {
                                     Text(
                                         bio,

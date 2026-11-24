@@ -119,8 +119,8 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
         prefs.edit().putString("discover.platform", id).apply()
     }
 
-    val top by animateColorAsState(platform?.colour?.copy(alpha = 0.42f) ?: Color(0xFF1A1A1F), tween(450), label = "discover-top")
-    val deep by animateColorAsState(platform?.deep ?: Color(0xFF0B0B0D), tween(450), label = "discover-deep")
+    val top by animateColorAsState(platform?.colour?.copy(alpha = 0.42f) ?: Color(0xFF1A1A1F), tween(Dx.Slow), label = "discover-top")
+    val deep by animateColorAsState(platform?.deep ?: Color(0xFF0B0B0D), tween(Dx.Slow), label = "discover-deep")
 
     Box(
         Modifier
@@ -181,11 +181,11 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
                     // (each service its icon until the remote's on it: the whole row fits across the screen)
                     Row(Modifier.padding(horizontal = Dx.Gutter, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Pill("For You", selected = forYou, onClick = { choose("") }, compact = true, modifier = if (forYou) Modifier.focusRequester(chosenPill) else Modifier, leading = {
-                            Image(painterResource(com.notdxbi.dxbi.tv.R.mipmap.ic_launcher), contentDescription = null, modifier = Modifier.size(24.dp).clip(RoundedCornerShape(6.dp)))
+                            Image(painterResource(com.notdxbi.dxbi.tv.R.mipmap.ic_launcher), contentDescription = null, modifier = Modifier.size(24.dp).clip(RoundedCornerShape(Dx.RCard)))
                         })
                         DiscoverFeed.platforms.forEach { p ->
                             Pill(p.name, selected = selected == p.id, onClick = { choose(p.id) }, tint = p.colour, compact = true, modifier = if (selected == p.id) Modifier.focusRequester(chosenPill) else Modifier, leading = {
-                                AsyncImage(model = p.icon, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(24.dp).clip(RoundedCornerShape(6.dp)).background(p.colour.copy(alpha = 0.4f)))
+                                AsyncImage(model = p.icon, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(24.dp).clip(RoundedCornerShape(Dx.RCard)).background(p.colour.copy(alpha = 0.4f)))
                             })
                         }
                         if (loadedFor != selected && loadedFor != null) Text("Loading titles…", fontSize = 14.sp, color = Dx.Muted, modifier = Modifier.padding(start = 8.dp))
@@ -219,7 +219,7 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
                 }
                 rows.forEachIndexed { i, row ->
                     item(key = "row-${row.id}") {
-                        Shelf(row.title, Modifier.animateItem(fadeInSpec = tween(420), placementSpec = null, fadeOutSpec = tween(200)).trackSection("row-${row.id}")) {
+                        Shelf(row.title, Modifier.animateItem(fadeInSpec = tween(Dx.Med), placementSpec = null, fadeOutSpec = tween(200)).trackSection("row-${row.id}")) {
                             items(row.items, key = { it.id }) { t ->
                                 val date = row.dates[t.id]
                                 if (date != null) DatedPoster(t, date) { nav.open(t) } else PreviewPosterCard(t, onClick = { nav.open(t) })

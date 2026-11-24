@@ -230,7 +230,7 @@ private fun DropdownPill(label: String, options: List<String>, chosen: Int, onCh
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(containerColor = Glass.Fill, contentColor = Color.White, focusedContainerColor = Color.White, focusedContentColor = Color.Black),
         border = ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Glass.Edge), shape = shape)),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
     ) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
@@ -246,19 +246,19 @@ private fun DropdownPill(label: String, options: List<String>, chosen: Int, onCh
             FocusOnOpen(landing)
             val dp = androidx.compose.ui.platform.LocalDensity.current.density
             Box(Modifier.fillMaxSize()) {
-                val panel = RoundedCornerShape(18.dp)
+                val panel = RoundedCornerShape(Dx.RPanel)
                 LazyColumn(
                     state = list,
                     modifier = Modifier
                         .offset { IntOffset(bounds.left.toInt(), (bounds.bottom + 10 * dp).toInt()) }
                         .width(250.dp).heightIn(max = 330.dp)
-                        .background(Color(0xFF1C1C1E).copy(alpha = 0.94f), panel)
+                        .background(Dx.Raised.copy(alpha = 0.94f), panel)
                         .border(BorderStroke(1.dp, Glass.Edge), panel),
                     contentPadding = PaddingValues(8.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     itemsIndexed(options) { i, name ->
-                        val row = RoundedCornerShape(12.dp)
+                        val row = RoundedCornerShape(Dx.RCard)
                         Surface(
                             onClick = { onChoose(i); close() },
                             modifier = Modifier.fillMaxWidth().then(if (i == chosen) Modifier.focusRequester(landing) else Modifier),
@@ -267,7 +267,7 @@ private fun DropdownPill(label: String, options: List<String>, chosen: Int, onCh
                                 containerColor = if (i == chosen) Glass.Fill else Color.Transparent, contentColor = Color.White,
                                 focusedContainerColor = Color.White, focusedContentColor = Color.Black,
                             ),
-                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+                            scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
                         ) {
                             Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text(name, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, modifier = Modifier.weight(1f))
@@ -427,7 +427,7 @@ private fun ChainRowView(
 ) {
     val inRow = remember { mutableStateOf(false) }
     val rowScrolling = rememberRowScrolling(Dx.Gutter, 18.dp)
-    val cardsAlpha by animateFloatAsState(if (loading || row == null) 0f else 1f, tween(260), label = "chain-cards")
+    val cardsAlpha by animateFloatAsState(if (loading || row == null) 0f else 1f, tween(Dx.Fast), label = "chain-cards")
     Column(
         modifier.fillMaxWidth()
             .onFocusChanged {
@@ -443,7 +443,7 @@ private fun ChainRowView(
         val name = row?.name ?: placeholderName
         if (name != null) ChainRowHeading(name) { inRow.value }
         // (no name yet: a skeleton bar where it'll be, as LoadingShelf has)
-        else Box(Modifier.padding(horizontal = Dx.Gutter, vertical = 4.dp).size(180.dp, 18.dp).skeleton(shape = RoundedCornerShape(6.dp)))
+        else Box(Modifier.padding(horizontal = Dx.Gutter, vertical = 4.dp).size(180.dp, 18.dp).skeleton(shape = RoundedCornerShape(Dx.RCard)))
         Box {
             // (the skeleton cards sit under the posters, in the same places, and show through as the posters fade)
             if (cardsAlpha < 1f) {
@@ -451,7 +451,7 @@ private fun ChainRowView(
                     Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 20.dp, bottom = 26.dp).graphicsLayer { alpha = 1f - cardsAlpha },
                     horizontalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
-                    repeat(8) { Box(Modifier.size(Dx.Poster, Dx.Poster * 1.5f).skeleton(shape = RoundedCornerShape(12.dp))) }
+                    repeat(8) { Box(Modifier.size(Dx.Poster, Dx.Poster * 1.5f).skeleton(shape = RoundedCornerShape(Dx.RCard))) }
                 }
             }
             // (while it loads the old posters, once faded, aren't kept: nothing unseen can take the remote)
@@ -469,7 +469,7 @@ private fun ChainRowView(
                             if (shouldStagger) {
                                 LaunchedEffect(rowKey, t.id) {
                                     delay(i * 45L)
-                                    entranceAlpha.animateTo(1f, tween(240))
+                                    entranceAlpha.animateTo(1f, tween(Dx.Fast))
                                 }
                             }
                             Box(
@@ -491,10 +491,10 @@ private fun ChainRowView(
 /** Isolated chain row heading so focus alpha and "More like ..." title crossfades never recompose the card row */
 @Composable
 private fun ChainRowHeading(title: String, focused: () -> Boolean) {
-    val titleAlpha = animateFloatAsState(if (focused()) 1f else 0.6f, tween(320), label = "chain-title")
+    val titleAlpha = animateFloatAsState(if (focused()) 1f else 0.6f, tween(Dx.Med), label = "chain-title")
     Crossfade(
         targetState = title,
-        animationSpec = tween(220),
+        animationSpec = tween(Dx.Fast),
         modifier = Modifier.padding(horizontal = Dx.Gutter).graphicsLayer { alpha = titleAlpha.value },
         label = "chain-row-title",
     ) { heading ->

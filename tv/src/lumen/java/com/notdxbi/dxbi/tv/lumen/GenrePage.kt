@@ -179,7 +179,7 @@ fun GenrePage(nav: Nav, feed: DiscoverFeed, name: String) {
     }
 
     PageWindow(onBack = { nav.back() }, home = first) {
-        val tint = GENRES.firstOrNull { it.name == name }?.tint ?: Color(0xFF444444)
+        val tint = GENRES.firstOrNull { it.name == name }?.tint ?: Dx.Raised
         Box(Modifier.fillMaxSize().background(Dx.Background).background(Brush.verticalGradient(0f to tint.copy(alpha = 0.3f), 0.4f to Dx.Background))) {
             // (the page scrolls as Home and Discover do: without it every move bounced, and again as a card opened)
             PageColumn(contentPadding = PaddingValues(top = 48.dp, bottom = pageBottomPad()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -195,7 +195,7 @@ fun GenrePage(nav: Nav, feed: DiscoverFeed, name: String) {
                 r?.forEachIndexed { i, (n, list) ->
                     item(key = n) {
                         // (the remote starts on the first row)
-                        Shelf(n, Modifier.animateItem(fadeInSpec = tween(420), placementSpec = null, fadeOutSpec = tween(200)).then(if (i == 0) Modifier.focusRequester(first) else Modifier)) {
+                        Shelf(n, Modifier.animateItem(fadeInSpec = tween(Dx.Med), placementSpec = null, fadeOutSpec = tween(200)).then(if (i == 0) Modifier.focusRequester(first) else Modifier)) {
                             items(list.distinctBy { it.id }, key = { it.id }) { t -> PreviewPosterCard(t, onClick = { nav.open(t) }) }
                         }
                     }

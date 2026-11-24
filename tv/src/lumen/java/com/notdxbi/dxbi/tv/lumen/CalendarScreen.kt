@@ -202,13 +202,13 @@ private fun DayCell(n: Int, isToday: Boolean, past: Boolean, items: List<Entry>,
     Surface(
         onClick = onChoose,
         modifier = modifier.onFocusChanged { if (it.isFocused) onFocus() },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(Dx.RCard)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.White.copy(alpha = if (items.isEmpty()) 0.03f else 0.07f),
             focusedContainerColor = Color.White.copy(alpha = 0.22f),
         ),
-        border = ClickableSurfaceDefaults.border(focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(2.dp, Color.White), shape = RoundedCornerShape(10.dp))),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+        border = ClickableSurfaceDefaults.border(focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(2.dp, Color.White), shape = RoundedCornerShape(Dx.RCard))),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
     ) {
         Box(Modifier.fillMaxSize().padding(5.dp)) {
             Box(
@@ -225,10 +225,10 @@ private fun DayCell(n: Int, isToday: Boolean, past: Boolean, items: List<Entry>,
                     // (two fit in a day; more: one and how many others)
                     val shown = items.take(if (items.size > 2) 1 else 2)
                     shown.forEach { e ->
-                        Art(e.poster, Modifier.width(22.dp).height(33.dp).clip(RoundedCornerShape(3.dp)).then(if (e.mine) Modifier.border(1.dp, Color.White.copy(alpha = 0.7f), RoundedCornerShape(3.dp)) else Modifier))
+                        Art(e.poster, Modifier.width(22.dp).height(33.dp).clip(RoundedCornerShape(Dx.RSmall)).then(if (e.mine) Modifier.border(1.dp, Color.White.copy(alpha = 0.7f), RoundedCornerShape(Dx.RSmall)) else Modifier))
                     }
                     if (items.size > 2) {
-                        Box(Modifier.width(22.dp).height(33.dp).background(Color.White.copy(alpha = 0.14f), RoundedCornerShape(3.dp)), contentAlignment = Alignment.Center) {
+                        Box(Modifier.width(22.dp).height(33.dp).background(Color.White.copy(alpha = 0.14f), RoundedCornerShape(Dx.RSmall)), contentAlignment = Alignment.Center) {
                             Text("+${items.size - 1}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     }
@@ -252,15 +252,15 @@ private fun DayList(day: Long, today: Long, items: List<Entry>, loading: Boolean
                 Surface(
                     onClick = { onOpen(e.title) },
                     modifier = Modifier.fillMaxWidth().then(if (i == 0) Modifier.focusRequester(first) else Modifier),
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(Dx.RCard)),
                     colors = ClickableSurfaceDefaults.colors(
                         containerColor = Color.White.copy(alpha = 0.05f), contentColor = Color.White,
                         focusedContainerColor = Color.White, focusedContentColor = Color.Black,
                     ),
-                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
                 ) {
                     Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Art(e.poster, Modifier.width(36.dp).height(54.dp).clip(RoundedCornerShape(5.dp)))
+                        Art(e.poster, Modifier.width(36.dp).height(54.dp).clip(RoundedCornerShape(Dx.RSmall)))
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(e.name, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text(

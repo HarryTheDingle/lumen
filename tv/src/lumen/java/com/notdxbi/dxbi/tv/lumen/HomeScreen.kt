@@ -352,7 +352,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.listRows(rows: List<R
     rows.forEach { row ->
         if (row.state == Load.Loading || (row.state == Load.Ready && row.items.isNotEmpty())) item(key = "row-${row.key}") {
             val rank = if (anyNumbered) row.numbered else row.index == 0
-            Box(Modifier.animateItem(fadeInSpec = tween(420), placementSpec = null, fadeOutSpec = tween(250))) {
+            Box(Modifier.animateItem(fadeInSpec = tween(Dx.Med), placementSpec = null, fadeOutSpec = tween(250))) {
                 ShelfSwap(row.state == Load.Loading, row.heading) {
                     CompositionLocalProvider(LocalRowSays provides rowSays(row.key)) { TitleShelf(row.heading, row.items, onOpen, rank = rank) }
                 }

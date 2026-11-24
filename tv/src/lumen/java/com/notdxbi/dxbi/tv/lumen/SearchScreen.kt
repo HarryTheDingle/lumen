@@ -126,7 +126,7 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
 
     // the letters slide away while the remote is over on the right, and come back when it moves left onto them
     var inLetters by remember { mutableStateOf(true) }
-    val lettersWidth by animateDpAsState(if (inLetters) 300.dp else 0.dp, tween(320), label = "letters")
+    val lettersWidth by animateDpAsState(if (inLetters) 300.dp else 0.dp, tween(Dx.Med), label = "letters")
     val firstLetter = remember { FocusRequester() }
     // (up from the letters' top row goes to the box: focus skipped it for the corner above, which opened the menu, so
     // the box, and the TV keyboard's voice typing, couldn't be reached)
@@ -254,7 +254,7 @@ internal fun MicButton(listening: Boolean, onClick: () -> Unit, modifier: Modifi
             focusedContentColor = Color.Black,
         ),
         border = ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Glass.Edge), shape = androidx.compose.foundation.shape.CircleShape)),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRound),
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Icon(Icons.Filled.Mic, contentDescription = if (listening) "Stop listening" else "Search by voice", modifier = Modifier.size(24.dp))
@@ -307,14 +307,14 @@ private fun KeyButton(label: String, modifier: Modifier, selected: Boolean = fal
     Surface(
         onClick = onClick,
         modifier = modifier,
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(Dx.RCard)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) Color.White.copy(alpha = 0.2f) else Color.Transparent,
             contentColor = Color.White.copy(alpha = if (selected) 1f else 0.7f),
             focusedContainerColor = Color.White,
             focusedContentColor = Color.Black,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.12f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRound),
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (icon) Icon(Icons.AutoMirrored.Filled.Backspace, contentDescription = "Delete", modifier = Modifier.size(20.dp))
@@ -400,7 +400,7 @@ private fun Suggestion(text: String, typed: String, onFocus: () -> Unit, onClick
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(containerColor = Glass.Fill, contentColor = Color.White, focusedContainerColor = Color.White, focusedContentColor = Color.Black),
         border = ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Glass.Edge), shape = shape)),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
     ) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(15.dp))
@@ -433,7 +433,7 @@ private fun TabPill(name: String, chosen: Boolean, onFocus: () -> Unit, modifier
             focusedContainerColor = Color.White,
             focusedContentColor = Color.Black,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
     ) {
         Text(name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
     }
@@ -442,7 +442,7 @@ private fun TabPill(name: String, chosen: Boolean, onFocus: () -> Unit, modifier
 /** A result: a frosted tile with the poster small on the left, the name and "TV Show · Thriller · 2026" */
 @Composable
 private fun ResultTile(t: Title, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(Dx.RCard)
     Surface(
         onClick = onClick,
         modifier = modifier.width(300.dp).height(92.dp),
@@ -455,10 +455,10 @@ private fun ResultTile(t: Title, modifier: Modifier = Modifier, onClick: () -> U
         glow = ClickableSurfaceDefaults.glow(
             focusedGlow = androidx.tv.material3.Glow(Color.White.copy(alpha = 0.22f), 10.dp),
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
     ) {
         Row(Modifier.fillMaxSize().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Art(t.art, Modifier.width(48.dp).height(72.dp).background(Color.Transparent, RoundedCornerShape(6.dp)).then(Modifier.alpha(1f)))
+            Art(t.art, Modifier.width(48.dp).height(72.dp).background(Color.Transparent, RoundedCornerShape(Dx.RCard)).then(Modifier.alpha(1f)))
             Spacer(Modifier.width(12.dp))
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(t.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 18.sp)

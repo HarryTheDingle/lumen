@@ -900,7 +900,7 @@ fun Facts(title: Title, reviews: Reviews?, badges: List<String> = emptyList(), n
         notice?.let {
             Text(
                 it.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Black, maxLines = 1,
-                modifier = Modifier.background(Color(0xFFFFC94D), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+                modifier = Modifier.background(Dx.Amber, RoundedCornerShape(Dx.RSmall)).padding(horizontal = 6.dp, vertical = 2.dp),
             )
         }
         badges.forEach { FormatBadge(it) }
@@ -964,7 +964,7 @@ private fun SeasonsRow(
                         Box(Modifier.fillMaxSize()) {
                             Art(s.title.art, Modifier.fillMaxSize())
                             // (the white ring: the season they're on)
-                            if (s.current) Box(Modifier.fillMaxSize().border(3.dp, Color.White, RoundedCornerShape(12.dp)))
+                            if (s.current) Box(Modifier.fillMaxSize().border(3.dp, Color.White, RoundedCornerShape(Dx.RCard)))
                         }
                     }
                     Text(
@@ -1100,7 +1100,7 @@ private fun EpisodeCard(v: Video, fallbackArt: String?, isCurrent: Boolean, blur
                     Modifier.fillMaxSize().alpha(if (v.upcoming) 0.5f else 1f).then(if (hidden) Modifier.blur(16.dp) else Modifier),
                     onError = { noPicture = true },
                 )
-                if (hidden && android.os.Build.VERSION.SDK_INT < 31) Box(Modifier.fillMaxSize().background(Color(0xFF2A2A2E)))
+                if (hidden && android.os.Build.VERSION.SDK_INT < 31) Box(Modifier.fillMaxSize().background(Dx.Raised2))
                 if (v.watched) {
                     Icon(
                         Icons.Filled.CheckCircle,
@@ -1164,7 +1164,7 @@ fun Person(name: String, role: String?, photo: String?, size: Dp = 96.dp, onClic
             shape = ClickableSurfaceDefaults.shape(CircleShape),
             colors = ClickableSurfaceDefaults.colors(containerColor = Color(0xFF555555), focusedContainerColor = Color(0xFF666666)),
             border = ClickableSurfaceDefaults.border(focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(2.5.dp, Color.White), shape = CircleShape)),
-            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRound),
         ) {
             var waiting by remember(photo) { mutableStateOf(photo != null) }
             var failed by remember(photo) { mutableStateOf(photo == null) }
@@ -1196,10 +1196,10 @@ private fun About(title: Title, d: Details?, facts: TitleFacts?) {
         Surface(
             onClick = { full = true },
             modifier = Modifier.padding(horizontal = Dx.Gutter).width(420.dp).centredWhenFocused(),
-            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(Dx.RPanel)),
             colors = ClickableSurfaceDefaults.colors(containerColor = Glass.Fill, contentColor = Color.White, focusedContainerColor = Color.White.copy(alpha = 0.32f), focusedContentColor = Color.White),
-            border = ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Glass.Edge), shape = RoundedCornerShape(16.dp))),
-            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+            border = ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Glass.Edge), shape = RoundedCornerShape(Dx.RPanel))),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
         ) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title.name, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1259,7 +1259,7 @@ private fun releasedText(v: Video): String? {
     return if (v.upcoming) "Coming $text" else text
 }
 
-private val RatingYellow = Color(0xFFFFD60A)
+private val RatingYellow = Dx.Amber
 
 /**
  * Rate a title out of 10, as on the iPad (TitleView's RatingSheet): the score big in the middle with its word
@@ -1283,7 +1283,7 @@ private fun ScoresSheet(name: String, reviews: Reviews, onDismiss: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             Column(
-                Modifier.width(560.dp).background(Color(0xFF161618), RoundedCornerShape(26.dp)).padding(horizontal = 30.dp, vertical = 26.dp),
+                Modifier.width(560.dp).background(Dx.Raised, RoundedCornerShape(Dx.RPanel)).padding(horizontal = 30.dp, vertical = 26.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Text(name, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1328,7 +1328,7 @@ private fun RatingSheet(name: String, current: Int?, onDismiss: () -> Unit, onRa
             contentAlignment = Alignment.Center,
         ) {
             Column(
-                Modifier.width(520.dp).background(Color(0xFF161618), RoundedCornerShape(26.dp)).padding(horizontal = 28.dp, vertical = 26.dp),
+                Modifier.width(520.dp).background(Dx.Raised, RoundedCornerShape(Dx.RPanel)).padding(horizontal = 28.dp, vertical = 26.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
@@ -1354,14 +1354,14 @@ private fun RatingSheet(name: String, current: Int?, onDismiss: () -> Unit, onRa
                                 modifier = Modifier.size(width = 80.dp, height = 52.dp)
                                     .then(if (score == (current ?: 5)) Modifier.focusRequester(start) else Modifier)
                                     .onFocusChanged { if (it.isFocused) showing = score },
-                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(Dx.RCard)),
                                 colors = ClickableSurfaceDefaults.colors(
                                     containerColor = if (mine) RatingYellow else Color.White.copy(alpha = 0.12f),
                                     contentColor = if (mine) Color.Black else Color.White,
                                     focusedContainerColor = Color.White,
                                     focusedContentColor = Color.Black,
                                 ),
-                                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+                                scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
                             ) {
                                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     Text("$score", fontSize = 18.sp, fontWeight = if (mine) FontWeight.Bold else FontWeight.Medium)

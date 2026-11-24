@@ -429,7 +429,7 @@ fun LoadingContent(title: Title, episode: String?, step: Launcher.Step, modifier
     val shown = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (step.progress > 0.05f) LoadingBar.last.coerceAtMost(step.progress) else 0f) }
     androidx.compose.runtime.SideEffect { LoadingBar.last = shown.value }
     LaunchedEffect(step.progress, step.failed) {
-        if (step.failed) return@LaunchedEffect shown.animateTo(1f, tween(400)).let { }
+        if (step.failed) return@LaunchedEffect shown.animateTo(1f, tween(Dx.Med)).let { }
         if (shown.value < step.progress) shown.animateTo(step.progress, tween(progressMs, easing = androidx.compose.animation.core.FastOutSlowInEasing))
         val ceiling = (step.progress + 0.55f * (1f - step.progress)).coerceAtMost(0.97f)
         shown.animateTo(ceiling, tween(12_000, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
@@ -469,7 +469,7 @@ fun LoadingContent(title: Title, episode: String?, step: Launcher.Step, modifier
                     Modifier
                         .fillMaxWidth(progress.coerceIn(0f, 1f))
                         .fillMaxHeight()
-                        .background(if (step.failed) Color(0xFFFF6B6B) else Color.White.copy(alpha = 0.85f), CircleShape)
+                        .background(if (step.failed) Dx.Danger else Color.White.copy(alpha = 0.85f), CircleShape)
                         .drawWithContent {
                             drawContent()
                             if (step.failed) return@drawWithContent

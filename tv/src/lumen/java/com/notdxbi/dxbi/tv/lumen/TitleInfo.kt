@@ -92,7 +92,7 @@ fun TitleInfo(
         Column(Modifier.widthIn(max = 470.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (tag != null) Text(
                 tag, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
-                modifier = Modifier.glass(RoundedCornerShape(6.dp)).padding(horizontal = 7.dp, vertical = 2.dp),
+                modifier = Modifier.glass(RoundedCornerShape(Dx.RCard)).padding(horizontal = 7.dp, vertical = 2.dp),
             )
             TitleLogo(t, maxHeight = 110.dp, maxWidth = 380.dp, textSize = 40.sp, modifier = Modifier.padding(bottom = 4.dp))
             Text(kindLine(t), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.85f))
@@ -161,14 +161,14 @@ private fun Synopsis(lead: String?, body: String, onMore: () -> Unit) {
         if (cut) {
             Surface(
                 onClick = onMore,
-                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(Dx.RCard)),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = Color.Transparent,
                     contentColor = Color.White,
                     focusedContainerColor = Color.White,
                     focusedContentColor = Color.Black,
                 ),
-                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusButton),
             ) {
                 Text("MORE", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
             }
@@ -182,7 +182,7 @@ internal fun FullText(heading: String, body: String, onDismiss: () -> Unit) {
     PageWindow(onBack = onDismiss, dim = 0.7f, fadeIn = false) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(
-                Modifier.width(620.dp).background(Color(0xFF181818), RoundedCornerShape(22.dp)).padding(28.dp),
+                Modifier.width(620.dp).background(Dx.Raised, RoundedCornerShape(Dx.RPanel)).padding(28.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(heading, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
@@ -213,7 +213,7 @@ fun FormatBadge(text: String) {
         maxLines = 1,
         // (glass, so it reads on bright art and on black alike)
         modifier = Modifier
-            .glass(RoundedCornerShape(4.dp), fill = Color.White.copy(alpha = 0.12f))
+            .glass(RoundedCornerShape(Dx.RSmall), fill = Color.White.copy(alpha = 0.12f))
             .padding(horizontal = 5.dp, vertical = 1.dp),
     )
 }
@@ -245,7 +245,7 @@ fun PlayButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier
             focusedContainerColor = Color(0xFFE8E8E8),
             focusedContentColor = Color.Black,
         ),
-        scale = ButtonDefaults.scale(focusedScale = 1.08f),
+        scale = ButtonDefaults.scale(focusedScale = Dx.FocusButton),
         border = ButtonDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Glass.Edge), shape = RoundedCornerShape(50)), focusedBorder = androidx.tv.material3.Border.None),
     ) {
         AnimatedContent(
@@ -396,7 +396,7 @@ fun ScoreMark(source: String, value: String, size: androidx.compose.ui.unit.Dp =
             drawLine(Color.White, androidx.compose.ui.geometry.Offset(w * 0.59f, h * 0.4f), androidx.compose.ui.geometry.Offset(w * 0.56f, h * 0.98f), strokeWidth = w * 0.09f)
         }
         "imdb" -> Box(
-            Modifier.height(size).background(Color(0xFFF5C518), RoundedCornerShape(3.dp)).padding(horizontal = 3.dp),
+            Modifier.height(size).background(Color(0xFFF5C518), RoundedCornerShape(Dx.RSmall)).padding(horizontal = 3.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text("IMDb", fontSize = (size.value * 0.62f).sp, fontWeight = FontWeight.Black, color = Color.Black, maxLines = 1, lineHeight = (size.value * 0.7f).sp)
@@ -404,7 +404,7 @@ fun ScoreMark(source: String, value: String, size: androidx.compose.ui.unit.Dp =
         "metacritic" -> Box(
             Modifier.size(size).background(
                 when { pct == null -> Color.Gray; pct >= 61f -> Color(0xFF00CE7A); pct >= 40f -> Color(0xFFFFBD3F); else -> Color(0xFFFF6874) },
-                RoundedCornerShape(3.dp),
+                RoundedCornerShape(Dx.RSmall),
             ),
             contentAlignment = Alignment.Center,
         ) {
@@ -415,7 +415,7 @@ fun ScoreMark(source: String, value: String, size: androidx.compose.ui.unit.Dp =
             listOf(Color(0xFFFF8000), Color(0xFF00E054), Color(0xFF40BCF4)).forEach { c -> Box(Modifier.size(size * 0.62f).background(c, CircleShape)) }
         }
         // TMDB's and Trakt's, as small badges in their colours
-        "tmdb" -> Box(Modifier.height(size).background(Color(0xFF0D253F), RoundedCornerShape(3.dp)).padding(horizontal = 3.dp), contentAlignment = Alignment.Center) {
+        "tmdb" -> Box(Modifier.height(size).background(Color(0xFF0D253F), RoundedCornerShape(Dx.RSmall)).padding(horizontal = 3.dp), contentAlignment = Alignment.Center) {
             Text("TMDB", fontSize = (size.value * 0.55f).sp, fontWeight = FontWeight.Black, color = Color(0xFF90CEA1), maxLines = 1, lineHeight = (size.value * 0.65f).sp)
         }
         "trakt" -> Box(Modifier.size(size).background(Color(0xFFED1C24), CircleShape), contentAlignment = Alignment.Center) {
