@@ -427,7 +427,7 @@ private fun ChainRowView(
 ) {
     val inRow = remember { mutableStateOf(false) }
     val rowScrolling = rememberRowScrolling(Dx.Gutter, 18.dp)
-    val cardsAlpha by animateFloatAsState(if (loading || row == null) 0f else 1f, tween(Dx.Fast), label = "chain-cards")
+    val cardsAlpha by animateFloatAsState(if (loading || row == null) 0f else 1f, tween(Dx.Fast, easing = Dx.Ease), label = "chain-cards")
     Column(
         modifier.fillMaxWidth()
             .onFocusChanged {
@@ -469,7 +469,7 @@ private fun ChainRowView(
                             if (shouldStagger) {
                                 LaunchedEffect(rowKey, t.id) {
                                     delay(i * 45L)
-                                    entranceAlpha.animateTo(1f, tween(Dx.Fast))
+                                    entranceAlpha.animateTo(1f, tween(Dx.Fast, easing = Dx.Ease))
                                 }
                             }
                             Box(
@@ -491,10 +491,10 @@ private fun ChainRowView(
 /** Isolated chain row heading so focus alpha and "More like ..." title crossfades never recompose the card row */
 @Composable
 private fun ChainRowHeading(title: String, focused: () -> Boolean) {
-    val titleAlpha = animateFloatAsState(if (focused()) 1f else 0.6f, tween(Dx.Med), label = "chain-title")
+    val titleAlpha = animateFloatAsState(if (focused()) 1f else 0.6f, tween(Dx.Med, easing = Dx.Ease), label = "chain-title")
     Crossfade(
         targetState = title,
-        animationSpec = tween(Dx.Fast),
+        animationSpec = tween(Dx.Fast, easing = Dx.Ease),
         modifier = Modifier.padding(horizontal = Dx.Gutter).graphicsLayer { alpha = titleAlpha.value },
         label = "chain-row-title",
     ) { heading ->

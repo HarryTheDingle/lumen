@@ -195,7 +195,7 @@ fun GenrePage(nav: Nav, feed: DiscoverFeed, name: String) {
                 r?.forEachIndexed { i, (n, list) ->
                     item(key = n) {
                         // (the remote starts on the first row)
-                        Shelf(n, Modifier.animateItem(fadeInSpec = tween(Dx.Med), placementSpec = null, fadeOutSpec = tween(200)).then(if (i == 0) Modifier.focusRequester(first) else Modifier)) {
+                        Shelf(n, Modifier.animateItem(fadeInSpec = tween(Dx.Med, easing = Dx.Ease), placementSpec = null, fadeOutSpec = tween(200, easing = Dx.Ease)).then(if (i == 0) Modifier.focusRequester(first) else Modifier)) {
                             items(list.distinctBy { it.id }, key = { it.id }) { t -> PreviewPosterCard(t, onClick = { nav.open(t) }) }
                         }
                     }

@@ -247,7 +247,7 @@ fun TasteSetup(state: TasteState, who: String?, onDone: suspend (Taste) -> Unit)
     // (the progress and the buttons arrive a little after the page does)
     var arrived by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { delay(250); arrived = true }
-    val arrival by animateFloatAsState(if (arrived) 1f else 0f, tween(Dx.Slow, easing = EaseOut), label = "arrival")
+    val arrival by animateFloatAsState(if (arrived) 1f else 0f, tween(Dx.Slow, easing = Dx.Ease), label = "arrival")
 
     fun finish(skip: Boolean) {
         finishing = Taste(genres.toList(), picked.toList(), skipped = skip && genres.isEmpty() && picked.isEmpty())
@@ -276,8 +276,8 @@ fun TasteSetup(state: TasteState, who: String?, onDone: suspend (Taste) -> Unit)
                     transitionSpec = {
                         // (forward drifts left, back drifts right: a twelfth of the width, slower in than out so they overlap softly)
                         val dir = if (targetState > initialState) 1 else -1
-                        (fadeIn(tween(480, delayMillis = 120, easing = EaseOut)) + slideInHorizontally(tween(520, easing = EaseOut)) { dir * it / 12 }) togetherWith
-                            (fadeOut(tween(Dx.Med, easing = EaseOut)) + slideOutHorizontally(tween(520, easing = EaseOut)) { -dir * it / 12 })
+                        (fadeIn(tween(480, delayMillis = 120, easing = Dx.Ease)) + slideInHorizontally(tween(520, easing = Dx.Ease)) { dir * it / 12 }) togetherWith
+                            (fadeOut(tween(Dx.Med, easing = Dx.Ease)) + slideOutHorizontally(tween(520, easing = Dx.Ease)) { -dir * it / 12 })
                     },
                     label = "step",
                 ) { s ->
@@ -312,7 +312,7 @@ fun TasteSetup(state: TasteState, who: String?, onDone: suspend (Taste) -> Unit)
                                 }
                             }
                         } else {
-                            Crossfade(targetState = loading, animationSpec = tween(Dx.Med, easing = EaseOut), label = "loading") { busy ->
+                            Crossfade(targetState = loading, animationSpec = tween(Dx.Med, easing = Dx.Ease), label = "loading") { busy ->
                                 if (busy) {
                                     Text("Finding titles you'll know…", fontSize = 17.sp, color = Dx.Muted, modifier = Modifier.padding(horizontal = SIDE, vertical = 36.dp))
                                 } else {
@@ -344,16 +344,16 @@ fun TasteSetup(state: TasteState, who: String?, onDone: suspend (Taste) -> Unit)
                 Button(
                     onClick = { if (step == 0) finish(skip = true) else step = 0 },
                     colors = ButtonDefaults.colors(containerColor = Color.White.copy(alpha = 0.1f), contentColor = Color.White, focusedContainerColor = Color.White, focusedContentColor = Color.Black),
-                ) { Crossfade(step, animationSpec = tween(Dx.Med), label = "back") { Text(if (it == 0) "Skip" else "Back", fontSize = 16.sp, fontWeight = FontWeight.Medium) } }
+                ) { Crossfade(step, animationSpec = tween(Dx.Med, easing = Dx.Ease), label = "back") { Text(if (it == 0) "Skip" else "Back", fontSize = 16.sp, fontWeight = FontWeight.Medium) } }
                 // (Continue appears once there's something chosen on the first step, easing in: nothing to press until it means something)
                 val count = if (step == 0) genres.size else picked.size
                 val showContinue = step == 1 || genres.isNotEmpty()
-                val continueAlpha by animateFloatAsState(if (showContinue) 1f else 0f, tween(Dx.Slow, easing = EaseOut), label = "continue")
+                val continueAlpha by animateFloatAsState(if (showContinue) 1f else 0f, tween(Dx.Slow, easing = Dx.Ease), label = "continue")
                 if (continueAlpha > 0.01f) Button(
                     onClick = { if (step == 0) next() else finish(skip = false) },
                     colors = ButtonDefaults.colors(containerColor = Dx.Accent.copy(alpha = 0.85f), contentColor = Dx.OnAccent, focusedContainerColor = Dx.Accent, focusedContentColor = Dx.OnAccent),
                     modifier = Modifier.focusRequester(buttons).graphicsLayer { alpha = continueAlpha },
-                ) { Crossfade(step, animationSpec = tween(Dx.Med), label = "continue label") { Text(if (it == 0) "Continue" else "Start Watching", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) } }
+                ) { Crossfade(step, animationSpec = tween(Dx.Med, easing = Dx.Ease), label = "continue label") { Text(if (it == 0) "Continue" else "Start Watching", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) } }
                 Text(
                     if (count == 0) (if (step == 0) "Or skip if you'd rather not" else "Nothing chosen yet, and that's fine") else "$count chosen",
                     fontSize = 14.sp, color = Dx.Faint,
@@ -372,7 +372,7 @@ private val SIDE = 72.dp
  */
 @Composable
 private fun Chosen(on: Boolean) {
-    val amount by animateFloatAsState(if (on) 1f else 0f, tween(Dx.Med, easing = EaseOut), label = "chosen")
+    val amount by animateFloatAsState(if (on) 1f else 0f, tween(Dx.Med, easing = Dx.Ease), label = "chosen")
     if (amount <= 0.001f) return
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f * amount)))
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {

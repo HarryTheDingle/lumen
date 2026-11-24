@@ -79,6 +79,8 @@ object Dx {
     val Background = Color.Black
     /** A card's face before its picture comes */
     val Raised = Color(0xFF1C1C1E)
+    /** Slow in, slow out: how everything moves (the home screen's own curve) */
+    val Ease = androidx.compose.animation.core.CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f)
     /** A panel's face where Raised is too close to what's behind it */
     val Raised2 = Color(0xFF2A2A2E)
     val Danger = Color(0xFFFF6B6B)
@@ -310,7 +312,7 @@ fun BlurredArt(url: String?, modifier: Modifier = Modifier, dim: Float = 0.42f) 
         }
     }
     Box(modifier.background(Color(0xFF14181C))) {
-        androidx.compose.animation.AnimatedVisibility(image != null, enter = androidx.compose.animation.fadeIn(tween(Dx.Med)), modifier = Modifier.fillMaxSize()) {
+        androidx.compose.animation.AnimatedVisibility(image != null, enter = androidx.compose.animation.fadeIn(tween(Dx.Med, easing = Dx.Ease)), modifier = Modifier.fillMaxSize()) {
             image?.let {
                 Image(it, contentDescription = null, contentScale = ContentScale.Crop, filterQuality = androidx.compose.ui.graphics.FilterQuality.High, modifier = Modifier.fillMaxSize())
             }

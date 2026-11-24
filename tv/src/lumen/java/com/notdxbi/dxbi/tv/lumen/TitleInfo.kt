@@ -111,7 +111,7 @@ fun TitleInfo(
     }
     Column(modifier) {
         if (animated) AnimatedContent(title, // (the picture settles first, then the words come up: as Apple TV's billboard does)
-        transitionSpec = { fadeIn(tween(450, delayMillis = 380)) togetherWith fadeOut(tween(200)) }, label = "title-info",
+        transitionSpec = { fadeIn(tween(450, delayMillis = 380, easing = Dx.Ease)) togetherWith fadeOut(tween(200, easing = Dx.Ease)) }, label = "title-info",
         // (the same title with something changed, as when it's added to the Library, keeps its words where they are)
         contentKey = { it.id }) { info(it) }
         else info(title)
@@ -251,7 +251,7 @@ fun PlayButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier
         AnimatedContent(
             targetState = if (loading) null else label to icon,
             transitionSpec = {
-                (fadeIn(tween(320, delayMillis = 90)) togetherWith fadeOut(tween(160)))
+                (fadeIn(tween(320, delayMillis = 90, easing = Dx.Ease)) togetherWith fadeOut(tween(160, easing = Dx.Ease)))
                     .using(androidx.compose.animation.SizeTransform(clip = false) { _, _ -> androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 260f) })
             },
             contentAlignment = androidx.compose.ui.Alignment.Center,

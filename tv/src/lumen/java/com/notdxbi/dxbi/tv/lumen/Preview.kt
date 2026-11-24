@@ -150,7 +150,7 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
     var focused by remember { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
     if (held) TitleHoldMenu(title, onOpen = onClick, onDismiss = { held = false })
-    val growAnim = animateFloatAsState(if (focused) 1f else 0f, tween(Dx.Fast, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "grow")
+    val growAnim = animateFloatAsState(if (focused) 1f else 0f, tween(Dx.Fast, easing = Dx.Ease), label = "grow")
     // what it is for the caption: "Movie · Drama", the genre looked up once it's chosen if its row had none
     var genres by remember(title.id) { mutableStateOf(title.genres.ifEmpty { genreMemory[title.id].orEmpty() }) }
     LaunchedEffect(focused) {
@@ -263,7 +263,7 @@ fun Trailer(
     val host = LocalView.current
     val context = LocalContext.current
     var shown by remember(id) { mutableStateOf(false) }
-    val alpha by animateFloatAsState(if (shown) 1f else 0f, tween(Dx.Slow), label = "trailer")
+    val alpha by animateFloatAsState(if (shown) 1f else 0f, tween(Dx.Slow, easing = Dx.Ease), label = "trailer")
     val playing by rememberUpdatedState(onPlaying)
     val ended by rememberUpdatedState(onEnded)
     val hush by rememberUpdatedState(muted)
@@ -535,7 +535,7 @@ fun WatchedMark(modifier: Modifier = Modifier, size: Dp = 22.dp) {
 fun TrailerLoading(backdrop: String?, started: Boolean, failed: Boolean = false, failure: String = "", modifier: Modifier = Modifier) {
     val cover by animateFloatAsState(if (started) 0f else 1f, tween(if (started) 600 else 300), label = "trailerCover")
     if (cover <= 0f && started) return
-    val message by animateFloatAsState(if (failed) 1f else 0f, tween(Dx.Med), label = "trailerFailed")
+    val message by animateFloatAsState(if (failed) 1f else 0f, tween(Dx.Med, easing = Dx.Ease), label = "trailerFailed")
     Box(modifier.fillMaxSize().graphicsLayer { alpha = cover }.background(Color.Black)) {
         // (the loader's own infinite transition goes once it has started or failed, so nothing keeps ticking)
         val waiting = !started && !failed

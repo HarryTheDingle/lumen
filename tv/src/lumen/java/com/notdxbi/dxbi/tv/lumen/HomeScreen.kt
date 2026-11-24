@@ -352,7 +352,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.listRows(rows: List<R
     rows.forEach { row ->
         if (row.state == Load.Loading || (row.state == Load.Ready && row.items.isNotEmpty())) item(key = "row-${row.key}") {
             val rank = if (anyNumbered) row.numbered else row.index == 0
-            Box(Modifier.animateItem(fadeInSpec = tween(Dx.Med), placementSpec = null, fadeOutSpec = tween(250))) {
+            Box(Modifier.animateItem(fadeInSpec = tween(Dx.Med, easing = Dx.Ease), placementSpec = null, fadeOutSpec = tween(250, easing = Dx.Ease))) {
                 ShelfSwap(row.state == Load.Loading, row.heading) {
                     CompositionLocalProvider(LocalRowSays provides rowSays(row.key)) { TitleShelf(row.heading, row.items, onOpen, rank = rank) }
                 }
@@ -462,7 +462,7 @@ private fun Billboard(
         delay(BILLBOARD_TURN_MS.toLong())
         if (titles.size > 1 && !trailerOn) go(index + 1)
     }
-    val artAlpha by animateFloatAsState(if (trailerShowing) 0f else 1f, tween(900), label = "billboard-art")
+    val artAlpha by animateFloatAsState(if (trailerShowing) 0f else 1f, tween(900, easing = Dx.Ease), label = "billboard-art")
 
     Box(Modifier.fillMaxWidth().height(height)) {
         if (trailerOn) trailer?.let {

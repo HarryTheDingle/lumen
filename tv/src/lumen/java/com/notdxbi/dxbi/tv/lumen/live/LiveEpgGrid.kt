@@ -644,7 +644,7 @@ fun LiveEpgGrid(
                     Box(
                         modifier = Modifier
                             .padding(top = TIME_HEADER_HEIGHT)
-                            .offset(x = xOffset)
+                            .offset(x = xOffset - 1.dp)
                             .width(2.dp)
                             .fillMaxHeight()
                             .background(Dx.Blue.copy(alpha = 0.9f)),
@@ -666,7 +666,11 @@ fun LiveEpgGrid(
                     filterRailOpen = false
                     requestSlotFocus(focusedRowIdx, if (followLive) nowMs else viewportStartMs + 30L * 60_000L)
                 },
-                modifier = Modifier.align(Alignment.CenterStart),
+                onMenu = {
+                    filterRailOpen = false
+                    onMoveToRail()
+                },
+                modifier = Modifier.align(Alignment.CenterStart).zIndex(10f),
             )
         }
     }
@@ -1425,12 +1429,13 @@ private fun FilterRail(
     requesters: Map<EpgRowFilter, FocusRequester>,
     onPick: (EpgRowFilter) -> Unit,
     onClose: () -> Unit,
+    onMenu: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     AnimatedVisibility(
         visible = open,
-        enter = slideInHorizontally(tween(LIVE_MS + 40)) { -it / 2 } + fadeIn(tween(LIVE_MS)),
-        exit = slideOutHorizontally(tween(LIVE_MS)) { -it / 2 } + fadeOut(tween(LIVE_MS)),
+        enter = slideInHorizontally(tween(LIVE_MS + 40, easing = Dx.Ease)) { -it / 2 } + fadeIn(tween(LIVE_MS, easing = Dx.Ease)),
+        exit = slideOutHorizontally(tween(LIVE_MS, easing = Dx.Ease)) { -it / 2 } + fadeOut(tween(LIVE_MS, easing = Dx.Ease)),
         modifier = modifier,
     ) {
         Column(
@@ -1448,7 +1453,13 @@ private fun FilterRail(
                         .height(36.dp)
                         .focusRequester(requesters.getValue(f))
                         .onPreviewKeyEvent { ev ->
-                            if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionRight) { onClose(); true } else false
+                            if (ev.type != KeyEventType.KeyDown) false
+                            else when (ev.key) {
+                                Key.DirectionRight -> { onClose(); true }
+                                // (a second Left, from the filters, goes on to the main menu)
+                                Key.DirectionLeft -> { onMenu(); true }
+                                else -> false
+                            }
                         },
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
                     colors = ClickableSurfaceDefaults.colors(

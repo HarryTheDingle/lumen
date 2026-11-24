@@ -239,7 +239,7 @@ fun SettingsScreen(stremio: Stremio, nav: Nav) {
            CompositionLocalProvider(LocalBringIntoViewSpec provides KeepInView) {
             AnimatedContent(
                 targetState = section to choosing,
-                transitionSpec = { fadeIn(tween(220, delayMillis = 60)) togetherWith fadeOut(tween(120)) },
+                transitionSpec = { fadeIn(tween(220, delayMillis = 60, easing = Dx.Ease)) togetherWith fadeOut(tween(120, easing = Dx.Ease)) },
                 label = "settings",
             ) { (shown, open) ->
                 val back = Modifier.focusProperties { left = sectionFocus.getValue(shown) }

@@ -126,7 +126,7 @@ fun SearchScreen(stremio: Stremio, nav: Nav) {
 
     // the letters slide away while the remote is over on the right, and come back when it moves left onto them
     var inLetters by remember { mutableStateOf(true) }
-    val lettersWidth by animateDpAsState(if (inLetters) 300.dp else 0.dp, tween(Dx.Med), label = "letters")
+    val lettersWidth by animateDpAsState(if (inLetters) 300.dp else 0.dp, tween(Dx.Med, easing = Dx.Ease), label = "letters")
     val firstLetter = remember { FocusRequester() }
     // (up from the letters' top row goes to the box: focus skipped it for the corner above, which opened the menu, so
     // the box, and the TV keyboard's voice typing, couldn't be reached)
@@ -240,7 +240,7 @@ internal fun MicButton(listening: Boolean, onClick: () -> Unit, modifier: Modifi
     val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "mic")
     val glow by pulse.animateFloat(
         0.25f, 0.6f,
-        androidx.compose.animation.core.infiniteRepeatable(tween(700), androidx.compose.animation.core.RepeatMode.Reverse),
+        androidx.compose.animation.core.infiniteRepeatable(tween(700, easing = Dx.Ease), androidx.compose.animation.core.RepeatMode.Reverse),
         label = "mic-glow",
     )
     Surface(

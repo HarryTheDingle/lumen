@@ -207,7 +207,7 @@ private fun Screens(stremio: Stremio, scope: CoroutineScope) {
         val rise = remember { androidx.compose.animation.core.Animatable(0f) }
         LaunchedEffect(Unit) {
             delay(150)
-            rise.animateTo(1f, tween(Dx.Med))
+            rise.animateTo(1f, tween(Dx.Med, easing = Dx.Ease))
         }
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = rise.value }) {
         when (nav.tab) {

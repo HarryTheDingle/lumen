@@ -71,8 +71,8 @@ fun LiveHeroHeader(
             targetState = selection,
             contentKey = { heroKey(it) },
             transitionSpec = {
-                androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(240, delayMillis = 40)) togetherWith
-                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160))
+                androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(240, delayMillis = 40, easing = Dx.Ease)) togetherWith
+                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160, easing = Dx.Ease))
             },
             label = "hero",
             modifier = Modifier.fillMaxSize(),

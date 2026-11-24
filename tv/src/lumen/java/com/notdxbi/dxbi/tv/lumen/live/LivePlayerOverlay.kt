@@ -164,8 +164,8 @@ fun LivePlayerOverlay(
         // Minimal frosted glass zap banner during Up/Down channel zapping (zero buttons)
         AnimatedVisibility(
             visible = state.zapBannerVisible && !state.osdVisible,
-            enter = fadeIn(tween(LIVE_MS)),
-            exit = fadeOut(tween(LIVE_MS)),
+            enter = fadeIn(tween(LIVE_MS, easing = Dx.Ease)),
+            exit = fadeOut(tween(LIVE_MS, easing = Dx.Ease)),
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(start = 48.dp, bottom = 36.dp),
@@ -177,8 +177,8 @@ fun LivePlayerOverlay(
         val lumenOffer by com.notdxbi.dxbi.tv.live.LumenHandoff.offer.collectAsState()
         AnimatedVisibility(
             visible = lumenOffer != null && !state.osdVisible,
-            enter = fadeIn(tween(LIVE_MS)),
-            exit = fadeOut(tween(LIVE_MS)),
+            enter = fadeIn(tween(LIVE_MS, easing = Dx.Ease)),
+            exit = fadeOut(tween(LIVE_MS, easing = Dx.Ease)),
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(start = 48.dp, bottom = 40.dp),
@@ -189,8 +189,8 @@ fun LivePlayerOverlay(
         // Top 130dp gradient scrim (Back button + Clock)
         AnimatedVisibility(
             visible = state.osdVisible,
-            enter = fadeIn(tween(LIVE_MS)),
-            exit = fadeOut(tween(LIVE_MS)),
+            enter = fadeIn(tween(LIVE_MS, easing = Dx.Ease)),
+            exit = fadeOut(tween(LIVE_MS, easing = Dx.Ease)),
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
             TopOsdScrim(state = state)
@@ -228,8 +228,8 @@ fun LivePlayerOverlay(
         // Bottom 240dp gradient scrim + SeekLine + 3-zone controls
         AnimatedVisibility(
             visible = state.osdVisible,
-            enter = fadeIn(tween(LIVE_MS)),
-            exit = fadeOut(tween(LIVE_MS)),
+            enter = fadeIn(tween(LIVE_MS, easing = Dx.Ease)),
+            exit = fadeOut(tween(LIVE_MS, easing = Dx.Ease)),
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
             BottomOsdScrim(
@@ -243,8 +243,8 @@ fun LivePlayerOverlay(
         // Bottom-right floating panel matching activity_player.xml (@id/panel)
         AnimatedVisibility(
             visible = state.activePanel != LiveOverlayPanel.NONE,
-            enter = fadeIn(tween(LIVE_MS)),
-            exit = fadeOut(tween(LIVE_MS)),
+            enter = fadeIn(tween(LIVE_MS, easing = Dx.Ease)),
+            exit = fadeOut(tween(LIVE_MS, easing = Dx.Ease)),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 56.dp, bottom = 104.dp, top = 84.dp),

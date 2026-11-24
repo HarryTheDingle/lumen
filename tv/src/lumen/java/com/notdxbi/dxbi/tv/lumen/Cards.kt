@@ -321,7 +321,7 @@ class PageScroller(val list: androidx.compose.foundation.lazy.LazyListState, pri
                 val delta = item.offset - target
                 if (onVisible != null) focused = onVisible()
                 if (kotlin.math.abs(delta) >= 1f) {
-                    list.animateScrollBy(delta, tween(durationMs, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+                    list.animateScrollBy(delta, tween(durationMs, easing = Dx.Ease))
                 }
             } else {
                 coroutineScope {
@@ -359,7 +359,7 @@ class PageScroller(val list: androidx.compose.foundation.lazy.LazyListState, pri
                                     (index - list.firstVisibleItemIndex) * per - extra - (first?.offset?.let { -it } ?: 0) - target
                                 }
                                 if (kotlin.math.abs(delta) < 1f) break
-                                val passSpec = if (pass == 1) spec else tween(Dx.Fast, easing = androidx.compose.animation.core.LinearOutSlowInEasing)
+                                val passSpec = if (pass == 1) spec else tween(Dx.Fast, easing = Dx.Ease)
                                 val moved = list.animateScrollBy(delta, passSpec)
                                 if (visible != null || kotlin.math.abs(moved) < 1f) break
                             }
@@ -370,7 +370,7 @@ class PageScroller(val list: androidx.compose.foundation.lazy.LazyListState, pri
                                 val target = if (centre) ((viewport - finalItem.size) / 2f).coerceAtLeast(0f) else 0f
                                 val rem = finalItem.offset - target
                                 if (kotlin.math.abs(rem) >= 1f) {
-                                    list.animateScrollBy(rem, tween(Dx.Fast, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
+                                    list.animateScrollBy(rem, tween(Dx.Fast, easing = Dx.Ease))
                                 }
                             }
                         } else {
@@ -528,7 +528,7 @@ fun PageColumn(
 /** Shelf heading isolated in its own scope so row focus changes never recompose the LazyRow below */
 @Composable
 private fun ShelfTitle(title: String, lift: RowLift, focused: () -> Boolean) {
-    val titleAlpha = animateFloatAsState(if (focused()) 1f else 0.6f, tween(Dx.Med), label = "row-title")
+    val titleAlpha = animateFloatAsState(if (focused()) 1f else 0.6f, tween(Dx.Med, easing = Dx.Ease), label = "row-title")
     val up = with(androidx.compose.ui.platform.LocalDensity.current) { 10.dp.toPx() }
     var right by remember { mutableStateOf(0f) }
     // (eased like the card's own lift: up as a card under it is chosen, back down as the remote moves on past it)
@@ -678,7 +678,7 @@ fun LoadingPoster() {
  */
 @Composable
 fun ShelfSwap(loading: Boolean, title: String, content: @Composable () -> Unit) {
-    androidx.compose.animation.Crossfade(loading, animationSpec = tween(Dx.Med, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "shelf") { l ->
+    androidx.compose.animation.Crossfade(loading, animationSpec = tween(Dx.Med, easing = Dx.Ease), label = "shelf") { l ->
         if (l) LoadingShelf(title) else content()
     }
 }

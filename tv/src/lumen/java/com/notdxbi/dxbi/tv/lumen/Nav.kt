@@ -241,11 +241,11 @@ fun PageWindow(
         val leaving = fadeIn && LocalLeaving.current
         // (a page with another over it recedes a little, as Apple TV's does)
         val covered = fadeIn && LocalCovered.current
-        val recede by androidx.compose.animation.core.animateFloatAsState(if (covered) 1f else 0f, tween(Dx.Slow, easing = soft), label = "recede")
+        val recede by androidx.compose.animation.core.animateFloatAsState(if (covered) 1f else 0f, tween(Dx.Slow, easing = Dx.Ease), label = "recede")
         LaunchedEffect(Unit) {
             if (fadeIn) {
                 delay(100)
-                rise.animateTo(1f, tween(Dx.Slow, easing = soft))
+                rise.animateTo(1f, tween(Dx.Slow, easing = Dx.Ease))
             }
         }
         LaunchedEffect(leaving) {
@@ -332,7 +332,7 @@ fun SideMenu(nav: Nav, email: String?, viewer: com.notdxbi.dxbi.tv.phone.Viewer?
     LaunchedEffect(Unit) { shown = true }
     val t by animateFloatAsState(
         if (shown) 1f else 0f,
-        tween(if (shown) 330 else 200, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        tween(if (shown) 330 else 200, easing = Dx.Ease),
         label = "menu",
     )
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -522,7 +522,7 @@ fun Pill(
     ) {
         Row(
             Modifier.padding(start = if (leading != null) 8.dp else 16.dp, end = if (compact && !focused && !selected && leading != null) 8.dp else 16.dp, top = 7.dp, bottom = 7.dp)
-                .animateContentSize(androidx.compose.animation.core.tween(Dx.Fast)),
+                .animateContentSize(androidx.compose.animation.core.tween(Dx.Fast, easing = Dx.Ease)),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {

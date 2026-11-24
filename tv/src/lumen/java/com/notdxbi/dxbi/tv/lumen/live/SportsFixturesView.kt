@@ -68,7 +68,7 @@ private enum class SportsMode(val label: String) {
     CHANNELS("Channels"),
 }
 
-private enum class SportFilter(val label: String) {
+internal enum class SportFilter(val label: String) {
     ALL("All"),
     FOOTBALL("Football"),
     NFL("NFL"),
@@ -529,7 +529,7 @@ private fun FixtureTeamRow(
     }
 }
 
-private fun matchesSport(fixture: SportsFixture, filter: SportFilter): Boolean {
+internal fun matchesSport(fixture: SportsFixture, filter: SportFilter): Boolean {
     val s = fixture.sport.lowercase()
     val l = fixture.league.lowercase()
     val ln = fixture.leagueName.lowercase()

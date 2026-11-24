@@ -429,10 +429,10 @@ fun LoadingContent(title: Title, episode: String?, step: Launcher.Step, modifier
     val shown = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (step.progress > 0.05f) LoadingBar.last.coerceAtMost(step.progress) else 0f) }
     androidx.compose.runtime.SideEffect { LoadingBar.last = shown.value }
     LaunchedEffect(step.progress, step.failed) {
-        if (step.failed) return@LaunchedEffect shown.animateTo(1f, tween(Dx.Med)).let { }
-        if (shown.value < step.progress) shown.animateTo(step.progress, tween(progressMs, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+        if (step.failed) return@LaunchedEffect shown.animateTo(1f, tween(Dx.Med, easing = Dx.Ease)).let { }
+        if (shown.value < step.progress) shown.animateTo(step.progress, tween(progressMs, easing = Dx.Ease))
         val ceiling = (step.progress + 0.55f * (1f - step.progress)).coerceAtMost(0.97f)
-        shown.animateTo(ceiling, tween(12_000, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
+        shown.animateTo(ceiling, tween(12_000, easing = Dx.Ease))
     }
     val progress = shown.value
     val sweep by androidx.compose.animation.core.rememberInfiniteTransition(label = "bar-light").animateFloat(

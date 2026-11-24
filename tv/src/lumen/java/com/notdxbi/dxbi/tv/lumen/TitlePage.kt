@@ -400,7 +400,7 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVid
             val covering by remember {
                 derivedStateOf { if (list.firstVisibleItemIndex > 0) 1f else (list.firstVisibleItemScrollOffset / (screenPx * 0.45f)).coerceIn(0f, 1f) }
             }
-            val trailerSeen by animateFloatAsState(if (trailerShowing) 1f else 0f, tween(900), label = "art")
+            val trailerSeen by animateFloatAsState(if (trailerShowing) 1f else 0f, tween(900, easing = Dx.Ease), label = "art")
             if (watching == null) {
                 // (only at the top: a trailer that got going just after the page moved down said so then, and hid the
                 // picture and its blur with the trailer already gone, leaving the page black)

@@ -119,8 +119,8 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
         prefs.edit().putString("discover.platform", id).apply()
     }
 
-    val top by animateColorAsState(platform?.colour?.copy(alpha = 0.42f) ?: Color(0xFF1A1A1F), tween(Dx.Slow), label = "discover-top")
-    val deep by animateColorAsState(platform?.deep ?: Color(0xFF0B0B0D), tween(Dx.Slow), label = "discover-deep")
+    val top by animateColorAsState(platform?.colour?.copy(alpha = 0.42f) ?: Color(0xFF1A1A1F), tween(Dx.Slow, easing = Dx.Ease), label = "discover-top")
+    val deep by animateColorAsState(platform?.deep ?: Color(0xFF0B0B0D), tween(Dx.Slow, easing = Dx.Ease), label = "discover-deep")
 
     Box(
         Modifier
@@ -219,7 +219,7 @@ fun DiscoverScreen(stremio: Stremio, nav: Nav, feed: DiscoverFeed) {
                 }
                 rows.forEachIndexed { i, row ->
                     item(key = "row-${row.id}") {
-                        Shelf(row.title, Modifier.animateItem(fadeInSpec = tween(Dx.Med), placementSpec = null, fadeOutSpec = tween(200)).trackSection("row-${row.id}")) {
+                        Shelf(row.title, Modifier.animateItem(fadeInSpec = tween(Dx.Med, easing = Dx.Ease), placementSpec = null, fadeOutSpec = tween(200, easing = Dx.Ease)).trackSection("row-${row.id}")) {
                             items(row.items, key = { it.id }) { t ->
                                 val date = row.dates[t.id]
                                 if (date != null) DatedPoster(t, date) { nav.open(t) } else PreviewPosterCard(t, onClick = { nav.open(t) })
