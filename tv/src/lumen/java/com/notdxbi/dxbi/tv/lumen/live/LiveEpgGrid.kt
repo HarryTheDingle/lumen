@@ -28,6 +28,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -134,23 +138,29 @@ private data class ViewportSlot(
     val midMs: Long get() = startMs + (endMs - startMs) / 2L
 }
 
+private class GuideListing(val rowOf: IntArray, val labelOf: List<String?>, val itemOfRow: IntArray)
+
 private data class LongPressTarget(
     val row: GuideChannelRow,
     val programme: EpgProgramme?,
 )
 
-// two hours across, so every title fits (three hours cut most of them short)
-private const val VIEWPORT_DURATION_MS = 2L * 3_600_000L
+// an hour and a half across: wide cells, so a title fits in two lines and the chosen row needn't open out
+private const val VIEWPORT_DURATION_MS = 90L * 60_000L
 private const val PAST_WINDOW_MS = 24L * 3_600_000L
 private const val FUTURE_WINDOW_MS = 120L * 3_600_000L
 private const val HALF_HOUR_MS = 30L * 60_000L
+/** The guide is laid out this much wider each side of what shows, so the timeline can slide along (it is scrolled, not paged) */
+private const val PAD_MS = 60L * 60_000L
+private const val PAD_MIN = 60f
+private const val VIEW_MIN = 90f
 private const val PAN_STEP_MS = 60L * 60_000L
 private const val HOLD_LEFT_UNLOCK_MS = 320L
 private val LEFT_CHANNEL_WIDTH = 140.dp
-private val ROW_HEIGHT = 56.dp
+private val ROW_HEIGHT = 64.dp
 /** The row the remote is on grows (to show a programme's whole name) */
 private val ROW_HEIGHT_FOCUSED = 80.dp
-private val TIME_HEADER_HEIGHT = 44.dp
+private val TIME_HEADER_HEIGHT = 38.dp
 
 /**
  * Deterministic 3-hour viewport-clamped EPG timeline grid shared by TV Guide and Sports Channels.
@@ -179,8 +189,12 @@ fun LiveEpgGrid(
     onOpenProgramme: (GuideChannelRow, EpgProgramme, List<String>) -> Unit = { _, _, _ -> },
     /** Changes when the programme page closes: the remote goes back to the programme it was on */
     restoreFocusKey: Long = 0L,
+    /** The button at the foot of the guide: every channel the provider has (null: no button) */
+    onSeeMore: (() -> Unit)? = null,
 ) {
+    val seeMoreFocus = remember { FocusRequester() }
     val context = LocalContext.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
     val scope = rememberCoroutineScope()
 
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -198,6 +212,8 @@ fun LiveEpgGrid(
 
     var viewportStartMs by remember { mutableLongStateOf(alignDownHalfHour(System.currentTimeMillis())) }
     val viewportEndMs = viewportStartMs + VIEWPORT_DURATION_MS
+    val windowStartMs = viewportStartMs - PAD_MS
+    val windowEndMs = viewportEndMs + PAD_MS
 
     var activeFilter by remember(isSportsMode) { mutableStateOf(EpgRowFilter.ALL) }
     var activeDay by remember(isSportsMode) { mutableStateOf(EpgDayChip.NOW) }
@@ -248,8 +264,23 @@ fun LiveEpgGrid(
     val allRows = remember(rows, activeFilter) {
         if (activeFilter == EpgRowFilter.ALL) rows else rows.filter { matchesFilter(it, activeFilter) }
     }
-    val sections = remember(allRows, activeFilter, favourites, recents, watchingId, isSportsMode) {
-        val byChannel = allRows.filter { it.linkedChannel != null }.associateBy { it.linkedChannel!!.id }
+    // (channels added from Find a channel that the UK listings don't have get a row of their own in Favourites: their
+    // provider's own guide, if it has one, fills it)
+    val providerChannels by store.channels.collectAsState()
+    val sections = remember(allRows, activeFilter, favourites, recents, watchingId, isSportsMode, providerChannels) {
+        val byChannel = HashMap(allRows.filter { it.linkedChannel != null }.associateBy { it.linkedChannel!!.id })
+        if (favourites.any { it !in byChannel }) {
+            val byId = providerChannels.associateBy { it.id }
+            for (id in favourites) {
+                if (id in byChannel) continue
+                val ch = byId[id] ?: continue
+                byChannel[id] = GuideChannelRow(
+                    guideChannel = lumos.iptv.GuideChannel(id = "iptv:${ch.id}", name = ch.name, logoUrl = ch.logoUrl, mainGuide = false),
+                    linkedChannel = ch,
+                    bestStream = ch.streams.firstOrNull(),
+                )
+            }
+        }
         val out = ArrayList<Triple<String, GuideChannelRow, String?>>()
         if (activeFilter == EpgRowFilter.ALL && !isSportsMode) {
             val used = HashSet<String>()
@@ -273,14 +304,38 @@ fun LiveEpgGrid(
         out
     }
     val filteredRows = remember(sections) { sections.map { it.second } }
+    // The page's items: a row each, and a row's worth of height for each section's name, so the page is a whole number of
+    // equal rows tall (rowOf: the row an item shows, or -1 for a name; itemOfRow: the item a row is)
+    val listing = remember(sections) {
+        val rowOf = ArrayList<Int>(); val labelOf = ArrayList<String?>(); val itemOfRow = IntArray(sections.size)
+        sections.forEachIndexed { i, s ->
+            if (s.third != null) { rowOf += -1; labelOf += s.third }
+            itemOfRow[i] = rowOf.size; rowOf += i; labelOf += null
+        }
+        GuideListing(rowOf.toIntArray(), labelOf, itemOfRow)
+    }
     val rowKeys = remember(sections) { sections.map { it.first } }
     val zapChannelIds = remember(allRows) {
         allRows.mapNotNull { it.linkedChannel?.id }
     }
 
+    // The timeline scrolls with the remote: the programmes are laid out an hour wider each side than shows, and when the view
+    // moves along (the chosen programme runs past an edge) the row slides to its new place, by exactly how far it moved
+    val baseMs = remember { viewportStartMs }
+    val trackWidthPx = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    val shownStartMin = androidx.compose.animation.core.animateFloatAsState(
+        (viewportStartMs - baseMs) / 60_000f,
+        androidx.compose.animation.core.tween(Dx.Med + 120, easing = Dx.Ease),
+        label = "timeline",
+    )
+    val slide: () -> Float = {
+        ((((viewportStartMs - baseMs) / 60_000f) - shownStartMin.value).coerceIn(-PAD_MIN, PAD_MIN) / VIEW_MIN) * trackWidthPx.floatValue
+    }
+    val fade: () -> Float = { 1f }
+
     val listState = rememberLazyListState()
     val pageScroller = remember(listState) {
-        com.notdxbi.dxbi.tv.lumen.PageScroller(listState, scope).also { it.glideSpec = androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 32f) }
+        com.notdxbi.dxbi.tv.lumen.PageScroller(listState, scope)
     }
     val slotRequesters = remember { mutableStateMapOf<String, FocusRequester>() }
 
@@ -291,10 +346,10 @@ fun LiveEpgGrid(
         val progs = store.programmesForWindow(
             channel = row.linkedChannel,
             guideChannelId = row.guideChannel.id,
-            fromMs = viewportStartMs,
-            toMs = viewportEndMs,
+            fromMs = windowStartMs,
+            toMs = windowEndMs,
         )
-        return buildViewportSlots(progs, viewportStartMs, viewportEndMs)
+        return buildViewportSlots(progs, windowStartMs, windowEndMs)
     }
 
     fun requestSlotFocus(rowIdx: Int, targetTimeMs: Long) {
@@ -336,6 +391,14 @@ fun LiveEpgGrid(
         }
     }
 
+    /** The item to put at the top with row [row] third from it (its section's name with it, when that's just above) */
+    fun firstItemFor(row: Int, shown: Int = 5): Int {
+        val r = (row - 2).coerceAtLeast(0)
+        var item = listing.itemOfRow.getOrElse(r) { 0 }
+        if (item > 0 && listing.rowOf[item - 1] < 0) item--
+        return item.coerceIn(0, (listing.rowOf.size - shown).coerceAtLeast(0))
+    }
+
     LaunchedEffect(pendingFocus, focusNonce, viewportStartMs) {
         val target = pendingFocus ?: return@LaunchedEffect
         val (rowIdx, targetTimeMs) = target
@@ -344,9 +407,10 @@ fun LiveEpgGrid(
             return@LaunchedEffect
         }
         val visibleIndices = listState.layoutInfo.visibleItemsInfo.map { it.index }
-        if (rowIdx !in visibleIndices) {
+        if (listing.itemOfRow.getOrElse(rowIdx) { 0 } !in visibleIndices) {
             // (held Down: jump straight there; an animated scroll per press fell behind and lost the focus)
-            listState.scrollToItem((rowIdx - 1).coerceAtLeast(0))
+            // (with the row in the middle of the screen, not at its top: the page showed the next section otherwise)
+            listState.scrollToItem(firstItemFor(rowIdx))
         }
         val slots = slotsForRow(row)
         val slotIdx = findSlotIndexForTime(slots, targetTimeMs)
@@ -361,6 +425,16 @@ fun LiveEpgGrid(
         pendingFocus = null
     }
 
+    // The page keeps the row the remote is on third from the top, a whole row at a time: the first row shown always starts at
+    // the top, so none is ever cut off (the viewport is a whole number of rows tall)
+    LaunchedEffect(focusedRowIdx) {
+        if (filteredRows.isEmpty()) return@LaunchedEffect
+        val pitch = with(density) { ROW_HEIGHT.roundToPx() }
+        val shown = (listState.layoutInfo.viewportSize.height / pitch).coerceAtLeast(1)
+        pageScroller.glideRow = pitch.toFloat()
+        pageScroller.place(firstItemFor(focusedRowIdx, shown), 0f)
+    }
+
     LaunchedEffect(filterRailOpen) {
         if (filterRailOpen) {
             delay(80)
@@ -370,6 +444,25 @@ fun LiveEpgGrid(
     BackHandler(enabled = filterRailOpen) {
         filterRailOpen = false
         requestSlotFocus(focusedRowIdx, if (followLive) nowMs else viewportStartMs + 30L * 60_000L)
+    }
+
+    /** The view follows the remote along a row: when the chosen programme runs past an edge, it moves just far enough */
+    fun ensureVisible(slot: ViewportSlot) {
+        val lower = (if (pastUnlocked) minViewportStartMs else alignDownHalfHour(nowMs)).coerceAtLeast(minViewportStartMs)
+        // (only when too little of it shows to read: moving up or down onto a long programme leaves the timeline where it is)
+        val length = slot.endMs - slot.startMs
+        val need = minOf(length, 30L * 60_000L)
+        val shown = minOf(slot.endMs, viewportEndMs) - maxOf(slot.startMs, viewportStartMs)
+        if (shown >= need) return
+        // (just far enough to read it: a programme coming in at the right edge brings the timeline along by the bit that was out
+        // of sight, not by a page, and the same going back)
+        var target = if (slot.startMs < viewportStartMs) slot.endMs - need else slot.startMs + need - VIEWPORT_DURATION_MS
+        target = target.coerceIn(viewportStartMs - PAD_MS, viewportStartMs + PAD_MS)
+            .coerceIn(lower.coerceAtMost(maxViewportStartMs), maxViewportStartMs)
+        if (target != viewportStartMs) {
+            followLive = false
+            viewportStartMs = target
+        }
     }
 
     fun panViewport(deltaMs: Long, rowIdx: Int, targetTimeMs: Long) {
@@ -398,10 +491,9 @@ fun LiveEpgGrid(
         }
 
         // (solid: the channel's colour wash behind the page's top must not show in the gap the guide leaves for the filters)
-        Box(modifier = Modifier.weight(1f).fillMaxWidth().background(Dx.Background)) {
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             // (the time strip's band runs the full width, still: when the guide moves aside for the filters, it doesn't
             // leave a gap at its left end)
-            Box(Modifier.fillMaxWidth().height(TIME_HEADER_HEIGHT).background(Color(0xFF0A0A0C)))
             FilterRail(
                 open = filterRailOpen,
                 filters = availableFilters,
@@ -422,13 +514,12 @@ fun LiveEpgGrid(
                 },
                 modifier = Modifier.align(Alignment.TopStart).padding(top = TIME_HEADER_HEIGHT),
             )
-            Column(modifier = Modifier.fillMaxSize().graphicsLayer { translationX = railShiftPx }.background(Dx.Background)) {
+            Column(modifier = Modifier.fillMaxSize().graphicsLayer { translationX = railShiftPx }) {
                 // 3-hour time header ruler
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(TIME_HEADER_HEIGHT)
-                        .background(Color(0xFF0A0A0C)),
+                        .height(TIME_HEADER_HEIGHT),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(
@@ -449,53 +540,72 @@ fun LiveEpgGrid(
                     Box(
                         modifier = Modifier
                             .width(1.dp)
-                            .fillMaxHeight()
-                            .background(LivePalette.Hairline),
-                    )
-                    ViewportTimeRuler(
-                        viewportStartMs = viewportStartMs,
-                        modifier = Modifier
-                            .weight(1f)
                             .fillMaxHeight(),
                     )
+                    Box(Modifier.weight(1f).fillMaxHeight().clipToBounds().onSizeChanged { trackWidthPx.floatValue = it.width.toFloat() }) {
+                        ViewportTimeRuler(
+                            viewportStartMs = viewportStartMs,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = slide()
+                                    alpha = fade()
+                                    compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+                                },
+                        )
+                    }
                 }
 
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(1.dp)
-                        .background(LivePalette.Hairline),
+                        .height(1.dp),
                 )
 
                 androidx.compose.runtime.CompositionLocalProvider(
                     androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides guideScrollSpec,
-                    com.notdxbi.dxbi.tv.lumen.LocalPageScroller provides pageScroller,
+                    // (no centring by the rows: the page moves a whole row at a time, below)
+                    com.notdxbi.dxbi.tv.lumen.LocalPageScroller provides null,
                 ) {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize().onGloballyPositioned { pageScroller.viewport = it },
-                    contentPadding = PaddingValues(bottom = 32.dp),
-                ) {
-                    itemsIndexed(filteredRows, key = { i, _ -> rowKeys[i] }) { rowIdx, row ->
-                        sections[rowIdx].third?.let { label ->
-                            Text(
-                                text = label,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color.White.copy(alpha = 0.5f),
-                                modifier = Modifier.padding(start = 40.dp, top = 12.dp, bottom = 4.dp),
-                            )
+                    modifier = Modifier
+                        // (as tall as a whole number of rows: the last one is never cut off, and the first sits at the top)
+                        .layout { measurable, constraints ->
+                            val pitch = ROW_HEIGHT.roundToPx()
+                            val h = (constraints.maxHeight / pitch).coerceAtLeast(1) * pitch
+                            val p = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
+                            layout(p.width, h) { p.place(0, 0) }
                         }
-                        val programmes = remember(row.guideChannel.id, viewportStartMs, viewportEndMs, epgVersion) {
+                        .fillMaxWidth()
+                        .onGloballyPositioned { pageScroller.viewport = it }
+                        // (the press rate: a run of presses makes the page glide briskly, to keep up with the remote)
+                        .onPreviewKeyEvent { ev ->
+                            if (ev.type == KeyEventType.KeyDown && (ev.key == Key.DirectionDown || ev.key == Key.DirectionUp)) com.notdxbi.dxbi.tv.lumen.PressRate.press()
+                            false
+                        },
+                    contentPadding = PaddingValues(0.dp),
+                ) {
+                    items(count = listing.rowOf.size, key = { i -> if (listing.rowOf[i] >= 0) rowKeys[listing.rowOf[i]] else "label:${listing.labelOf[i]}" }) { itemIdx ->
+                        val rowIdx = listing.rowOf[itemIdx]
+                        if (rowIdx < 0) {
+                            // (a section's name takes a row of its own, so every row of the page is the same height)
+                            Box(Modifier.fillMaxWidth().height(ROW_HEIGHT).padding(start = 40.dp), contentAlignment = Alignment.CenterStart) {
+                                Text(listing.labelOf[itemIdx].orEmpty(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.55f))
+                            }
+                            return@items
+                        }
+                        val row = filteredRows[rowIdx]
+                        val programmes = remember(row.guideChannel.id, windowStartMs, windowEndMs, epgVersion) {
                             store.programmesForWindow(
                                 channel = row.linkedChannel,
                                 guideChannelId = row.guideChannel.id,
-                                fromMs = viewportStartMs,
-                                toMs = viewportEndMs,
+                                fromMs = windowStartMs,
+                                toMs = windowEndMs,
                             )
                         }
-                        val slots = remember(programmes, viewportStartMs, viewportEndMs) {
-                            buildViewportSlots(programmes, viewportStartMs, viewportEndMs)
+                        val slots = remember(programmes, windowStartMs, windowEndMs) {
+                            buildViewportSlots(programmes, windowStartMs, windowEndMs)
                         }
                         val isFav = row.linkedChannel?.id in favourites
                         val liveSlotIdx = remember(slots, nowMs) {
@@ -512,11 +622,19 @@ fun LiveEpgGrid(
                             pastUnlocked = pastUnlocked,
                             rowCount = filteredRows.size,
                             focusedRow = focusedRowIdx == rowIdx,
+                            slide = slide,
+                            fade = fade,
+                            shownStartMin = { shownStartMin.value },
+                            baseMs = baseMs,
                             contentFocusRequester = contentFocusRequester,
                             slotRequester = { slotIdx -> slotRequesterFor(rowKeys[rowIdx], slotIdx) },
                             onFocusSlot = { slot ->
                                 focusedRowIdx = rowIdx
-                                focusedTimeMs = slot.midMs
+                                // (the middle of what shows of it, so the next row's programme is the one under it)
+                                val shownFrom = maxOf(slot.startMs, viewportStartMs)
+                                val shownTo = minOf(slot.endMs, viewportEndMs)
+                                focusedTimeMs = if (shownTo > shownFrom) (shownFrom + shownTo) / 2 else slot.midMs
+                                ensureVisible(slot)
                                 focusedIsLive = slot.programme?.isOnAt(System.currentTimeMillis()) == true
                                 onFocusSlot(row, slot.programme)
                                 slot.programme?.let { prog ->
@@ -553,6 +671,15 @@ fun LiveEpgGrid(
                                         requestSlotFocus(nextRowIdx, targetMs)
                                     }
                                     true
+                                } else if (delta > 0 && onSeeMore != null && !isSportsMode) {
+                                    // (Down from the last row: the button under it, the page brought up to show it)
+                                    scope.launch {
+                                        val info = listState.layoutInfo
+                                        listState.scrollToItem((info.totalItemsCount - info.visibleItemsInfo.size).coerceAtLeast(0))
+                                        withFrameNanos { }
+                                        runCatching { seeMoreFocus.requestFocus() }
+                                    }
+                                    true
                                 } else {
                                     false
                                 }
@@ -583,7 +710,8 @@ fun LiveEpgGrid(
                                 val liveBoundary = alignDownHalfHour(nowMs)
                                 val atLiveBoundary = !pastUnlocked && (
                                     (slotIdx == 0 && viewportStartMs <= liveBoundary) ||
-                                        (prevSlot != null && prevSlot.endMs <= nowMs && slot.endMs > nowMs)
+                                        (prevSlot != null && prevSlot.endMs <= nowMs && slot.endMs > nowMs) ||
+                                        (prevSlot != null && prevSlot.endMs <= liveBoundary)
                                     )
 
                                 // (held down, Left moves one programme, not on and on: press it again for the next)
@@ -655,45 +783,56 @@ fun LiveEpgGrid(
                             },
                         )
                     }
+                    if (onSeeMore != null && !isSportsMode && filteredRows.isNotEmpty()) item(key = "see-more") {
+                        Box(Modifier.fillMaxWidth().height(ROW_HEIGHT).padding(start = 40.dp), contentAlignment = Alignment.CenterStart) {
+                            LiveChip(
+                                label = "See more channels",
+                                selected = false,
+                                onClick = onSeeMore,
+                                modifier = Modifier.focusRequester(seeMoreFocus).onPreviewKeyEvent { ev ->
+                                    if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                    when (ev.key) {
+                                        Key.DirectionUp -> { requestSlotFocus(filteredRows.lastIndex, focusedTimeMs); true }
+                                        Key.DirectionDown, Key.DirectionRight -> true
+                                        else -> false
+                                    }
+                                },
+                            )
+                        }
+                    }
                 }
                 }
             }
 
             // Subtle Dx.Blue playhead line strictly below the time ruler with a small dot on the header divider
-            if (nowMs in viewportStartMs..viewportEndMs) {
-                val fraction = ((nowMs - viewportStartMs).toFloat() / VIEWPORT_DURATION_MS.toFloat()).coerceIn(0f, 1f)
+            if (nowMs in windowStartMs..windowEndMs) {
+                val fraction = (nowMs - viewportStartMs).toFloat() / VIEWPORT_DURATION_MS.toFloat()
                 // over the programmes, in Lumen's blue
                 BoxWithConstraints(
                     modifier = Modifier
                         .zIndex(5f)
                         .fillMaxSize()
                         .graphicsLayer { translationX = railShiftPx }
-                        .padding(start = LEFT_CHANNEL_WIDTH + 1.dp),
+                        .padding(start = LEFT_CHANNEL_WIDTH + 1.dp)
+                        .clipToBounds(),
                 ) {
                     val xOffset = maxWidth * fraction
-                    // TiviMate's way: everything already shown (left of now) sits under a light wash, so the past reads
-                    // lighter than what's still to come, and a see-through blue line marks the time
-                    Box(
-                        modifier = Modifier
-                            .padding(top = TIME_HEADER_HEIGHT)
-                            .width(xOffset)
-                            .fillMaxHeight()
-                            .background(Color.White.copy(alpha = 0.075f)),
-                    )
                     Box(
                         modifier = Modifier
                             .padding(top = TIME_HEADER_HEIGHT)
                             .offset(x = xOffset - 1.dp)
-                            .width(2.dp)
+                            .graphicsLayer { translationX = slide() }
+                            .width(1.dp)
                             .fillMaxHeight()
-                            .background(Dx.Blue.copy(alpha = 0.6f)),
+                            .background(Color.White.copy(alpha = 0.85f)),
                     )
                     Box(
                         modifier = Modifier
                             .offset(x = xOffset - 3.dp, y = TIME_HEADER_HEIGHT - 3.dp)
+                            .graphicsLayer { translationX = slide() }
                             .size(6.dp)
                             .clip(CircleShape)
-                            .background(Dx.Blue),
+                            .background(Color.White),
                     )
                 }
             }
@@ -792,37 +931,32 @@ private fun ViewportTimeRuler(
     viewportStartMs: Long,
     modifier: Modifier = Modifier,
 ) {
+    // (a time at every half hour, placed where it falls: the ruler slides along with the programmes)
+    val windowStart = viewportStartMs - PAD_MS
+    val windowEnd = viewportStartMs + VIEWPORT_DURATION_MS + PAD_MS
     val ticks = remember(viewportStartMs) {
-        List((VIEWPORT_DURATION_MS / HALF_HOUR_MS).toInt()) { idx -> viewportStartMs + idx * HALF_HOUR_MS }
+        val first = ((windowStart + HALF_HOUR_MS - 1) / HALF_HOUR_MS) * HALF_HOUR_MS
+        generateSequence(first) { it + HALF_HOUR_MS }.takeWhile { it < windowEnd }.toList()
     }
-    Row(
-        modifier = modifier,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    BoxWithConstraints(modifier) {
+        val trackW = maxWidth
         ticks.forEach { tickMs ->
-            Row(
-                modifier = Modifier
-                    .weight(30f)
-                    .fillMaxHeight(),
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
+                Modifier
+                    .align(Alignment.CenterStart)
+                    .offset(x = trackW * ((tickMs - viewportStartMs).toFloat() / VIEWPORT_DURATION_MS.toFloat()))
+                    .padding(start = 6.dp),
             ) {
-                Box(
-                    modifier = Modifier
-                        .width(1.dp)
-                        .height(12.dp)
-                        .background(Color.White.copy(alpha = 0.16f)),
+                Text(
+                    text = LiveTimeFormat.formatTime24h(tickMs),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    maxLines = 1,
+                    softWrap = false,
+                    style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
                 )
-                Column(Modifier.padding(start = 6.dp)) {
-                    Text(
-                        text = LiveTimeFormat.formatTime24h(tickMs),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White,
-                        maxLines = 1,
-                        style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
-                    )
-                    Text(text = rulerDay(tickMs), fontSize = 12.sp, color = Dx.Muted, maxLines = 1)
-                }
+                Text(text = rulerDay(tickMs), fontSize = 12.sp, color = Dx.Muted, maxLines = 1, softWrap = false)
             }
         }
     }
@@ -839,6 +973,10 @@ private fun GuideChannelViewportRow(
     pastUnlocked: Boolean,
     rowCount: Int,
     focusedRow: Boolean,
+    slide: () -> Float,
+    fade: () -> Float,
+    shownStartMin: () -> Float,
+    baseMs: Long,
     contentFocusRequester: FocusRequester,
     slotRequester: (Int) -> FocusRequester,
     onFocusSlot: (ViewportSlot) -> Unit,
@@ -849,13 +987,9 @@ private fun GuideChannelViewportRow(
     onNavigateLeftKeyDown: (Int, Int) -> Boolean,
     onNavigateLeftKeyUp: () -> Boolean,
 ) {
-    // (the chosen row opens out to show its titles in full, with a soft spring as the page glides: at once, it shoved
-    // every row under it, a jolt Home's rows never have)
-    val rowHeight by androidx.compose.animation.core.animateDpAsState(
-        if (focusedRow) ROW_HEIGHT_FOCUSED else ROW_HEIGHT,
-        androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 140f),
-        label = "row",
-    )
+    // (every row the same height: the chosen cell lifts instead, as Home's cards do. A row that opened out moved the rows
+    // under it while the page glided, and the two moving at once made the page swim)
+    val rowHeight = ROW_HEIGHT
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -874,28 +1008,45 @@ private fun GuideChannelViewportRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // the channel's logo as a tile in its colour (no name in words: the logo says it)
-            ChannelTile(
-                logoUrl = row.logoUrl,
-                name = row.guideChannel.name,
-                width = 92.dp,
-                height = 42.dp,
-                modifier = Modifier.graphicsLayer { alpha = if (row.isPlayable) 1f else 0.5f },
-            )
+            Column(verticalArrangement = Arrangement.Center) {
+                // the channel's logo as a mark on the page (no name in words: the logo says it)
+                ChannelTile(
+                    logoUrl = row.logoUrl,
+                    name = row.guideChannel.name,
+                    width = 92.dp,
+                    height = 44.dp,
+                    plain = true,
+                    modifier = Modifier.graphicsLayer { alpha = if (row.isPlayable) 1f else 0.5f },
+                )
+            }
         }
 
         Box(Modifier.width(1.dp))
 
         // Proportional 3-hour timeline track
+        BoxWithConstraints(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
+        val trackW = maxWidth
+        val trackPx = with(androidx.compose.ui.platform.LocalDensity.current) { trackW.toPx() }
+        // (an hour wider each side than shows: what's beyond an edge is there to slide in. A required width wider than the box is
+        // centred in it, which puts the hour of spare each side, and the view's start at the box's left edge)
+        val totalW = trackW * ((VIEWPORT_DURATION_MS + 2 * PAD_MS).toFloat() / VIEWPORT_DURATION_MS.toFloat())
         Row(
             modifier = Modifier
-                .weight(1f)
+                .requiredWidth(totalW)
                 .fillMaxHeight()
-                .padding(horizontal = 6.dp, vertical = 5.dp)
-                .focusGroup(),
+                .padding(vertical = 5.dp)
+                .focusGroup()
+                .graphicsLayer {
+                    translationX = slide()
+                    alpha = fade()
+                    compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+                },
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             slots.forEachIndexed { slotIdx, slot ->
+                // (each programme keeps its own place in the composition when the view moves along: the slots' numbers shift as
+                // the window does, and the remote's place went to whichever programme then had its old number)
+                androidx.compose.runtime.key(slot.programme?.id ?: slot.startMs) {
                 val prog = slot.programme
                 val isLive = prog?.isOnAt(nowMs) == true || (prog == null && row.isPlayable && nowMs in slot.startMs until slot.endMs)
                 val isPast = slot.endMs <= nowMs
@@ -915,13 +1066,14 @@ private fun GuideChannelViewportRow(
                 val cellMod = Modifier
                     .weight(slot.weightMinutes)
                     .fillMaxHeight()
+                    .border(1.dp, Color.White.copy(alpha = 0.09f), RoundedCornerShape(Dx.RCard))
                     .then(if (isFirstEntrySlot) Modifier.focusRequester(contentFocusRequester) else Modifier)
                     .focusRequester(slotRequester(slotIdx))
                     .onPreviewKeyEvent { ev ->
                         when (ev.type) {
                             KeyEventType.KeyDown -> when (ev.key) {
                                 Key.DirectionDown -> {
-                                    if (rowIdx + 1 < rowCount) onStepRow(+1) else true
+                                    onStepRow(+1).let { true }
                                 }
                                 Key.DirectionUp -> {
                                     if (rowIdx > 0) onStepRow(-1) else false
@@ -948,12 +1100,19 @@ private fun GuideChannelViewportRow(
                     isPastUnavailable = isPast,
                     isSport = prog?.isLiveSport == true,
                     rowFocused = focusedRow,
+                    // (a programme that began before the left edge keeps its name in view, sliding along inside it)
+                    startInset = {
+                        val hiddenMin = (shownStartMin() - (slot.startMs - baseMs) / 60_000f).coerceAtLeast(0f)
+                        minOf(hiddenMin, slot.weightMinutes - 8f).coerceAtLeast(0f) / VIEW_MIN * trackPx
+                    },
                     onFocus = { onFocusSlot(slot) },
                     onClick = { onClickSlot(slot) },
                     onLongClick = { onLongClickSlot(slot) },
                     modifier = cellMod,
                 )
+                }
             }
+        }
         }
     }
 }
@@ -967,15 +1126,16 @@ private fun ProgrammeViewportCell(
     isPastUnavailable: Boolean,
     isSport: Boolean,
     rowFocused: Boolean,
+    startInset: () -> Float,
     onFocus: () -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val bg = when {
-        isLive -> LivePalette.CellLiveBg
-        // (the past isn't darkened: the wash left of the now line makes it lighter, TiviMate's way)
-        else -> LivePalette.CellBg
+        isLive -> Color.White.copy(alpha = 0.12f)
+        // (faint glass over black, as Home's cards: only the chosen one is white)
+        else -> Color.White.copy(alpha = 0.06f)
     }
     val borderColor = when {
         isPastCatchup -> Color.Transparent
@@ -993,13 +1153,20 @@ private fun ProgrammeViewportCell(
         borderColor = borderColor,
         focusedScale = Dx.FocusRow,
         sheen = false,
+        instantFill = true,
+        maxGrow = 8.dp,
     ) { focused, ink ->
         val textAlpha = if (!focused && isPastUnavailable) 0.55f else 1f
         Column(
             modifier = Modifier
                 .align(Alignment.CenterStart)
-                .padding(horizontal = 8.dp, vertical = 5.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+                .layout { measurable, constraints ->
+                    val inset = startInset().toInt().coerceAtLeast(0)
+                    val p = measurable.measure(constraints.copy(maxWidth = (constraints.maxWidth - inset).coerceAtLeast(0), minWidth = 0))
+                    layout(p.width + inset, p.height) { p.place(inset, 0) }
+                }
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -1020,7 +1187,7 @@ private fun ProgrammeViewportCell(
                     fontWeight = if (isLive && !focused) FontWeight.Bold else FontWeight.SemiBold,
                     color = ink.copy(alpha = textAlpha),
                     // (one line; the row the remote is on has room for the whole name)
-                    maxLines = if (rowFocused) 3 else 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -1049,7 +1216,9 @@ private fun buildViewportSlots(
 
     if (overlapping.isEmpty()) {
         val chunk = 60L * 60_000L
-        return List(3) { idx ->
+        // (hour-long blanks across the whole span: it is wider than what shows, so the timeline has no missing stretch)
+        val count = ((viewportEndMs - viewportStartMs + chunk - 1) / chunk).toInt().coerceAtLeast(1)
+        return List(count) { idx ->
             val s = viewportStartMs + idx * chunk
             val e = (s + chunk).coerceAtMost(viewportEndMs)
             ViewportSlot(

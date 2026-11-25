@@ -279,7 +279,7 @@ fun PlayButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier
  * How the title page's buttons open out and close (their names sliding in beside the icon): springs that settle without
  * a bounce, as Apple TV's do, and can turn round mid-way when the remote moves on quickly (fixed-length curves couldn't)
  */
-private object ButtonMotion {
+internal object ButtonMotion {
     private const val STIFF = 320f // ≈ 0.35 s
     val springDp = androidx.compose.animation.core.spring<androidx.compose.ui.unit.Dp>(dampingRatio = 1f, stiffness = STIFF)
     val open = androidx.compose.animation.expandHorizontally(

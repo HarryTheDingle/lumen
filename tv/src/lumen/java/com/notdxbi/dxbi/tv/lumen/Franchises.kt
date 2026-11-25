@@ -83,7 +83,8 @@ internal fun androidx.compose.foundation.lazy.LazyListScope.franchisesItem(strem
         val list = remember { Franchises.all(context) }
         val watched by stremio.watchedIds.collectAsState()
         if (list.isNotEmpty()) {
-            Shelf("Franchises", modifier) {
+            // (wide gaps, as Continue Watching: these cards are wide and grow when chosen, so they'd touch)
+            Shelf("Franchises", modifier, spacing = 40.dp) {
                 items(list, key = { it.id }) { f -> FranchiseCard(f, note(f, watched)) { nav.push(Page.Franchise(f.id, f.name)) } }
             }
         }
@@ -127,7 +128,8 @@ fun FranchisePage(stremio: Stremio, nav: Nav, id: String, name: String) {
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                     item(key = "title") {
-                        Column(Modifier.padding(horizontal = Dx.Gutter, vertical = 40.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        // (room above: the name sits clear of the page's tag in the corner)
+                        Column(Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 88.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(name, fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Color.White)
                             franchise?.let { note(it, watched) }?.let { Text(it, fontSize = 18.sp, color = Color.White.copy(alpha = 0.75f)) }
                         }

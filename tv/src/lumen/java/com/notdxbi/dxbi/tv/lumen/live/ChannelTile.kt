@@ -40,6 +40,8 @@ internal fun ChannelTile(
     height: Dp,
     modifier: Modifier = Modifier,
     corner: Dp = 8.dp,
+    /** The mark alone on the page (no tile behind it), as Apple TV shows a channel */
+    plain: Boolean = false,
 ) {
     val url = remember(logoUrl) { logoUrl?.trim()?.takeIf { it.isNotEmpty() }?.let(::sharperSkyLogo) }
     var failed by remember(url) { mutableStateOf(false) }
@@ -49,7 +51,7 @@ internal fun ChannelTile(
         modifier = modifier
             .size(width, height)
             .clip(RoundedCornerShape(corner))
-            .background(fill),
+            .then(if (plain) Modifier else Modifier.background(fill)),
         contentAlignment = Alignment.Center,
     ) {
         if (url != null && !failed) {

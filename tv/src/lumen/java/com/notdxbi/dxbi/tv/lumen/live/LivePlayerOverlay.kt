@@ -340,13 +340,10 @@ private fun BottomOsdScrim(
     val stripChannels by com.notdxbi.dxbi.tv.live.LivePlayerExtras.stripChannels.collectAsState()
     val stripTick by com.notdxbi.dxbi.tv.live.LivePlayerExtras.focusStripTick.collectAsState()
     val expandedFlag by com.notdxbi.dxbi.tv.live.LivePlayerExtras.expanded.collectAsState()
-    // (catch-up and paused always show their controls; a live channel opens them out with a second Down)
-    val expanded = expandedFlag || state.isPaused || state.isCatchup || state.scrub.active
+    // (the buttons come first, as on a film's page; Down again brings up the channels, to choose one)
+    val stripOpen = expandedFlag && stripChannels.isNotEmpty() && !state.isCatchup
     LaunchedEffect(state.osdVisible) {
         if (!state.osdVisible) com.notdxbi.dxbi.tv.live.LivePlayerExtras.expanded.value = false
-    }
-    LaunchedEffect(expandedFlag) {
-        if (expandedFlag) { delay(80); runCatching { playFocus.requestFocus() } }
     }
     val nowMs = System.currentTimeMillis()
     val canScrubLive = !state.isCatchup && state.channel.hasCatchup && state.nowProgramme != null
@@ -410,7 +407,7 @@ private fun BottomOsdScrim(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(if (stripChannels.isEmpty()) 260.dp else if (expanded) 340.dp else 250.dp)
+            .height(if (stripOpen) 370.dp else 230.dp)
             .background(
                 Brush.verticalGradient(
                     0f to Color.Transparent,
@@ -488,10 +485,9 @@ private fun BottomOsdScrim(
                 }
             }
 
-            // (without a strip the controls sit under the bar; with one they're below it, TiviMate's way)
-            if (stripChannels.isEmpty()) ControlsRow(state, actions, playFocus, panelButtons, Modifier.padding(top = 6.dp))
+            ControlsRow(state, actions, playFocus, panelButtons, Modifier.padding(top = 6.dp))
 
-            if (stripChannels.isNotEmpty() && !state.isCatchup) {
+            if (stripOpen) {
                 ChannelStrip(
                     entries = stripChannels,
                     currentChannelId = state.channel.id,
@@ -501,13 +497,14 @@ private fun BottomOsdScrim(
                     guideFocus = panelButtons.getValue(LiveOverlayPanel.MINI_GUIDE),
                 )
             }
-            // the second Down: play/pause and the settings, below the channels
-            if (stripChannels.isNotEmpty() && expanded) ControlsRow(state, actions, playFocus, panelButtons, Modifier.padding(top = 10.dp))
         }
     }
 }
 
-/** Play/pause, from the start or back to live, and the settings (audio, subtitles, picture, sound, feeds, more) */
+/**
+ * Play/pause, from the start or back to live, and the settings (audio, subtitles, picture, sound, feeds, more): round
+ * buttons like a film's page, each opening out with its name when chosen
+ */
 @Composable
 private fun ControlsRow(state: LiveOverlayState, actions: LiveOverlayActions, playFocus: FocusRequester, panelButtons: Map<LiveOverlayPanel, FocusRequester>, modifier: Modifier = Modifier) {
     Row(
@@ -515,24 +512,19 @@ private fun ControlsRow(state: LiveOverlayState, actions: LiveOverlayActions, pl
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        SpringButton(onClick = actions.onTogglePause, round = true, modifier = Modifier.focusRequester(playFocus)) { ink ->
-            Icon(if (state.isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause, contentDescription = if (state.isPaused) "Play" else "Pause", tint = ink, modifier = Modifier.size(24.dp))
-        }
+        com.notdxbi.dxbi.tv.lumen.RoundButton(if (state.isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause, if (state.isPaused) "Play" else "Pause", actions.onTogglePause, Modifier.focusRequester(playFocus), expands = true)
         if (state.isCatchup) {
-            SettingChip(Icons.Filled.Replay10, "Back to live", onClick = actions.onGoLive)
+            com.notdxbi.dxbi.tv.lumen.RoundButton(Icons.Filled.Replay10, "Back to live", actions.onGoLive, expands = true)
         } else if (state.channel.hasCatchup && state.nowProgramme != null) {
-            SettingChip(Icons.Filled.Replay10, "Watch from start", onClick = actions.onWatchFromStart)
+            com.notdxbi.dxbi.tv.lumen.RoundButton(Icons.Filled.Replay10, "Watch from start", actions.onWatchFromStart, expands = true)
         }
         Spacer(Modifier.weight(1f))
-        SettingChip(Icons.Filled.Audiotrack, "Audio", Modifier.focusRequester(panelButtons.getValue(LiveOverlayPanel.AUDIO))) { actions.onOpenPanel(LiveOverlayPanel.AUDIO) }
-        SettingChip(Icons.Filled.ClosedCaption, "Subtitles", Modifier.focusRequester(panelButtons.getValue(LiveOverlayPanel.SUBTITLES))) { actions.onOpenPanel(LiveOverlayPanel.SUBTITLES) }
-        SettingChip(Icons.Filled.AspectRatio, state.zoomMode.label, onClick = actions.onCycleZoom)
-        SettingChip(Icons.Filled.GraphicEq, state.soundModeLabel, onClick = actions.onCycleSoundMode)
-        SettingChip(Icons.Filled.SwapHoriz, "Feeds", Modifier.focusRequester(panelButtons.getValue(LiveOverlayPanel.FEEDS))) { actions.onOpenPanel(LiveOverlayPanel.FEEDS) }
-        // (the rest of the options: round, just the dots, so the row never runs out of room)
-        SpringButton(onClick = { actions.onOpenPanel(LiveOverlayPanel.MORE) }, round = true, modifier = Modifier.focusRequester(panelButtons.getValue(LiveOverlayPanel.MORE))) { ink ->
-            Icon(Icons.Filled.MoreHoriz, contentDescription = "Options", tint = ink, modifier = Modifier.size(22.dp))
-        }
+        com.notdxbi.dxbi.tv.lumen.RoundButton(Icons.Filled.Audiotrack, "Audio", { actions.onOpenPanel(LiveOverlayPanel.AUDIO) }, Modifier.focusRequester(panelButtons.getValue(LiveOverlayPanel.AUDIO)), expands = true)
+        com.notdxbi.dxbi.tv.lumen.RoundButton(Icons.Filled.ClosedCaption, "Subtitles", { actions.onOpenPanel(LiveOverlayPanel.SUBTITLES) }, Modifier.focusRequester(panelButtons.getValue(LiveOverlayPanel.SUBTITLES)), expands = true)
+        com.notdxbi.dxbi.tv.lumen.RoundButton(Icons.Filled.AspectRatio, "Picture: ${state.zoomMode.label}", actions.onCycleZoom, expands = true)
+        com.notdxbi.dxbi.tv.lumen.RoundButton(Icons.Filled.GraphicEq, "Sound: ${state.soundModeLabel}", actions.onCycleSoundMode, expands = true)
+        com.notdxbi.dxbi.tv.lumen.RoundButton(Icons.Filled.SwapHoriz, "Feeds", { actions.onOpenPanel(LiveOverlayPanel.FEEDS) }, Modifier.focusRequester(panelButtons.getValue(LiveOverlayPanel.FEEDS)), expands = true)
+        com.notdxbi.dxbi.tv.lumen.RoundButton(Icons.Filled.MoreHoriz, "Options", { actions.onOpenPanel(LiveOverlayPanel.MORE) }, Modifier.focusRequester(panelButtons.getValue(LiveOverlayPanel.MORE)), expands = true)
     }
 }
 
@@ -601,23 +593,16 @@ private fun ChannelStrip(
     val currentTile = remember { FocusRequester() }
     val nowMs = System.currentTimeMillis()
 
-    // (the channel playing sits in the middle, with those either side fading out towards the edges. The list starts
-    // there, worked out from the sizes, so nothing slides into place as the strip comes up)
+    // (five whole tiles across, the Guide button and four channels: nothing is cut off at either edge, and the row only
+    // ever moves by whole tiles, the playing channel third along where it can be)
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val viewportDp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp - 112
-    fun centred(idx: Int): Pair<Int, Int> {
-        var i = idx + 1
-        var left = viewportDp / 2f - STRIP_TILE_W.value / 2f
-        while (i > 0 && left > 40f) { i--; left -= if (i == 0) STRIP_GUIDE_W.value + STRIP_GAP.value else STRIP_TILE_W.value + STRIP_GAP.value }
-        return i to with(density) { (40f - left).coerceAtLeast(0f).dp.roundToPx() }
-    }
-    val start = remember { centred(currentIdx) }
-    val listState = rememberLazyListState(start.first, start.second)
+    val total = entries.size + 1
+    fun firstFor(idx: Int): Int = (idx + 1 - 2).coerceIn(0, (total - STRIP_SHOWN).coerceAtLeast(0))
+    val listState = rememberLazyListState(firstFor(currentIdx), 0)
     var firstPlace by remember { mutableStateOf(true) }
     LaunchedEffect(currentChannelId) {
         if (firstPlace) { firstPlace = false; return@LaunchedEffect }
-        val (i, o) = centred(currentIdx)
-        runCatching { listState.scrollToItem(i, o) }
+        runCatching { listState.scrollToItem(firstFor(currentIdx), 0) }
     }
     LaunchedEffect(focusTick) {
         if (focusTick > 0L) {
@@ -626,35 +611,24 @@ private fun ChannelStrip(
         }
     }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { StripPreview.value = null } }
+    val spec = remember(density) { WholeTileSpec(with(density) { STRIP_EDGE.toPx() }) }
 
-    // (the tiles at the sides fade out rather than being cut off by the screen's edge; the chosen one stays central)
-    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides CentreSpec) {
+    // (the row is just wide enough for its five tiles and the room a chosen tile lifts into at each end)
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides spec) {
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
     androidx.compose.foundation.lazy.LazyRow(
         state = listState,
         modifier = Modifier
-            .fillMaxWidth()
+            .width(STRIP_TILE_W * STRIP_SHOWN + STRIP_GAP * (STRIP_SHOWN - 1) + STRIP_EDGE * 2)
             .onFocusChanged { if (!it.hasFocus) StripPreview.value = null }
-            .padding(top = 4.dp)
-            .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
-            .drawWithContent {
-                drawContent()
-                val edge = 90.dp.toPx() / size.width
-                drawRect(
-                    brush = Brush.horizontalGradient(
-                        0f to Color.Transparent, edge to Color.Black,
-                        1f - edge to Color.Black, 1f to Color.Transparent,
-                    ),
-                    blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
-                )
-            },
-        // (room between the tiles for the chosen one to lift into without touching its neighbours, and above and below it)
-        contentPadding = PaddingValues(horizontal = 40.dp, vertical = 10.dp),
+            .padding(top = 4.dp),
+        contentPadding = PaddingValues(horizontal = STRIP_EDGE, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(STRIP_GAP),
     ) {
         item(key = "guide") {
             Surface(
                 onClick = onOpenGuide,
-                modifier = Modifier.width(STRIP_GUIDE_W).height(STRIP_HEIGHT).focusRequester(guideFocus).onFocusChanged { if (it.isFocused) StripPreview.value = null }
+                modifier = Modifier.width(STRIP_TILE_W).height(STRIP_HEIGHT).focusRequester(guideFocus).onFocusChanged { if (it.isFocused) StripPreview.value = null }
                     .liveFrost(RoundedCornerShape(Dx.RCard)),
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(Dx.RCard)),
                 colors = ClickableSurfaceDefaults.colors(
@@ -666,7 +640,7 @@ private fun ChannelStrip(
                 scale = ClickableSurfaceDefaults.scale(focusedScale = Dx.FocusRow),
             ) {
                 Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                    Icon(Icons.AutoMirrored.Filled.FormatListBulleted, contentDescription = null, modifier = Modifier.size(20.dp), tint = LocalContentColor.current)
+                    Icon(Icons.AutoMirrored.Filled.FormatListBulleted, contentDescription = null, modifier = Modifier.size(22.dp), tint = LocalContentColor.current)
                     Spacer(Modifier.height(4.dp))
                     Text("Guide", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = LocalContentColor.current)
                 }
@@ -684,33 +658,37 @@ private fun ChannelStrip(
             ) {
                 // frosted glass over the picture, as the channel box at the top (the one playing a touch lighter)
                 Box(Modifier.fillMaxSize().liveFrost(RoundedCornerShape(Dx.RCard), rim = false).then(if (playing) Modifier.background(Color.White.copy(alpha = 0.12f)) else Modifier)) {
-                val ink = Color.White
-                Row(Modifier.fillMaxSize().padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // the channel's logo tile says which it is (its name in words was one more line)
-                    ChannelTile(logoUrl = logo, name = channel.name, width = 80.dp, height = 46.dp, corner = 7.dp)
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    val ink = Color.White
+                    Column(Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        // the channel's logo says which it is; what's on follows, in as many lines as it needs
+                        Box(Modifier.fillMaxWidth().height(24.dp), contentAlignment = Alignment.CenterStart) {
+                            ChannelTile(logoUrl = logo, name = channel.name, width = 64.dp, height = 24.dp, corner = 5.dp, plain = true)
+                        }
                         Text(
-                            text = prog?.title ?: channel.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = ink,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            text = prog?.title ?: channel.name, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold, color = ink,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                         )
                         Box(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)).background(ink.copy(alpha = 0.2f))) {
                             Box(Modifier.fillMaxHeight().fillMaxWidth((prog?.progressAt(nowMs) ?: 0f).coerceIn(0f, 1f)).background(ink))
                         }
                     }
                 }
-                }
             }
         }
     }
     }
+    }
 }
 
-/** Keeps the chosen tile of a row in the middle */
+/** Moves the row only when the chosen tile isn't wholly in view, and then just far enough to bring it to the edge (by whole tiles, as they're all alike) */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-private object CentreSpec : androidx.compose.foundation.gestures.BringIntoViewSpec {
+private class WholeTileSpec(private val edge: Float) : androidx.compose.foundation.gestures.BringIntoViewSpec {
     override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> get() = com.notdxbi.dxbi.tv.lumen.RowGlide
-    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
-        offset - (containerSize - size) / 2f
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = when {
+        offset < edge -> offset - edge
+        offset + size > containerSize - edge -> offset + size - (containerSize - edge)
+        else -> 0f
+    }
 }
 
 /** The channel the remote is on in the player's strip (the top box shows it), or null on the one playing */
@@ -718,10 +696,13 @@ private val StripPreview = androidx.compose.runtime.mutableStateOf<Pair<Canonica
 
 /** How tall the quick channel changer's tiles are, how wide, and the gap between them */
 private val PANEL_BORDER = Color(0x1FFFFFFF)
-private val STRIP_HEIGHT = 62.dp
-private val STRIP_TILE_W = 300.dp
-private val STRIP_GUIDE_W = 96.dp
-private val STRIP_GAP = 26.dp
+private val STRIP_HEIGHT = 92.dp
+private val STRIP_TILE_W = 148.dp
+private val STRIP_GAP = 12.dp
+/** Room at each end for a chosen tile to lift into */
+private val STRIP_EDGE = 10.dp
+/** The Guide button and four channels */
+private const val STRIP_SHOWN = 5
 
 @Composable
 private fun SeekLineBar(
@@ -914,13 +895,12 @@ private fun ZapBanner(
 
     Row(
         modifier = modifier
-            .widthIn(min = 380.dp, max = 560.dp)
-            .liveFrost(RoundedCornerShape(Dx.RPanel))
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .widthIn(min = 320.dp, max = 560.dp)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        ChannelTile(logoUrl = remember(channel.id) { tileLogoFor(channel) }, name = channel.name, width = 72.dp, height = 40.dp)
+        ChannelTile(logoUrl = remember(channel.id) { tileLogoFor(channel) }, name = channel.name, width = 72.dp, height = 40.dp, plain = true)
 
         Column(
             modifier = Modifier.weight(1f),
@@ -969,9 +949,6 @@ private fun ZapBanner(
                         style = TextStyle(fontSize = 12.sp, color = Dx.Muted, fontFeatureSettings = "tnum"),
                         maxLines = 1,
                     )
-                }
-                Box(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.22f))) {
-                    Box(Modifier.fillMaxHeight().fillMaxWidth(nowProg.progressAt(nowMs).coerceIn(0f, 1f)).background(Color.White))
                 }
             } else {
                 Text(
@@ -1040,7 +1017,7 @@ private fun ActiveViewerConflictDialog(
                 }
                 Column {
                     Text(
-                        text = "Active viewer warning",
+                        text = "Someone's already watching",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
@@ -1062,7 +1039,7 @@ private fun ActiveViewerConflictDialog(
             )
 
             Text(
-                text = "Opening another stream on this provider may interrupt the active viewer if your subscription has reached its connection limit.",
+                text = "Watching this channel could stop their stream, because your provider only allows a limited number at once.",
                 fontSize = 13.sp,
                 color = Dx.Muted,
             )
@@ -1656,31 +1633,38 @@ private fun LumenOfferCard(offer: com.notdxbi.dxbi.tv.live.LumenHandoff.Offer, o
     LaunchedEffect(offer.programmeKey) { delay(80); runCatching { first.requestFocus() } }
     val mins = offer.joinMs / 60_000L
     val join = if (mins >= 60) "%d:%02d".format(mins / 60, mins % 60) else "${mins} min"
+    // (small: a corner prompt over the picture, not a panel; Back dismisses it)
     Column(
         modifier = Modifier
-            .width(400.dp)
-            .liveFrost(RoundedCornerShape(Dx.RPanel))
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .width(310.dp)
+            // (black glass with a fine rim, as Lumen's own panels: not the grey sheen of the player's frosted boxes)
+            .background(Color.Black.copy(alpha = 0.82f), RoundedCornerShape(Dx.RPanel))
+            .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(Dx.RPanel))
+            .padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Text(
-            if (offer.viaLumen) "In Lumen · ${offer.label}" else "Started $join ago · ${offer.label}",
-            style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted, fontFeatureSettings = "tnum"),
+            if (offer.viaLumen) "Watch in Lumen" else "Started $join ago",
+            style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.6f), fontFeatureSettings = "tnum"),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Text(offer.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(offer.name, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        // ("S2, E4" read out: Season 2 · Episode 4; a film just says so)
+        val episode = remember(offer.label) {
+            Regex("""S(\d+)\D+E(\d+)""", RegexOption.IGNORE_CASE).find(offer.label)?.let { "Season ${it.groupValues[1]} · Episode ${it.groupValues[2]}" } ?: offer.label
+        }
+        if (episode.isNotBlank()) Text(episode, fontSize = 13.sp, color = Color.White.copy(alpha = 0.75f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (offer.viaLumen) {
-            Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 LiveChip(label = if (mins >= 2) "From $join" else "Watch", selected = true, onClick = { onWatch(false) }, modifier = Modifier.focusRequester(first))
                 if (mins >= 2) LiveChip(label = "From the start", selected = false, onClick = { onWatch(true) })
             }
         } else {
-            Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 LiveChip(label = "From the start", selected = true, onClick = { onWatch(true) }, modifier = Modifier.focusRequester(first))
                 LiveChip(label = "Keep watching live", selected = false, onClick = { com.notdxbi.dxbi.tv.live.LumenHandoff.dismiss() })
             }
         }
-        Text("Back: not now", style = TextStyle(fontSize = 12.sp, color = Dx.Faint, fontFeatureSettings = "tnum"))
     }
 }

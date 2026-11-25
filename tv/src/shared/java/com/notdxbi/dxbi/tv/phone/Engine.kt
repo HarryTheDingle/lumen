@@ -186,6 +186,10 @@ class Engine(context: Context) {
         return got
     }
 
+    /** Signs in with a Stremio email and password typed on the TV: the same as the link code from then on (the password isn't kept) */
+    suspend fun signInWithStremio(email: String, password: String): Pair<Int, Int> =
+        signInWithStremio(withContext(one) { core.stremioLogin(email.trim(), password) })
+
     private fun checkAddons() { needsAddons.value = core.signedIn && addons.isEmpty() && !prefs.getBoolean("addonsSkipped", false) }
 
     fun skipAddons() { prefs.edit().putBoolean("addonsSkipped", true).apply(); checkAddons() }
@@ -207,9 +211,14 @@ class Engine(context: Context) {
     }
 
     fun signOut() = scope.launch {
-        prefs.edit().remove("token").remove("account").apply()
+        // (the account's own things go too: its Stremio key and addon links would otherwise be there for whoever signs in next)
+        prefs.edit().remove("token").remove("account").remove("stremio").remove("addons").remove("addonsSkipped").apply()
         stateFile.delete()
+        picksMemo.clear()
+        core.signOut()
+        configure()
         signedIn.value = false
+        needsAddons.value = false
         tell("ctx", ctx())
     }
 
@@ -831,6 +840,21 @@ class Engine(context: Context) {
     /** Formula 1's standings as JSON ({season, drivers, constructors}); null when it can't be had */
     suspend fun f1Standings(series: String = "f1"): org.json.JSONObject? = withContext(Dispatchers.IO) {
         runCatching { org.json.JSONObject(core.f1Standings(series)) }.getOrNull()
+    }
+
+    /** Formula 1's next race weekend as JSON; null when it can't be had */
+    suspend fun f1Weekend(): org.json.JSONObject? = withContext(Dispatchers.IO) {
+        runCatching { org.json.JSONObject(core.f1Weekend()) }.getOrNull()
+    }
+
+    /** A football league's table as JSON; null when it can't be had */
+    suspend fun sportsTable(league: String): org.json.JSONObject? = withContext(Dispatchers.IO) {
+        runCatching { org.json.JSONObject(core.sportsTable(league)) }.getOrNull()
+    }
+
+    /** Teams' billboard pictures as JSON ({teams: {name: {fanart, badge}}}); null when they can't be had */
+    suspend fun sportsArt(teams: List<String>): org.json.JSONObject? = withContext(Dispatchers.IO) {
+        runCatching { org.json.JSONObject(core.sportsArt(teams)) }.getOrNull()
     }
 
     /** Searches UK Football and US pro sports team directories on the sync server. */

@@ -23,8 +23,9 @@ import { handlePicks, handleAsk } from "./picks.js";
 import { resolveLabels } from "./labels.js";
 import { handleScores } from "./scores.js";
 import { enrichEpgProgramme, pruneEpg, readUkEpg, refreshUkEpg } from "./epg.js";
-import { handleF1Standings, handleSportsFixtures, handleSportsMatch, handleTeamsSchedule, handleTeamsSearch } from "./sports.js";
+import { handleF1Standings, handleF1Weekend, handleSportsArt, handleSportsFixtures, handleSportsMatch, handleSportsTable, handleTeamsSchedule, handleTeamsSearch } from "./sports.js";
 import { handleIptvSetupSubmit, renderSetupPage } from "./iptv-setup.js";
+import { seal, open, sealStored } from "./seal.js";
 import { handleIptvPresence, pruneIptvPresence } from "./presence.js";
 
 const STREMIO_API = "https://api.strem.io/api";
@@ -115,7 +116,7 @@ async function store(env, account, entries, now) {
     const stored = await env.DB.prepare(
       `SELECT k, t, v FROM entries WHERE account = ? AND k IN (${chunk.map(() => "?").join(",")})`
     ).bind(account, ...chunk).all();
-    for (const r of stored.results || []) have.set(r.k, r);
+    for (const r of stored.results || []) have.set(r.k, { ...r, v: (await open(env, r.k, r.v)) ?? "" });
   }
   let delta = 0;
   const writes = [];
@@ -144,7 +145,8 @@ async function store(env, account, entries, now) {
     const upsert = env.DB.prepare(
       "INSERT INTO entries (account, k, t, v, s) VALUES (?, ?, ?, ?, ?) ON CONFLICT (account, k) DO UPDATE SET t = excluded.t, v = excluded.v, s = excluded.s WHERE excluded.t > entries.t"
     );
-    await env.DB.batch(writes.map((e) => upsert.bind(account, e.k, e.t, e.v, now)));
+    const sealed = await Promise.all(writes.map((e) => seal(env, e.k, e.v)));
+    await env.DB.batch(writes.map((e, i) => upsert.bind(account, e.k, e.t, sealed[i], now)));
   }
   return { tooBig: false, written };
 }
@@ -172,7 +174,7 @@ async function handleSync(body, env, account) {
   for (const r of changed.results || []) {
     if (written.has(r.k)) continue;
     let v = null;
-    try { v = JSON.parse(r.v); } catch (_) { /* null */ }
+    try { v = JSON.parse(await open(env, r.k, r.v)); } catch (_) { /* null */ }
     out.push({ k: r.k, t: r.t, v });
   }
   return reply(200, { now, entries: out });
@@ -282,7 +284,7 @@ async function importLibrary(env, account, authKey, user) {
   // Lumen's own profile data for that Stremio account (kept by lumen-sync)
   const lumen = new Map();
   for (const r of (await env.DB.prepare("SELECT k, t, v FROM entries WHERE account = ?").bind(user._id).all()).results || []) {
-    try { lumen.set(r.k, { t: r.t, v: JSON.parse(r.v) }); } catch (_) { /* skipped */ }
+    try { lumen.set(r.k, { t: r.t, v: JSON.parse(await open(env, r.k, r.v)) }); } catch (_) { /* skipped */ }
   }
   const viewers = lumen.get("viewers");
   const viewerIds = viewers && viewers.v && Array.isArray(viewers.v.list) ? viewers.v.list.map((v) => v && v.id).filter(Boolean) : [];
@@ -324,8 +326,11 @@ async function handleStremioSignIn(body, env) {
     const token = await newDevice(env, known, name);
     return reply(200, { token, account: known, created: false });
   }
+  // (a new account is made for a Stremio account that has used Lumen, or whose email Harry has put on the list: sync/allow.sh)
   const usedLumen = (await env.DB.prepare("SELECT count(*) n FROM entries WHERE account = ?").bind(user._id).all()).results?.[0]?.n > 0;
-  if (!usedLumen) return reply(403, { error: "This Stremio account hasn't been used with Lumen. Ask Harry to set it up." });
+  const email = typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
+  const listed = !usedLumen && email && (await env.DB.prepare("SELECT 1 n FROM lumos_allowed WHERE email = ?").bind(email).all()).results?.length > 0;
+  if (!usedLumen && !listed) return reply(403, { error: `${email || "This Stremio account"} isn't on the list yet. Tell Harry your Stremio email and try again.` });
   const account = `lumos:${randomHex(12)}`;
   await env.DB.prepare("INSERT OR IGNORE INTO lumos_stremio (stremio, account, at) VALUES (?, ?, ?)").bind(user._id, account, Date.now()).run();
   // (two TVs at once: the first one's account)
@@ -377,6 +382,8 @@ export async function pruneCaches(env, now = Date.now()) {
 export default {
   // (the cron: the Home lists, a little at a time)
   async scheduled(_event, env, ctx) {
+    // (sealing what's still plain, apart from the lists: a slow or failed list run mustn't hold it up)
+    if (env.DB) ctx.waitUntil(sealStored(env).then((n) => n && console.log("sealed", n)).catch((e) => console.log("seal failed", e.message)));
     // (a run with no list to remake checks the lists' pictures ahead instead: each run has 50 outside requests)
     if (env.DB) ctx.waitUntil(refreshLists(env)
       .then(async (r) => {
@@ -502,6 +509,9 @@ async function handle(request, env) {
     case "/iptv/sports/teams/schedule": return reply(200, await handleTeamsSchedule(body, env, now));
     case "/iptv/sports/match": { const r = await handleSportsMatch(body, env, now); return reply(r.status, r.body); }
     case "/iptv/sports/f1/standings": { const r = await handleF1Standings(body, env, now); return reply(r.status, r.body); }
+    case "/iptv/sports/f1/weekend": { const r = await handleF1Weekend(body, env, now); return reply(r.status, r.body); }
+    case "/iptv/sports/table": { const r = await handleSportsTable(body, env, now); return reply(r.status, r.body); }
+    case "/iptv/sports/art": { const r = await handleSportsArt(body, env, now); return reply(r.status, r.body); }
     case "/iptv/presence": { const r = await handleIptvPresence(body, env, me, now); return reply(r.status, r.body); }
     case "/iptv/setup/start": {
       await env.DB.prepare("DELETE FROM lumos_iptv_setup WHERE expires < ?").bind(now).run();

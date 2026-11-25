@@ -1,5 +1,7 @@
 package com.notdxbi.dxbi.tv.lumen.live
 
+import androidx.compose.foundation.background
+
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.focus.onFocusChanged
@@ -148,6 +150,22 @@ fun LiveSearchView(
     }
 
     // what's on now, in the chosen category
+    val prefs by store.prefs.collectAsState()
+    val inGuide = remember(prefs.favourites) { prefs.favourites.toHashSet() }
+    var shownFavs by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(favourites) { shownFavs = (shownFavs + favourites.map { it.id }).distinct() }
+    fun holdChannel(ch: CanonicalChannel) {
+        val adding = ch.id !in inGuide
+        store.toggleFavourite(ch.id)
+        Toast.makeText(context, if (adding) "${ch.name} added to Favourites in your guide" else "${ch.name} taken out of your guide's Favourites", Toast.LENGTH_SHORT).show()
+    }
+    // Every channel your IPTV provider has, in its own groups (its group titles), to look through a group at a time
+    val providerGroups = remember(channels, scope) {
+        channels.filter { it.streams.isNotEmpty() && it.inScope(scope) }
+            .groupBy { ch -> ch.streams.first().groupTitle.trim().ifBlank { ch.category.label } }
+            .entries.map { it.key to it.value }
+    }
+    var openGroup by remember { mutableStateOf<String?>(null) }
     val browse = remember(mainGuideRows, channels, scope) {
         if (scope == SearchScope.CATCHUP) channels.filter { it.inScope(scope) }.take(30)
         else mainGuideRows.filter { it.isPlayable && it.linkedChannel != null }.mapNotNull { it.linkedChannel }.filter { it.inScope(scope) }
@@ -220,14 +238,35 @@ fun LiveSearchView(
                 val current = bundle
                 when {
                     query.isBlank() -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        val favs = favourites.filter { it.streams.isNotEmpty() }
+                        // (one taken out stays in view, without its star, until the page is left: the remote isn't thrown
+                        // somewhere else, onto the microphone, when the tile it's on goes)
+                        val favs = (favourites + shownFavs.filter { id -> favourites.none { it.id == id } }.mapNotNull { id -> channels.firstOrNull { it.id == id } }).filter { it.streams.isNotEmpty() }
                         if (favs.isNotEmpty()) {
                             item(key = "h:fav") { TileHeading("Favourite channels") }
-                            tileRows("fav", favs, nowNextMap, nowMs, perRow) { store.playLive(context, it) }
+                            tileRows("fav", favs, nowNextMap, nowMs, perRow, inGuide, ::holdChannel) { store.playLive(context, it) }
                         }
-                        item(key = "h:all") { TileHeading("All channels") }
+                        item(key = "h:hold") { Text("Hold OK on a channel to add it to Favourites in your guide.", fontSize = 13.sp, color = Dx.Muted) }
+                        if (providerGroups.isNotEmpty()) {
+                            item(key = "h:every") { TileHeading("Every channel on your IPTV (${providerGroups.sumOf { it.second.size }})") }
+                            item(key = "groups") {
+                                androidx.compose.foundation.lazy.LazyRow(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    contentPadding = PaddingValues(vertical = 6.dp),
+                                ) {
+                                    items(providerGroups.size, key = { "g:" + providerGroups[it].first }) { i ->
+                                        val (name, list) = providerGroups[i]
+                                        LiveChip(label = "$name  ${list.size}", selected = openGroup == name, onClick = { openGroup = if (openGroup == name) null else name })
+                                    }
+                                }
+                            }
+                            val open = providerGroups.firstOrNull { it.first == openGroup }
+                            if (open == null) item(key = "h:pick") { Text("Choose a group to see its channels.", fontSize = 13.sp, color = Dx.Muted) }
+                            else tileRows("grp:${open.first}", open.second, nowNextMap, nowMs, perRow, inGuide, ::holdChannel) { store.playLive(context, it) }
+                        }
+                        item(key = "h:all") { TileHeading("In the guide") }
                         if (browse.isEmpty()) item(key = "none") { Text("Your channels are still loading.", fontSize = 14.sp, color = Dx.Muted) }
-                        tileRows("all", browse, nowNextMap, nowMs, perRow) { store.playLive(context, it) }
+                        tileRows("all", browse, nowNextMap, nowMs, perRow, inGuide, ::holdChannel) { store.playLive(context, it) }
                     }
                     current == null -> Text("Searching…", fontSize = 14.sp, color = Dx.Muted)
                     else -> {
@@ -241,7 +280,7 @@ fun LiveSearchView(
                         } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (chans.isNotEmpty()) {
                                 item(key = "h:ch") { TileHeading("Channels") }
-                                tileRows("ch", chans.take(30), nowNextMap, nowMs, perRow) { store.playLive(context, it) }
+                                tileRows("ch", chans.take(30), nowNextMap, nowMs, perRow, inGuide, ::holdChannel) { store.playLive(context, it) }
                             }
                             if (fixtures.isNotEmpty()) {
                                 item(key = "h:sp") { TileHeading("Matches") }
@@ -343,6 +382,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.tileRows(
     nowNext: Map<String, Pair<EpgProgramme?, EpgProgramme?>>,
     nowMs: Long,
     perRow: Int,
+    inGuide: Set<String> = emptySet(),
+    onHold: ((CanonicalChannel) -> Unit)? = null,
     onPick: (CanonicalChannel) -> Unit,
 ) {
     // (the grid sits in the middle of the room beside the letters, however many fit across; a short last row starts
@@ -351,7 +392,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.tileRows(
     items(channels.chunked(perRow), key = { "$key:" + it.first().id }) { row ->
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
             Row(Modifier.width(gridWidth), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                row.forEach { ch -> ChannelCard(ch, nowNext[ch.id]?.first?.title, onClick = { onPick(ch) }) }
+                row.forEach { ch -> ChannelCard(ch, nowNext[ch.id]?.first?.title, inGuide = ch.id in inGuide, onClick = { onPick(ch) }, onLongClick = onHold?.let { h -> { h(ch) } }) }
             }
         }
     }
@@ -359,11 +400,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.tileRows(
 
 /** A channel in search: its logo tile (which lifts with a white edge when chosen), its name and what's on now */
 @Composable
-private fun ChannelCard(ch: CanonicalChannel, now: String?, onClick: () -> Unit) {
+private fun ChannelCard(ch: CanonicalChannel, now: String?, onClick: () -> Unit, inGuide: Boolean = false, onLongClick: (() -> Unit)? = null) {
     val logo = remember(ch.id) { tileLogoFor(ch) }
     Column(Modifier.width(156.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
         androidx.tv.material3.Surface(
             onClick = onClick,
+            onLongClick = onLongClick,
             modifier = Modifier.size(156.dp, 88.dp),
             shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(Dx.RCard)),
             colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color.Transparent),
@@ -372,7 +414,14 @@ private fun ChannelCard(ch: CanonicalChannel, now: String?, onClick: () -> Unit)
                 focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(2.dp, Color.White), shape = RoundedCornerShape(Dx.RCard)),
             ),
         ) {
-            ChannelTile(logoUrl = logo, name = ch.name, width = 156.dp, height = 88.dp, corner = Dx.RCard)
+            Box {
+                ChannelTile(logoUrl = logo, name = ch.name, width = 156.dp, height = 88.dp, corner = Dx.RCard)
+                // (a small star: it's in your guide's Favourites)
+                if (inGuide) Box(
+                    Modifier.align(Alignment.TopEnd).padding(6.dp).size(20.dp).background(Color.Black.copy(alpha = 0.6f), androidx.compose.foundation.shape.CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) { androidx.tv.material3.Icon(androidx.compose.material.icons.Icons.Filled.Star, contentDescription = "In your guide", tint = Color.White, modifier = Modifier.size(12.dp)) }
+            }
         }
         Spacer(Modifier.size(3.dp))
         Text(ch.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)

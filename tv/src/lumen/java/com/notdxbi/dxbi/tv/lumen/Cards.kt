@@ -54,6 +54,9 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.ui.platform.LocalDensity
 import coil3.toBitmap
 import coil3.request.allowHardware
@@ -96,11 +99,14 @@ fun FocusCard(
      * grows down into the room kept under it by this going to 0, with nothing laid out or drawn again as it does
      */
     hiddenFoot: (() -> Float)? = null,
+    /** Comes up already lifted, as chosen (a poster taking the place of the skeleton the remote was on), until the remote is on it */
+    startLifted: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(corner)
     val cutShape = remember(corner, hiddenFoot) { hiddenFoot?.let { FootCutShape(corner, it) } }
-    var focused by remember { mutableStateOf(false) }
+    var focused by remember { mutableStateOf(startLifted) }
+    var reached by remember { mutableStateOf(false) }
     // (a spring with no bounce, ease-out over about a third of a second: it carries on from where it is when the remote
     // moves on mid-lift, so quick presses never jump)
     val lift by animateFloatAsState(if (focused) 1f else 0f, androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 320f), label = "lift")
@@ -119,7 +125,12 @@ fun FocusCard(
     Box(
         modifier
             .zIndex(if (focused) 1f else 0f)
-            .onFocusChanged { focused = it.isFocused || it.hasFocus }
+            .onFocusChanged {
+                val on = it.isFocused || it.hasFocus
+                if (on) reached = true
+                // (a card that came up lifted isn't let down by the remote not having reached it yet)
+                if (on || !startLifted || reached) focused = on
+            }
             // OK as the TV library's cards take it: a click when it's let go, the menu when it's held
             .onKeyEvent { e ->
                 if (!e.isSelect()) return@onKeyEvent false
@@ -144,7 +155,12 @@ fun FocusCard(
         Box(
             Modifier
                 .fillMaxSize()
-                .then(if (focused && rowLift != null) Modifier.onGloballyPositioned { rowLift.left = it.positionInWindow().x } else Modifier)
+                .then(if (focused) Modifier.onGloballyPositioned {
+                    val at = it.positionInWindow()
+                    rowLift?.left = at.x
+                    // (the column the remote is in: a row that isn't built yet puts its stop there, so going down keeps it)
+                    FocusColumn.x = at.x + it.size.width / 2f
+                } else Modifier)
                 .graphicsLayer {
                     val s = 1f + 0.13f * lift
                     scaleX = s
@@ -322,6 +338,21 @@ val RowScrolling = object : BringIntoViewSpec {
  * (The scroll rule Compose asks for each frame of a glide chases the card as it moves and lifts, and made the page
  * settle in two or three steps; this decides once and doesn't look again, and a sideways move along a row asks for nothing.)
  */
+/** How fast Up and Down are being pressed: fast from the third press inside a second, and held until a pause, so it doesn't flip back and forth */
+object PressRate {
+    private val times = ArrayDeque<Long>()
+    private var until = 0L
+
+    fun press() {
+        val now = android.os.SystemClock.uptimeMillis()
+        times.addLast(now)
+        while (times.first() < now - 1000L) times.removeFirst()
+        if (times.size > 2) until = now + 700L
+    }
+
+    val fast: Boolean get() = android.os.SystemClock.uptimeMillis() < until
+}
+
 class PageScroller(val list: androidx.compose.foundation.lazy.LazyListState, private val scope: kotlinx.coroutines.CoroutineScope) {
     var viewport: androidx.compose.ui.layout.LayoutCoordinates? = null
 
@@ -436,10 +467,17 @@ class PageScroller(val list: androidx.compose.foundation.lazy.LazyListState, pri
     /** A page of short rows (the TV guide) glides by this instead, so a row's small move takes as long as Home's */
     var glideSpec: androidx.compose.animation.core.AnimationSpec<Float>? = null
 
+    /** A page of equal short rows (the TV guide): the height of one, so a move of two (past a section's name) glides longer, not faster */
+    var glideRow = 0f
+
     fun move(delta: Float, viewportPx: Float = viewport?.size?.height?.toFloat() ?: list.layoutInfo.viewportSize.height.toFloat()) {
         val vp = viewportPx.coerceAtLeast(1f)
         if (kotlin.math.abs(delta) < 1f) return
         if (job?.isActive == true && kotlin.math.abs(delta - (goal - done)) < vp * 0.06f) return
+        // (a run of presses, more than two in a second: the page keeps up. The soft glide is for a single move or a slower walk; a run
+        // went a row each 0.35 s while the glide took 0.8 s, so the remote ran a row ahead of the page. Decided by how fast the
+        // remote is pressed, not by whether a glide happens to be running, which flipped between the two from press to press)
+        val keepingUp = PressRate.fast
         job?.cancel()
         val mine = ++gen
         goal = delta
@@ -447,7 +485,10 @@ class PageScroller(val list: androidx.compose.foundation.lazy.LazyListState, pri
         job = scope.launch {
             list.scroll {
                 var last = 0f
-                androidx.compose.animation.core.animate(0f, delta, animationSpec = glideSpec ?: glide(delta, vp)) { v, _ ->
+                androidx.compose.animation.core.animate(
+                    0f, delta,
+                    animationSpec = if (keepingUp) androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 420f, visibilityThreshold = 0.5f) else glideSpec ?: glide(delta, if (glideRow > 0f) glideRow / 0.35f else vp),
+                ) { v, _ ->
                     scrollBy(v - last)
                     last = v
                     if (gen == mine) done = v
@@ -661,13 +702,22 @@ private class IdlePrefetchScheduler : androidx.compose.foundation.lazy.layout.Pr
         val startNs = System.nanoTime()
         val scope = object : androidx.compose.foundation.lazy.layout.PrefetchRequestScope {
             override fun availableTimeNanos(): Long =
-                if (System.nanoTime() - startNs < 16_000_000L) 120_000_000L else 0L
+                // (one step at a time, then back to the frames and the remote: a step is about one card, ~10 ms on a Mi Box. Many
+                // in a row held the main thread for 16-30 ms, and a press that came in the middle of them waited)
+                if (System.nanoTime() - startNs < 6_000_000L) 120_000_000L else 0L
         }
         val hasMore = runCatching { with(req) { scope.execute() } }.getOrDefault(false)
         if (!hasMore && queue.isNotEmpty() && queue.first() === req) queue.removeFirst()
         if (queue.isNotEmpty()) scheduleTick(8L)
     }
 }
+
+/**
+ * How many rows past the screen's edge are built ahead while the page is still. A quick run of presses keeps the page moving,
+ * so there's no still moment to build in: the rows must already be there, as far ahead as the remote can get in a run.
+ */
+private const val AHEAD_DOWN = 4
+private const val AHEAD_UP = 2
 
 @OptIn(ExperimentalFoundationApi::class)
 class PagePrefetchStrategy : androidx.compose.foundation.lazy.LazyListPrefetchStrategy {
@@ -708,14 +758,14 @@ class PagePrefetchStrategy : androidx.compose.foundation.lazy.LazyListPrefetchSt
             val entry = it.next()
             if (entry.key in first..last) {
                 it.remove()
-            } else if (entry.key !in (first - 1)..(last + 2)) {
+            } else if (entry.key !in (first - AHEAD_UP)..(last + AHEAD_DOWN)) {
                 entry.value.cancel()
                 it.remove()
             }
         }
-        scheduleIndex(last + 1, total)
-        scheduleIndex(last + 2, total)
-        scheduleIndex(first - 1, total)
+        // (nearest first: the queue is first in, first out)
+        for (i in 1..AHEAD_DOWN) scheduleIndex(last + i, total)
+        for (i in 1..AHEAD_UP) scheduleIndex(first - i, total)
     }
 
     override fun androidx.compose.foundation.lazy.LazyListPrefetchScope.onScroll(
@@ -728,10 +778,8 @@ class PagePrefetchStrategy : androidx.compose.foundation.lazy.LazyListPrefetchSt
         val first = visible.first().index
         val last = visible.last().index
         val total = layoutInfo.totalItemsCount
-        val targets = if (delta < 0f) intArrayOf(last + 1, last + 2) else intArrayOf(first - 1, first - 2)
-        for (target in targets) {
-            scheduleIndex(target, total)
-        }
+        if (delta < 0f) for (i in 1..AHEAD_DOWN) scheduleIndex(last + i, total)
+        else for (i in 1..AHEAD_UP) scheduleIndex(first - i, total)
     }
 
     override fun androidx.compose.foundation.lazy.layout.NestedPrefetchScope.onNestedPrefetch(
@@ -782,7 +830,12 @@ fun PageColumn(
     ) {
         androidx.compose.foundation.lazy.LazyColumn(
             state = listState,
-            modifier = modifier.onGloballyPositioned { pageScroller.viewport = it },
+            modifier = modifier
+                .onPreviewKeyEvent {
+                    if (it.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && (it.key == androidx.compose.ui.input.key.Key.DirectionDown || it.key == androidx.compose.ui.input.key.Key.DirectionUp)) PressRate.press()
+                    false
+                }
+                .onGloballyPositioned { pageScroller.viewport = it },
             contentPadding = contentPadding,
             verticalArrangement = verticalArrangement,
             content = content,
@@ -814,6 +867,11 @@ private fun ShelfTitle(title: String, lift: RowLift, focused: () -> Boolean) {
                 translationY = -up * shift
             },
     )
+}
+
+/** The column (a card's middle, in the window) the remote was last in, for rows that aren't built yet to keep it going down */
+object FocusColumn {
+    var x = 0f
 }
 
 /** Where the chosen card of a row is (its left edge, in the window): its row's name moves up when it's under it */
@@ -946,16 +1004,39 @@ fun AiringCard(item: Airing, onClick: () -> Unit, width: Dp = 300.dp) {
     }
 }
 
-/** A row still loading: skeleton cards where its posters will be, laid out as the row will be so nothing moves when it comes */
+/**
+ * A row still loading: skeleton cards where its posters will be, laid out as the row will be so nothing moves when it comes.
+ * [liftedIndex]: the card the remote is on, which grows as a chosen poster does (its size, and its strip).
+ */
 @Composable
-fun LoadingShelf(title: String?) {
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+fun LoadingShelf(title: String?, modifier: Modifier = Modifier, liftedIndex: Int = -1) {
+    val lift by animateFloatAsState(if (liftedIndex >= 0) 1f else 0f, androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 320f), label = "skeleton-lift")
+    // (which card was lifted last, so it can settle back rather than jump when the remote leaves)
+    var shown by remember { mutableStateOf(0) }
+    if (liftedIndex >= 0) shown = liftedIndex
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         // (no name yet: a skeleton bar where it'll be)
         if (title != null) Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Dx.Faint, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = Dx.Gutter))
         else Box(Modifier.padding(horizontal = Dx.Gutter, vertical = 4.dp).size(180.dp, 18.dp).skeleton(shape = RoundedCornerShape(Dx.RCard)))
         // (the room under each poster that a chosen card grows into, kept here too, so nothing moves when the row comes)
         Row(Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 20.dp, bottom = 26.dp + CAPTION_ROOM), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-            repeat(8) { Box(Modifier.size(Dx.Poster, Dx.Poster * 1.5f).skeleton(shape = RoundedCornerShape(Dx.RCard))) }
+            repeat(8) { i ->
+                val chosen = i == shown && lift > 0f
+                // (the glass rim a poster has, so it isn't something that appears when the poster comes)
+                val glass = remember { GlassState() }
+                Box(Modifier.size(Dx.Poster, Dx.Poster * 1.5f)) {
+                    Box(
+                        (if (chosen) {
+                            // (a chosen poster's size and shape: grown down into its strip, then a little larger)
+                            Modifier.wrapContentSize(Alignment.TopStart, unbounded = true)
+                                .size(Dx.Poster, Dx.Poster * 1.5f + CAPTION_ROOM * lift)
+                                .graphicsLayer { val sc = 1f + 0.13f * lift; scaleX = sc; scaleY = sc }
+                        } else Modifier.fillMaxSize())
+                            .glassEdge(RoundedCornerShape(Dx.RCard), glass, tracked = false) { if (chosen) lift else 0f }
+                            .skeleton(shape = RoundedCornerShape(Dx.RCard)),
+                    )
+                }
+            }
         }
     }
 }

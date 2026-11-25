@@ -461,6 +461,7 @@ class LiveTvStore(
             _sportsError.value = null
             try {
                 val fixtures = engine.sportsFixtures(sport, date)
+                Log.i("lumos-sports", "fixtures for ${sport ?: "all"}: ${fixtures.size}, live ${fixtures.count { it.status == lumos.iptv.FixtureStatus.LIVE }}, leagues ${fixtures.map { it.league }.distinct().take(8)}")
                 if (sportsGeneration.get() == gen) {
                     _sportsFixtures.value = fixtures
                     scheduleFixtureStreamResolution()
@@ -470,6 +471,7 @@ class LiveTvStore(
             } catch (e: Throwable) {
                 if (sportsGeneration.get() == gen) {
                     Log.w(TAG, "Sports fixtures fetch failed: ${e.javaClass.simpleName}")
+                    Log.i("lumos-sports", "fixtures failed: ${e.javaClass.simpleName} ${e.message}")
                     _sportsError.value = e.message ?: "Unable to load sports fixtures"
                 }
             } finally {
@@ -982,6 +984,31 @@ class LiveTvStore(
 
     /** Formula 1's drivers' and constructors' standings */
     suspend fun f1Standings(series: String = "f1"): org.json.JSONObject? = engine.f1Standings(series)
+
+    private val sportsExtras = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, org.json.JSONObject>>()
+
+    /** The sports pages' extras, kept a while in memory so moving between sports never waits on them twice */
+    private suspend fun keptJson(key: String, ttlMs: Long, make: suspend () -> org.json.JSONObject?): org.json.JSONObject? {
+        sportsExtras[key]?.takeIf { System.currentTimeMillis() - it.first < ttlMs }?.let { return it.second }
+        val made = make() ?: return sportsExtras[key]?.second
+        sportsExtras[key] = System.currentTimeMillis() to made
+        return made
+    }
+
+    /** Formula 1's next race weekend: sessions, the circuit and its outline, last year's winner, artwork */
+    suspend fun f1Weekend(): org.json.JSONObject? = keptJson("f1weekend", 30 * 60_000L) { engine.f1Weekend() }
+
+    /** A football league's table */
+    suspend fun sportsTable(league: String): org.json.JSONObject? = keptJson("table:$league", 15 * 60_000L) { engine.sportsTable(league) }
+
+    /** Billboard pictures (fan art, badge) for each team named, by name */
+    suspend fun sportsArt(teams: List<String>): Map<String, org.json.JSONObject> {
+        val names = teams.filter { it.isNotBlank() }.distinct().sorted()
+        if (names.isEmpty()) return emptyMap()
+        val json = keptJson("art:" + names.joinToString("|"), 6 * 3600_000L) { engine.sportsArt(names) } ?: return emptyMap()
+        val all = json.optJSONObject("teams") ?: return emptyMap()
+        return all.keys().asSequence().mapNotNull { k -> all.optJSONObject(k)?.let { k to it } }.toMap()
+    }
 
     /** A race weekend in the replay addon: its round, place, and the sessions it has (in the order to show them) */
     data class MotorRound(val round: Int, val place: String, val feedId: String, val feedType: String, val sessions: List<MotorSession>)

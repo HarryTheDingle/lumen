@@ -114,7 +114,7 @@ class IptvRepository(
                 sourceName = xtreamSource.name,
                 activeConnections = rawActive,
                 maxConnections = max,
-                reason = "All $max stream slot(s) active ($rawActive/$max in use)",
+                reason = if (max == 1) "Someone is already watching on this provider." else "All $max streams on this provider are in use.",
             )
         }
         return null

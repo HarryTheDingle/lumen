@@ -63,6 +63,18 @@ class Lumos(syncServer: String) {
 
     fun useSession(token: String, account: String) { sync.session = Session(token, account) }
 
+    /** Signs out: the session and everything of the account kept in memory, so the next account to sign in on this TV starts clean */
+    fun signOut() {
+        sync.session = null
+        values.clear()
+        dirty.clear()
+        since = 0
+        viewer = "main"
+        viewerChosen = false
+        choices.clear()
+        stremio = null
+    }
+
     // ---- Profiles ----
 
     fun profiles(): List<Profile> = values["viewers"]?.v?.obj()?.get("list").arr().mapNotNull { it.obj() }.mapNotNull { v ->
@@ -121,6 +133,10 @@ class Lumos(syncServer: String) {
     /** Signs in with a Stremio session key (see [Sync.signInWithStremio]) */
     @Throws(Exception::class)
     suspend fun signInWithStremio(key: String, deviceName: String): Session = sync.signInWithStremio(key, deviceName)
+
+    /** Stremio's session key for a typed email and password (the TV's keyboard); neither is kept */
+    @Throws(Exception::class)
+    suspend fun stremioLogin(email: String, password: String): String = sync.stremioLogin(email, password)
     @Throws(Exception::class)
     suspend fun pollSignIn(pending: PendingSignIn): Session? = sync.poll(pending)
     @Throws(Exception::class)
@@ -393,6 +409,15 @@ class Lumos(syncServer: String) {
 
     @Throws(Exception::class)
     suspend fun f1Standings(series: String = "f1"): String = sync.f1Standings(series)
+
+    @Throws(Exception::class)
+    suspend fun f1Weekend(): String = sync.f1Weekend()
+
+    @Throws(Exception::class)
+    suspend fun sportsTable(league: String): String = sync.sportsTable(league)
+
+    @Throws(Exception::class)
+    suspend fun sportsArt(teams: List<String>): String = sync.sportsArt(teams)
 
     /** Searches UK Football and US pro sports team directories on the sync server. */
     @Throws(Exception::class)

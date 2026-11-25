@@ -3,6 +3,11 @@ package com.notdxbi.dxbi.tv.lumen.live
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -10,12 +15,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.border
@@ -37,12 +44,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.composed
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusProperties
 import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
@@ -62,14 +71,21 @@ import androidx.tv.material3.Text
 import com.notdxbi.dxbi.tv.live.LiveReminders
 import com.notdxbi.dxbi.tv.live.LiveTvStore
 import com.notdxbi.dxbi.tv.lumen.Dx
+import com.notdxbi.dxbi.tv.lumen.centredWhenFocused
+import androidx.compose.ui.layout.onGloballyPositioned
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import lumos.iptv.FixtureStatus
 import lumos.iptv.SportsFixture
+import lumos.iptv.SportsTeamSide
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /** The racing series on the Formula 1 page: ESPN's league code, and the Worker's sport name */
+internal class MotorData(val coming: List<SportsFixture>, val rounds: List<LiveTvStore.MotorRound>, val standings: org.json.JSONObject?, val at: Long)
+private object MotorCache { val map = HashMap<Series, MotorData>() }
+
 private enum class Series(val label: String, val code: String, val sport: String) {
     F1("Formula 1", "f1", "f1"), INDY("IndyCar", "irl", "indycar"), NASCAR("NASCAR", "nascar-premier", "nascar")
 }
@@ -80,26 +96,26 @@ private fun SportsFixture.isRacing() =
 
 /** A sport's tile: the sport, its words, its icon. [ALL] is the whole hub (every sport's matches) */
 internal enum class SportTile(val label: String, val filter: SportFilter?, val icon: ImageVector) {
+    /** Everything on the TV guide that's live sport right now (cricket, rugby, WSL and the rest, which the match feed doesn't carry) */
+    LIVE("Live now", null, Icons.Filled.LiveTv),
     FOOTBALL("Football", SportFilter.FOOTBALL, Icons.Filled.SportsSoccer),
     F1("Motorsports", SportFilter.F1, Icons.Filled.SportsMotorsports),
-    NFL("NFL", SportFilter.NFL, Icons.Filled.SportsFootball),
     NBA("NBA", SportFilter.NBA, Icons.Filled.SportsBasketball),
     NHL("NHL", SportFilter.NHL, Icons.Filled.SportsHockey),
-    MLB("MLB", SportFilter.MLB, Icons.Filled.SportsBaseball),
     UFC("UFC", SportFilter.UFC, Icons.Filled.SportsMma),
     GOLF("Golf", SportFilter.GOLF, Icons.Filled.SportsGolf),
     TENNIS("Tennis", SportFilter.TENNIS, Icons.Filled.SportsTennis),
 }
 
 /** The condensed face for scores and countdowns, as Apple Sports' numerals */
-private val Condensed = androidx.compose.ui.text.font.FontFamily(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD))
+internal val Condensed = androidx.compose.ui.text.font.FontFamily(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD))
 
 /** A team's wash on a match panel: from its name, steady between runs */
 private val PANEL_TINTS = listOf(
     Color(0xFF1B3A8A), Color(0xFF9A1B25), Color(0xFF1F6B3A), Color(0xFF6A3A7A),
     Color(0xFFB36A12), Color(0xFF0F6F7A), Color(0xFF7A1F5A), Color(0xFF3A4A5A),
 )
-private fun tintFor(name: String): Color = PANEL_TINTS[kotlin.math.abs(name.hashCode()) % PANEL_TINTS.size]
+internal fun tintFor(name: String): Color = PANEL_TINTS[kotlin.math.abs(name.hashCode()) % PANEL_TINTS.size]
 
 /**
  * Sports: a row of large glass tiles to choose the sport (favourites first, hold OK to favourite), then that sport's
@@ -113,11 +129,20 @@ fun SportsHomeView(
     hideSportsScores: Boolean,
     contentFocusRequester: FocusRequester,
     onMoveToRail: () -> Unit,
+    nav: com.notdxbi.dxbi.tv.lumen.Nav,
 ) {
     val context = LocalContext.current
     val prefs by store.prefs.collectAsState()
     val schedules by store.teamSchedules.collectAsState()
-    val fixtures by store.sportsFixtures.collectAsState()
+    val rawFixtures by store.sportsFixtures.collectAsState()
+    // (fighters come with ESPN's athlete ids: their headshots are on ESPN's open image host)
+    val fixtures = remember(rawFixtures) {
+        fun side(x: SportsTeamSide?): SportsTeamSide? {
+            val id = x?.id
+            return if (x != null && x.logoUrl.isNullOrBlank() && id != null && id.length >= 5 && id.all { it.isDigit() }) x.copy(logoUrl = "https://a.espncdn.com/i/headshots/mma/players/full/$id.png") else x
+        }
+        rawFixtures.map { f -> if (Regex("ufc|mma", RegexOption.IGNORE_CASE).containsMatchIn(f.sport + " " + f.league + " " + f.leagueName)) f.copy(home = side(f.home), away = side(f.away)) else f }
+    }
     val reminders by LiveReminders.all.collectAsState()
     val lists = androidx.compose.foundation.lazy.rememberLazyListState()
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -138,13 +163,39 @@ fun SportsHomeView(
     var tile by remember {
         mutableStateOf(
             sportPrefs.getString("start", null)?.let { n -> SportTile.entries.firstOrNull { it.name == n } }
-                ?: SportTile.entries.first { it.name in favouriteSports },
+                ?: SportTile.LIVE,
         )
     }
     LaunchedEffect(Unit) { sportPrefs.edit().remove("start").apply() }
     val tiles = remember(favouriteSports) {
-        SportTile.entries.sortedByDescending { it.name in favouriteSports }
+        // (Live now always first, then the favourites)
+        listOf(SportTile.LIVE) + SportTile.entries.filter { it != SportTile.LIVE }.sortedByDescending { it.name in favouriteSports }
     }
+    // What's live sport on the TV guide right now
+    val guideRows by store.mainGuideRows.collectAsState()
+    val tvLive = remember(guideRows, nowMs / 60_000L) {
+        guideRows.mapNotNull { row ->
+            val ch = row.linkedChannel ?: return@mapNotNull null
+            if (!row.isPlayable) return@mapNotNull null
+            val p = store.nowAndNext(ch, nowMs).first
+            if (p != null && p.isLiveSport && p.isOnAt(nowMs)) row to p else null
+        }.distinctBy { it.second.title + it.first.guideChannel.id }.take(40)
+    }
+    // Your teams first, then your favourite sports, then the rest
+    val favTeamWords = remember(prefs.favouriteTeams) { prefs.favouriteTeams.flatMap { listOfNotNull(it.name, it.shortName) }.map(::simpleNorm).filter { it.length >= 3 } }
+    val favTiles = remember(favouriteSports) { SportTile.entries.filter { it.name in favouriteSports && it != SportTile.LIVE } }
+    val tvRanked = remember(tvLive, favTeamWords, favTiles) {
+        tvLive.sortedBy { (row, p) ->
+            val t = " ${simpleNorm(p.title)} "
+            when {
+                favTeamWords.any { t.contains(" $it ") } -> 0
+                favTiles.any { tvForTile(it, row, p) } -> 1
+                else -> 2
+            }
+        }
+    }
+    val seen = remember(tile) { HashSet<String>() }
+    var focusedTv by remember { mutableStateOf<Pair<lumos.iptv.GuideChannelRow, lumos.iptv.EpgProgramme>?>(null) }
 
     LaunchedEffect(Unit) {
         LiveReminders.load(context)
@@ -154,17 +205,45 @@ fun SportsHomeView(
             nowMs = System.currentTimeMillis()
         }
     }
-    LaunchedEffect(tile, series) {
-        if (tile == SportTile.F1) {
-            standings = null
-            comingRaces = emptyList()
-            store.loadSportsFixtures(sport = series.sport)
-            scope.launch { comingRaces = store.upcomingRaces(series.sport, series.code) }
-            if (series == Series.F1) scope.launch { rounds = store.motorReplays() }
-            standings = store.f1Standings(series.code)
-        } else {
+    LaunchedEffect(tile) { focusedTv = null; focusedMatch = null }
+    // The match feed: all sports at once (so moving between tabs never reloads it, or narrows it), refreshed now and then
+    val sportsLoading by store.sportsLoading.collectAsState()
+    var feedReady by remember { mutableStateOf(fixtures.isNotEmpty()) }
+    LaunchedEffect(Unit) {
+        while (true) {
             store.loadSportsFixtures()
+            delay(90_000L)
         }
+    }
+    LaunchedEffect(sportsLoading, fixtures.size) {
+        if (!sportsLoading && fixtures.isNotEmpty()) feedReady = true
+        else if (!feedReady) { delay(4_000L); feedReady = true }
+    }
+    // Formula 1 and the other series: their extras (the next races, the standings, the replays) come before the page shows, so
+    // it arrives in one piece, from the top, rather than the lower half first
+    var motorReady by remember { mutableStateOf(false) }
+    // (the page waits for the series' extras only when you arrive on the tab; moving along the series pills keeps the page, and the
+    // pills, where they are, and swaps what's under them when it's ready)
+    LaunchedEffect(tile) { if (tile == SportTile.F1) motorReady = false }
+    // (the three series' extras are fetched together as the page opens and kept for a few minutes, so the Motorsports tab is
+    // there at once when the remote gets to it, and moving along its pills never waits)
+    suspend fun motorData(sr: Series): MotorData {
+        MotorCache.map[sr]?.takeIf { System.currentTimeMillis() - it.at < 300_000L }?.let { return it }
+        return kotlinx.coroutines.coroutineScope {
+            val a = async { runCatching { store.upcomingRaces(sr.sport, sr.code) }.getOrDefault(emptyList()) }
+            val b = async { if (sr == Series.F1) runCatching { store.motorReplays() }.getOrDefault(emptyList()) else emptyList() }
+            val c = async { runCatching { store.f1Standings(sr.code) }.getOrNull() }
+            MotorData(a.await(), b.await(), c.await(), System.currentTimeMillis()).also { MotorCache.map[sr] = it }
+        }
+    }
+    LaunchedEffect(Unit) {
+        Series.entries.forEach { sr -> launch { motorData(sr) } }
+    }
+    LaunchedEffect(tile, series) {
+        if (tile != SportTile.F1) return@LaunchedEffect
+        val d = motorData(series)
+        comingRaces = d.coming; if (series == Series.F1) rounds = d.rounds; standings = d.standings
+        motorReady = true
     }
     val remindedIds = remember(reminders) { reminders.mapTo(HashSet()) { it.id } }
     val favTeamIds = remember(prefs.favouriteTeams) { prefs.favouriteTeams.mapTo(HashSet()) { it.teamId } }
@@ -200,148 +279,355 @@ fun SportsHomeView(
         sportPrefs.edit().putStringSet("favourites", favouriteSports).apply()
     }
 
-    // (Up from a sport's page lands back on that sport's tile, not on whichever tile is above the remote)
+    // ---- What's on the page for the chosen sport (worked out here, so the page is one list of rows)
+    val f1 = remember(fixtures, series) {
+        fixtures.filter { it.isRacing() && it.league.equals(series.code, true) }.sortedBy { it.startMs }
+    }
+    val nextRace = f1.firstOrNull { it.status == FixtureStatus.LIVE } ?: (f1.filter { it.status == FixtureStatus.UPCOMING } + comingRaces).distinctBy { it.id }.minByOrNull { it.startMs }
+    val mine = remember(schedules) { schedules.flatMap { it.live + it.upcoming + it.past } }
+    val sportFilter = tile.filter
+    val pool = remember(fixtures, mine, tile) {
+        (fixtures + mine).distinctBy { it.id }.filter { sportFilter == null || matchesSport(it, sportFilter) }
+    }
+    fun isMine(f: SportsFixture) = f.home?.id in favTeamIds || f.away?.id in favTeamIds
+    val live = pool.filter { it.status == FixtureStatus.LIVE }.sortedWith(compareBy({ !isMine(it) }, { it.startMs }))
+    val upcoming = pool.filter { it.status == FixtureStatus.UPCOMING }.sortedWith(compareBy({ !isMine(it) }, { it.startMs })).take(12)
+    val past = pool.filter { it.status == FixtureStatus.FINAL }.sortedWith(compareBy({ !isMine(it) }, { -it.startMs })).take(10)
+    // (golf and the like have no two sides: an event, not a match)
+    fun sided(f: SportsFixture) = !f.home?.name.isNullOrBlank() && !f.away?.name.isNullOrBlank()
+    val events = pool.filterNot { sided(it) }
+    // (the Live now page has only what is live: no event ten days off, however big)
+    val heroEvent = events.firstOrNull { it.status == FixtureStatus.LIVE }
+        ?: if (tile == SportTile.LIVE) null else (events.filter { it.status == FixtureStatus.UPCOMING }.minByOrNull { it.startMs }
+            ?: events.filter { it.status == FixtureStatus.FINAL }.maxByOrNull { it.startMs })
+    val detailFor = focusedMatch?.takeIf { f -> pool.any { it.id == f.id } } ?: (if (tile == SportTile.LIVE) live else live + upcoming).firstOrNull { sided(it) }
+    val tvShown = if (tile == SportTile.LIVE) tvRanked else tvRanked.filter { tvForTile(tile, it.first, it.second) }
+    // The billboard: the match or programme the remote is on; before it's on one, a live match (yours first), else what's
+    // live on TV, else the next match
+    val tvTop = focusedTv?.takeIf { f -> tvShown.any { it.second.title == f.second.title && it.first.guideChannel.id == f.first.guideChannel.id } }
+        ?: if (detailFor == null || (tile == SportTile.LIVE && detailFor.status != FixtureStatus.LIVE)) tvShown.firstOrNull() else null
+    val billboardMatch = if (tvTop != null && focusedTv != null) null else detailFor?.takeIf { tile != SportTile.LIVE || it.status == FixtureStatus.LIVE }
+    // the glow behind the top of the page: the chosen match's two sides' colours (Formula 1: red)
+    var glow by remember { mutableStateOf(Color(0xFF1B3A8A) to Color(0xFF9A1B25)) }
+    LaunchedEffect(tile, detailFor?.id, tvTop?.second?.title, billboardMatch?.id) {
+        glow = when {
+            tile == SportTile.F1 -> Color(0xFFE10600) to Color(0xFF4A0A0A)
+            billboardMatch != null -> tintFor(billboardMatch.home?.name ?: billboardMatch.name) to tintFor(billboardMatch.away?.name ?: billboardMatch.leagueName)
+            tvTop != null -> tintFor(tvTop.second.title) to tintFor(tvTop.first.guideChannel.name)
+            else -> tintFor(tile.label) to tintFor(tile.label + "x")
+        }
+    }
+    // (Up from a sport's page lands back on that sport's pill, not on whichever pill is above the remote)
     val chosenTile = remember { FocusRequester() }
+    // (Down from the Motorsports pill goes into the page, as Down does from a film's buttons; the series pills are met on the way back up)
+    val heroFocus = remember { FocusRequester() }
+    val seriesFocus = remember { FocusRequester() }
     val tileRow = androidx.compose.foundation.lazy.rememberLazyListState()
-    Column(Modifier.fillMaxSize().background(Dx.Background)) {
-        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides com.notdxbi.dxbi.tv.lumen.rememberRowScrolling()) {
-        LazyRow(
-            state = tileRow,
-            modifier = Modifier
-                .focusProperties {
-                    onEnter = {
-                        val idx = tiles.indexOf(tile)
-                        if (requestedFocusDirection == androidx.compose.ui.focus.FocusDirection.Up &&
-                            tileRow.layoutInfo.visibleItemsInfo.any { it.index == idx }
-                        ) {
-                            chosenTile.requestFocus()
+    val pageScroller = remember(lists) { com.notdxbi.dxbi.tv.lumen.PageScroller(lists, scope) }
+    // a new sport starts at the top of its page
+    LaunchedEffect(tile) { lists.scrollToItem(0) }
+
+    // ---- The extras: Formula 1's weekend, the football tables, and the teams' pictures (all through the Worker, kept a while)
+    var weekend by remember { mutableStateOf<F1Weekend?>(null) }
+    var weekendDone by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val j = runCatching { store.f1Weekend() }.getOrNull()
+        weekend = parseWeekend(j); weekendDone = true
+    }
+    val footballTeams = remember(prefs.favouriteTeams) { prefs.favouriteTeams.filter { it.sport.contains("football", true) || it.sport.contains("soccer", true) || it.league.startsWith("eng") || it.league.contains(".") } }
+    val tableLeagues = remember(footballTeams) { (listOf("eng.1") + footballTeams.map { it.league }).distinct() }
+    var tables by remember { mutableStateOf<Map<String, LeagueTable>>(emptyMap()) }
+    LaunchedEffect(tableLeagues) {
+        tableLeagues.forEach { l -> launch { parseTable(runCatching { store.sportsTable(l) }.getOrNull())?.let { t -> tables = tables + (l to t) } } }
+    }
+    var art by remember { mutableStateOf<Map<String, org.json.JSONObject>>(emptyMap()) }
+    fun fanart(name: String?, pick: Int = 0): String? = name?.let { n ->
+        art[n]?.optJSONArray("fanart")?.let { a -> if (a.length() == 0) null else a.optString(pick % a.length()) }?.takeIf { it.isNotBlank() }
+    }
+    // (TheSportsDB's league pictures, for when a team has none: ESPN's league codes to TheSportsDB's)
+    val sportsDbLeague = mapOf(
+        "eng.1" to "4328", "eng.2" to "4329", "eng.3" to "4396", "uefa.champions" to "4480", "uefa.europa" to "4481",
+        "eng.fa" to "4482", "eng.league_cup" to "4570", "sco.1" to "4330", "f1" to "4370",
+    )
+    fun leagueArt(league: String?, pick: Int = 0): String? = league?.let { sportsDbLeague[it] }?.let { fanart("league:$it", pick) }
+    val footballMineIds = remember(footballTeams) { footballTeams.mapTo(HashSet()) { it.teamId } }
+    val footballSchedules = schedules.filter { it.team.teamId in footballMineIds }
+    val teamCards = footballTeams.map { t ->
+        val g = footballSchedules.firstOrNull { it.team.teamId == t.teamId }
+        val tbl = tables[t.league]
+        TeamCardData(
+            team = t,
+            row = tbl?.rows?.firstOrNull { it.id == t.teamId },
+            leagueName = tbl?.name ?: t.leagueName,
+            form = g?.past?.sortedByDescending { it.startMs }?.take(5)?.reversed()?.mapNotNull { resultFor(it, t.teamId) } ?: emptyList(),
+            next = g?.let { (it.live + it.upcoming).minByOrNull { f -> f.startMs } },
+            last = g?.past?.maxByOrNull { it.startMs },
+        )
+    }
+
+    // ---- The billboard for the sport on show: one picture, its words, a countdown to what's next, and what OK does
+    fun fixtureBillboard(f: SportsFixture, accent: Color): BillboardData {
+        val live = f.status == FixtureStatus.LIVE
+        val score = if (hideSportsScores || f.home?.score == null) null else "${f.home?.score} – ${f.away?.score ?: "0"}"
+        val reminded = "fixture:${f.id}" in remindedIds
+        val mineSide = listOfNotNull(f.home, f.away).firstOrNull { it.id in favTeamIds }
+        return BillboardData(
+            key = "fx:${f.id}",
+            // (your team's own picture for its matches; the competition's action photos for anyone else's)
+            art = fanart(mineSide?.name) ?: leagueArt(f.league, kotlin.math.abs(f.id.hashCode())) ?: fanart(f.home?.name) ?: fanart(f.away?.name),
+            kicker = listOfNotNull(f.leagueName.takeIf { it.isNotBlank() }, f.venue).joinToString("  ·  "),
+            title = fixtureTitle(f),
+            line = when (f.status) {
+                FixtureStatus.LIVE -> listOfNotNull("Live", f.clock, score, f.ukChannelName).joinToString("  ·  ")
+                FixtureStatus.FINAL -> listOfNotNull("Full time", score).joinToString("  ·  ")
+                else -> listOfNotNull(SimpleDateFormat("EEE d MMM", Locale.UK).format(Date(f.startMs)), timeLabel(f.startMs), f.ukChannelName).joinToString("  ·  ")
+            },
+            home = f.home, away = f.away, live = live,
+            countdownTo = if (f.status == FixtureStatus.UPCOMING) f.startMs else null,
+            countdownLabel = if (f.isRacing()) "Starts in" else "Kick-off in",
+            primary = when { live -> "Watch live"; f.status == FixtureStatus.UPCOMING -> if (reminded) "Reminder set" else "Remind me"; else -> "Match details" },
+            primaryIcon = when { live -> Icons.Filled.PlayArrow; f.status == FixtureStatus.UPCOMING -> if (reminded) Icons.Filled.NotificationsActive else Icons.Filled.Notifications; else -> Icons.Filled.Info },
+            onPrimary = { when { live -> store.playFixture(context, f); f.status == FixtureStatus.UPCOMING -> toggleReminder(f); else -> openMatch = f } },
+            secondary = if (f.status != FixtureStatus.FINAL && f.home != null) "Match details" else null,
+            secondaryIcon = Icons.Filled.Info,
+            onSecondary = { openMatch = f },
+            accent = accent,
+        )
+    }
+    fun tvBillboard(row: lumos.iptv.GuideChannelRow, p: lumos.iptv.EpgProgramme, zap: List<String>, art: String? = null) = BillboardData(
+        key = "tv:${row.guideChannel.id}:${p.startMs}",
+        art = p.iconUrl?.takeIf { it.isNotBlank() } ?: art,
+        kicker = row.guideChannel.name,
+        title = p.title,
+        line = "Live  ·  until ${timeLabel(p.endMs)}",
+        live = true,
+        primary = "Watch live",
+        onPrimary = { store.playGuideRow(context, row, zapChannelIds = zap) },
+        accent = tintFor(p.title),
+    )
+    val racingWords = Regex(when (series) { Series.F1 -> "formula|f1|grand prix|qualifying|motorsport"; Series.INDY -> "indycar|indy 500|indy car"; Series.NASCAR -> "nascar" }, RegexOption.IGNORE_CASE)
+    val racingTv = tvRanked.filter { (row, p) -> racingWords.containsMatchIn(p.title + " " + row.guideChannel.name) }
+    val favLive = footballSchedules.flatMap { it.live }.firstOrNull()
+    val favNext = footballSchedules.flatMap { it.upcoming }.filter { it.startMs > nowMs - 3 * 3_600_000L }.minByOrNull { it.startMs }
+    val bill: BillboardData? = when (tile) {
+        SportTile.F1 -> {
+            val w = weekend
+            // (what's on Sky Sports F1 is only the race's own billboard while a session of the weekend is on: a replay of the
+            // last race isn't "live now")
+            val sessionOn = w != null && w.sessions.any { (_, at) -> nowMs in at..(at + 2 * 3_600_000L) }
+            val top = if (series == Series.F1 && w != null && !sessionOn) null else racingTv.firstOrNull()
+            if (series == Series.F1 && w != null) {
+                val next = w.sessions.firstOrNull { it.second > nowMs } ?: w.sessions.lastOrNull()
+                val raceId = "f1:${w.season}:${w.round}"
+                val reminded = raceId in remindedIds
+                BillboardData(
+                    key = "f1:${w.season}:${w.round}:${top != null}",
+                    art = leagueArt("f1", w.round ?: 0) ?: top?.second?.iconUrl?.takeIf { it.isNotBlank() } ?: w.thumb,
+                    kicker = listOfNotNull("Formula 1", w.round?.let { "Round $it" }, "${w.locality}, ${w.country}").joinToString("  ·  "),
+                    title = w.raceName,
+                    line = if (top != null) "Live now on ${top.first.guideChannel.name}" else w.raceMs?.let { "Race  ·  ${SimpleDateFormat("EEE d MMM", Locale.UK).format(Date(it))}  ·  ${timeLabel(it)}" + (nextRace?.ukChannelName?.let { c -> "  ·  $c" } ?: "") },
+                    live = top != null,
+                    countdownTo = next?.second,
+                    countdownLabel = next?.let { "${it.first} starts in" },
+                    primary = if (top != null) "Watch live" else if (reminded) "Reminder set" else "Remind me",
+                    primaryIcon = if (top != null) Icons.Filled.PlayArrow else if (reminded) Icons.Filled.NotificationsActive else Icons.Filled.Notifications,
+                    onPrimary = {
+                        if (top != null) store.playGuideRow(context, top.first, zapChannelIds = racingTv.mapNotNull { it.first.linkedChannel?.id })
+                        else w.raceMs?.let { at ->
+                            android.widget.Toast.makeText(context, if (reminded) "Reminder removed" else "We'll remind you before the ${w.raceName} starts", android.widget.Toast.LENGTH_SHORT).show()
+                            LiveReminders.toggle(context, LiveReminders.Reminder(id = raceId, title = w.raceName, startMs = at, channelId = null, channelName = nextRace?.ukChannelName, fixtureId = nextRace?.id))
                         }
-                    }
-                }
-                .background(Dx.Background)
-                .padding(top = 14.dp)
-                // (back up on the tiles: the page goes to its top)
-                .onFocusChanged { if (it.hasFocus) scope.launch { lists.animateScrollToItem(0) } },
-            contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            items(tiles.size, key = { tiles[it].name }) { i ->
-                val t = tiles[i]
-                SportTileButton(
-                    tile = t,
-                    favourite = t.name in favouriteSports,
-                    selected = tile == t,
-                    onClick = { tile = t },
-                    onLongClick = { toggleFavouriteSport(t) },
-                    modifier = (if (i == 0) Modifier.focusRequester(contentFocusRequester) else Modifier)
-                        .then(if (t == tile) Modifier.focusRequester(chosenTile) else Modifier)
-                        .onPreviewKeyEvent { ev ->
-                            if (i == 0 && ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionLeft) { onMoveToRail(); true } else false
-                        },
+                    },
+                    accent = Color(0xFFE10600),
                 )
+            } else {
+                val shownF = nextRace ?: f1.filter { it.status == FixtureStatus.FINAL }.maxByOrNull { it.startMs }
+                when {
+                    top != null -> tvBillboard(top.first, top.second, racingTv.mapNotNull { it.first.linkedChannel?.id })
+                    shownF != null -> fixtureBillboard(shownF.copy(home = null, away = null), Color(0xFFE10600))
+                    else -> null
+                }
             }
         }
+        SportTile.FOOTBALL -> {
+            val f = favLive ?: live.firstOrNull { sided(it) } ?: favNext ?: upcoming.firstOrNull { sided(it) }
+            when {
+                f != null && (f.status == FixtureStatus.LIVE || tvShown.isEmpty() || f == favNext) -> fixtureBillboard(f, tintFor(f.home?.name ?: f.name))
+                tvShown.isNotEmpty() -> tvShown.first().let { (r, p) -> tvBillboard(r, p, tvShown.mapNotNull { it.first.linkedChannel?.id }) }
+                f != null -> fixtureBillboard(f, tintFor(f.home?.name ?: f.name))
+                else -> null
+            }
+        }
+        else -> when {
+            billboardMatch != null && (billboardMatch.status == FixtureStatus.LIVE || tvTop == null) -> fixtureBillboard(billboardMatch, tintFor(billboardMatch.home?.name ?: billboardMatch.name))
+            tvTop != null -> tvBillboard(tvTop.first, tvTop.second, tvShown.mapNotNull { it.first.linkedChannel?.id })
+            billboardMatch != null -> fixtureBillboard(billboardMatch, tintFor(billboardMatch.home?.name ?: billboardMatch.name))
+            heroEvent != null -> fixtureBillboard(heroEvent, tintFor(tile.label))
+            else -> null
+        }
+    }
+    // (the pictures wanted on this page: your teams', and the billboard's two sides')
+    val artNames = remember(footballTeams, bill?.home?.name, bill?.away?.name) {
+        (sportsDbLeague.values.map { "league:$it" } + footballTeams.map { it.name } + listOfNotNull(bill?.home?.name, bill?.away?.name)).distinct()
+    }
+    LaunchedEffect(artNames) {
+        val want = artNames.filter { it !in art }
+        if (want.isNotEmpty()) art = art + runCatching { store.sportsArt(want) }.getOrDefault(emptyMap())
+    }
+
+    Box(Modifier.fillMaxSize().background(Dx.Background)) {
+    SportsGlow(glow.first, glow.second)
+    BillboardBackdrop(bill?.art, lists)
+    // The whole page is one list of rows, as a film's page is: the sports along the top are the first row, and scroll away with
+    // the rest; each row centres itself as the remote comes to it, in the page's one soft glide
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides SportsNoScroll,
+        com.notdxbi.dxbi.tv.lumen.LocalPageScroller provides pageScroller,
+    ) {
+    LazyColumn(
+        state = lists,
+        modifier = Modifier.fillMaxSize().onGloballyPositioned { pageScroller.viewport = it },
+        contentPadding = PaddingValues(bottom = 120.dp),
+    ) {
+        // (the page tag and the sports share the top line, as the menu and the clock do; they scroll away together)
+        item(key = "pills") {
+            Row(Modifier.fillMaxWidth().height(66.dp)) {
+            LivePageTag(LiveSection.SPORTS, nav, compact = true)
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides com.notdxbi.dxbi.tv.lumen.rememberRowScrolling()) {
+            LazyRow(
+                state = tileRow,
+                modifier = Modifier
+                    .focusProperties {
+                        onEnter = {
+                            val idx = tiles.indexOf(tile)
+                            if (requestedFocusDirection == androidx.compose.ui.focus.FocusDirection.Up &&
+                                tileRow.layoutInfo.visibleItemsInfo.any { it.index == idx }
+                            ) {
+                                chosenTile.requestFocus()
+                            }
+                        }
+                    }
+                    // (Down from Motorsports goes into the page, not onto the series pills below the pill)
+                    .onPreviewKeyEvent { ev ->
+                        if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionDown && tile == SportTile.F1 && motorReady) runCatching { heroFocus.requestFocus() }.getOrDefault(false) else false
+                    }
+                    // (back up on the pills: the page goes to its top)
+                    .onFocusChanged { if (it.hasFocus) pageScroller.toTop() }
+                    .weight(1f).padding(top = 21.dp),
+                contentPadding = PaddingValues(start = 12.dp, end = 130.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(tiles.size, key = { tiles[it].name }) { i ->
+                    val t = tiles[i]
+                    SportTileButton(
+                        tile = t,
+                        favourite = t.name in favouriteSports,
+                        selected = tile == t,
+                        onClick = { tile = t },
+                        // (the page follows the remote along the pills: no second press to open a sport)
+                        onFocus = { tile = t },
+                        onLongClick = { toggleFavouriteSport(t) },
+                        modifier = (if (i == 0) Modifier.focusRequester(contentFocusRequester) else Modifier)
+                            .then(if (t == tile) Modifier.focusRequester(chosenTile) else Modifier)
+                            .onPreviewKeyEvent { ev ->
+                                if (i == 0 && ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionLeft) { onMoveToRail(); true } else false
+                            },
+                    )
+                }
+            }
+            }
+            }
         }
 
-        when (tile) {
-            SportTile.F1 -> {
-                val f1 = remember(fixtures, series) {
-                    fixtures.filter { it.isRacing() && it.league.equals(series.code, true) }.sortedBy { it.startMs }
+        if (!feedReady || (tile == SportTile.F1 && (!motorReady || (series == Series.F1 && !weekendDone)))) {
+            // (nothing until the feed, and for Formula 1 its extras, have come: then the page builds in from the top)
+            item(key = "loading") {
+                Box(Modifier.fillMaxWidth().height(240.dp).padding(start = Dx.Gutter, top = 36.dp)) { Text("Loading…", fontSize = 14.sp, color = Color.White.copy(alpha = 0.4f)) }
+            }
+        } else if (tile == SportTile.F1) {
+            item(key = "series") {
+                // (the series along small pills, as the sports', and the page follows the remote along them)
+                Row(
+                    Modifier.padding(horizontal = Dx.Gutter, vertical = 6.dp)
+                        // (back up into the series: the one being shown, not whichever is above the remote)
+                        .focusProperties { onEnter = { if (requestedFocusDirection == androidx.compose.ui.focus.FocusDirection.Up) runCatching { seriesFocus.requestFocus() } } }
+                        .focusGroup()
+                        .onFocusChanged { if (it.hasFocus) pageScroller.toTop() }.loadIn(seen, "series"),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Series.entries.forEach { sr -> PillButton(sr.label, selected = series == sr, onClick = { series = sr }, height = 34.dp, onFocus = { series = sr }, modifier = if (sr == series) Modifier.focusRequester(seriesFocus) else Modifier) }
                 }
-                val next = f1.firstOrNull { it.status == FixtureStatus.LIVE } ?: (f1.filter { it.status == FixtureStatus.UPCOMING } + comingRaces).distinctBy { it.id }.minByOrNull { it.startMs }
-                LazyColumn(state = lists, contentPadding = PaddingValues(top = 8.dp, bottom = 40.dp)) {
-                    item(key = "series") {
-                        Row(Modifier.padding(horizontal = Dx.Gutter, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Series.entries.forEach { sr -> LiveChip(label = sr.label, selected = series == sr, onClick = { series = sr }) }
-                        }
-                    }
-                    item(key = "hero") {
-                        val done = f1.filter { it.status == FixtureStatus.FINAL }.sortedByDescending { it.startMs }
-                        val shown = next ?: done.firstOrNull()
-                        // (the replay addon's weekend for the one shown: replays are only offered when it has them)
-                        fun roundFor(f: SportsFixture?) = if (series != Series.F1) null else f?.let { x -> rounds.firstOrNull { placeMatches(it.place, x.name + " " + (x.venue ?: "")) } }
-                        val shownRound = if (shown?.status == FixtureStatus.FINAL) roundFor(shown) else null
-                        val replayRound = if (series == Series.F1) shownRound ?: rounds.firstOrNull() else null
-                        Row(Modifier.padding(horizontal = Dx.Gutter, vertical = 8.dp).fillMaxWidth().height(184.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                            shown?.let { n ->
-                                val race = shownRound?.sessions?.firstOrNull { it.label == "Race" } ?: shownRound?.sessions?.firstOrNull()
-                                RaceHero(
-                                    fixture = n, nowMs = nowMs, reminded = "fixture:${n.id}" in remindedIds,
-                                    wash = Color(0xFFE10600),
-                                    canReplay = series == Series.F1 && race != null,
-                                    onWatch = {
-                                        if (n.status == FixtureStatus.FINAL) { if (race != null && shownRound != null) playMotor(shownRound, race) }
-                                        else store.playFixture(context, n)
-                                    },
-                                    onRemind = { toggleReminder(n) },
-                                    modifier = Modifier.weight(1.3f).fillMaxHeight(),
-                                )
-                            }
-                            // (replays come from the Formula 1 addon only: the other series have none until there is a source)
-                            if (series == Series.F1) ReplaysPanel(replayRound, onPick = { r, sess -> playMotor(r, sess) }, modifier = Modifier.weight(1f).fillMaxHeight())
-                        }
-                    }
-                    standings?.let { st -> item(key = "standings") { F1Standings(st, favRacers, ::toggleRacer, Modifier.padding(horizontal = Dx.Gutter, vertical = 8.dp)) } }
-                    fixtureSection("Live now", f1.filter { it.status == FixtureStatus.LIVE }, nowMs, hideSportsScores, remindedIds) { store.playFixture(context, it) }
-                    fixtureSection("Coming up", f1.filter { it.status == FixtureStatus.UPCOMING }.drop(if (next?.status == FixtureStatus.UPCOMING) 1 else 0).take(8), nowMs, hideSportsScores, remindedIds) { toggleReminder(it) }
-                    if (f1.isEmpty()) item(key = "empty") {
-                        Text("No ${series.label} races in the next few days.", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(start = Dx.Gutter, top = 24.dp))
+            }
+            bill?.let { b ->
+                item(key = "billboard") {
+                    BigBillboard(b, Modifier.focusRequester(heroFocus).focusGroup().loadIn(seen, "billboard:${b.key}").centredWhenFocused())
+                }
+            }
+            val w = weekend
+            if (series == Series.F1 && w != null) {
+                // (the weekend's times and the circuit side by side: information in one place, not a box each)
+                item(key = "weekend") {
+                    Row(Modifier.padding(horizontal = Dx.Gutter, vertical = 12.dp).fillMaxWidth().height(330.dp).loadIn(seen, "weekend").centredWhenFocused(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        WeekendPanel(w, nowMs, nextRace?.ukChannelName, Modifier.weight(1f).fillMaxHeight())
+                        CircuitPanel(w, Modifier.weight(1.25f).fillMaxHeight())
                     }
                 }
             }
-            else -> {
-                val mine = remember(schedules) { schedules.flatMap { it.live + it.upcoming + it.past } }
-                val sportFilter = tile.filter
-                val pool = remember(fixtures, mine, tile) {
-                    (fixtures + mine).distinctBy { it.id }.filter { sportFilter == null || matchesSport(it, sportFilter) }
+            tvLiveSection(racingTv, nowMs, emptyList(), hideSportsScores, seen, { _, _ -> }) { row, _ -> store.playGuideRow(context, row, zapChannelIds = racingTv.mapNotNull { it.first.linkedChannel?.id }) }
+            if (series == Series.F1) {
+                // (the replays' cards wear that race's own picture from the TV guide when it's on there, else a Formula 1 photo)
+                val round = rounds.firstOrNull()
+                val roundArt = round?.let { r -> tvRanked.firstOrNull { (_, p) -> placeMatches(r.place, p.title) && !p.iconUrl.isNullOrBlank() }?.second?.iconUrl }
+                replayCards(round, roundArt ?: leagueArt("f1", 1), seen) { r, sess -> playMotor(r, sess) }
+            }
+            fixtureSection("Live now", f1.filter { it.status == FixtureStatus.LIVE }, nowMs, hideSportsScores, remindedIds, seen) { store.playFixture(context, it) }
+            fixtureSection("Races to come", f1.filter { it.status == FixtureStatus.UPCOMING }.drop(if (nextRace?.status == FixtureStatus.UPCOMING) 1 else 0).take(8), nowMs, hideSportsScores, remindedIds, seen) { toggleReminder(it) }
+            standings?.let { st -> item(key = "standings") { F1Standings(st, favRacers, ::toggleRacer, Modifier.padding(horizontal = Dx.Gutter, vertical = 10.dp).loadIn(seen, "standings").centredWhenFocused()) } }
+            if (f1.isEmpty() && w == null) item(key = "empty") {
+                Text("No ${series.label} races in the next few days.", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(start = Dx.Gutter, top = 24.dp))
+            }
+        } else {
+            bill?.let { b ->
+                item(key = "billboard") {
+                    BigBillboard(b, Modifier.focusGroup().loadIn(seen, "billboard:${b.key}").centredWhenFocused())
                 }
-                fun isMine(f: SportsFixture) = f.home?.id in favTeamIds || f.away?.id in favTeamIds
-                val live = pool.filter { it.status == FixtureStatus.LIVE }.sortedWith(compareBy({ !isMine(it) }, { it.startMs }))
-                val upcoming = pool.filter { it.status == FixtureStatus.UPCOMING }.sortedWith(compareBy({ !isMine(it) }, { it.startMs })).take(12)
-                val past = pool.filter { it.status == FixtureStatus.FINAL }.sortedWith(compareBy({ !isMine(it) }, { -it.startMs })).take(10)
-                val headline: SportsFixture? = null
-                // (golf and the like have no two sides: an event, not a match)
-                fun sided(f: SportsFixture) = !f.home?.name.isNullOrBlank() && !f.away?.name.isNullOrBlank()
-                val events = pool.filterNot { sided(it) }
-                val heroEvent = events.firstOrNull { it.status == FixtureStatus.LIVE } ?: events.filter { it.status == FixtureStatus.UPCOMING }.minByOrNull { it.startMs }
-                    ?: events.filter { it.status == FixtureStatus.FINAL }.maxByOrNull { it.startMs }
-                val detailFor = focusedMatch?.takeIf { f -> pool.any { it.id == f.id } } ?: (live + upcoming).firstOrNull { sided(it) }
-                Column(Modifier.fillMaxSize()) {
-                    // (pinned: it stays while the cards scroll beneath)
-                    detailFor?.let { d ->
-                        MatchDetail(d, nowMs, hideSportsScores, reminded = "fixture:${d.id}" in remindedIds, modifier = Modifier.padding(horizontal = Dx.Gutter, vertical = 8.dp).fillMaxWidth().height(138.dp))
-                    }
-                                    LazyColumn(Modifier.weight(1f), state = lists, contentPadding = PaddingValues(top = 8.dp, bottom = 40.dp)) {
-                    item(key = "title") {
-                        Row(Modifier.fillMaxWidth().padding(start = Dx.Gutter, end = Dx.Gutter, top = 22.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("${tile.label} · ${dayLabel(nowMs, nowMs)}", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            if (tile in teamSports) LiveChip(label = if (prefs.favouriteTeams.isEmpty()) "Add your teams" else "Add a team", selected = false, onClick = { addingTeam = true })
-                        }
-                    }
-                    heroEvent?.let { h ->
-                        item(key = "event-hero") {
-                            RaceHero(
-                                fixture = h, nowMs = nowMs, reminded = "fixture:${h.id}" in remindedIds,
-                                wash = tintFor(tile.label),
-                                canReplay = false,
-                                onWatch = { if (h.status != FixtureStatus.FINAL) store.playFixture(context, h) }, onRemind = { toggleReminder(h) },
-                                modifier = Modifier.padding(horizontal = Dx.Gutter, vertical = 8.dp).fillMaxWidth().height(150.dp),
-                            )
-                        }
-                    }
-                    panelSection("Live now", live.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds, { focusedMatch = it }) { store.playFixture(context, it) }
-                    panelSection("Coming up", upcoming.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds, { focusedMatch = it }) { toggleReminder(it) }
-                    panelSection("Results", past.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds, { focusedMatch = it }) { openMatch = it }
-                    eventSection("Events", events.filter { it != heroEvent }.sortedBy { if (it.status == FixtureStatus.FINAL) Long.MAX_VALUE - it.startMs else it.startMs }.take(12), tintFor(tile.label), nowMs) {
-                        if (it.status == FixtureStatus.LIVE) store.playFixture(context, it) else toggleReminder(it)
-                    }
-                    if (pool.isEmpty()) item(key = "empty") {
-                        Text("No ${tile.label} matches coming up.", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(start = Dx.Gutter, top = 24.dp))
-                    }
+            }
+            if (tile == SportTile.FOOTBALL) {
+                // Football: your teams first (where they stand, their form, what's next), then what's on, then the tables
+                teamsSection(teamCards, nowMs, seen) { c -> (c.next ?: c.last)?.let { openMatch = it } }
+                panelSection("Live now", live.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds, { }, seen) { openMatch = it }
+                tvLiveSection(tvShown, nowMs, (fixtures + mine).distinctBy { it.id }, hideSportsScores, seen, { _, _ -> }) { row, _ -> store.playGuideRow(context, row, zapChannelIds = tvShown.mapNotNull { it.first.linkedChannel?.id }) }
+                panelSection("Coming up", upcoming.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds, { }, seen) { openMatch = it }
+                tables["eng.1"]?.let { tableSection(it, footballMineIds, seen) }
+                tableLeagues.filter { it != "eng.1" }.forEach { l -> tables[l]?.let { tableSection(it, footballMineIds, seen, window = true) } }
+                panelSection("Results", past.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds, { }, seen) { openMatch = it }
+            } else {
+                // (every sport's page leads with what's live for it on the TV guide, the match feed or not)
+                tvLiveSection(tvShown, nowMs, (fixtures + mine).distinctBy { it.id }, hideSportsScores, seen, { _, _ -> }) { row, _ -> store.playGuideRow(context, row, zapChannelIds = tvShown.mapNotNull { it.first.linkedChannel?.id }) }
+                if (tile == SportTile.LIVE && tvShown.isEmpty() && live.isEmpty()) item(key = "nothing-live") {
+                    Text("Nothing live right now. Coming up is under each sport.", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(start = Dx.Gutter, top = 24.dp))
                 }
+                panelSection("Live now", live.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds, { }, seen) { store.playFixture(context, it) }
+                if (tile != SportTile.LIVE) {
+                    panelSection("Coming up", upcoming.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds, { }, seen) { openMatch = it }
+                    panelSection("Results", past.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds, { }, seen) { openMatch = it }
+                }
+                eventSection("Events", events.filter { (tile != SportTile.LIVE || it.status == FixtureStatus.LIVE) && bill?.key != "fx:${it.id}" }.sortedBy { if (it.status == FixtureStatus.FINAL) Long.MAX_VALUE - it.startMs else it.startMs }.take(12), tintFor(tile.label), nowMs, seen) {
+                    if (it.status == FixtureStatus.LIVE) store.playFixture(context, it) else toggleReminder(it)
+                }
+            }
+            if (pool.isEmpty() && tile != SportTile.LIVE) item(key = "empty") {
+                Text("No ${tile.label} matches coming up.", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(start = Dx.Gutter, top = 24.dp))
+            }
+            // (at the foot of the page, out of the way of what's on)
+            if (tile in teamSports) item(key = "add-team") {
+                Row(Modifier.fillMaxWidth().padding(start = Dx.Gutter, end = Dx.Gutter, top = 28.dp).centredWhenFocused(), horizontalArrangement = Arrangement.Start) {
+                    LiveChip(label = if (prefs.favouriteTeams.isEmpty()) "Add your teams" else "Add a team", selected = false, onClick = { addingTeam = true })
                 }
             }
         }
+    }
+    }
     }
 
     openMatch?.let { f ->
@@ -367,10 +653,67 @@ fun SportsHomeView(
     }
 }
 
-/** The sports whose matches are between teams (the others have events, or their own page) */
-private val teamSports = setOf(SportTile.FOOTBALL, SportTile.NFL, SportTile.NBA, SportTile.NHL, SportTile.MLB)
+/** The page asks for no scrolling of its own when something in it is chosen: its rows centre themselves, in the page's glide */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private object SportsNoScroll : androidx.compose.foundation.gestures.BringIntoViewSpec {
+    override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> get() = com.notdxbi.dxbi.tv.lumen.PageGlide
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = 0f
+}
 
-/** A sport's large glass tile: its icon and words; ★ when it's a favourite; hold OK to favourite */
+/** The sports whose matches are between teams (the others have events, or their own page) */
+private val teamSports = setOf(SportTile.FOOTBALL, SportTile.NBA, SportTile.NHL)
+
+/** What a page's parts do as they arrive: fade up and slide in from below, one after another, only the first time on a tab */
+internal fun Modifier.loadIn(seen: MutableSet<String>, key: String, index: Int = 0): Modifier = composed {
+    val first = remember { seen.add(key) }
+    var shown by remember { mutableStateOf(!first) }
+    LaunchedEffect(Unit) { if (!shown) { delay(70L * index.coerceAtMost(10)); shown = true } }
+    val p by androidx.compose.animation.core.animateFloatAsState(if (shown) 1f else 0f, androidx.compose.animation.core.tween(560, easing = Dx.Ease), label = "load-in")
+    val up = with(androidx.compose.ui.platform.LocalDensity.current) { 26.dp.toPx() }
+    Modifier.graphicsLayer {
+        alpha = p
+        translationY = (1f - p) * up
+        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+    }
+}
+
+private fun simpleNorm(s: String) = s.lowercase().replace(Regex("[^a-z0-9 ]"), " ").replace(Regex("\\s+"), " ").trim()
+
+/** A pill: its words on faint glass, white when the remote is on it; a small star when it's a favourite */
+@Composable
+private fun PillButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    favourite: Boolean = false,
+    height: androidx.compose.ui.unit.Dp = 40.dp,
+    onLongClick: (() -> Unit)? = null,
+    onFocus: (() -> Unit)? = null,
+) {
+    GlassTile(
+        onClick = onClick,
+        onLongClick = onLongClick,
+        onFocus = onFocus,
+        modifier = modifier.height(height),
+        shape = RoundedCornerShape(50),
+        fillColor = if (selected) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f),
+        borderColor = Color.White.copy(alpha = 0.10f),
+        sheen = false,
+        instantFill = true,
+        focusedScale = 1.06f,
+    ) { _, ink ->
+        Row(Modifier.padding(horizontal = if (height < 40.dp) 14.dp else 18.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(label, fontSize = if (height < 40.dp) 13.sp else 14.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1)
+            if (favourite) androidx.tv.material3.Icon(Icons.Filled.Star, contentDescription = "Favourite", tint = ink.copy(alpha = 0.7f), modifier = Modifier.size(11.dp))
+        }
+    }
+}
+
+/**
+ * A sport along the top: a round icon button as the film page's (+, ✓, …), opening out to its name while the remote is
+ * on it; the sport being shown keeps a brighter glass. Hold OK to favourite it.
+ */
 @Composable
 private fun SportTileButton(
     tile: SportTile,
@@ -379,41 +722,301 @@ private fun SportTileButton(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onFocus: (() -> Unit)? = null,
 ) {
-    GlassTile(
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(50)
+    androidx.tv.material3.Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = modifier.width(116.dp).height(70.dp),
-        shape = RoundedCornerShape(Dx.RCard + 4.dp),
-        fillColor = if (selected) Color.White.copy(alpha = 0.22f) else LivePalette.GlassFill,
-        sheen = true,
-        focusedScale = Dx.FocusButton,
-    ) { _, ink ->
-        Box(Modifier.fillMaxSize().padding(12.dp)) {
-            androidx.tv.material3.Icon(tile.icon, contentDescription = null, tint = ink, modifier = Modifier.size(22.dp).align(Alignment.TopStart))
-            if (favourite) androidx.tv.material3.Icon(Icons.Filled.Star, contentDescription = "Favourite", tint = ink.copy(alpha = 0.8f), modifier = Modifier.size(13.dp).align(Alignment.TopEnd))
-            Text(tile.label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart))
+        modifier = modifier.onFocusChanged {
+            val f = it.isFocused || it.hasFocus
+            if (f && !focused) onFocus?.invoke()
+            focused = f
+        },
+        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(shape),
+        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+            containerColor = if (selected) Color.White.copy(alpha = 0.24f) else com.notdxbi.dxbi.tv.lumen.Glass.Fill,
+            contentColor = Color.White,
+            focusedContainerColor = Color(0xFFE8E8E8),
+            focusedContentColor = Color.Black,
+        ),
+        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+        border = androidx.tv.material3.ClickableSurfaceDefaults.border(
+            border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, com.notdxbi.dxbi.tv.lumen.Glass.Edge), shape = shape),
+            focusedBorder = androidx.tv.material3.Border.None,
+        ),
+    ) {
+        Row(
+            Modifier.height(34.dp).widthIn(min = 34.dp).padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            androidx.tv.material3.Icon(tile.icon, contentDescription = tile.label, modifier = Modifier.size(18.dp))
+            androidx.compose.animation.AnimatedVisibility(
+                visible = focused,
+                enter = com.notdxbi.dxbi.tv.lumen.ButtonMotion.open,
+                exit = com.notdxbi.dxbi.tv.lumen.ButtonMotion.close,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(tile.label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 7.dp, end = if (favourite) 4.dp else 3.dp))
+                    if (favourite) androidx.tv.material3.Icon(Icons.Filled.Star, contentDescription = "Favourite", modifier = Modifier.padding(end = 2.dp).size(11.dp))
+                }
+            }
         }
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.eventSection(
+/** A section's name, taking a row of its own as in the guide */
+@Composable
+internal fun SectionName(title: String, modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth().height(58.dp).padding(start = Dx.Gutter, bottom = 8.dp), contentAlignment = Alignment.BottomStart) {
+        Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.55f), maxLines = 1)
+    }
+}
+
+/** A cell as the guide's: faint glass on black with a fine edge, white and lifting a little when the remote is on it */
+@Composable
+private fun SportCell(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    onFocus: (() -> Unit)? = null,
+    content: @Composable androidx.compose.foundation.layout.RowScope.(focused: Boolean, ink: Color) -> Unit,
+) {
+    GlassTile(
+        onClick = onClick,
+        onFocus = onFocus,
+        modifier = modifier.height(64.dp),
+        shape = RoundedCornerShape(Dx.RCard),
+        fillColor = Color.White.copy(alpha = 0.06f),
+        borderColor = Color.White.copy(alpha = 0.09f),
+        sheen = false,
+        instantFill = true,
+        focusedScale = Dx.FocusRow,
+        maxGrow = 8.dp,
+    ) { focused, ink ->
+        Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            content(focused, ink)
+        }
+    }
+}
+
+internal fun androidx.compose.foundation.lazy.LazyListScope.eventSection(
     title: String,
     list: List<SportsFixture>,
     tint: Color,
     nowMs: Long,
+    seen: MutableSet<String>,
     onPick: (SportsFixture) -> Unit,
 ) {
     if (list.isEmpty()) return
-    item(key = "h:$title") {
-        Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 22.dp, bottom = 8.dp))
-    }
-    items(list.chunked(2), key = { row -> "ev:${row.first().id}" }) { row ->
-        Row(Modifier.padding(horizontal = Dx.Gutter, vertical = 6.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            row.forEach { f -> EventPanel(f, tint, nowMs, onPick = { onPick(f) }, modifier = Modifier.weight(1f)) }
+    item(key = "h:$title") { SectionName(title, Modifier.loadIn(seen, "h:$title")) }
+    itemsIndexed(list.chunked(2), key = { _, row -> "ev:${row.first().id}" }) { i, row ->
+        Row(Modifier.padding(horizontal = Dx.Gutter, vertical = 5.dp).fillMaxWidth().loadIn(seen, "ev:${row.first().id}", i).centredWhenFocused(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            row.forEach { f ->
+                SportCell(onClick = { onPick(f) }, modifier = Modifier.weight(1f)) { _, ink ->
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Text(f.name.ifBlank { f.leagueName }, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(listOfNotNull(f.leagueName.takeIf { it.isNotBlank() && it != f.name }, f.venue).joinToString("  ·  "), fontSize = 12.sp, color = ink.copy(alpha = 0.62f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (f.status == FixtureStatus.LIVE) Box(Modifier.size(7.dp).clip(CircleShape).background(LivePalette.LiveRed))
+                            Text(when (f.status) { FixtureStatus.LIVE -> "  Live"; FixtureStatus.FINAL -> "Finished"; else -> dayLabel(f.startMs, nowMs) }, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1)
+                        }
+                        if (f.status == FixtureStatus.UPCOMING) Text(timeLabel(f.startMs), style = TextStyle(fontSize = 12.sp, color = ink.copy(alpha = 0.62f), fontFeatureSettings = "tnum"))
+                    }
+                }
+            }
             if (row.size == 1) Spacer(Modifier.weight(1f))
         }
     }
+}
+
+/** Live sport on the TV guide right now: a cell per channel, two across; OK watches it */
+internal fun androidx.compose.foundation.lazy.LazyListScope.tvLiveSection(
+    list: List<Pair<lumos.iptv.GuideChannelRow, lumos.iptv.EpgProgramme>>,
+    nowMs: Long,
+    fixtures: List<SportsFixture>,
+    hideScores: Boolean,
+    seen: MutableSet<String>,
+    onFocusTv: (lumos.iptv.GuideChannelRow, lumos.iptv.EpgProgramme) -> Unit,
+    onPick: (lumos.iptv.GuideChannelRow, lumos.iptv.EpgProgramme) -> Unit,
+) {
+    if (list.isEmpty()) return
+    item(key = "h:tv-live") { SectionName("On TV now", Modifier.loadIn(seen, "h:tv-live")) }
+    itemsIndexed(list.chunked(2), key = { _, row -> "tv:${row.first().first.guideChannel.id}:${row.first().second.startMs}" }) { i, pair ->
+        Row(Modifier.padding(horizontal = Dx.Gutter, vertical = 5.dp).fillMaxWidth().loadIn(seen, "tv:${pair.first().first.guideChannel.id}", i).centredWhenFocused(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            pair.forEach { (row, prog) ->
+                // (the match the programme is, when the feed has it: its two crests, and its score and clock while it's live)
+                val fx = remember(prog.title, fixtures) { fixtureForTitle(prog.title, fixtures, prog.startMs) }
+                SportCell(onClick = { onPick(row, prog) }, modifier = Modifier.weight(1f), onFocus = { onFocusTv(row, prog) }) { focused, ink ->
+                    val home = fx?.home; val away = fx?.away
+                    if (fx != null && home != null && away != null) {
+                        Row(horizontalArrangement = Arrangement.spacedBy((-8).dp)) {
+                            CrestBadge(logoUrl = home.logoUrl, name = home.name, size = 34.dp)
+                            CrestBadge(logoUrl = away.logoUrl, name = away.name, size = 34.dp)
+                        }
+                    } else {
+                        ChannelTile(logoUrl = row.logoUrl, name = row.guideChannel.name, width = 64.dp, height = 34.dp, plain = !focused)
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Text(if (fx != null && home != null && away != null) fixtureTitle(fx) else prog.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(Modifier.size(7.dp).clip(CircleShape).background(LivePalette.LiveRed))
+                            val clock = fx?.takeIf { it.status == FixtureStatus.LIVE }?.let { it.clock ?: it.statusDetail?.takeIf { d -> d.isNotBlank() } }
+                            Text(
+                                if (clock != null) "$clock · ${row.guideChannel.name}" else "Live · until ${timeLabel(prog.endMs)}" + (if (fx != null) " · ${row.guideChannel.name}" else ""),
+                                fontSize = 12.sp, color = ink.copy(alpha = 0.65f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    if (fx != null && fx.status == FixtureStatus.LIVE && !hideScores && home?.score != null) {
+                        Text("${home.score} – ${fx.away?.score ?: "0"}", style = TextStyle(fontFamily = Condensed, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = ink, fontFeatureSettings = "tnum"), maxLines = 1)
+                    } else if (fx != null) {
+                        ChannelTile(logoUrl = row.logoUrl, name = row.guideChannel.name, width = 52.dp, height = 28.dp, plain = !focused)
+                    }
+                }
+            }
+            if (pair.size == 1) Spacer(Modifier.weight(1f))
+        }
+    }
+}
+
+/** Whether a live programme on the TV guide belongs to a sport's page: its words, or its channel's ("Sky Sports Golf") */
+private fun tvForTile(tile: SportTile, row: lumos.iptv.GuideChannelRow, prog: lumos.iptv.EpgProgramme): Boolean {
+    val words = when (tile) {
+        SportTile.FOOTBALL -> "football|soccer|premier league|efl|championship|league one|league two|fa cup|carabao|champions league|europa|la liga|serie a|bundesliga|ligue 1|scottish|wsl|world cup|euro 20"
+        SportTile.F1 -> "formula|f1|grand prix|motogp|nascar|indycar|motorsport|racing|rally|wrc|qualifying|superbike|speedway"
+        SportTile.NBA -> "nba|basketball"
+        SportTile.NHL -> "nhl|hockey"
+        SportTile.UFC -> "ufc|mma|fight night|boxing|wrestling|wwe"
+        SportTile.GOLF -> "golf|pga|lpga|dp world|masters|open championship|ryder|liv golf|hero world|tour championship"
+        SportTile.TENNIS -> "tennis|atp|wta|wimbledon|roland garros|davis cup|us open|australian open"
+        else -> return true
+    }
+    return Regex(words, RegexOption.IGNORE_CASE).containsMatchIn(prog.title + " " + row.guideChannel.name + " " + (prog.category ?: ""))
+}
+
+/** The match a TV programme ("EFL 26/27: Bristol City v Wrexham") is, when both sides' names are in its title and it kicks off near it */
+private fun fixtureForTitle(title: String, list: List<SportsFixture>, startMs: Long): SportsFixture? {
+    fun norm(s: String) = s.lowercase().replace(Regex("[^a-z0-9 ]"), " ").replace(Regex("\\s+"), " ").trim()
+    val t = " ${norm(title)} "
+    fun has(n: String?): Boolean { val x = n?.let(::norm).orEmpty(); return x.length >= 3 && t.contains(" $x ") }
+    return list.firstOrNull { f ->
+        val h = f.home; val a = f.away
+        h != null && a != null && kotlin.math.abs(f.startMs - startMs) < 6 * 3_600_000L &&
+            (has(h.name) || has(h.shortName)) && (has(a.name) || has(a.shortName))
+    }
+}
+
+/** The chosen match, as the guide's billboard: both crests, the sides, the score or the kick-off, the channel and what OK does */
+@Composable
+private fun SportsBillboard(
+    f: SportsFixture?, tileLabel: String, nowMs: Long, hideScores: Boolean, reminded: Boolean,
+    modifier: Modifier = Modifier, tv: Pair<lumos.iptv.GuideChannelRow, lumos.iptv.EpgProgramme>? = null,
+    onAction: () -> Unit = {}, artUrl: String? = null,
+) {
+    Box(modifier) {
+    BillboardArt(f, tv, artUrl)
+    Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+        if (f == null && tv != null) {
+            ChannelTile(logoUrl = tv.first.logoUrl, name = tv.first.guideChannel.name, width = 96.dp, height = 56.dp, plain = true)
+            Column(Modifier.widthIn(max = 400.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(tv.first.guideChannel.name, fontSize = 12.sp, color = Color.White.copy(alpha = 0.65f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(tv.second.title, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(LivePalette.LiveRed))
+                    Text("Live · until ${timeLabel(tv.second.endMs)}", style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.9f), fontFeatureSettings = "tnum"))
+                }
+                Spacer(Modifier.height(6.dp))
+                com.notdxbi.dxbi.tv.lumen.PlayButton("Watch live", onClick = onAction)
+            }
+            return@Row
+        }
+        if (f == null) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(tileLabel, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text(dayLabel(nowMs, nowMs), fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f))
+            }
+            return@Row
+        }
+        val home = f.home; val away = f.away
+        val live = f.status == FixtureStatus.LIVE
+        if (home != null || away != null) Row(horizontalArrangement = Arrangement.spacedBy((-10).dp)) {
+            CrestBadge(logoUrl = home?.logoUrl, name = home?.name ?: f.name, size = 56.dp)
+            CrestBadge(logoUrl = away?.logoUrl, name = away?.name ?: f.leagueName, size = 56.dp)
+        }
+        Column(Modifier.widthIn(max = 400.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(listOfNotNull(f.leagueName.takeIf { it.isNotBlank() }, f.venue, f.ukChannelName).joinToString("  ·  "), fontSize = 12.sp, color = Color.White.copy(alpha = 0.65f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(fixtureTitle(f), fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (live) Box(Modifier.size(8.dp).clip(CircleShape).background(LivePalette.LiveRed))
+                val score = if (hideScores || home?.score == null) null else "${home.score} – ${away?.score ?: "0"}"
+                Text(
+                    when (f.status) {
+                        FixtureStatus.LIVE -> listOfNotNull("Live", f.clock, score).joinToString(" · ")
+                        FixtureStatus.FINAL -> listOfNotNull("Full time", score).joinToString(" · ")
+                        else -> {
+                            val left = (f.startMs - nowMs).coerceAtLeast(0L)
+                            val inText = if (left >= 86_400_000L) "${left / 86_400_000L} d ${(left / 3_600_000L) % 24} h" else "${left / 3_600_000L} h ${(left / 60_000L) % 60} min"
+                            "${dayLabel(f.startMs, nowMs)} · ${timeLabel(f.startMs)} · in $inText"
+                        }
+                    },
+                    style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.9f), fontFeatureSettings = "tnum"), maxLines = 1,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            // (a race that's over has no match page: no button)
+            if (home != null || f.status != FixtureStatus.FINAL) com.notdxbi.dxbi.tv.lumen.PlayButton(
+                when {
+                    live -> "Watch live"
+                    f.status == FixtureStatus.UPCOMING -> if (reminded) "Reminder set" else "Remind me"
+                    else -> "Match page"
+                },
+                onClick = onAction,
+                icon = if (live || f.status == FixtureStatus.FINAL) androidx.compose.material.icons.Icons.Filled.PlayArrow else androidx.compose.material.icons.Icons.Filled.Notifications,
+            )
+        }
+    }
+    }
+}
+
+/** The picture on the right of the billboard: the programme's own image for a TV listing, or the two sides' big crests for a match, fading into the page */
+@Composable
+private fun BoxScope.BillboardArt(f: SportsFixture?, tv: Pair<lumos.iptv.GuideChannelRow, lumos.iptv.EpgProgramme>?, artUrl: String? = null) {
+    val fade = Modifier
+        .align(Alignment.CenterEnd).fillMaxWidth(0.6f).fillMaxHeight()
+        .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            drawRect(Brush.horizontalGradient(0f to Color.Transparent, 0.45f to Color.Black), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
+            drawRect(Brush.verticalGradient(0f to Color.Transparent, 0.2f to Color.Black, 0.8f to Color.Black, 1f to Color.Transparent), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
+        }
+    val art = artUrl?.takeIf { it.isNotBlank() } ?: if (f == null) tv?.second?.iconUrl?.takeIf { it.isNotBlank() } else null
+    if (art != null) {
+        coil3.compose.AsyncImage(model = art, contentDescription = null, contentScale = ContentScale.Crop, alignment = Alignment.Center, alpha = 0.8f, modifier = fade)
+    } else if (f != null) {
+        val a = f.home?.logoUrl?.takeIf { it.isNotBlank() }; val b = f.away?.logoUrl?.takeIf { it.isNotBlank() }
+        if (a != null || b != null) Row(fade.padding(end = 24.dp, top = 8.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+            listOfNotNull(a, b).forEach { u -> coil3.compose.AsyncImage(model = u, contentDescription = null, contentScale = ContentScale.Fit, alpha = 0.55f, modifier = Modifier.size(150.dp)) }
+        }
+    }
+}
+
+/** The soft glow behind the top of the page, in the colours of the chosen match's two sides */
+@Composable
+private fun SportsGlow(a: Color, b: Color) {
+    val ca by androidx.compose.animation.animateColorAsState(a, androidx.compose.animation.core.tween(Dx.Slow), label = "glow-a")
+    val cb by androidx.compose.animation.animateColorAsState(b, androidx.compose.animation.core.tween(Dx.Slow), label = "glow-b")
+    Box(
+        // (up under the page's tag strip too, so the glow has no edge at the top)
+        Modifier.fillMaxWidth().height(396.dp).offset(y = (-66).dp).drawBehind {
+            drawRect(Brush.radialGradient(0f to cb.copy(alpha = 0.5f), 1f to Color.Transparent, center = Offset(size.width * 0.8f, size.height * 0.12f), radius = size.width * 0.5f))
+            drawRect(Brush.radialGradient(0f to ca.copy(alpha = 0.5f), 1f to Color.Transparent, center = Offset(size.width * 0.25f, size.height * 0.06f), radius = size.width * 0.5f))
+            drawRect(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.25f), 0.4f to Color.Black.copy(alpha = 0.25f), 1f to Dx.Background))
+        },
+    )
 }
 
 /** The match the remote is on, big: both sides, the score or kick-off (with a countdown), the channel, and what OK does */
@@ -500,25 +1103,24 @@ private fun EventPanel(f: SportsFixture, tint: Color, nowMs: Long, onPick: () ->
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.panelSection(
+internal fun androidx.compose.foundation.lazy.LazyListScope.panelSection(
     title: String,
     list: List<SportsFixture>,
     nowMs: Long,
     hideScores: Boolean,
     favTeamIds: Set<String>,
     onFocusMatch: (SportsFixture) -> Unit,
+    seen: MutableSet<String>,
     onPick: (SportsFixture) -> Unit,
 ) {
     if (list.isEmpty()) return
-    item(key = "h:$title") {
-        Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 22.dp, bottom = 8.dp))
-    }
-    items(list.chunked(2), key = { row -> "$title:${row.first().id}" }) { row ->
-        Row(Modifier.padding(horizontal = Dx.Gutter, vertical = 6.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+    item(key = "h:$title") { SectionName(title, Modifier.loadIn(seen, "h:$title")) }
+    itemsIndexed(list.chunked(3), key = { _, row -> "$title:${row.first().id}" }) { i, row ->
+        Row(Modifier.padding(horizontal = Dx.Gutter, vertical = 7.dp).fillMaxWidth().loadIn(seen, "$title:${row.first().id}", i).centredWhenFocused(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             row.forEach { f ->
                 MatchPanel(f, nowMs, hideScores, mine = f.home?.id in favTeamIds || f.away?.id in favTeamIds, onPick = { onPick(f) }, modifier = Modifier.weight(1f), onFocus = { onFocusMatch(f) })
             }
-            if (row.size == 1) Spacer(Modifier.weight(1f))
+            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
         }
     }
 }
@@ -538,16 +1140,19 @@ internal fun MatchPanel(f: SportsFixture, nowMs: Long, hideScores: Boolean, mine
         focusedScale = Dx.FocusRow,
     ) { focused, ink ->
         Box(Modifier.fillMaxSize()) {
-            if (!focused) Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to a.copy(alpha = 0.55f), 0.38f to Color.Transparent, 0.62f to Color.Transparent, 1f to b.copy(alpha = 0.55f))))
-            Text(f.leagueName, fontSize = 12.sp, color = ink.copy(alpha = 0.55f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.TopCenter).padding(top = 6.dp, start = 24.dp, end = 24.dp))
+            // (each side's colour glows from its own corner, the two in opposite corners)
+            if (!focused) Box(Modifier.fillMaxSize().drawBehind {
+                drawRect(Brush.radialGradient(0f to a.copy(alpha = 0.6f), 1f to Color.Transparent, center = Offset(0f, 0f), radius = size.width * 0.6f))
+                drawRect(Brush.radialGradient(0f to b.copy(alpha = 0.6f), 1f to Color.Transparent, center = Offset(size.width, size.height), radius = size.width * 0.6f))
+            })
             if (mine) androidx.tv.material3.Icon(Icons.Filled.Star, contentDescription = "Your team", tint = ink.copy(alpha = 0.85f), modifier = Modifier.align(Alignment.TopStart).padding(top = 6.dp, start = 8.dp).size(12.dp))
-            Row(Modifier.fillMaxSize().padding(horizontal = 14.dp).padding(top = 14.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxSize().padding(horizontal = 14.dp).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                     CrestBadge(logoUrl = home?.logoUrl, name = home?.name ?: f.name, size = 38.dp)
                     Text(home?.shortName ?: home?.name ?: f.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
                 }
                 val showScore = f.status != FixtureStatus.UPCOMING && !hideScores && home?.score != null
-                Column(Modifier.width(132.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.width(96.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     if (showScore) {
                         val big = ((home?.score?.length ?: 1).coerceAtLeast(away?.score?.length ?: 1)) >= 3
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (big) 8.dp else 12.dp)) {
@@ -581,7 +1186,7 @@ internal fun MatchPanel(f: SportsFixture, nowMs: Long, hideScores: Boolean, mine
 /** The latest weekend's sessions in the replay addon, to play; only what the addon has */
 @Composable
 private fun ReplaysPanel(round: LiveTvStore.MotorRound?, onPick: (LiveTvStore.MotorRound, LiveTvStore.MotorSession) -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier.liveGlass(RoundedCornerShape(Dx.RCard + 4.dp)).padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(modifier.clip(RoundedCornerShape(Dx.RCard + 4.dp)).background(Color.White.copy(alpha = 0.05f)).border(1.dp, Color.White.copy(alpha = 0.09f), RoundedCornerShape(Dx.RCard + 4.dp)).padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(if (round != null) "Replays · ${round.place}" else "Replays", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(start = 6.dp, bottom = 2.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (round == null) Text("No replays yet.", fontSize = 13.sp, color = Dx.Muted, modifier = Modifier.padding(start = 6.dp))
         round?.sessions?.take(4)?.forEach { sess ->
@@ -617,7 +1222,7 @@ private fun RaceHero(fixture: SportsFixture, nowMs: Long, reminded: Boolean, onW
     val finished = fixture.status == FixtureStatus.FINAL
     val shape = RoundedCornerShape(Dx.RCard + 4.dp)
     Box(
-        modifier.liveGlass(shape).clip(shape).drawBehind {
+        modifier.clip(shape).background(Color.White.copy(alpha = 0.05f)).border(1.dp, Color.White.copy(alpha = 0.09f), shape).drawBehind {
             drawRect(Brush.radialGradient(listOf(wash.copy(alpha = 0.42f), Color.Transparent), center = Offset(size.width, 0f), radius = size.width * 0.8f))
             drawRect(Brush.radialGradient(listOf(wash.copy(alpha = 0.16f), Color.Transparent), center = Offset(0f, size.height), radius = size.width * 0.5f))
         },
@@ -643,20 +1248,19 @@ private fun RaceHero(fixture: SportsFixture, nowMs: Long, reminded: Boolean, onW
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.fixtureSection(
+internal fun androidx.compose.foundation.lazy.LazyListScope.fixtureSection(
     title: String,
     list: List<SportsFixture>,
     nowMs: Long,
     hideScores: Boolean,
     remindedIds: Set<String>,
+    seen: MutableSet<String>,
     onPick: (SportsFixture) -> Unit,
 ) {
     if (list.isEmpty()) return
-    item(key = "h:$title") {
-        Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = Dx.Gutter, end = Dx.Gutter, top = 22.dp, bottom = 6.dp))
-    }
-    items(list, key = { "$title:${it.id}" }) { f ->
-        FixtureRow(f, nowMs, hideScores, reminded = "fixture:${f.id}" in remindedIds, onPick = { onPick(f) })
+    item(key = "h:$title") { SectionName(title, Modifier.loadIn(seen, "h:$title")) }
+    itemsIndexed(list, key = { _, it -> "$title:${it.id}" }) { i, f ->
+        FixtureRow(f, nowMs, hideScores, reminded = "fixture:${f.id}" in remindedIds, onPick = { onPick(f) }, modifier = Modifier.loadIn(seen, "$title:${f.id}", i))
     }
 }
 
@@ -671,15 +1275,19 @@ private fun CountUnit(value: Long, unit: String) {
 
 /** A plain row, as the season calendar: date · the two sides · the channel · what OK does */
 @Composable
-private fun FixtureRow(f: SportsFixture, nowMs: Long, hideScores: Boolean, reminded: Boolean, onPick: () -> Unit) {
+private fun FixtureRow(f: SportsFixture, nowMs: Long, hideScores: Boolean, reminded: Boolean, onPick: () -> Unit, modifier: Modifier = Modifier) {
     // (a race has no two sides and no match page: its name, and Finished rather than Full time)
     val racing = f.isRacing()
     GlassTile(
         onClick = onPick,
-        modifier = Modifier.padding(horizontal = Dx.Gutter).fillMaxWidth().height(48.dp),
+        modifier = modifier.padding(horizontal = Dx.Gutter, vertical = 5.dp).fillMaxWidth().height(58.dp).centredWhenFocused(),
         shape = RoundedCornerShape(Dx.RCard),
-        fillColor = Color.Transparent,
-        borderColor = Color.Transparent,
+        // (a cell as the guide's: faint glass, white when the remote is on it)
+        fillColor = Color.White.copy(alpha = 0.06f),
+        borderColor = Color.White.copy(alpha = 0.09f),
+        sheen = false,
+        instantFill = true,
+        maxGrow = 8.dp,
         focusedScale = Dx.FocusRow,
     ) { focused, ink ->
         val muted = ink.copy(alpha = if (focused) 0.6f else 0.55f)
@@ -730,15 +1338,15 @@ private fun FixtureRow(f: SportsFixture, nowMs: Long, hideScores: Boolean, remin
     }
 }
 
-private fun fixtureTitle(f: SportsFixture): String {
+internal fun fixtureTitle(f: SportsFixture): String {
     val h = f.home; val a = f.away
     return if (h != null && a != null) "${h.shortName ?: h.name} v ${a.shortName ?: a.name}" else f.shortName ?: f.name
 }
 
 /** A match's time on the 24-hour clock, in the TV's own time zone (the times come in as UTC) */
-private fun timeLabel(ms: Long): String = SimpleDateFormat("HH:mm", Locale.UK).format(Date(ms))
+internal fun timeLabel(ms: Long): String = SimpleDateFormat("HH:mm", Locale.UK).format(Date(ms))
 
-private fun dayLabel(ms: Long, nowMs: Long): String {
+internal fun dayLabel(ms: Long, nowMs: Long): String {
     val day = SimpleDateFormat("yyyyMMdd", Locale.UK)
     return when (day.format(Date(ms))) {
         day.format(Date(nowMs)) -> "Today"
@@ -777,7 +1385,7 @@ private val DRIVER_TEAMS = mapOf(
 
 /** A racing series' championship: drivers and constructors side by side, each row in its team's colour; OK favourites one */
 @Composable
-private fun F1Standings(json: org.json.JSONObject, favourites: Set<String>, onToggle: (String) -> Unit, modifier: Modifier) {
+internal fun F1Standings(json: org.json.JSONObject, favourites: Set<String>, onToggle: (String) -> Unit, modifier: Modifier) {
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         listOf("drivers" to "Drivers", "constructors" to "Constructors").forEach { (key, title) ->
             val rows = json.optJSONArray(key) ?: return@forEach
@@ -785,10 +1393,10 @@ private fun F1Standings(json: org.json.JSONObject, favourites: Set<String>, onTo
             val shape = RoundedCornerShape(Dx.RCard + 4.dp)
             val top = rows.getJSONObject(0).optString("points").toFloatOrNull() ?: 1f
             Column(
-                Modifier.weight(1f).clip(shape).background(Color(0xFF0E0E10))
+                Modifier.weight(1f).clip(shape).background(Color.White.copy(alpha = 0.05f))
                     // (a dark glow, as the mock-up's: a faint light from the top edge)
                     .drawBehind { drawRect(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.07f), Color.Transparent), center = Offset(size.width / 2f, 0f), radius = size.width * 0.7f)) }
-                    .border(1.dp, GlassRim, shape)
+                    .border(1.dp, Color.White.copy(alpha = 0.09f), shape)
                     .padding(horizontal = 12.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {

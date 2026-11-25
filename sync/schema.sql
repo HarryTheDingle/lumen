@@ -139,3 +139,9 @@ CREATE TABLE IF NOT EXISTS lumos_iptv_setup (
   account TEXT NOT NULL,
   expires INTEGER NOT NULL
 );
+
+-- Who may sign in with Stremio and get a new Lumos account (a Stremio account that used Lumen needs no entry): sync/allow.sh adds an email
+CREATE TABLE IF NOT EXISTS lumos_allowed (
+  email TEXT PRIMARY KEY,
+  at INTEGER NOT NULL
+);

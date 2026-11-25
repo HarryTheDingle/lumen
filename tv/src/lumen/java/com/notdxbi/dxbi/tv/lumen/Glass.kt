@@ -3,7 +3,21 @@ package com.notdxbi.dxbi.tv.lumen
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -132,3 +146,33 @@ fun Modifier.glassEdge(shape: Shape, state: GlassState, tracked: Boolean = true,
             }
         }
     }
+
+/**
+ * Draws, once and all but invisibly, what a card draws when it's chosen (the glass rim with its sheen and spot, the strip's
+ * blur and fade) so the GPU compiles those shaders as Home opens. Left to the first press into a row, each took 20-40 ms of
+ * the glide on a Mi Box.
+ */
+@Composable
+fun ShaderWarmup() {
+    val state = remember { GlassState().also { it.screen = Size(1920f, 1080f); it.centre = Offset(60f, 60f) } }
+    val shape = RoundedCornerShape(Dx.RCard)
+    val canBlur = android.os.Build.VERSION.SDK_INT >= 31
+    Box(Modifier.size(60.dp, 90.dp).graphicsLayer { alpha = 0.02f }) {
+        Box(
+            Modifier.fillMaxSize()
+                .glassEdge(shape, state, tracked = false) { 1f }
+                .clip(shape)
+                .background(Brush.verticalGradient(listOf(Color.Gray, Color.DarkGray))),
+        )
+        Box(
+            Modifier.fillMaxSize()
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black), blendMode = BlendMode.DstIn)
+                }
+                .then(if (canBlur) Modifier.blur(14.dp, BlurredEdgeTreatment.Rectangle) else Modifier)
+                .background(Brush.verticalGradient(listOf(Color.DarkGray, Color.Black))),
+        )
+    }
+}

@@ -248,16 +248,20 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
                             0.55f to wash.copy(alpha = wash.alpha * 0.16f),
                             1f to Color.Transparent,
                             center = androidx.compose.ui.geometry.Offset(size.width * 0.18f, 0f),
-                            radius = size.width * 0.75f,
+                            radius = minOf(size.width * 0.75f, size.height * 1.1f),
                         ),
                     )
                 },
             )
         }
+        if (activeSection == LiveSection.TV_GUIDE && showHero) {
+            GuideBackdrop(selection = headerHero, onArtworkError = { chId, prog -> store.enrichIfMissing(chId, prog, forceArtwork = true) })
+        }
         Column(modifier = Modifier.fillMaxSize()) {
             // the page's name top left (the clock is top right, as on all of Lumen's screens): its own strip, so nothing
             // below runs under either
-            LivePageTag(activeSection, nav)
+            // (the Sports page carries its own tag in its list, so the tag scrolls away with the page and nothing cuts off under it)
+            if (activeSection != LiveSection.SPORTS) LivePageTag(activeSection, nav)
             if (showHero) {
                 GuideHeader(
                     selection = headerHero,
@@ -283,7 +287,7 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
                         store.enrichIfMissing(chId, prog, forceArtwork = true)
                     },
                 )
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(8.dp))
             }
 
             uiState.error?.let { err ->
@@ -331,6 +335,8 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
                                 returnedKey = resumedAt,
                                 onOpenProgramme = { row, prog, zap -> programmePage = ProgrammeTarget(row, prog, zap) },
                                 restoreFocusKey = pageClosedAt,
+                                // (every channel the provider has: Find a channel lists them by group)
+                                onSeeMore = { nav.liveSection = LiveSection.SEARCH },
                             )
                         }
                     }
@@ -341,6 +347,7 @@ fun LiveTvScreen(engine: Engine, nav: Nav) {
                             hideSportsScores = prefs.hideSportsScores,
                             contentFocusRequester = contentRequester,
                             onMoveToRail = { nav.menuOpen = true },
+                            nav = nav,
                         )
                     }
 
@@ -563,14 +570,14 @@ private data class ProgrammeTarget(val row: lumos.iptv.GuideChannelRow, val prog
 
 /** The Live TV page's name in a small capsule top left, as Lumen's other screens have (it isn't chosen with the remote) */
 @Composable
-private fun LivePageTag(section: LiveSection, nav: Nav) {
+internal fun LivePageTag(section: LiveSection, nav: Nav, compact: Boolean = false) {
     val (label, icon) = when (section) {
         LiveSection.SEARCH -> "Find a channel" to androidx.compose.material.icons.Icons.Filled.Search
         LiveSection.SPORTS -> "Sports" to androidx.compose.material.icons.Icons.Filled.EmojiEvents
         LiveSection.SETTINGS -> "Live TV settings" to androidx.compose.material.icons.Icons.Filled.Settings
         else -> "Guide" to androidx.compose.material.icons.Icons.Filled.ViewList
     }
-    Box(Modifier.fillMaxWidth().height(66.dp)) {
+    Box((if (compact) Modifier else Modifier.fillMaxWidth()).height(66.dp)) {
         Row(
             Modifier.padding(start = Dx.Gutter - 8.dp, top = 22.dp)
                 // (the menu grows out of this pill: it fades as the menu covers it)

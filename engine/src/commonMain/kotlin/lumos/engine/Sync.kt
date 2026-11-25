@@ -206,6 +206,19 @@ class Sync(private val server: String, private val http: HttpClient, var session
     @Throws(Exception::class)
     suspend fun f1Standings(series: String = "f1"): String = call("/iptv/sports/f1/standings", buildJsonObject { put("series", series) }, signed = true).toString()
 
+    /** Formula 1's next race weekend: sessions, circuit (with its drawn outline), last year's winner, artwork; as JSON */
+    @Throws(Exception::class)
+    suspend fun f1Weekend(): String = call("/iptv/sports/f1/weekend", buildJsonObject { }, signed = true).toString()
+
+    /** A football league's table (ESPN), as JSON: `{league, leagueName, rows: [...]}` */
+    @Throws(Exception::class)
+    suspend fun sportsTable(league: String): String = call("/iptv/sports/table", buildJsonObject { put("league", league) }, signed = true).toString()
+
+    /** Billboard pictures for teams (TheSportsDB fan art and badges), as JSON: `{teams: {name: {fanart, badge, banner}}}` */
+    @Throws(Exception::class)
+    suspend fun sportsArt(teams: List<String>): String =
+        call("/iptv/sports/art", buildJsonObject { put("teams", kotlinx.serialization.json.JsonArray(teams.map { kotlinx.serialization.json.JsonPrimitive(it) })) }, signed = true).toString()
+
     /** Searches UK Football and US pro sports team directories on the sync server. */
     @Throws(Exception::class)
     suspend fun searchSportsTeams(query: String): List<SavedSportsTeam> {

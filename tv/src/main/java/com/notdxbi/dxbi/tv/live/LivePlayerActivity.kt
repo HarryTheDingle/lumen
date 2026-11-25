@@ -551,7 +551,7 @@ class LivePlayerActivity : AppCompatActivity() {
                 when (event.keyCode) {
                     KeyEvent.KEYCODE_DPAD_LEFT,
                     KeyEvent.KEYCODE_MEDIA_REWIND -> {
-                        if (!osdOpen) { LivePlayerExtras.expanded.value = true; showOsd(autoHide = true) }
+                        if (!osdOpen) { LivePlayerExtras.expanded.value = false; showOsd(autoHide = true) }
                         if (stepScrub(-1, event.repeatCount, focusBar = !osdOpen || !seekBarFocused) || seekBarFocused) {
                             pokeOsd()
                             return true
@@ -560,7 +560,7 @@ class LivePlayerActivity : AppCompatActivity() {
                     }
                     KeyEvent.KEYCODE_DPAD_RIGHT,
                     KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
-                        if (!osdOpen) { LivePlayerExtras.expanded.value = true; showOsd(autoHide = true) }
+                        if (!osdOpen) { LivePlayerExtras.expanded.value = false; showOsd(autoHide = true) }
                         if (stepScrub(+1, event.repeatCount, focusBar = !osdOpen || !seekBarFocused) || seekBarFocused) {
                             pokeOsd()
                             return true
@@ -591,9 +591,8 @@ class LivePlayerActivity : AppCompatActivity() {
                         return true
                     }
                     KeyEvent.KEYCODE_DPAD_DOWN -> {
-                        // (the channel strip first, as in TiviMate: the channel is chosen there, not zapped past)
+                        // (the buttons first, as on a film's page; Down again brings up the channels)
                         LivePlayerExtras.expanded.value = false
-                        LivePlayerExtras.focusStripTick.value = System.currentTimeMillis()
                         showOsd(autoHide = true)
                         return true
                     }
@@ -603,15 +602,18 @@ class LivePlayerActivity : AppCompatActivity() {
                         // one press pauses, as in Lumen's player and on Apple TV (it used to only bring up the controls)
                         hideZapBanner()
                         exoEngine.togglePause()
-                        LivePlayerExtras.expanded.value = true
+                        LivePlayerExtras.expanded.value = false
                         showOsd(autoHide = true)
                         return true
                     }
                 }
             } else if (osdOpen) {
-                if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && !panelOpen && !LivePlayerExtras.expanded.value && !unavailable) {
-                    // (Down again on the strip: the controls open out above it)
+                if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && !panelOpen && !seekBarFocused && !LivePlayerExtras.expanded.value && !unavailable &&
+                    LivePlayerExtras.stripChannels.value.isNotEmpty()
+                ) {
+                    // (Down on the buttons: the channels come up below them, and the remote goes to the one playing)
                     LivePlayerExtras.expanded.value = true
+                    LivePlayerExtras.focusStripTick.value = System.currentTimeMillis()
                     pokeOsd()
                     return true
                 }

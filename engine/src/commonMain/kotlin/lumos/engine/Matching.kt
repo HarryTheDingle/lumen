@@ -58,6 +58,26 @@ object Matching {
         return true
     }
 
+    private val TAIL = Regex("""(?i)(\b(480|576|720|1080|2160)[pi]\b|\b4k\b|\b(web|webrip|bluray|bdrip|brrip|hdtv|dvdrip|remux|amzn|nf|atvp|dsnp|hmax|dv|hdr|hdr10|x26[45]|h26[45]|hevc|avc|aac|ac3|eac3|dd|ddp|dts|atmos|multi|repack|proper)\b)""")
+    private val STOP = setOf("the", "a", "an", "of", "and", "to", "in", "on", "is", "it", "s")
+
+    /**
+     * Another show's episode with the same number (Dark Matter 2015 S02E07 for 2024's): its name carries an episode title,
+     * and that shares no word with this episode's. A name with no title after the number says nothing and is kept.
+     */
+    fun episodeTitled(stream: Stream, episodeTitle: String?): Boolean {
+        if (episodeTitle.isNullOrBlank()) return true
+        val name = stream.filename ?: stream.title?.lineSequence()?.firstOrNull() ?: return true
+        val m = EPISODE.find(name) ?: CROSS.find(name) ?: return true
+        val rest = name.substring(m.range.last + 1)
+        val cut = TAIL.find(rest)
+        val tail = words(if (cut != null) rest.substring(0, cut.range.first) else rest).filter { it !in STOP }
+        val want = words(episodeTitle).filter { it !in STOP }
+        if (tail.size < 2 || want.isEmpty()) return true
+        val all = words(name).toSet()
+        return want.any { it in all }
+    }
+
     private val COUNTRY = setOf("us", "uk", "au", "nz", "ca")
     private val EDITION = setOf("extended", "remastered", "imax", "directors", "uncut", "unrated", "theatrical", "proper", "repack", "hdr", "dv", "web", "bluray", "remux", "multi")
     private fun words(s: String): List<String> = s.lowercase()

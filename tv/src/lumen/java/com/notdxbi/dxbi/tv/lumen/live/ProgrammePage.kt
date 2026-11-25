@@ -46,6 +46,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -93,9 +94,9 @@ internal fun programmeWhen(p: EpgProgramme, nowMs: Long): String {
 }
 
 /**
- * The guide's top: a 16:9 picture of the programme the remote is on, with its channel's logo in the corner and a thin
- * progress line (or, while a channel plays, that live picture in the same place), then its title, one plain line of
- * when and where, and two lines about it.
+ * The guide's top, as Home's billboard: the programme's picture fills the top of the screen behind (see [GuideBackdrop]),
+ * and over it the title, one plain line of when and where, and two lines about it. While a channel plays, that live picture
+ * sits at the right.
  */
 @Composable
 internal fun GuideHeader(
@@ -110,47 +111,27 @@ internal fun GuideHeader(
         is HeroSelection.Channel -> selection.enrichment
         else -> null
     }
-    val (prog, channelName, logo, chId) = when (selection) {
+    val (prog, channelName, _, _) = when (selection) {
         is HeroSelection.Programme -> Quad(selection.programme, selection.row.guideChannel.name, selection.row.logoUrl, selection.row.linkedChannel?.id ?: selection.row.guideChannel.id)
         is HeroSelection.Channel -> Quad(selection.nowProgramme, selection.channel.name, tileLogoFor(selection.channel), selection.channel.id)
         else -> Quad(null, null, null, null)
     }
-    val art = enrichments?.backdrop?.takeIf { it.isNotBlank() } ?: prog?.iconUrl?.takeIf { it.isNotBlank() }
-    Row(modifier.fillMaxWidth().height(MINI_H).padding(horizontal = Dx.Gutter), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-        Box(Modifier.size(MINI_W, MINI_H)) {
-            if (leading != null) leading()
-            else if (channelName != null) {
-                Box(Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)).background(Color(0xFF1C1C1F))) {
-                    var failed by remember(art) { mutableStateOf(false) }
-                    if (art != null && !failed) {
-                        AsyncImage(
-                            model = art, contentDescription = null, contentScale = ContentScale.Crop,
-                            onError = { failed = true; prog?.let { onArtworkError(chId, it) } },
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        ChannelTile(logoUrl = logo, name = channelName, width = 46.dp, height = 26.dp, corner = 5.dp, modifier = Modifier.align(Alignment.TopEnd).padding(7.dp))
-                    } else {
-                        ChannelTile(logoUrl = logo, name = channelName, width = MINI_W, height = MINI_H, corner = 10.dp)
-                    }
-                    if (prog != null && prog.isOnAt(nowMs)) {
-                        Box(Modifier.align(Alignment.BottomCenter).padding(start = 10.dp, end = 10.dp, bottom = 8.dp).fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.3f))) {
-                            Box(Modifier.fillMaxHeight().fillMaxWidth(prog.progressAt(nowMs).coerceIn(0f, 1f)).background(Color.White))
-                        }
-                    }
-                }
-            }
-        }
-        Column(Modifier.weight(1f).padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    // (shorter than the picture of a playing channel, so more rows show)
+    Row(modifier.fillMaxWidth().height(if (leading != null) MINI_H else 104.dp).padding(horizontal = Dx.Gutter), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+        // (the playing channel's picture sits at the left, clear of the programme's artwork)
+        if (leading != null) Box(Modifier.size(MINI_W, MINI_H)) { leading() }
+        Box(Modifier.weight(1f)) {
+        Column(Modifier.widthIn(max = 640.dp).padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             when (selection) {
                 is HeroSelection.Empty -> {
-                    Text(selection.title, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(selection.title, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(selection.subtitle, fontSize = 13.sp, color = Dx.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 else -> {
                     Text(prog?.title ?: channelName.orEmpty(), fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         listOfNotNull(prog?.let { programmeWhen(it, nowMs) }, channelName).joinToString(" · "),
-                        style = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted, fontFeatureSettings = "tnum"),
+                        style = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.7f), fontFeatureSettings = "tnum"),
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                     val about = enrichments?.description?.takeIf { it.isNotBlank() } ?: prog?.description?.takeIf { it.isNotBlank() }
@@ -158,6 +139,60 @@ internal fun GuideHeader(
                 }
             }
         }
+        }
+    }
+}
+
+/**
+ * The picture of the programme the remote is on, across the top of the guide behind the page's name and the header: it
+ * fades to black to the left and below, so the words and the rows read on black as on Home. It eases from one picture
+ * to the next as the remote moves.
+ */
+@Composable
+internal fun GuideBackdrop(
+    selection: HeroSelection,
+    onArtworkError: (String?, EpgProgramme) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val enrichments = when (selection) {
+        is HeroSelection.Programme -> selection.enrichment
+        is HeroSelection.Channel -> selection.enrichment
+        else -> null
+    }
+    val (prog, chName, _, chId) = when (selection) {
+        is HeroSelection.Programme -> Quad(selection.programme, selection.row.guideChannel.name, selection.row.logoUrl, selection.row.linkedChannel?.id ?: selection.row.guideChannel.id)
+        is HeroSelection.Channel -> Quad(selection.nowProgramme, selection.channel.name, tileLogoFor(selection.channel), selection.channel.id)
+        else -> Quad(null, null, null, null)
+    }
+    val art = enrichments?.backdrop?.takeIf { it.isNotBlank() } ?: prog?.iconUrl?.takeIf { it.isNotBlank() }
+    // (no picture: a soft glow in the channel's own colours instead, easing from one channel's to the next's)
+    val tween = androidx.compose.animation.core.tween<Color>(Dx.Slow)
+    val glowA by androidx.compose.animation.animateColorAsState(chName?.let { channelWashColour(it) } ?: Color.Transparent, tween, label = "glow-a")
+    val glowB by androidx.compose.animation.animateColorAsState(chName?.let { channelBrandColour(it) } ?: Color.Transparent, tween, label = "glow-b")
+    val glow by androidx.compose.animation.core.animateFloatAsState(if (art == null && chName != null) 1f else 0f, androidx.compose.animation.core.tween(Dx.Slow), label = "glow")
+    Box(modifier.fillMaxWidth().height(290.dp)) {
+        if (glow > 0.01f) Box(
+            Modifier.fillMaxSize().drawBehind {
+                // a bright core off to the right where the picture would be, the brand colour wide behind it, and a wash to the left
+                drawRect(Brush.radialGradient(0f to glowB.copy(alpha = 0.55f * glow), 1f to Color.Transparent, center = androidx.compose.ui.geometry.Offset(size.width * 0.28f, size.height * 0.1f), radius = size.width * 0.55f))
+                drawRect(Brush.radialGradient(0f to glowA.copy(alpha = 0.75f * glow), 0.5f to glowA.copy(alpha = 0.28f * glow), 1f to Color.Transparent, center = androidx.compose.ui.geometry.Offset(size.width * 0.78f, size.height * 0.2f), radius = size.width * 0.5f))
+            },
+        )
+        androidx.compose.animation.Crossfade(
+            targetState = art, animationSpec = androidx.compose.animation.core.tween(Dx.Slow), label = "guide-art",
+            modifier = Modifier.fillMaxWidth(0.8f).fillMaxHeight().align(Alignment.TopEnd),
+        ) { url ->
+            if (url != null) {
+                var failed by remember(url) { mutableStateOf(false) }
+                if (!failed) AsyncImage(
+                    model = url, contentDescription = null, contentScale = ContentScale.Crop, alignment = Alignment.TopCenter,
+                    onError = { failed = true; prog?.let { onArtworkError(chId, it) } },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+        if (art != null) Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Dx.Background, 0.2f to Dx.Background, 0.5f to Dx.Background.copy(alpha = 0.5f), 0.9f to Color.Transparent)))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.35f), 0.4f to Color.Black.copy(alpha = 0.35f), 1f to Dx.Background)))
     }
 }
 

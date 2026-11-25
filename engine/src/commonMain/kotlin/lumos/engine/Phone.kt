@@ -456,9 +456,12 @@ class Phone(private val lumos: Lumos) {
         val video = streamsVideo
         val year = openMeta?.preview?.releaseInfo?.let { Regex("""\d{4}""").find(it)?.value?.toIntOrNull() }
         val name = openMeta?.preview?.name
+        val epTitle = openMeta?.videos?.firstOrNull { it.id == video }?.title
         val all = found.filter { video != null && Matching.fits(it, video, year) }
-            // (a search-based addon's must be named as this title: Easynews finds others called the same)
-            .filter { !Matching.searchBased(it.source) || name == null || Matching.named(it, name, year) }
+            // (every addon's must be named as this title, and an episode's titled as this one: another show of the
+            // same name has the same numbers; Easynews, and StremThru Torz too, have listed Dark Matter 2015's)
+            .filter { name == null || Matching.named(it, name, year) }
+            .filter { Matching.episodeTitled(it, epTitle) }
             .map { s -> s to Describe.stream(listOfNotNull(s.source, s.name).joinToString("\n"), s.text) }
         // (never cinema recordings; low-res rips only when nothing in HD is there, as for an old show that was only on DVD)
         val keep = all.filter { (_, d) -> !d.sample && d.source != "CAM" }.let { l -> l.filter { !it.second.upscaled }.ifEmpty { l } }

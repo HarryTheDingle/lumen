@@ -3,6 +3,7 @@
 //   node sync/test.mjs
 import worker, { convertLibrary, pruneCaches } from "./worker.js";
 import { seedsOf, becauseOrder, becauseRows, likeness } from "./picks.js";
+import { sealStored } from "./seal.js";
 import { d1 } from "./d1-sqlite.mjs";
 
 const library = [
@@ -14,12 +15,12 @@ globalThis.fetch = async (url, init) => {
   const body = JSON.parse(init.body);
   const users = { "key-u1": "u1", "key-dad": "dad1", "key-stranger": "nobody1" };
   const ok = body.authKey in users;
-  if (String(url).endsWith("/getUser")) return new Response(JSON.stringify(ok ? { result: { _id: users[body.authKey] } } : { error: { message: "Session does not exist" } }));
+  if (String(url).endsWith("/getUser")) return new Response(JSON.stringify(ok ? { result: { _id: users[body.authKey], email: body.authKey === "key-stranger" ? "New.Friend@Example.com" : undefined } } : { error: { message: "Session does not exist" } }));
   if (String(url).endsWith("/datastoreGet")) return new Response(JSON.stringify(ok ? { result: library } : { error: { message: "no" } }));
   throw new Error("unexpected fetch " + url);
 };
 
-const env = { DB: d1(), LUMOS_SETUP: "lumos-setup-phrase" };
+const env = { DB: d1(), LUMOS_SETUP: "lumos-setup-phrase", LUMOS_ENTRY_KEY: "a-long-test-phrase-for-sealing" };
 const failures = [];
 const check = (ok, what) => { console.log(`${ok ? "  ✓" : "  ✗"} ${what}`); if (!ok) failures.push(what); };
 const call = async (path, body, token) => {
@@ -102,7 +103,22 @@ check(r.json.entries.find((e) => e.k === "watched:main").v.tt1.on === false, "im
 
 // Sign in with Stremio
 check((await call("/signin/stremio", { authKey: "nope", name: "TV" })).status === 401, "Stremio sign-in: a bad Stremio session gets nothing");
-check((await call("/signin/stremio", { authKey: "key-stranger", name: "TV" })).status === 403, "Stremio sign-in: an account that never used Lumen is turned away");
+r = await call("/signin/stremio", { authKey: "key-stranger", name: "TV" });
+check(r.status === 403 && r.json.error.includes("new.friend@example.com"), "Stremio sign-in: an account that never used Lumen and isn't listed is turned away, with its email");
+await env.DB.prepare("INSERT INTO lumos_allowed (email, at) VALUES (?, ?)").bind("new.friend@example.com", 1).run();
+r = await call("/signin/stremio", { authKey: "key-stranger", name: "Their TV" });
+check(r.status === 200 && r.json.created === true && r.json.account.startsWith("lumos:"), "Stremio sign-in: a listed email (any capitals) gets a new account");
+
+// Secrets are sealed in the database, and read back whole
+const secretAddons = [{ url: "https://torz.example/torbox-APIKEY123/manifest.json" }];
+await call("/sync", { since: 0, entries: [{ k: "addons", t: Date.now(), v: secretAddons }] }, r.json.token);
+const rowAddons = env.DB.dump().find((e) => e.account === r.json.account && e.k === "addons");
+check(rowAddons && rowAddons.v.startsWith("enc1:") && !rowAddons.v.includes("APIKEY123"), "addons are stored sealed, with no key readable");
+check(JSON.stringify((await call("/sync", { since: 0, entries: [] }, r.json.token)).json.entries.find((e) => e.k === "addons").v) === JSON.stringify(secretAddons), "sealed addons come back whole");
+await env.DB.prepare("INSERT INTO entries (account, k, t, v, s) VALUES (?, 'iptvSources', 1, ?, 1)").bind(r.json.account, JSON.stringify([{ user: "u", pass: "PLAINPASS" }])).run();
+await sealStored(env);
+check(!env.DB.dump().find((e) => e.account === r.json.account && e.k === "iptvSources").v.includes("PLAINPASS"), "the cron seals what was stored plain");
+
 r = await call("/signin/stremio", { authKey: "key-u1", name: "Bedroom TV" });
 check(r.status === 200 && r.json.account === account && r.json.created === false, "Stremio sign-in: a Stremio account already brought in signs in to its Lumos account");
 await env.DB.prepare("INSERT INTO entries (account, k, t, v, s) VALUES (?, ?, ?, ?, ?)").bind("dad1", "viewers", 1, JSON.stringify({ list: [{ id: "main", name: "Mark" }, { id: "vd", name: "Diane" }] }), 1).run();

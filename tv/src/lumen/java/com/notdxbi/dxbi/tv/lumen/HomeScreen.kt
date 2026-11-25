@@ -99,6 +99,10 @@ import com.notdxbi.dxbi.tv.phone.Stremio
 import com.notdxbi.dxbi.tv.phone.Title
 import com.notdxbi.dxbi.tv.phone.episodeLabel
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.focusable
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
 
 /** Kinds of catalog Lumen leaves out: films and TV only (no YouTube or live TV channels) */
@@ -130,11 +134,19 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
     // the card the remote goes to once a removed one has gone, and each card's requester
     var stayOn by remember { mutableStateOf<String?>(null) }
     val continueFocus = remember { HashMap<String, FocusRequester>() }
+    // a card was just removed: the remote passes over the billboard on its way back to the row, and that must not take the
+    // page up with it (the row stays where it was, centred by the remote arriving on it)
+    var removing by remember { mutableStateOf(false) }
+    LaunchedEffect(removing) { if (removing) { delay(2000); removing = false } }
     LaunchedEffect(continueWatching) {
         val id = stayOn ?: return@LaunchedEffect
         if (continueWatching.none { it.title.id == id }) return@LaunchedEffect
         stayOn = null
-        repeat(10) { if (runCatching { continueFocus[id]?.requestFocus() }.isSuccess) return@LaunchedEffect; delay(30) }
+        repeat(10) {
+            if (runCatching { continueFocus[id]?.requestFocus() }.isSuccess) { delay(400); removing = false; return@LaunchedEffect }
+            delay(30)
+        }
+        removing = false
     }
     held?.let { t ->
         ActionMenu(
@@ -148,6 +160,7 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
                     val ids = continueWatching.map { it.title.id }
                     val at = ids.indexOf(t.id)
                     stayOn = ids.getOrNull(at + 1) ?: ids.getOrNull(at - 1)
+                    removing = stayOn != null
                     stremio.removeFromContinue(t.id)
                 },
             ),
@@ -222,7 +235,7 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
-            .onPreviewKeyEvent { still.key(it) }
+            .onPreviewKeyEvent { RowBuilder.keyed(); still.key(it) }
             // black, but for the billboard while its trailer plays under it (darkening as the page moves
             // up over it)
             .drawBehind {
@@ -235,6 +248,8 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
             },
     ) {
         val screen = maxHeight
+        // (the GPU's shader compiling for what a chosen card draws, done as Home opens rather than mid-glide)
+        ShaderWarmup()
         val geniusFeed = LocalDiscoverFeed.current
         PageColumn(
             state = list,
@@ -263,7 +278,7 @@ fun HomeScreen(stremio: Stremio, nav: Nav, onPlay: (Title) -> Unit) {
                             artHeight = screen,
                             onFocused = {
                                 // back up onto the billboard: the page glides to the top, once
-                                pageScroller.toTop()
+                                if (!removing) pageScroller.toTop()
                             },
                             // Down goes to the row just under it, never further: while that row is still loading (a skeleton,
                             // which can't be chosen) the press waits, where the focus search used to run on down the page to
@@ -354,9 +369,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.listRows(rows: List<R
         if (row.state == Load.Loading || (row.state == Load.Ready && row.items.isNotEmpty())) item(key = "row-${row.key}") {
             val rank = if (anyNumbered) row.numbered else row.index == 0
             Box(Modifier.animateItem(fadeInSpec = tween(Dx.Med, easing = Dx.Ease), placementSpec = null, fadeOutSpec = tween(Dx.Fast, easing = Dx.Ease))) {
-                ShelfSwap(row.state == Load.Loading, row.heading) {
-                    CompositionLocalProvider(LocalRowSays provides rowSays(row.key)) { TitleShelf(row.heading, row.items, onOpen, rank = rank) }
-                }
+                CompositionLocalProvider(LocalRowSays provides rowSays(row.key)) { TitleShelf(row.heading, row.items, onOpen, rank = rank, loading = row.state == Load.Loading) }
             }
         }
     }
@@ -384,11 +397,141 @@ private fun statusLines(watching: List<Continue>, airing: List<Airing>): Map<Str
 }
 
 @Composable
-private fun TitleShelf(name: String, items: List<Title>, onOpen: (Title) -> Unit, rank: Boolean = false) {
-    Shelf(name) {
-        itemsIndexed(items.take(if (rank) 10 else 30), key = { _, t -> t.id }) { i, t ->
-            PreviewPosterCard(t, onClick = { onOpen(t) }, rank = if (rank) i + 1 else null)
+private fun TitleShelf(name: String, items: List<Title>, onOpen: (Title) -> Unit, rank: Boolean = false, loading: Boolean = false) {
+    val scroller = LocalPageScroller.current
+    // A row that isn't ready when the remote comes to it (its titles still coming, or built while the page was gliding, which
+    // costs ~100 ms on a Mi Box and was the jump) is a row of skeletons you can move onto, and the real row is built in its
+    // place once the page and the remote are still
+    val late = remember { loading || scroller?.isBusy == true }
+    var ready by remember { mutableStateOf(!late) }
+    // (a row that came late: its cards come in one after another from the left, each over its own skeleton, then it's as any row)
+    var settled by remember { mutableStateOf(!late) }
+    val requesters = remember { HashMap<Int, FocusRequester>() }
+    // (the card the remote was on when the row came: it changes place with no delay, from the lifted skeleton to the lifted poster)
+    var handoff by remember { mutableStateOf(-1) }
+    val row: @Composable () -> Unit = {
+        Shelf(name) {
+            itemsIndexed(items.take(if (rank) 10 else 30), key = { _, t -> t.id }) { i, t ->
+                val card: @Composable () -> Unit = {
+                    PreviewPosterCard(
+                        t, onClick = { onOpen(t) }, rank = if (rank) i + 1 else null,
+                        modifier = if (late) Modifier.focusRequester(requesters.getOrPut(i) { FocusRequester() }) else Modifier,
+                        // (the card the remote was on comes up already lifted, so it looks like the skeleton card loaded)
+                        startLifted = late && i == handoff,
+                    )
+                }
+                // (always the same wrapper once a row came late: a card moved to another place in the tree loses the remote,
+                // which then went on to the next card, and the next)
+                if (late) RevealFromSkeleton(i, i == handoff, settled, t.art, card) else card()
+            }
         }
+    }
+    if (!late) { row(); return }
+
+    // One stop for the remote in a row that isn't ready, in the column it came in at (so going down keeps its column), moved
+    // along with Left and Right, and never taken away while the row is built: a focused skeleton removed sent the remote on to
+    // the next row down, and the next, on its own. When the real row is there the remote goes to the poster in the same column.
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val gutter = with(density) { Dx.Gutter.toPx() }
+    val pitch = with(density) { (Dx.Poster + 18.dp).toPx() }
+    val top = with(density) { 52.dp.roundToPx() }
+    var col by remember { mutableStateOf(-1) }
+    var stopOn by remember { mutableStateOf(true) }
+    val stop = remember { FocusRequester() }
+    fun columnNow() = (((FocusColumn.x - gutter - pitch / 2f) / pitch) + 0.5f).toInt().coerceIn(0, 7)
+    var column by remember { mutableStateOf(columnNow()) }
+    LaunchedEffect(loading) {
+        if (loading || ready) return@LaunchedEffect
+        RowBuilder.turn.withLock {
+            // (one row at a time, and only once the remote has been still a moment: the row's cards are built in one go)
+            while (scroller?.isBusy == true || RowBuilder.sinceKey() < 500) delay(60)
+            val on = if (col >= 0) column else -1
+            handoff = on
+            ready = true
+            var got = on < 0
+            if (on >= 0) {
+                delay(60)
+                var tries = 0
+                while (!got && tries++ < 14) {
+                    got = runCatching { requesters.getOrPut(on) { FocusRequester() }.requestFocus() }.getOrDefault(false)
+                    if (!got) delay(50)
+                }
+            }
+            // (the stop stays if the remote couldn't be moved off it: it's never taken away while it's the remote's)
+            if (got) stopOn = false
+            delay(300)
+        }
+    }
+    LaunchedEffect(ready) { if (ready) { delay(1200); settled = true } }
+    Box((if (ready) Modifier else Modifier.centredWhenFocused())) {
+        if (!ready) LoadingShelf(name, liftedIndex = col) else row()
+        if (stopOn) Box(
+            Modifier
+                .offset { androidx.compose.ui.unit.IntOffset((gutter + column * pitch).toInt(), top) }
+                .size(Dx.Poster, Dx.Poster * 1.5f)
+                .focusRequester(stop)
+                .onPreviewKeyEvent { e ->
+                    if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    val step = when (e.key) {
+                        androidx.compose.ui.input.key.Key.DirectionRight -> 1
+                        androidx.compose.ui.input.key.Key.DirectionLeft -> -1
+                        else -> return@onPreviewKeyEvent false
+                    }
+                    if (col < 0) return@onPreviewKeyEvent false
+                    // (along the skeleton, as it will along the row; past either end nothing moves)
+                    column = (column + step).coerceIn(0, 7)
+                    col = column
+                    FocusColumn.x = gutter + column * pitch + pitch / 2f
+                    true
+                }
+                .onFocusChanged { on -> if (on.isFocused) { column = columnNow(); col = column } else if (!ready) col = -1 }
+                .focusable(),
+        )
+    }
+}
+
+/**
+ * A card fading in over a skeleton of its own, after the ones to its left ([index] steps of delay, the first eight only). The card
+ * the remote is on ([chosen]) doesn't wait or slide: its skeleton is the lifted one it was already, so the box stays where it
+ * is and the poster comes up in it. Once the row has [settled] only the skeleton goes: the card stays exactly where it is in the tree.
+ */
+@Composable
+private fun RevealFromSkeleton(index: Int, chosen: Boolean, settled: Boolean, art: String?, content: @Composable () -> Unit) {
+    val shown = remember { androidx.compose.animation.core.Animatable(if (settled) 1f else 0f) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(Unit) {
+        if (shown.value >= 1f) return@LaunchedEffect
+        // The card is built, unseen, and the skeleton stays until its picture (and the strip's, under the chosen card) is really
+        // there: one fade from the skeleton to the finished card, not a card that then loads its picture in over it
+        val url = freshUrl(art)
+        if (url != null) {
+            var waited = 0
+            val loader = coil3.SingletonImageLoader.get(context)
+            while (waited < 2500 && loader.memoryCache?.keys?.any { it.key == url } != true) { delay(50); waited += 50 }
+            delay(if (chosen) 250 else 80)
+        }
+        if (!chosen) delay(minOf(index, 8) * 70L)
+        shown.animateTo(1f, tween(Dx.Med, easing = Dx.Ease))
+    }
+    Box {
+        if (!settled) Box(
+            (if (chosen) {
+                Modifier.wrapContentSize(Alignment.TopStart, unbounded = true)
+                    .size(Dx.Poster, Dx.Poster * 1.5f + CAPTION_ROOM)
+                    .graphicsLayer { scaleX = 1.13f; scaleY = 1.13f }
+            } else {
+                // (a resting poster's size, not its box's: the box has the strip's room under it, which stretched every skeleton
+                // down as the row came)
+                Modifier.wrapContentSize(Alignment.TopStart, unbounded = true).size(Dx.Poster, Dx.Poster * 1.5f)
+            })
+                .graphicsLayer { alpha = 1f - shown.value; compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha }
+                // (the same glass rim as the skeleton it replaces and the poster it gives way to)
+                .glassEdge(RoundedCornerShape(Dx.RCard), remember { GlassState() }, tracked = false) { if (chosen) 1f else 0f }
+                .skeleton(shape = RoundedCornerShape(Dx.RCard)),
+        )
+        // (faded without a layer of its own: a layer is the size of the card at rest, and the lifted card is larger, so its sides were
+        // cut off while it faded and came back when it finished)
+        Box(Modifier.graphicsLayer { alpha = shown.value; compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha; if (!chosen) translationX = (1f - shown.value) * 28f }) { content() }
     }
 }
 
@@ -676,4 +819,12 @@ private fun billboardSize(url: String?): String? = url?.let {
     if ("image.tmdb.org/t/p/w1280/" in it) it.replace("image.tmdb.org/t/p/w1280/", "image.tmdb.org/t/p/original/")
     // (a Cinemeta picture: swapped for the checked TMDB one as it loads, at its biggest)
     else if (it.contains("metahub.space") && !it.endsWith(BIG)) it + BIG else it
+}
+
+/** When rows that came late (skeletons) may be built: after the remote has been still, one at a time */
+private object RowBuilder {
+    val turn = kotlinx.coroutines.sync.Mutex()
+    private var lastKey = 0L
+    fun keyed() { lastKey = android.os.SystemClock.uptimeMillis() }
+    fun sinceKey() = android.os.SystemClock.uptimeMillis() - lastKey
 }

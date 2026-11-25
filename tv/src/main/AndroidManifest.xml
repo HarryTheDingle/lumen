@@ -64,5 +64,7 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/update_paths" />
         </provider>
+        <!-- lets the developer's shell profile the release build (Perfetto, simpleperf); nothing else changes -->
+        <profileable android:shell="true" />
     </application>
 </manifest>

@@ -146,10 +146,11 @@ private val genreMemory = ConcurrentHashMap<String, List<String>>()
  * Hold OK for Play, Library, and Not Interested.
  */
 @Composable
-fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, width: Dp = Dx.Poster) {
+fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, width: Dp = Dx.Poster, modifier: Modifier = Modifier, startLifted: Boolean = false) {
     val height = width * 1.5f
     val actions = LocalCardActions.current
-    var focused by remember { mutableStateOf(false) }
+    var focused by remember { mutableStateOf(startLifted) }
+    var reached by remember { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
     if (held) TitleHoldMenu(title, onOpen = onClick, onDismiss = { held = false })
     val growAnim = animateFloatAsState(if (focused) 1f else 0f, tween(Dx.Fast, easing = Dx.Ease), label = "grow")
@@ -171,9 +172,14 @@ fun PreviewPosterCard(title: Title, onClick: () -> Unit, rank: Int? = null, widt
         onLongClick = { held = true },
         onClick = onClick,
         hiddenFoot = { room * (1f - growAnim.value) },
-        modifier = Modifier
+        startLifted = startLifted,
+        modifier = modifier
             .size(width, height + CAPTION_ROOM)
-            .onFocusChanged { focused = it.isFocused || it.hasFocus },
+            .onFocusChanged {
+                val on = it.isFocused || it.hasFocus
+                if (on) reached = true
+                if (on || !startLifted || reached) focused = on
+            },
     ) {
         PosterFace(
             title = title,

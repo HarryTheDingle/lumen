@@ -1,6 +1,7 @@
 // Mobile-friendly IPTV setup page and submission handler for pairing phone-pasted sources to a TV account.
 // Paired TVs generate a short-lived single-use code via POST /iptv/setup/start; users open /iptv?code=XXXX-XXXX
 // on their phone and submit Xtream Codes, M3U, or Stalker Portal credentials into the account's iptvSources entry.
+import { seal, open } from "./seal.js";
 
 const MAX_VALUE = 200 * 1024;
 const MAX_SOURCES = 50;
@@ -212,7 +213,7 @@ export async function handleIptvSetupSubmit(body, env, now = Date.now()) {
     "SELECT t, v FROM entries WHERE account = ? AND k = 'iptvSources'"
   ).bind(setup.account).all()).results?.[0];
 
-  const { sources: current, wrapper } = parseExistingSources(existingRow && existingRow.v);
+  const { sources: current, wrapper } = parseExistingSources(existingRow && (await open(env, 'iptvSources', existingRow.v)));
   const { list: nextSources, saved } = mergeSources(current, validated);
   if (nextSources.length > MAX_SOURCES) {
     return { status: 413, body: { error: "Too many IPTV sources on this account." } };
@@ -227,7 +228,7 @@ export async function handleIptvSetupSubmit(body, env, now = Date.now()) {
   await env.DB.batch([
     env.DB.prepare(
       "INSERT INTO entries (account, k, t, v, s) VALUES (?, 'iptvSources', ?, ?, ?) ON CONFLICT (account, k) DO UPDATE SET t = excluded.t, v = excluded.v, s = excluded.s WHERE excluded.t > entries.t"
-    ).bind(setup.account, writeT, payload, now),
+    ).bind(setup.account, writeT, await seal(env, 'iptvSources', payload), now),
     env.DB.prepare("DELETE FROM lumos_iptv_setup WHERE code = ?").bind(code),
   ]);
 

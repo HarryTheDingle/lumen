@@ -173,6 +173,10 @@ class LiveExoEngine(
     private val _zoomMode = MutableStateFlow(LiveZoomMode.FIT)
     val zoomMode: StateFlow<LiveZoomMode> = _zoomMode.asStateFlow()
 
+    /** The stream last tuned, so a kept player can be tuned again when it stalls */
+    var lastTuned: ResolvedStream? = null
+        private set
+
     /** Binds [playerView] to the live engine and disables Media3's built-in VOD controller. */
     fun attachPlayerView(playerView: PlayerView, resizeModeOverride: Int? = null) {
         val prev = attachedView
@@ -217,6 +221,7 @@ class LiveExoEngine(
             return
         }
 
+        lastTuned = resolved
         val tuneGen = ++generation
         var terminalFired = false
         var readyFired = false

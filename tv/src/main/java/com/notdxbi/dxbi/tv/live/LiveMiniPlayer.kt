@@ -33,6 +33,7 @@ object LiveMiniPlayer {
 
     private const val HEARTBEAT_INTERVAL_MS = 45_000L
     private const val RECENT_STOP_GRACE_MS = 15_000L
+    private const val MAX_RETRIES = 5
 
     private val lock = Any()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -113,9 +114,25 @@ object LiveMiniPlayer {
         }
 
         val effectiveStore = store ?: lastStore ?: LiveTvRuntime.currentStore()
-        newSession.engine.onStallFailover = {
+        // (a live stream stalls now and then, a dropped connection or a provider cutting it off after a while: the corner
+        // player tunes the same feed again, a few times in a row, before it gives up; it used to stop at the first stall)
+        var retries = 0
+        newSession.engine.onStallFailover = { reason ->
             scope.launch(Dispatchers.Main) {
-                if (_session.value?.engine === newSession.engine) {
+                if (_session.value?.engine !== newSession.engine) return@launch
+                val again = newSession.engine.lastTuned
+                if (again != null && retries < MAX_RETRIES) {
+                    retries++
+                    android.util.Log.i("lumos-live", "corner player stalled ($reason): tuning again ($retries of $MAX_RETRIES)")
+                    delay(1_000L * retries)
+                    if (_session.value?.engine === newSession.engine) {
+                        newSession.engine.tune(
+                            again,
+                            onReady = { retries = 0 },
+                            onFail = { scope.launch(Dispatchers.Main) { if (_session.value?.engine === newSession.engine) stop(effectiveStore) } },
+                        )
+                    }
+                } else {
                     stop(effectiveStore)
                 }
             }

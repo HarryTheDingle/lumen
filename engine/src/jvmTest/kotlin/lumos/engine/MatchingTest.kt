@@ -48,4 +48,13 @@ class MatchingTest {
         assertTrue(Matching.searchBased("Easynews++"))
         assertFalse(Matching.searchBased("StremThru Torz"))
     }
+
+    @Test fun episodeTitles() {
+        val t = "The Pyramid"
+        assertFalse(Matching.episodeTitled(s("Dark Matter. s02e07. She's One of Them Now.mkv"), t))
+        assertTrue(Matching.episodeTitled(s("Dark.Matter.S02E07.The.Pyramid.ATVP.DV.HDR.WEB-DL.2160p.by.AKTEP.mkv"), t))
+        assertTrue(Matching.episodeTitled(s("Dark.Matter.S02E07.MULTi.VFF.AD.2160p.HDR.DV.WEB.EAC3.5.1.Atmos.H265-FRQC.mkv"), t))
+        assertTrue(Matching.episodeTitled(s("Dark Matter S02E07 1080p"), t))
+        assertTrue(Matching.episodeTitled(s("Dark Matter. s02e07. She's One of Them Now.mkv"), null))
+    }
 }

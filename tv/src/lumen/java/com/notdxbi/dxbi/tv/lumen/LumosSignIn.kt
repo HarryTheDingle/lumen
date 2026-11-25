@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import com.notdxbi.dxbi.tv.phone.Engine
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import lumos.engine.PendingSignIn
 
 /**
@@ -50,6 +51,11 @@ fun LumosSignIn(stremio: Stremio) {
     var link by remember { mutableStateOf<Stremio.LinkCode?>(null) }
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    val first = remember { FocusRequester() }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     // the iPhone's code
     LaunchedEffect(Unit) {
         while (true) {
@@ -88,26 +94,42 @@ fun LumosSignIn(stremio: Stremio) {
     }
 
     Row(Modifier.fillMaxSize().background(Dx.Background), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-        Column(Modifier.width(380.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("Sign in with Stremio", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-            androidx.compose.foundation.layout.Box(Modifier.size(260.dp).background(Color.White, RoundedCornerShape(Dx.RPanel)).padding(14.dp)) {
-                link?.let { AsyncImage(model = it.qrUrl, contentDescription = "QR code to sign in with Stremio", modifier = Modifier.fillMaxSize()) }
-            }
-            Text("Scan with your phone, or go to link.stremio.com and enter", fontSize = 14.sp, color = Dx.Muted, textAlign = TextAlign.Center)
-            Text(link?.code ?: "· · · ·", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 8.sp)
-        }
-        Spacer(Modifier.width(72.dp))
+        // the main way: the Stremio account's own email and password, typed once with the remote
         Column(Modifier.width(440.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Logo(90.dp)
             Text("Welcome to $name", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Color.White, textAlign = TextAlign.Center)
             Text(
-                "Sign in to Stremio on your phone with the code: your profiles, Continue Watching and addons come across. Your password never touches this TV.",
+                "Sign in with your Stremio account: your profiles, Continue Watching and addons come across. The password is used once and not kept.",
                 fontSize = 14.sp, color = Dx.Muted, textAlign = TextAlign.Center,
             )
+            Field("Stremio email", email, { email = it }, androidx.compose.ui.text.input.KeyboardType.Email, Modifier.focusRequester(first))
+            Field("Password", password, { password = it }, androidx.compose.ui.text.input.KeyboardType.Password)
             status?.let { Text(it, fontSize = 15.sp, color = Color.White, textAlign = TextAlign.Center) }
-            Spacer(Modifier.height(10.dp))
-            Text("Or, on an iPhone already signed in: Lumen → Profile → Sign In a Device, and enter", fontSize = 13.sp, color = Dx.Faint, textAlign = TextAlign.Center)
-            Text(pending?.code ?: "· · · ·", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.8f), letterSpacing = 6.sp)
+            Button(
+                onClick = {
+                    if (busy || email.isBlank() || password.isEmpty()) return@Button
+                    busy = true
+                    status = "Signing in and bringing your profiles, history and addons across…"
+                    scope.launch {
+                        val result = runCatching { engine.signInWithStremio(email, password) }
+                        if (result.isFailure) { busy = false; status = result.exceptionOrNull()?.message ?: "That didn't work. Try again." }
+                    }
+                },
+                colors = ButtonDefaults.colors(containerColor = Dx.Accent.copy(alpha = 0.8f), contentColor = Dx.OnAccent, focusedContainerColor = Dx.Accent, focusedContentColor = Dx.OnAccent),
+            ) { Text(if (busy) "Signing in…" else "Sign In", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+        }
+        Spacer(Modifier.width(72.dp))
+        // the same with a phone, for anyone who'd rather not type a password on a TV
+        Column(Modifier.width(300.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Or use your phone", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+            androidx.compose.foundation.layout.Box(Modifier.size(190.dp).background(Color.White, RoundedCornerShape(Dx.RPanel)).padding(12.dp)) {
+                link?.let { AsyncImage(model = it.qrUrl, contentDescription = "QR code to sign in with Stremio", modifier = Modifier.fillMaxSize()) }
+            }
+            Text("Scan, or go to link.stremio.com and enter", fontSize = 13.sp, color = Dx.Muted, textAlign = TextAlign.Center)
+            Text(link?.code ?: "· · · ·", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 6.sp)
+            Spacer(Modifier.height(6.dp))
+            Text("Or, on a signed-in iPhone: Profile → Sign In a Device, and enter", fontSize = 12.sp, color = Dx.Faint, textAlign = TextAlign.Center)
+            Text(pending?.code ?: "· · · ·", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.8f), letterSpacing = 5.sp)
         }
     }
 }

@@ -147,14 +147,17 @@ function mapCompetitorSide(comp) {
   if (!name) return null;
   const shortName = String(entity.shortDisplayName || entity.shortName || entity.location || "").trim() || null;
   const abbreviation = String(entity.abbreviation || "").trim() || null;
+  // (a fighter's id is on the competitor, not the athlete: ESPN's headshots are kept under it)
+  const athleteId = comp.athlete && !comp.team && comp.id != null && /^\d{3,12}$/.test(String(comp.id)) ? String(comp.id) : null;
   const logoUrl = String(
     entity.logo ||
     (Array.isArray(entity.logos) && entity.logos[0] && entity.logos[0].href) ||
     (entity.headshot && entity.headshot.href) ||
+    (athleteId ? `https://a.espncdn.com/i/headshots/mma/players/full/${athleteId}.png` : "") ||
     ""
   ).trim() || null;
   return {
-    id: entity.id != null ? String(entity.id) : null,
+    id: entity.id != null ? String(entity.id) : athleteId,
     name,
     shortName,
     abbreviation,
@@ -817,6 +820,24 @@ async function edgeCached(key, ttlSeconds, make) {
   return value;
 }
 
+/** As [edgeCached], but kept only [shortTtl] seconds when [complete] says the answer is missing parts (a call that failed) */
+async function edgeCachedPartial(key, ttlSeconds, shortTtl, complete, make) {
+  const cache = typeof caches !== "undefined" && caches.default ? caches.default : null;
+  const req = new Request(`https://lumen-cache.internal/${encodeURIComponent(key)}`);
+  if (cache) {
+    const hit = await cache.match(req).catch(() => null);
+    if (hit) return hit.json();
+  }
+  const value = await make();
+  if (cache && value) {
+    const ttl = complete(value) ? ttlSeconds : shortTtl;
+    await cache.put(req, new Response(JSON.stringify(value), {
+      headers: { "Content-Type": "application/json", "Cache-Control": `max-age=${ttl}` },
+    })).catch(() => {});
+  }
+  return value;
+}
+
 /** ESPN's match summary, as the match page needs it */
 export function parseEspnMatchSummary(json, league) {
   const comp = json && json.header && Array.isArray(json.header.competitions) ? json.header.competitions[0] : null;
@@ -918,4 +939,183 @@ export async function handleF1Standings(body = {}, env, now = Date.now(), fetchI
     };
   });
   return out ? { status: 200, body: out } : { status: 502, body: { error: "Standings unavailable." } };
+}
+
+// ---- The sports pages' extras: league tables, team pictures, and Formula 1's race weekend ----
+
+/** POST /iptv/sports/table ({ league }): the league table, as ESPN has it */
+export async function handleSportsTable(body = {}, env, now = Date.now(), fetchImpl = globalThis.fetch) {
+  const league = String((body && body.league) || "eng.1").trim();
+  const cfg = LEAGUE_BY_CODE.get(league) || TEAM_SEARCH_LEAGUES.find((l) => l.league === league);
+  if (!cfg || cfg.espnSport !== "soccer") return { status: 400, body: { error: "Unknown league." } };
+  const table = await edgeCached(`table:${league}`, 30 * 60, async () => {
+    const json = await fetchJsonWith(fetchImpl, `https://site.api.espn.com/apis/v2/sports/soccer/${league}/standings`);
+    const entries = json && json.children && json.children[0] && json.children[0].standings ? json.children[0].standings.entries || [] : [];
+    if (!entries.length) return null;
+    const rows = entries.map((e, i) => {
+      const stat = (n) => ((e.stats || []).find((x) => x.name === n) || {}).displayValue;
+      const t = e.team || {};
+      return {
+        rank: Number(stat("rank")) || i + 1,
+        id: t.id ? String(t.id) : null,
+        name: t.displayName || t.name || "",
+        shortName: t.shortDisplayName || t.abbreviation || null,
+        logoUrl: (Array.isArray(t.logos) && t.logos[0] && t.logos[0].href) || null,
+        played: Number(stat("gamesPlayed")) || 0,
+        won: Number(stat("wins")) || 0,
+        drawn: Number(stat("ties")) || 0,
+        lost: Number(stat("losses")) || 0,
+        goalDiff: stat("pointDifferential") || "0",
+        points: Number(stat("points")) || 0,
+      };
+    }).sort((a, b) => a.rank - b.rank);
+    return { league, leagueName: cfg.leagueName || (json.children[0].name || ""), rows };
+  });
+  return table ? { status: 200, body: table } : { status: 502, body: { error: "Table unavailable." } };
+}
+
+const SPORTSDB = "https://www.thesportsdb.com/api/v1/json/123";
+
+/** TheSportsDB's JSON (asked as a browser would: it turns away some clients); null when it can't be had */
+async function sportsDbJson(path, fetchImpl) {
+  try {
+    const res = await fetchImpl(`${SPORTSDB}/${path}`, { headers: { "User-Agent": "Mozilla/5.0 (Lumen)", Accept: "application/json" }, signal: AbortSignal.timeout(8000) });
+    if (!res.ok) { console.log(`sportsdb ${res.status} for ${path}`); return null; }
+    return await res.json().catch(() => null);
+  } catch (e) { console.log(`sportsdb failed for ${path}: ${e && e.message}`); return null; }
+}
+
+/** One team's pictures from TheSportsDB (wide fan art for billboards, the badge), kept a week */
+async function teamArt(name, fetchImpl) {
+  const clean = String(name || "").trim();
+  if (!clean) return null;
+  return edgeCached(`art2:team:${clean.toLowerCase()}`, 7 * 24 * 3600, async () => {
+    let json = null;
+    try {
+      const res = await fetchImpl(`${SPORTSDB}/searchteams.php?t=${encodeURIComponent(clean)}`, { headers: { "User-Agent": "Mozilla/5.0 (Lumen)", Accept: "application/json" }, signal: AbortSignal.timeout(8000) });
+      if (!res.ok) { console.log(`sportsdb ${res.status} for ${clean}`); return null; }
+      json = await res.json().catch(() => null);
+    } catch (e) { console.log(`sportsdb failed for ${clean}: ${e && e.message}`); return null; }
+    // (a failed lookup isn't kept: only an answer is, even an empty one)
+    if (!json) return null;
+    const teams = (json && Array.isArray(json.teams) ? json.teams : []).filter((t) => t && /soccer|basketball|ice hockey|motorsport/i.test(t.strSport || ""));
+    const t = teams[0];
+    if (!t) return { fanart: [], badge: null, banner: null };
+    return {
+      fanart: [t.strFanart1, t.strFanart2, t.strFanart3, t.strFanart4].filter(Boolean),
+      badge: t.strBadge || null,
+      banner: t.strBanner || null,
+    };
+  });
+}
+
+/** A league's own pictures from TheSportsDB (wide action photos), kept a week */
+async function leagueArt(id, fetchImpl) {
+  if (!/^\d{3,6}$/.test(id)) return null;
+  return edgeCached(`art2:league:${id}`, 7 * 24 * 3600, async () => {
+    const json = await sportsDbJson(`lookupleague.php?id=${id}`, fetchImpl);
+    if (!json) return null;
+    const l = Array.isArray(json.leagues) ? json.leagues[0] : null;
+    return { fanart: l ? [l.strFanart1, l.strFanart2, l.strFanart3, l.strFanart4].filter(Boolean) : [], badge: (l && l.strBadge) || null, banner: (l && l.strBanner) || null };
+  });
+}
+
+/** POST /iptv/sports/art ({ teams: [names] }): billboard pictures for each team asked for (up to 12); "league:<id>" asks for a league's */
+export async function handleSportsArt(body = {}, env, now = Date.now(), fetchImpl = globalThis.fetch) {
+  const names = [...new Set((Array.isArray(body && body.teams) ? body.teams : []).map((n) => String(n || "").trim()).filter(Boolean))].slice(0, 12);
+  const out = {};
+  // (TheSportsDB's free key allows a few calls a second: a handful at a time)
+  for (let i = 0; i < names.length; i += 4) {
+    const got = await Promise.all(names.slice(i, i + 4).map((n) => (n.startsWith("league:") ? leagueArt(n.slice(7), fetchImpl) : teamArt(n, fetchImpl)).catch(() => null)));
+    got.forEach((a, j) => { if (a) out[names[i + j]] = a; });
+  }
+  return { status: 200, body: { teams: out } };
+}
+
+/** POST /iptv/sports/f1/weekend: the next race weekend (sessions, circuit, track outline, last year's winner, artwork) */
+export async function handleF1Weekend(body = {}, env, now = Date.now(), fetchImpl = globalThis.fetch) {
+  const out = await edgeCachedPartial(`f1:weekend5:${Math.floor(now / (3 * 3600 * 1000))}`, 3 * 3600, 600, (v) => Boolean(v.art && v.lastWinner && v.circuit && v.circuit.track), async () => {
+    // (the race still to finish: Jolpica's "next" moves on as soon as a race starts, so the last one is kept until it's over)
+    const [nextJ, lastJ] = await Promise.all([
+      fetchJsonWith(fetchImpl, "https://api.jolpi.ca/ergast/f1/current/next.json"),
+      fetchJsonWith(fetchImpl, "https://api.jolpi.ca/ergast/f1/current/last.json"),
+    ]);
+    const pick = (j) => j && j.MRData && j.MRData.RaceTable && j.MRData.RaceTable.Races && j.MRData.RaceTable.Races[0];
+    const at = (d) => d && d.date ? Date.parse(`${d.date}T${d.time || "12:00:00Z"}`) : null;
+    let race = pick(nextJ);
+    const last = pick(lastJ);
+    if (last && at(last) && now < at(last) + 3 * 3600 * 1000) race = last;
+    if (!race) return null;
+    const LABELS = [["FirstPractice", "Practice 1"], ["SecondPractice", "Practice 2"], ["ThirdPractice", "Practice 3"], ["SprintQualifying", "Sprint qualifying"], ["SprintShootout", "Sprint qualifying"], ["Sprint", "Sprint"], ["Qualifying", "Qualifying"]];
+    const sessions = LABELS.filter(([k]) => race[k]).map(([k, label]) => ({ label, startMs: at(race[k]) }));
+    sessions.push({ label: "Race", startMs: at(race) });
+    sessions.sort((a, b) => a.startMs - b.startMs);
+    const season = Number(race.season);
+    const circuit = race.Circuit || {};
+
+    // (Jolpica allows a few calls a second: last year's winner is asked for after the next/last pair, with one more try)
+    const prevUrl = `https://api.jolpi.ca/ergast/f1/${season - 1}/circuits/${encodeURIComponent(circuit.circuitId || "")}/results/1.json`;
+    const [meetings, art] = await Promise.all([
+      fetchJsonWith(fetchImpl, `https://api.openf1.org/v1/meetings?year=${season}`),
+      sportsDbJson("eventsnextleague.php?id=4370", fetchImpl),
+    ]);
+    const notes = [];
+    const tryPrev = async () => {
+      try {
+        const res = await fetchImpl(prevUrl, { headers: { "User-Agent": "Mozilla/5.0 (Lumen)", Accept: "application/json" }, signal: AbortSignal.timeout(8000) });
+        if (!res.ok) { notes.push(`prev ${res.status}`); return null; }
+        return await res.json().catch(() => { notes.push("prev bad json"); return null; });
+      } catch (e) { notes.push(`prev ${e && e.message}`); return null; }
+    };
+    let prev = await tryPrev();
+    if (!prev) { await new Promise((r) => setTimeout(r, 900)); prev = await tryPrev(); }
+    if (!prev) console.log(`f1 weekend: no last-year result from ${prevUrl}`);
+    if (!art) console.log("f1 weekend: no TheSportsDB events");
+    if (!Array.isArray(meetings)) console.log("f1 weekend: no OpenF1 meetings");
+    const raceDay = (race.date || "").slice(0, 10);
+    const meeting = (Array.isArray(meetings) ? meetings : []).find((m) => {
+      const s = Date.parse(m.date_start || ""), e = Date.parse(m.date_end || "");
+      const d = Date.parse(raceDay);
+      return s && e && d >= s - 86400000 && d <= e + 86400000;
+    }) || null;
+    let track = null;
+    if (meeting && meeting.circuit_key) {
+      const mv = await fetchJsonWith(fetchImpl, `https://api.multiviewer.app/api/v1/circuits/${meeting.circuit_key}/${season}`);
+      if (mv && Array.isArray(mv.x) && mv.x.length > 20) {
+        // (the outline thinned to about 240 points: plenty for a drawn map)
+        const step = Math.max(1, Math.floor(mv.x.length / 240));
+        const xs = [], ys = [];
+        for (let i = 0; i < mv.x.length; i += step) { xs.push(Math.round(mv.x[i])); ys.push(Math.round(mv.y[i])); }
+        track = { x: xs, y: ys, rotation: Number(mv.rotation) || 0, corners: Array.isArray(mv.corners) ? mv.corners.length : null };
+      }
+    }
+    const won = pick(prev);
+    const winner = won && won.Results && won.Results[0];
+    const events = (art && Array.isArray(art.events) ? art.events : []).filter((e) => String(e.strEvent || "").toLowerCase().startsWith(String(race.raceName || "").toLowerCase()));
+    const ev = events.find((e) => !/practice|qualifying|sprint/i.test(e.strEvent || "")) || events[0];
+    return {
+      season, round: Number(race.round) || null,
+      raceName: race.raceName || "",
+      officialName: meeting ? meeting.meeting_official_name || null : null,
+      circuit: {
+        name: circuit.circuitName || "",
+        locality: (circuit.Location && circuit.Location.locality) || "",
+        country: (circuit.Location && circuit.Location.country) || "",
+        type: meeting ? meeting.circuit_type || null : null,
+        image: meeting ? meeting.circuit_image || null : null,
+        flag: meeting ? meeting.country_flag || null : null,
+        laps: winner && winner.laps ? Number(winner.laps) : null,
+        track,
+      },
+      lastWinner: winner ? {
+        name: `${(winner.Driver && winner.Driver.givenName) || ""} ${(winner.Driver && winner.Driver.familyName) || ""}`.trim(),
+        team: (winner.Constructor && winner.Constructor.name) || "",
+        time: (winner.Time && winner.Time.time) || null,
+      } : null,
+      sessions,
+      art: ev ? { thumb: ev.strThumb || null, poster: ev.strPoster || null, banner: ev.strBanner || null } : null,
+      notes,
+    };
+  });
+  return out ? { status: 200, body: out } : { status: 502, body: { error: "Race weekend unavailable." } };
 }

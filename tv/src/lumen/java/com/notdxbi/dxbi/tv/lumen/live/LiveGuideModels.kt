@@ -167,6 +167,10 @@ internal fun GlassTile(
     focusedScale: Float = Dx.FocusRow,
     /** The soft glass sheen and rim while it isn't chosen (cells in the guide, cards) */
     sheen: Boolean = fillColor != Color.Transparent,
+    /** The fill and the words are the chosen ones the moment the remote lands, with no fade (the lift itself stays soft) */
+    instantFill: Boolean = false,
+    /** The most the chosen tile may grow each side (a tile as wide as the screen would otherwise run off its edge) */
+    maxGrow: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp.Infinity,
     onFocus: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
     content: @Composable BoxScope.(focused: Boolean, ink: Color) -> Unit,
@@ -186,7 +190,7 @@ internal fun GlassTile(
     var pressed by remember { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
     // (the words turn dark once the white is most of the way in, so they always read)
-    val ink = if (lift >= 0.45f) Color.Black else Color.White
+    val ink = if (if (instantFill) focused else lift >= 0.45f) Color.Black else Color.White
 
     Box(
         modifier = modifier
@@ -204,13 +208,15 @@ internal fun GlassTile(
             }
             .graphicsLayer {
                 val scale = 1f + (focusedScale - 1f) * lift
-                scaleX = scale
+                val growX = if (maxGrow == androidx.compose.ui.unit.Dp.Infinity || size.width <= 0f) scale
+                    else 1f + minOf(focusedScale - 1f, 2f * maxGrow.toPx() / size.width) * lift
+                scaleX = growX
                 scaleY = scale
             }
             // (a tile asked for no edge has none until the remote's on it: plain words, as Apple TV's)
             .then(if (focused || borderColor != Color.Transparent) Modifier.glassEdge(shape, glass, tracked = focused) { lift } else Modifier)
             .drawBehind {
-                val k = lift.coerceIn(0f, 1f)
+                val k = if (instantFill) (if (focused) 1f else 0f) else lift.coerceIn(0f, 1f)
                 drawOutline(shape.createOutline(size, layoutDirection, this), androidx.compose.ui.graphics.lerp(fillColor, focusedFillColor, k))
             }
             .then(if (sheen && !focused) Modifier.background(GlassSheen, shape).border(1.dp, GlassRim, shape) else Modifier)
@@ -571,8 +577,8 @@ internal fun Modifier.liveFrost(shape: Shape = RoundedCornerShape(Dx.RPanel), ri
 private val FrostTint = Color(0x8C121216)
 
 /** The guide header's picture (and the mini player in its place) */
-internal val MINI_W = 216.dp
-internal val MINI_H = 122.dp
+internal val MINI_W = 185.dp
+internal val MINI_H = 104.dp
 
 /** "4K50 HDR", "1080p", "SD": a feed's quality in a few characters */
 internal fun formatCompactQuality(quality: lumos.iptv.StreamQuality?): String? {
