@@ -267,18 +267,28 @@ fun PageWindow(
             // after a fixed 300 ms while the fade, started a frame or two late, still had a sliver to go, a pop at the end)
             if (leaving) rise.animateTo(0f, tween(Dx.Med, easing = androidx.compose.animation.core.CubicBezierEasing(0.4f, 0f, 0.2f, 1f)))
         }
-        if (solid && window != null) {
-            val backing = remember { android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK) }
+        // The whole window fades as one: the page, the black under it (a page that's solid) and a trailer playing behind, together,
+        // over whatever is under the window. (The black faded on its own as well, and the page over it, so in the middle of a fade
+        // there was more black than either screen, and then the black went all at once: a dip into black, then a pop.)
+        if (window != null && fadeIn) {
+            SideEffect { window.decorView.alpha = rise.value * (1f - 0.45f * recede) }
             LaunchedEffect(window) {
+                androidx.compose.runtime.snapshotFlow { rise.value * (1f - 0.45f * recede) }.collect { window.decorView.alpha = it.coerceIn(0f, 1f) }
+            }
+        }
+        if (solid && window != null) {
+            // (a hair short of fully opaque, and the window said to be translucent: a window that is fully opaque makes the system stop
+            // drawing what's under it, and on Back there was then nothing under the fading page but black until the page had gone)
+            val backing = remember { android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK).also { it.alpha = 253 } }
+            SideEffect {
+                window.setFormat(android.graphics.PixelFormat.TRANSLUCENT)
                 window.setBackgroundDrawable(backing)
-                androidx.compose.runtime.snapshotFlow { rise.value }.collect { backing.alpha = (it * 255).toInt() }
             }
         }
         Box(
             Modifier.fillMaxSize().graphicsLayer {
                 // in: 1.03 down to 1; out (Back): 1 up to 1.03; under another page: 1 down to 0.97
                 val r = rise.value
-                alpha = r * (1f - 0.45f * recede)
                 val sc = (1.03f - 0.03f * r) * (1f - 0.03f * recede)
                 scaleX = sc
                 scaleY = sc
@@ -294,6 +304,8 @@ fun PageWindow(
  */
 @Composable
 fun LumenClock(modifier: Modifier = Modifier) {
+    // (a page that fades its words away, a title's over its trailer, takes the clock with them)
+    val modifier = modifier.graphicsLayer { alpha = ClockFade.alpha }
     var now by remember { mutableStateOf(com.notdxbi.dxbi.tv.phone.Dates.formatTime()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -314,6 +326,9 @@ fun LumenClock(modifier: Modifier = Modifier) {
         )
     }
 }
+
+/** How visible the clock is: a title's page fades it with its words (1 everywhere else) */
+object ClockFade { var alpha by mutableStateOf(1f) }
 
 /** The screen's name and the clock: the player buttons' glass (light, see-through), on black pages and pictures alike */
 internal val PILL_GLASS = Color.White.copy(alpha = 0.14f)

@@ -162,18 +162,32 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVid
     // addons have: those are fakes and trailers (Avengers: Doomsday had two "1080p Web" streams of 1 Mbps)
     // …and a film still in cinemas (out there in the last four months, nothing out to stream yet: the same rule as its In
     // Cinemas label) has nothing real either: Hunger Games: Sunrise on the Reaping, out in cinemas the day before, offered Play
-    val notOut = releaseDates?.let { r ->
+    val movieNotOut = releaseDates?.let { r ->
         val now = System.currentTimeMillis()
         val notAnywhere = (r.cinema != null || r.digital != null) && (r.cinema ?: Long.MAX_VALUE) > now && (r.digital ?: Long.MAX_VALUE) > now
         val inCinemas = r.cinema != null && r.cinema <= now && now - r.cinema < 120L * 86_400_000 && (r.digital == null || r.digital > now)
         notAnywhere || inCinemas
     } == true
-    val available: Boolean? = if (notOut) false else choices?.takeIf { it.videoId == d?.videoId }?.let { c -> if (c.items.isNotEmpty()) true else if (c.settled) false else null }
+    // A show whose next episode isn't out yet says when it is. With some episodes out, the main button starts from the beginning;
+    // with none out at all, it's the Library's (as a film not out)
+    val nextEp = if (ref.type == "series") d?.let(::nextVideo) else null
+    val firstOut = d?.videos?.firstOrNull { (it.season ?: 0) > 0 && !comingOut(it) } ?: d?.videos?.firstOrNull { !comingOut(it) }
+    val nextUpcoming = nextEp?.let(::comingOut) == true
+    val seriesNotOut = nextUpcoming && firstOut == null
+    val playFromStart = nextUpcoming && firstOut != null
+    val notOut = movieNotOut || seriesNotOut
+    val comingNotice = nextEp?.takeIf { nextUpcoming }?.let { v ->
+        val day = releaseDay(v)
+        val which = if (v.season != null && v.episode != null) episodeLabel(v.season, v.episode) else "The next episode"
+        if (day != null) "$which comes out $day" else "$which isn't out yet"
+    }
+    val available: Boolean? = if (notOut) false else if (playFromStart) true else choices?.takeIf { it.videoId == d?.videoId }?.let { c -> if (c.items.isNotEmpty()) true else if (c.settled) false else null }
     var looking by remember(ref.id) { mutableStateOf(false) }
     LaunchedEffect(available) { if (available != null) looking = false }
     val nothingNotice = when {
         available != false -> null
         // (not out: its dates, even when fakes calling themselves WEB made the page think it was)
+        seriesNotOut -> comingNotice
         notOut -> releaseDates?.notice()?.first ?: "Not out yet"
         notice != null -> notice.first
         ref.type == "series" -> "This episode isn't available to stream yet"
@@ -222,7 +236,8 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVid
             val names = JSONArray()
             dd.directors.take(3).forEach { names.put(JSONObject().put("name", it).put("role", "Director")) }
             dd.cast.take(13).forEach { names.put(JSONObject().put("name", it).put("role", "")) }
-            launch { cast = Tmdb.cast(ref.type, imdbId(ref.id) ?: "", names) }  // (TMDB direct: Lumos's engine has no phone.cast)
+            // (TMDB direct: Lumos's engine has no phone.cast. Everyone TMDB lists; the catalogue's three or four names if it has none)
+            launch { cast = Tmdb.credits(imdbId(ref.id) ?: "") ?: Tmdb.cast(ref.type, imdbId(ref.id) ?: "", names) }
         }
         // (Lumos's own lookup, as Genius Browse's: the engine has no related titles of its own)
         if (related.isEmpty()) launch { related = feed?.related(ref.type, ref.id, dd.title?.genres.orEmpty()).orEmpty().ifEmpty { stremio.related(ref.type, ref.id, dd.title?.genres.orEmpty()) } }
@@ -309,6 +324,10 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVid
             trailerShowing = false
             delay(1000)
             trailerOn = false
+        } else {
+            // (back at the top: the trailer's voice comes back with it. It stayed hushed once the page had been down, so
+            // the auto-playing trailer was silent from then on)
+            hushed = false
         }
     }
     LaunchedEffect(trailerAllowed, atTop) {
@@ -333,36 +352,89 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVid
     val seasonsFocus = remember { FocusRequester() }
     FocusOnOpen(playFocus)
 
-    /**
-     * The page goes in three whole sections, the remote moving it a section at a time: the top (the
-     * picture, Play), the episodes (a screen of their own, a show's), and the rest (related, cast, about)
-     */
+    // THE PAGE'S RULES. The page is an ordered list of stops: the billboard, an anime's seasons, a show's episodes, then each
+    // row under them that the title has (trailers, related, cast, about). The list is known as soon as the page is built.
+    //  - Each stop has ONE place it sits while the remote is on it: how far down the screen the top of its item comes to
+    //    (STOP_PLACE). Every item has a fixed height (the name above a row, an episode's words), so it sits there every time.
+    //  - Each stop has ONE thing the remote lands on as it arrives (an entry), the card it was last on if it has been there.
+    //  - Up and Down go from one stop to the next, in that order, and nothing else moves the page. Left and Right never do.
+    //  - The only moves inside a stop are its own: from the billboard's buttons up to More, a show's season tabs and its
+    //    episodes (Down from the billboard skips the tabs, Up from the episodes reaches them).
     val hasEpisodes = ref.type == "series" && d != null && d.videos.isNotEmpty()
     // (an anime's seasons row sits between the top and the episodes)
     val hasSeasons = animeSeasons.size >= 2
-    val episodesIndex = if (hasSeasons) 2 else 1
-    val moreIndex = (if (hasEpisodes) episodesIndex + 1 else 1) + (if (hasSeasons && !hasEpisodes) 1 else 0)
-    // The page goes a section at a time, and the remote's own move onto a section does it in one glide (PageScrolling
-    // lines the section up): a second scroll started after it, as there was, is what made the page jitter
-    val section = remember { androidx.compose.runtime.mutableIntStateOf(0) }
-    fun snap(index: Int) { section.intValue = index }
-    // (every move of the page goes through this one, a glide to suit its length, one at a time: the focus landing on what
-    // a glide is already heading to is let be, so it isn't restarted or run over by a second, quicker scroll)
+    val shelves = buildList {
+        if (trailerList.isNotEmpty()) add("trailers")
+        if (related.isNotEmpty()) add("related")
+        if (d != null && (d.cast.isNotEmpty() || d.directors.isNotEmpty())) add("cast")
+        if (title.description != null || title.genres.isNotEmpty()) add("about")
+    }
+    val stops = buildList {
+        add("header")
+        if (hasSeasons) add("seasons")
+        if (hasEpisodes) add("episodes")
+        addAll(shelves)
+    }
+    val entries = remember {
+        mapOf("header" to playFocus, "seasons" to seasonsFocus, "episodes" to episodeFocus, "trailers" to FocusRequester(), "related" to FocusRequester(), "cast" to FocusRequester(), "about" to FocusRequester())
+    }
+    var currentStop by remember { mutableStateOf("header") }
+    // (counts each arrival at the episodes: the row goes to the episode the show is on before the remote lands there)
+    var episodesEnter by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    var moving by remember { mutableStateOf(false) }
+    // (the remote is on the billboard's buttons; on the season tabs; on the episodes)
+    var buttonsFocused by remember { mutableStateOf(false) }
+    var inTabs by remember { mutableStateOf(false) }
+    val hasTabs = (d?.seasons?.size ?: 0) > 1
+    val screenPx = with(LocalDensity.current) { androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp.toPx() }
     val pageScroller = remember(list) { PageScroller(list, scope) }
-    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
-    // (a Down while the page is still gliding to the row below is the same Down: a second jump skipped a row)
-    var goingDown by remember { mutableStateOf(false) }
 
-    fun toTop() = scope.launch {
-        // (a glide in flight is cancelled by this one: only one at a time)
-        list.glideTo(0)
-        runCatching { playFocus.requestFocus() }
+    /** Where the top of a stop's item sits on the screen while the remote is on it, as a fraction of the screen's height */
+    fun stopPlace(id: String): Float = when (id) {
+        "header", "seasons", "episodes" -> 0f
+        // (the first row under the billboard has the name above it, from the very top; under a show's episodes, near it)
+        shelves.firstOrNull() -> if (hasEpisodes) STOP_FIRST_UNDER_EPISODES else 0f
+        "about" -> STOP_ABOUT
+        else -> STOP_ROW
+    }
+
+    /** Goes to a stop: the page glides to its place and the remote lands on its entry as soon as that's built */
+    fun moveTo(id: String) {
+        val index = stops.indexOf(id)
+        if (index < 0 || moving) return
+        moving = true
+        if (id == "episodes") episodesEnter++
+        pageScroller.place(index, stopPlace(id) * screenPx)
+        scope.launch {
+            try {
+                repeat(150) {
+                    runCatching { entries.getValue(id).requestFocus() }
+                    delay(16)
+                    if (currentStop == id) return@launch
+                }
+            } finally { moving = false }
+        }
+    }
+
+    fun step(delta: Int) {
+        val to = stops.getOrNull(stops.indexOf(currentStop) + delta) ?: return
+        moveTo(to)
+    }
+
+    /** Up or Down pressed: false when it's a move inside the stop the remote is on, which the focus makes itself */
+    fun leavesStop(down: Boolean): Boolean = when (currentStop) {
+        "header" -> down && buttonsFocused
+        "episodes" -> if (down) !inTabs else (inTabs || !hasTabs)
+        else -> true
     }
 
     // the trailer to itself after a few seconds of the remote being still
     // (not while a box is open over it: the Rate box left the page faded behind the trailer when it closed)
     val still = rememberStillness(trailerShowing && atTop && !streamsOpen && menu == null && !rating && !scoresOpen)
     val uiAlpha = still.alpha()
+    // (the clock fades away with the rest of the page while the trailer has the screen, and is back with it)
+    androidx.compose.runtime.SideEffect { ClockFade.alpha = uiAlpha }
+    DisposableEffect(Unit) { onDispose { ClockFade.alpha = 1f } }
 
     PageWindow(onBack = { nav.back() }, home = playFocus, solid = true) {
         BoxWithConstraints(
@@ -383,18 +455,22 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVid
                         return@onPreviewKeyEvent true
                     }
                     if (still.key(it)) return@onPreviewKeyEvent true
+                    // Up and Down: from stop to stop (what a move inside a stop is, the focus makes itself)
+                    if ((it.key == Key.DirectionUp || it.key == Key.DirectionDown) && menu == null && !streamsOpen && !rating && !scoresOpen) {
+                        val down = it.key == Key.DirectionDown
+                        if (!leavesStop(down)) return@onPreviewKeyEvent false
+                        if (it.type == KeyEventType.KeyDown && !moving) step(if (down) 1 else -1)
+                        return@onPreviewKeyEvent true
+                    }
                     if (it.key != Key.Back) return@onPreviewKeyEvent false
                     if (it.type == KeyEventType.KeyUp) {
                         // (a few pixels short of the top, where the glide left it, counts as the top)
-                        if (list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > list.layoutInfo.viewportSize.height * 0.1f) toTop() else nav.back()
+                        if (list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > list.layoutInfo.viewportSize.height * 0.1f) { moving = false; moveTo("header") } else nav.back()
                     }
                     true
                 },
         ) {
             val screen = maxHeight
-            val screenPx = with(LocalDensity.current) { screen.toPx() }
-            val gapPx = with(LocalDensity.current) { 30.dp.toPx() }
-            val pageScrolling = remember(list) { PageScrollingSpec(list, pageScroller) { section.intValue } }
             // Apple TV's: the art stays where it is, and as the page moves down it blurs into the background of the whole
             // page (the sharp picture fading off a blurred copy of itself), the trailer playing under both while it's at the top
             val covering by remember {
@@ -419,18 +495,19 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVid
                 state = list,
                 modifier = Modifier.alpha(if (watching != null) 0f else uiAlpha),
                 scroller = pageScroller,
-                bringIntoViewSpec = pageScrolling,
+                bringIntoViewSpec = NoPageScrolling,
                 contentPadding = PaddingValues(bottom = pageBottomPad()),
                 verticalArrangement = Arrangement.spacedBy(30.dp),
             ) {
                     item(key = "header") {
+                        Box(Modifier.onFocusChanged { if (it.hasFocus) currentStop = "header" }) {
                         Header(
                             title = title,
                             details = d,
                             reviews = reviews,
                             episode = if (ref.type == "series") d?.let(::nextVideo) else null,
                             badges = streamBadges(choices?.takeIf { c -> c.videoId == d?.videoId }?.let { c -> c.picked ?: c.items.minWithOrNull(StreamOption.BEST) }),
-                            notice = nothingNotice ?: notice?.first,
+                            notice = nothingNotice ?: comingNotice ?: notice?.first,
                             facts = facts,
                             available = available,
                             notOut = notOut,
@@ -465,33 +542,11 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVid
                                 ?.takeUnless { t -> (nothingNotice ?: notice?.first)?.startsWith(t, ignoreCase = true) == true },
                             height = screen,
                             // (another version chosen: Play says which)
-                            playLabel = playLabel(ref, d).let { l -> versions.firstOrNull { it.chosen && it.edition != null }?.let { "$l ${it.edition}" } ?: l },
+                            playLabel = if (playFromStart) "Play from Start" else playLabel(ref, d).let { l -> versions.firstOrNull { it.chosen && it.edition != null }?.let { "$l ${it.edition}" } ?: l },
                             inList = inList,
                             playFocus = playFocus,
-                            // (the episodes aren't there to move to until they're scrolled in: in first, then onto the one they're on)
-                            // Down from the buttons always lands on the next row in one press: the episodes or seasons, or (a film)
-                            // whatever comes next, trailers or Related. (A film had no target: the first press found nothing until the
-                            // row scrolled in, and the second went on past it)
-                            onDown = onDown@{
-                                if (goingDown) return@onDown
-                                goingDown = true
-                                // (the glide and the focus move go together: the row is picked up the moment it's composed
-                                // on the way in, so it lifts straight away instead of after the whole glide)
-                                pageScroller.move(screenPx + gapPx, screenPx)
-                                scope.launch {
-                                    try { repeat(60) {
-                                        val landed = if (hasEpisodes || hasSeasons) {
-                                            runCatching { (if (hasSeasons) seasonsFocus else episodeFocus).requestFocus() }.isSuccess
-                                        } else {
-                                            focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)
-                                        }
-                                        if (landed) return@launch
-                                        delay(16)
-                                    } } finally { goingDown = false }
-                                }
-                            },
-                            onFocused = { section.intValue = 0 },
-                            onPlay = { if (ready) start(mine?.let(::nextVideo)?.id) else wantPlay = true },
+                            onFocusChange = { buttonsFocused = it },
+                            onPlay = { if (playFromStart) start(firstOut?.id) else if (ready) start(mine?.let(::nextVideo)?.id) else wantPlay = true },
                             onList = {
                                 val add = !inList
                                 stremio.listMarks.value = stremio.listMarks.value + (ref.id to add)
@@ -526,36 +581,27 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVid
                                 }
                             },
                         )
+                        }
                     }
                     if (hasSeasons) {
                         item(key = "seasons") {
-                            SeasonsRow(
-                                animeSeasons, landing = seasonsFocus,
-                                onOpen = { nav.open(it) },
-                                // (down: the episodes, scrolled in first)
-                                onDown = {
-                                    if (hasEpisodes) {
-                                        pageScroller.toItem(episodesIndex)
-                                        scope.launch {
-                                            repeat(60) {
-                                                if (runCatching { episodeFocus.requestFocus() }.isSuccess) return@launch
-                                                delay(16)
-                                            }
-                                        }
-                                    }
-                                },
-                                modifier = Modifier.padding(top = 24.dp).onFocusChanged { if (it.hasFocus) snap(1) },
-                            )
+                            Box(Modifier.onFocusChanged { if (it.hasFocus) currentStop = "seasons" }) {
+                                SeasonsRow(
+                                    animeSeasons, entry = seasonsFocus,
+                                    onOpen = { nav.open(it) },
+                                    modifier = Modifier.padding(top = 24.dp),
+                                )
+                            }
                         }
                     }
                     if (hasEpisodes && d != null) {
                         item(key = "episodes") {
-                            // (as tall as the episodes need (the cards and their description boxes), so Related starts in view under it and is there to move down to, then glides up to the middle like Home's rows)
-                            Box(Modifier.padding(top = 24.dp).onFocusChanged { if (it.hasFocus) snap(episodesIndex) }) {
+                            Box(Modifier.onFocusChanged { if (it.hasFocus) currentStop = "episodes" }) {
                             Episodes(
                                 title, d, season ?: d.seasons.firstOrNull(), nextVideo(d)?.id, title.backdrop, blurUnwatched,
-                                landing = episodeFocus,
-                                onUp = { toTop() },
+                                entry = episodeFocus,
+                                enterTick = episodesEnter,
+                                onTabs = { inTabs = it },
                                 onSeason = { season = it },
                                 onPlay = { start(it.id) },
                                 onMenu = { v ->
@@ -576,38 +622,38 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVid
                             }
                         }
                     }
-                    // the rest, as one section: it comes up whole from the episodes (or the top)
-                    item(key = "more") {
-                        Column(
-                            Modifier
-                                .padding(top = 36.dp)
-                                .onFocusChanged { if (it.hasFocus && list.firstVisibleItemIndex < moreIndex) snap(moreIndex) },
-                            verticalArrangement = Arrangement.spacedBy(22.dp),
-                        ) {
-                            // the name, centred over what follows, as a show's is over its episodes (Apple TV's, once the picture has blurred away)
-                            if (!hasEpisodes) TitleLogo(title, maxHeight = 46.dp, maxWidth = 320.dp, textSize = 30.sp, centred = true, modifier = Modifier.padding(bottom = 10.dp))
-                            if (trailerList.isNotEmpty()) {
-                                Shelf("Trailers", spacing = 40.dp) {
-                                    items(trailerList, key = { it.first }) { (yt, name) ->
-                                        TrailerCard(yt, if (name.equals("Trailer", true) || name.isBlank()) "${title.name} Trailer" else name) {
-                                            watchPaused = false
-                                            watchJump = 0
-                                            watching = yt
+                    // each row under them is an item of its own (a stop of its own)
+                    shelves.forEachIndexed { n, id ->
+                        item(key = id) {
+                            Column(
+                                Modifier
+                                    .then(if (n == 0) Modifier.padding(top = NAME_TOP) else Modifier)
+                                    .onFocusChanged { if (it.hasFocus) currentStop = id },
+                                verticalArrangement = Arrangement.spacedBy(22.dp),
+                            ) {
+                                // the name, centred over what follows, as a show's is over its episodes (Apple TV's, once the picture has blurred away)
+                                if (n == 0 && !hasEpisodes) NameOverRows(title)
+                                when (id) {
+                                    "trailers" -> Shelf("Trailers", spacing = 40.dp, centre = false, entry = entries.getValue(id)) {
+                                        items(trailerList, key = { it.first }) { (yt, name) ->
+                                            TrailerCard(yt, if (name.equals("Trailer", true) || name.isBlank()) "${title.name} Trailer" else name) {
+                                                watchPaused = false
+                                                watchJump = 0
+                                                watching = yt
+                                            }
                                         }
                                     }
+                                    "related" -> Shelf("Related", centre = false, entry = entries.getValue(id)) {
+                                        items(related, key = { it.id }) { t -> PreviewPosterCard(t, onClick = { nav.open(t) }) }
+                                    }
+                                    "cast" -> if (d != null) CastRow(d, cast, entries.getValue(id), onPerson = { name, id, photo ->
+                                        // (never the search page: someone without an id is looked up by name, and the person page says so if there's nothing)
+                                        if (id != null) nav.push(Page.Person(id, name, photo))
+                                        else scope.launch { nav.push(Page.Person(Tmdb.personId(name, imdbId(ref.id)) ?: "", name, photo)) }
+                                    })
+                                    "about" -> About(title, d, facts, entries.getValue(id))
                                 }
                             }
-                            if (related.isNotEmpty()) {
-                                Shelf("Related") {
-                                    items(related, key = { it.id }) { t -> PreviewPosterCard(t, onClick = { nav.open(t) }) }
-                                }
-                            }
-                            if (d != null && (d.cast.isNotEmpty() || d.directors.isNotEmpty())) CastRow(d, cast, onPerson = { name, id, photo ->
-                                // (never the search page: someone without an id is looked up by name, and the person page says so if there's nothing)
-                                if (id != null) nav.push(Page.Person(id, name, photo))
-                                else scope.launch { nav.push(Page.Person(Tmdb.personId(name, imdbId(ref.id)) ?: "", name, photo)) }
-                            })
-                            if (title.description != null || title.genres.isNotEmpty()) About(title, d, facts)
                         }
                     }
             }
@@ -656,59 +702,35 @@ fun TitlePage(stremio: Stremio, nav: Nav, ref: Title, autoPlay: Boolean, playVid
     }
 }
 
-/**
- * How the page scrolls to what the remote moves onto: a section at a time (the top, the episodes, the rest), the
- * section the remote has just entered lined up with the top of the screen in one glide; inside the rest, so that
- * what it's on sits a fifth of the way down.
- */
-@OptIn(ExperimentalFoundationApi::class)
-private class PageScrollingSpec(private val list: androidx.compose.foundation.lazy.LazyListState, private val scroller: PageScroller, private val section: () -> Int) : BringIntoViewSpec {
-    // (never used: a spec can't know how far it's going, and the glide has to suit the distance, so the moves are made by
-    // the scroller, in one glide that's let be if it's already under way, and Compose is told there's nothing left to scroll)
-    override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> get() = PageGlide
-    private var jumping = -1
-    private var jumpedAt = 0L
-    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-        // (a section above everything on screen, entered from below: the header, from Trailers once it had scrolled right off.
-        // It isn't laid out, so the rule below can't see it and only brought Play into view, leaving the header half off:
-        // glide all the way to its top instead)
-        val items = list.layoutInfo.visibleItemsInfo
-        val target = items.firstOrNull { offset + size / 2f >= it.offset && offset + size / 2f < it.offset + it.size }?.index ?: section()
-        val first = items.firstOrNull()?.index ?: 0
-        if (target < first) {
-            val now = System.currentTimeMillis()
-            if (jumping != target || now - jumpedAt > 1500) { jumping = target; jumpedAt = now; scroller.toItem(target) }
-            return 0f
-        }
-        // (along a row, the page stays still: the same section at the same height is a move sideways. A chosen card is
-        // taller than the rest (lifted, its strip under it), so near the foot of the screen the rule below took Related
-        // down a little as the remote moved along it)
-        val lastSame = target == lastTarget && kotlin.math.abs(offset - lastOffset) < containerSize * 0.02f
-        lastTarget = target
-        lastOffset = offset
-        if (lastSame) return 0f
-        scroller.move(wanted(offset, size, containerSize), containerSize)
-        return 0f
-    }
-    private var lastTarget = -1
-    private var lastOffset = 0f
+/** Where a stop's item sits while the remote is on it (a fraction of the screen's height down to its top): the page's rules */
+private const val STOP_ROW = 0.30f
+private const val STOP_FIRST_UNDER_EPISODES = 0.10f
+private const val STOP_ABOUT = 0.18f
 
-    private fun wanted(offset: Float, size: Float, containerSize: Float): Float {
-        // (the section is the one the chosen thing is in, by where it is: the remote's section is noted only after Compose
-        // asks this, so going up from Trailers onto Play read as Trailers and the page stopped with the header half off)
-        val items = list.layoutInfo.visibleItemsInfo
-        val inside = items.firstOrNull { offset + size / 2f >= it.offset && offset + size / 2f < it.offset + it.size }
-        val target = inside?.index ?: section()
-        val item = items.firstOrNull { it.index == target }
-        // (a section that's one screen tall or less, entered: its top to the top of the screen)
-        // (a taller one too, while the remote's in its first screen: entering Related from Play put Related a fifth of
-        // the way down, with Play's row still hanging at the top; now Related's name comes to the top and the cast is
-        // in view under it)
-        if (item != null && target <= 2 && (item.size <= containerSize * 1.05f || offset - item.offset < containerSize * 0.6f)) return settle(item.offset.toFloat(), containerSize)
-        if (offset >= 0f && offset + size <= containerSize) return 0f
-        return settle(offset - containerSize * 0.2f, containerSize)
+/** The page moves by its stops only: what the remote lands on never asks it to move */
+@OptIn(ExperimentalFoundationApi::class)
+private object NoPageScrolling : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = 0f
+}
+
+/**
+ * The name over a film's rows, or a show's episodes: always the same height, whatever the logo's shape or a name with no logo
+ * (which is set small, on one or two lines), so everything under it sits in the same place every time
+ */
+@Composable
+private fun NameOverRows(title: Title, modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth().height(NAME_HEIGHT), contentAlignment = Alignment.Center) {
+        TitleLogo(title, maxHeight = 46.dp, maxWidth = 320.dp, textSize = 24.sp, centred = true)
     }
 }
+
+private val NAME_HEIGHT = 56.dp
+
+/** Room above the name over a show's episodes and a film's first row (the same either way, a little more than before) */
+private val NAME_TOP = 56.dp
+
+/** The room between one episode and the next */
+private val EPISODE_GAP = 44.dp
 
 /** What Play starts: the episode last played if it was left part-way, the one after it if it was finished, else the first (the engine decides) */
 fun nextVideo(d: Details): Video? {
@@ -755,8 +777,7 @@ private fun Header(
     playLabel: String,
     inList: Boolean,
     playFocus: FocusRequester,
-    onDown: (() -> Unit)?,
-    onFocused: () -> Unit,
+    onFocusChange: (Boolean) -> Unit = {},
     onPlay: () -> Unit,
     onList: () -> Unit,
     rated: Int?,
@@ -791,54 +812,30 @@ private fun Header(
                 // (back up from the rows below always lands on Play, not whichever button is nearest the card it came from)
                 .focusProperties { enter = { playFocus } }
                 .focusGroup()
-                .onFocusChanged { if (it.hasFocus) onFocused() }
-                .onPreviewKeyEvent {
-                    if (onDown == null || it.key != Key.DirectionDown) return@onPreviewKeyEvent false
-                    if (it.type == KeyEventType.KeyDown) onDown()
-                    true
-                },
+                .onFocusChanged { onFocusChange(it.hasFocus) },
         ) {
             // (nothing to play: no Play to press for nothing, but a way to ask the addons again; it holds Play's place and focus)
             // (one button that changes, so the remote stays on it: turning while the streams come in, then Play, or Look
             // Again when there's nothing; Look Again turns again while it asks)
             val nothing = available == false && !looking
-            if (notOut) {
-                // (not out: Apple TV's Add to Up Next, as the Library; nothing to look for again)
-                PlayButton(
-                    if (inList) "In your Library" else "Add to Library",
-                    onList,
-                    Modifier.focusRequester(playFocus),
-                    icon = if (inList) Icons.Filled.Check else Icons.Filled.Add,
-                    loading = false,
-                    expands = true,
-                )
-            } else {
-                // (out, but nothing to play: the remote lands on the Library, not on Look Again, which is still one press
-                // away; playFocus follows it there for Home and for back up from the rows below)
-                // (once only: Look Again turns the button again while it asks, and the remote mustn't be pulled off it then)
-                var landed by remember { mutableStateOf(false) }
-                var onPlayButton by remember { mutableStateOf(false) }
-                LaunchedEffect(nothing) {
-                    if (nothing && !landed) {
-                        landed = true
-                        // (only if the remote is still on the button that turned into Look Again: not pulled off wherever it went)
-                        if (onPlayButton) { delay(16); runCatching { playFocus.requestFocus() } }
-                    }
-                }
-                PlayButton(
-                    if (nothing) "Look Again" else playLabel,
-                    { if (nothing) onLookAgain() else if (!looking) onPlay() },
-                    (if (nothing) Modifier else Modifier.focusRequester(playFocus)).onFocusChanged { onPlayButton = it.hasFocus },
-                    icon = if (nothing) Icons.Filled.Refresh else Icons.Filled.PlayArrow,
-                    loading = available == null || looking,
-                    expands = true,
-                )
-                RoundButton(
-                    if (inList) Icons.Filled.Check else Icons.Filled.Add, if (inList) "In your Library" else "Add to Library", onList,
-                    if (nothing) Modifier.focusRequester(playFocus) else Modifier,
-                    expands = true,
-                )
-            }
+            // (the first button, whatever it is just now: Play, Resume, Look Again when there's nothing to play, or the Library's
+            // when it isn't out (Apple TV's Add to Up Next). ONE button that turns, never one taken away for another as what the
+            // page finds out arrives (a film's dates, its streams): the remote is on it from the start and stays on it, and Home,
+            // and back up from the rows below, land on it. Taking one away for another left the remote on whichever button was
+            // next, which on a film that turned out to be in cinemas was not the first)
+            PlayButton(
+                if (notOut) (if (inList) "In your Library" else "Add to Library") else if (nothing) "Look Again" else playLabel,
+                { if (notOut) onList() else if (nothing) onLookAgain() else if (!looking) onPlay() },
+                Modifier.focusRequester(playFocus),
+                icon = if (notOut) (if (inList) Icons.Filled.Check else Icons.Filled.Add) else if (nothing) Icons.Filled.Refresh else Icons.Filled.PlayArrow,
+                loading = !notOut && (available == null || looking),
+                expands = true,
+            )
+            if (!notOut) RoundButton(
+                if (inList) Icons.Filled.Check else Icons.Filled.Add, if (inList) "In your Library" else "Add to Library", onList,
+                Modifier,
+                expands = true,
+            )
             RoundButton(
                 if (rated != null) Icons.Filled.Star else Icons.Outlined.StarBorder,
                 if (rated != null) "Rated $rated/10" else "Rate", onRate,
@@ -923,32 +920,30 @@ fun Facts(title: Title, reviews: Reviews?, badges: List<String> = emptyList(), n
  * and doesn't open (it's here); the others open their own page.
  */
 @Composable
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 private fun SeasonsRow(
     seasons: List<AnimeSeason>,
-    landing: FocusRequester,
+    /** What the remote lands on as it arrives at this row (the season they're on, or the one it was last on) */
+    entry: FocusRequester,
     onOpen: (Title) -> Unit,
-    onDown: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val landing = remember { FocusRequester() }
     val width = 110.dp
     val row = rememberShelfState()
     val here = seasons.indexOfFirst { it.current }.coerceAtLeast(0)
     var landingAttached by remember { mutableStateOf(false) }
     LaunchedEffect(seasons) { row.scrollToItem((here - 1).coerceAtLeast(0)) }
-    CompositionLocalProvider(LocalBringIntoViewSpec provides RowScrolling) {
+    val endPad = rememberRowEndPadding(row, Dx.Gutter, 18.dp)
+    CompositionLocalProvider(LocalBringIntoViewSpec provides rememberRowScrolling(Dx.Gutter, 18.dp)) {
     Column(modifier.fillMaxWidth()) {
         Text("Seasons", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = Dx.Gutter))
         LazyRow(
             state = row,
-            contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 18.dp),
+            contentPadding = PaddingValues(start = Dx.Gutter, end = endPad, top = 18.dp, bottom = 18.dp),
             horizontalArrangement = Arrangement.spacedBy(18.dp),
             // (back into the seasons: the one it was on, else the one open)
-            modifier = @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.keepsSideways(left = true).focusRestorer { if (landingAttached) landing else FocusRequester.Default }.onPreviewKeyEvent {
-                if (it.key == Key.DirectionDown) {
-                    if (it.type == KeyEventType.KeyDown) onDown()
-                    true
-                } else false
-            },
+            modifier = Modifier.focusRequester(entry).keepsSideways(left = true).focusRestorer { if (landingAttached) landing else FocusRequester.Default },
         ) {
             itemsIndexed(seasons, key = { _, s -> s.title.id }) { i, s ->
                 if (i == here) {
@@ -982,6 +977,7 @@ private fun SeasonsRow(
 // Episodes
 
 @Composable
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 private fun Episodes(
     title: Title,
     d: Details,
@@ -989,13 +985,18 @@ private fun Episodes(
     current: String?,
     fallbackArt: String?,
     blurUnwatched: Boolean,
-    landing: FocusRequester,
+    /** What the remote lands on as it arrives at the episodes (from the billboard: the episode the show is on, the tabs skipped) */
+    entry: FocusRequester,
+    /** Goes up by one each time the remote is on its way to the episodes: the row first goes to the episode it's to land on */
+    enterTick: Int,
+    /** The remote is on the season tabs */
+    onTabs: (Boolean) -> Unit,
     onSeason: (Int) -> Unit,
     onPlay: (Video) -> Unit,
     onMenu: (Video) -> Unit,
-    /** Up from the top of the episodes (the season tabs, or the cards when there are none): back to the billboard */
-    onUp: () -> Unit = {},
 ) {
+    val landing = entry
+    val tabEntry = remember { FocusRequester() }
     // Every season in one row (Specials last): the tabs above follow the episode the remote is on, and choosing a
     // tab jumps to the start of its season. Move along the episodes or up to the tabs, whichever is nearer.
     val seasons = remember(d.seasons) { d.seasons.filter { it != 0 } + d.seasons.filter { it == 0 } }
@@ -1014,6 +1015,12 @@ private fun Episodes(
     // (the episode they're on, else the first of the season shown at the start: where Down from Play lands)
     val target = remember(all, current) { all.firstOrNull { it.id == current }?.id ?: all.firstOrNull { it.season == season }?.id ?: all.firstOrNull()?.id }
     var landingAttached by remember { mutableStateOf(false) }
+    // (on its way here from above or below: the row is put on the episode the show is on, so it's built to be landed on)
+    LaunchedEffect(enterTick) {
+        if (enterTick == 0) return@LaunchedEffect
+        val i = all.indexOfFirst { it.id == target }
+        if (i >= 0) row.scrollToItem(i)
+    }
     // A season chosen from the tabs: Down goes to its episode to watch (the one they're on if it's in that season, else
     // its first one not watched that's out, else its first), not back to the episode the remote was last on, which
     // scrolled the row all the way back (season 22 of Taskmaster, back to S1, E1)
@@ -1023,24 +1030,24 @@ private fun Episodes(
         val eps = all.filter { it.season == s }
         return eps.firstOrNull { it.id == current } ?: eps.firstOrNull { !it.watched && !it.upcoming } ?: eps.firstOrNull()
     }
-    // (its rows scroll sideways by the row's own rule, not the page's, which is for up and down)
-    CompositionLocalProvider(LocalBringIntoViewSpec provides RowScrolling) {
+    // (its rows scroll sideways by the row's own rule, not the page's, which is for up and down: a whole card and the room
+    // between them at each press, the same for every card in the row)
+    val cardsEndPad = rememberRowEndPadding(row, Dx.Gutter, EPISODE_GAP)
+    CompositionLocalProvider(LocalBringIntoViewSpec provides rememberRowScrolling(Dx.Gutter, EPISODE_GAP)) {
     Column(Modifier.fillMaxWidth().onFocusChanged { remoteInRow = it.hasFocus }, verticalArrangement = Arrangement.spacedBy(14.dp)) {
         // the show's name over its seasons, as on Apple TV (the art it was on has gone by now)
-        TitleLogo(title, maxHeight = 46.dp, maxWidth = 320.dp, textSize = 30.sp, centred = true, modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
+        NameOverRows(title, Modifier.padding(top = NAME_TOP))
         if (seasons.size > 1) {
             LazyRow(
                 state = rememberShelfState(),
-                modifier = Modifier.keepsSideways(left = true).onPreviewKeyEvent {
-                    // (the billboard is off the screen by now, and not there to be found by the focus: it goes there itself)
-                    if (it.key == Key.DirectionUp) { if (it.type == KeyEventType.KeyDown) onUp(); return@onPreviewKeyEvent true }
+                modifier = Modifier.onFocusChanged { onTabs(it.hasFocus) }.keepsSideways(left = true).onPreviewKeyEvent {
                     if (it.key != Key.DirectionDown || aimId == null) return@onPreviewKeyEvent false
                     if (it.type == KeyEventType.KeyDown) runCatching { aim.requestFocus() }.isSuccess else true
                 },
                 contentPadding = PaddingValues(horizontal = Dx.Gutter), horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 items(seasons) { s ->
-                    Pill(if (s == 0) "Specials" else "Season $s", selected = s == season, onClick = {
+                    Pill(if (s == 0) "Specials" else "Season $s", selected = s == season, modifier = if (s == season) Modifier.focusRequester(tabEntry) else Modifier, onClick = {
                         onSeason(s)
                         val v = seasonEpisode(s)
                         aimId = v?.id
@@ -1058,14 +1065,15 @@ private fun Episodes(
             // (not while a season chosen from the tabs is waiting to be landed on: the row going back to where it was won over it)
             modifier = Modifier.keepsSideways(left = true)
                 .onPreviewKeyEvent {
-                    // (no season tabs above the cards: Up is the billboard)
-                    if (seasons.size > 1 || it.key != Key.DirectionUp) return@onPreviewKeyEvent false
-                    if (it.type == KeyEventType.KeyDown) onUp()
-                    true
+                    // (up to the tabs: the one for the season they're in, not whichever is nearest across)
+                    if (seasons.size < 2 || it.key != Key.DirectionUp) return@onPreviewKeyEvent false
+                    if (it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent true
+                    runCatching { tabEntry.requestFocus() }.isSuccess
                 }
                 .then(if (aimId != null) Modifier else @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) Modifier.focusRestorer { if (landingAttached) landing else FocusRequester.Default }),
-            contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 18.dp),
-            horizontalArrangement = Arrangement.spacedBy(18.dp),
+            contentPadding = PaddingValues(start = Dx.Gutter, end = cardsEndPad, top = 18.dp, bottom = 18.dp),
+            // (room for the picture to grow 13% when chosen without touching the episodes on either side)
+            horizontalArrangement = Arrangement.spacedBy(EPISODE_GAP),
         ) {
             items(all, key = { it.id }) { v ->
                 val here = v.id == target
@@ -1110,7 +1118,7 @@ private fun EpisodeCard(v: Video, fallbackArt: String?, isCurrent: Boolean, blur
                 var noPicture by remember(v.id) { mutableStateOf(false) }
                 Art(
                     if (noPicture) fallbackArt else (v.thumbnail ?: fallbackArt),
-                    Modifier.fillMaxSize().alpha(if (v.upcoming) 0.5f else 1f).then(if (hidden) Modifier.blur(16.dp) else Modifier),
+                    Modifier.fillMaxSize().alpha(if (comingOut(v)) 0.5f else 1f).then(if (hidden) Modifier.blur(16.dp) else Modifier),
                     onError = { noPicture = true },
                 )
                 if (hidden && android.os.Build.VERSION.SDK_INT < 31) Box(Modifier.fillMaxSize().background(Dx.Raised2))
@@ -1138,10 +1146,19 @@ private fun EpisodeCard(v: Video, fallbackArt: String?, isCurrent: Boolean, blur
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            v.episode?.let { Text(if (showSeason && v.season != null && v.season != 0) "S${v.season} · EPISODE $it" else "EPISODE $it", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (isCurrent) Color.White else Dx.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            if (v.title.isNotEmpty()) Text(v.title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            v.overview?.let { Text(it, fontSize = 12.sp, color = Color.White.copy(alpha = 0.75f), maxLines = 4, overflow = TextOverflow.Ellipsis, lineHeight = 16.sp) }
-            releasedText(v)?.let { Text(it, fontSize = 12.sp, color = Dx.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp)) }
+            // (the same room whatever the words: the name takes one line, or two with the story one line shorter, so a long
+            // story or a long name never changes the row's height, and the story always sits right under the name)
+            var nameLines by remember(v.id) { mutableStateOf(1) }
+            Text(
+                v.episode?.let { if (showSeason && v.season != null && v.season != 0) "S${v.season} · EPISODE $it" else "EPISODE $it" } ?: " ",
+                fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (isCurrent) Color.White else Dx.Muted, maxLines = 1, minLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                v.title.ifEmpty { " " }, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, minLines = 1, overflow = TextOverflow.Ellipsis,
+                onTextLayout = { nameLines = it.lineCount.coerceIn(1, 2) },
+            )
+            Text(v.overview ?: " ", fontSize = 12.sp, color = Color.White.copy(alpha = 0.75f), maxLines = 5 - nameLines, minLines = 5 - nameLines, overflow = TextOverflow.Ellipsis, lineHeight = 16.sp)
+            Text(releasedText(v) ?: " ", fontSize = 12.sp, color = Dx.Muted, maxLines = 1, minLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
         }
     }
 }
@@ -1151,17 +1168,20 @@ private fun EpisodeCard(v: Video, fallbackArt: String?, isCurrent: Boolean, blur
 
 /** Who's in it: choosing someone opens their page (looked up by name when the cast list didn't give an id), never the search */
 @Composable
-private fun CastRow(d: Details, photos: List<JSONObject>?, onPerson: (name: String, id: String?, photo: String?) -> Unit) {
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+private fun CastRow(d: Details, photos: List<JSONObject>?, entry: FocusRequester, onPerson: (name: String, id: String?, photo: String?) -> Unit) {
     val people: List<List<String?>> = if (!photos.isNullOrEmpty()) {
         photos.map { listOf(it.optString("name"), it.text("role"), it.text("photo"), it.text("id")) }
     } else {
         d.directors.take(3).map { listOf(it, "Director", null, null) } + d.cast.take(15).map { listOf(it, null, null, null) }
     }
-    CompositionLocalProvider(LocalBringIntoViewSpec provides RowScrolling) {
-    Column(Modifier.fillMaxWidth().centredWhenFocused()) {
+    val castState = rememberShelfState()
+    val castEndPad = rememberRowEndPadding(castState, Dx.Gutter, 22.dp)
+    CompositionLocalProvider(LocalBringIntoViewSpec provides rememberRowScrolling(Dx.Gutter, 22.dp)) {
+    Column(Modifier.fillMaxWidth().rowOwnsScrolling()) {
         Text("Cast & Crew", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = Dx.Gutter))
         Spacer(Modifier.height(10.dp))
-        LazyRow(state = rememberShelfState(), modifier = Modifier.keepsSideways(left = true), contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+        LazyRow(state = castState, modifier = Modifier.focusRequester(entry).keepsSideways(left = true).focusRestorer(), contentPadding = PaddingValues(start = Dx.Gutter, end = castEndPad, top = 10.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
             items(people) { (name, role, photo, id) -> Person(name!!, role, photo) { onPerson(name, id, photo) } }
         }
     }
@@ -1201,14 +1221,14 @@ fun Person(name: String, role: String?, photo: String?, size: Dp = 96.dp, onClic
  * from) and Languages.
  */
 @Composable
-private fun About(title: Title, d: Details?, facts: TitleFacts?) {
+private fun About(title: Title, d: Details?, facts: TitleFacts?, entry: FocusRequester) {
     var full by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth()) {
         Text("About", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = Dx.Gutter))
         Spacer(Modifier.height(12.dp))
         Surface(
             onClick = { full = true },
-            modifier = Modifier.padding(horizontal = Dx.Gutter).width(420.dp).centredWhenFocused(),
+            modifier = Modifier.padding(horizontal = Dx.Gutter).width(420.dp).focusRequester(entry).rowOwnsScrolling(),
             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(Dx.RPanel)),
             colors = ClickableSurfaceDefaults.colors(containerColor = Glass.Fill, contentColor = Color.White, focusedContainerColor = Color.White.copy(alpha = 0.32f), focusedContentColor = Color.White),
             border = ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Glass.Edge), shape = RoundedCornerShape(Dx.RPanel))),
@@ -1264,12 +1284,20 @@ private fun InfoColumn(heading: String, rows: List<Pair<String, String>>, modifi
     }
 }
 
-/** "7 Oct 2026" (or "Coming 7 Oct 2026") from the episode's release date */
-private fun releasedText(v: Video): String? {
+/** Not out yet: the core says so, or its day is still to come (the core doesn't say for one far off) */
+private fun comingOut(v: Video): Boolean = v.upcoming || (v.released?.take(10)?.let { it.isNotEmpty() && it > Dates.formatLocalDay() } == true)
+
+/** "7 Oct 2026": the day the episode came, or comes, out */
+private fun releaseDay(v: Video): String? {
     val day = v.released?.take(10) ?: return null
     val date = Dates.parseLocalDay(day) ?: return null
-    val text = Dates.formatMediumDay(date)
-    return if (v.upcoming) "Coming $text" else text
+    return Dates.formatMediumDay(date)
+}
+
+/** "7 Oct 2026" (or "Coming 7 Oct 2026") from the episode's release date */
+private fun releasedText(v: Video): String? {
+    val text = releaseDay(v) ?: return null
+    return if (comingOut(v)) "Coming $text" else text
 }
 
 private val RatingYellow = Dx.Amber

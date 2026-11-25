@@ -41,6 +41,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.foundation.relocation.bringIntoViewResponder
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import androidx.compose.ui.focus.onFocusChanged
@@ -50,6 +51,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.platform.LocalDensity
 import coil3.toBitmap
@@ -111,20 +114,12 @@ fun FocusCard(
     // the main thread's biggest cost as Home's rows came on screen on a Mi Box)
     var pressed by remember { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
+    // (the part the remote lands on stays its own size and place: the lift grows what's inside it. The row scrolls by where the
+    // card is, and while the lift was part of it, it was asked for a card still growing, and moved a little too far or too short)
     Box(
         modifier
             .zIndex(if (focused) 1f else 0f)
             .onFocusChanged { focused = it.isFocused || it.hasFocus }
-            .then(if (focused && rowLift != null) Modifier.onGloballyPositioned { rowLift.left = it.positionInWindow().x } else Modifier)
-            .graphicsLayer {
-                val s = 1f + 0.13f * lift
-                scaleX = s
-                scaleY = s
-                // (lifting from the middle of what shows, not of the room under it)
-                val cut = hiddenFoot?.invoke() ?: 0f
-                if (cut > 0f && size.height > 0f) transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, (size.height - cut) / 2f / size.height)
-            }
-            .glassEdge(cutShape ?: shape, glass, tracked = focused) { lift }
             // OK as the TV library's cards take it: a click when it's let go, the menu when it's held
             .onKeyEvent { e ->
                 if (!e.isSelect()) return@onKeyEvent false
@@ -144,11 +139,26 @@ fun FocusCard(
                     else -> false
                 }
             }
-            .focusable()
-            // (no background of its own: what's in it (a picture, with its own while it loads) covers it)
-            .then(if (cutShape != null) Modifier.graphicsLayer { clip = true; this.shape = cutShape.now() } else Modifier.clip(shape)),
+            .focusable(),
     ) {
-        CompositionLocalProvider(androidx.tv.material3.LocalContentColor provides Color.White) { content() }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .then(if (focused && rowLift != null) Modifier.onGloballyPositioned { rowLift.left = it.positionInWindow().x } else Modifier)
+                .graphicsLayer {
+                    val s = 1f + 0.13f * lift
+                    scaleX = s
+                    scaleY = s
+                    // (lifting from the middle of what shows, not of the room under it)
+                    val cut = hiddenFoot?.invoke() ?: 0f
+                    if (cut > 0f && size.height > 0f) transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, (size.height - cut) / 2f / size.height)
+                }
+                .glassEdge(cutShape ?: shape, glass, tracked = focused) { lift }
+                // (no background of its own: what's in it (a picture, with its own while it loads) covers it)
+                .then(if (cutShape != null) Modifier.graphicsLayer { clip = true; this.shape = cutShape.now() } else Modifier.clip(shape)),
+        ) {
+            CompositionLocalProvider(androidx.tv.material3.LocalContentColor provides Color.White) { content() }
+        }
     }
 }
 
@@ -257,6 +267,33 @@ fun rememberRowScrolling(gutter: Dp = Dx.Gutter, spacing: Dp = 18.dp): BringInto
             }
         }
     }
+}
+
+/**
+ * The room after a row's last card, so that the last card can go to the same column as the cards of every other row, and the
+ * row's last step along is a whole step like all the others (without it, the row stops where its content ends, a part of a
+ * step short, and its last cards sit out of line with the rows above and below). Worked out once, from the first card's
+ * width, on the assumption that a row's cards are all one size (they are).
+ */
+@Composable
+fun rememberRowEndPadding(state: androidx.compose.foundation.lazy.LazyListState, gutter: Dp = Dx.Gutter, spacing: Dp = 18.dp): Dp {
+    val density = LocalDensity.current
+    var pad by remember { mutableStateOf(gutter) }
+    androidx.compose.runtime.LaunchedEffect(state, gutter, spacing) {
+        val (card, view) = androidx.compose.runtime.snapshotFlow {
+            val info = state.layoutInfo
+            val first = info.visibleItemsInfo.firstOrNull()
+            if (first == null || info.viewportSize.width == 0) null else first.size to info.viewportSize.width
+        }.filterNotNull().first()
+        with(density) {
+            val g = gutter.toPx()
+            val gap = spacing.toPx()
+            val stride = card + gap
+            val columns = ((view - 2f * g + gap) / stride).toInt().coerceAtLeast(1)
+            pad = (view - g + gap - columns * stride).coerceAtLeast(g).toDp()
+        }
+    }
+    return pad
 }
 
 /** Fallback column-aligned horizontal scrolling when density isn't supplied (assumes 5% gutter) */
@@ -426,19 +463,101 @@ class PageScroller(val list: androidx.compose.foundation.lazy.LazyListState, pri
         else scope.launch { job?.cancel(); list.glideTo(index, before) }
     }
 
-    fun centre(row: androidx.compose.ui.layout.LayoutCoordinates) {
+    private var settling: kotlinx.coroutines.Job? = null
+
+    /** How far the row's middle is from the screen's (measured where it is now) */
+    private fun offCentre(row: androidx.compose.ui.layout.LayoutCoordinates): Float? {
+        val vp = viewport ?: return null
+        if (!row.isAttached || !vp.isAttached) return null
+        val top = vp.localPositionOf(row, androidx.compose.ui.geometry.Offset.Zero).y
+        return top + row.size.height / 2f - vp.size.height / 2f
+    }
+
+    /**
+     * The page glides to put [row] in the middle. A row's place is only measured as it was at the last frame, while the page
+     * is still moving, so a glide aimed at it can end a little off (a long glide from the billboard, a different sized logo
+     * above): once the page has stopped it looks again and corrects, so the row always ends in the same place however the
+     * remote came to it. [still]: the remote is still in that row (it moved on: nothing more is done for it)
+     */
+    fun centre(row: androidx.compose.ui.layout.LayoutCoordinates, still: () -> Boolean = { true }) {
         if (jumping) return
         val vp = viewport ?: return
-        if (!row.isAttached || !vp.isAttached) return
-        val top = vp.localPositionOf(row, androidx.compose.ui.geometry.Offset.Zero).y
-        val delta = top + row.size.height / 2f - vp.size.height / 2f
-        if (kotlin.math.abs(delta) < vp.size.height * 0.03f) return
-        move(delta, vp.size.height.toFloat())
+        settling?.cancel()
+        val delta = offCentre(row) ?: return
+        if (kotlin.math.abs(delta) >= vp.size.height * 0.03f) move(delta, vp.size.height.toFloat())
+        settling = scope.launch {
+            var mine = gen
+            repeat(3) {
+                job?.join()
+                // (a frame or two for what was built on the way to be placed)
+                kotlinx.coroutines.delay(60)
+                if (gen != mine || jumping || !still()) return@launch
+                val d = offCentre(row) ?: return@launch
+                if (kotlin.math.abs(d) < vp.size.height * 0.03f) return@launch
+                move(d, vp.size.height.toFloat())
+                mine = gen
+            }
+        }
     }
 
     fun toTop() {
         if (jumping) return
         scope.launch { job?.cancel(); list.glideTo(0) }
+    }
+
+    private var placing: kotlinx.coroutines.Job? = null
+
+    // How tall each item of the page was when last seen on screen: a stop that's off the screen is as far away as the items
+    // between here and there, and those were all measured on the way (the page is only ever walked a stop at a time)
+    private val seenSizes = HashMap<Int, Int>()
+    init {
+        scope.launch {
+            androidx.compose.runtime.snapshotFlow { list.layoutInfo.visibleItemsInfo.map { it.index to it.size } }
+                .collect { items -> items.forEach { (i, size) -> seenSizes[i] = size } }
+        }
+    }
+
+    /** Where the top of item [index] is under the top of the screen now, even if it isn't on screen (null: not known) */
+    private fun topOf(index: Int): Float? {
+        val info = list.layoutInfo
+        val visible = info.visibleItemsInfo
+        visible.firstOrNull { it.index == index }?.let { return it.offset.toFloat() }
+        val first = visible.firstOrNull() ?: return null
+        val gap = info.mainAxisItemSpacing
+        if (index < first.index) {
+            var top = first.offset.toFloat()
+            for (i in index until first.index) top -= (seenSizes[i] ?: return null) + gap
+            return top
+        }
+        val last = visible.last()
+        if (index > last.index) {
+            var top = (last.offset + last.size + gap).toFloat()
+            for (i in last.index + 1 until index) top += (seenSizes[i] ?: return null) + gap
+            return top
+        }
+        return null
+    }
+
+    /**
+     * Puts the top of item [index] exactly [before] px under the top of the screen, in one glide. A glide is aimed by where
+     * things were measured a frame ago, so it can end a little off; once the page has stopped it looks again and corrects, so a
+     * page that asks for the same place always gets exactly the same one.
+     */
+    fun place(index: Int, before: Float) {
+        placing?.cancel()
+        val top = topOf(index)
+        if (top != null) move(top - before) else scope.launch { job?.cancel(); list.glideTo(index, before) }
+        placing = scope.launch {
+            repeat(3) {
+                kotlinx.coroutines.delay(80)
+                var waited = 0
+                while (list.isScrollInProgress && waited++ < 100) kotlinx.coroutines.delay(30)
+                val now = list.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index } ?: return@repeat
+                val off = now.offset - before
+                if (kotlin.math.abs(off) < 2f) return@launch
+                move(off)
+            }
+        }
     }
 }
 
@@ -467,20 +586,24 @@ fun Modifier.centredWhenFocused(): Modifier {
     return this
         .onGloballyPositioned {
             ref.coords = it
-            if (ref.waiting && it.isAttached) { ref.waiting = false; scroller.centre(it) }
+            if (ref.waiting && it.isAttached) { ref.waiting = false; scroller.centre(it) { ref.had } }
         }
         .onFocusChanged {
             // (pressed quickly, the remote can land in a row only just made, not yet placed: the page waited for nothing
             // and stayed where it was while the remote went on down out of sight. Now it's centred the moment it's placed)
             if (it.hasFocus && !ref.had) {
                 val c = ref.coords
-                if (c != null && c.isAttached) scroller.centre(c) else ref.waiting = true
+                if (c != null && c.isAttached) scroller.centre(c) { ref.had } else ref.waiting = true
             }
             if (!it.hasFocus) ref.waiting = false
             ref.had = it.hasFocus
         }
         .bringIntoViewResponder(RowOwnsScrolling)
 }
+
+/** A row on a page that places its rows itself: what's chosen in it never asks the page to move */
+@OptIn(ExperimentalFoundationApi::class)
+fun Modifier.rowOwnsScrolling(): Modifier = bringIntoViewResponder(RowOwnsScrolling)
 
 /** Room under the last row of a page so that it too can be brought up to the middle of the screen */
 @Composable
@@ -725,26 +848,37 @@ fun rememberShelfState(initialIndex: Int = 0): androidx.compose.foundation.lazy.
     )
 
 /** A titled row of cards that scrolls sideways as the remote moves along it */
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
-fun Shelf(title: String, modifier: Modifier = Modifier, spacing: Dp = 18.dp, content: LazyListScope.() -> Unit) {
+fun Shelf(
+    title: String,
+    modifier: Modifier = Modifier,
+    spacing: Dp = 18.dp,
+    /** The page glides to put the row in the middle as the remote moves into it (false: a page that places its rows itself) */
+    centre: Boolean = true,
+    /** What the remote lands on when something asks for this row's focus (the card it was last on, else the first) */
+    entry: FocusRequester? = null,
+    content: LazyListScope.() -> Unit,
+) {
     // (the row the remote is in has its name bright; the others' are softer, as on Apple TV)
     val rowFocused = remember { mutableStateOf(false) }
     val rowLift = remember { RowLift() }
     val rowScrolling = rememberRowScrolling(Dx.Gutter, spacing)
     Column(
-        modifier.fillMaxWidth().centredWhenFocused().onFocusChanged { rowFocused.value = it.hasFocus },
+        modifier.fillMaxWidth().then(if (centre) Modifier.centredWhenFocused() else Modifier.rowOwnsScrolling()).onFocusChanged { rowFocused.value = it.hasFocus },
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         ShelfTitle(title, rowLift) { rowFocused.value }
         CompositionLocalProvider(LocalBringIntoViewSpec provides rowScrolling, LocalRowLift provides rowLift) {
+            val shelfState = rememberShelfState()
+            val endPad = rememberRowEndPadding(shelfState, Dx.Gutter, spacing)
             LazyRow(
-                state = rememberShelfState(),
+                state = shelfState,
                 // (up or down into the row, the remote lands on the card in the same column it came from: the rows' cards line
                 // up in columns (rememberRowScrolling), Harry's grid; it doesn't jump back to the card it was last on there)
-                modifier = Modifier.keepsSideways(),
+                modifier = if (entry != null) Modifier.focusRequester(entry).keepsSideways().focusRestorer() else Modifier.keepsSideways(),
                 // (room around the cards for them to grow when chosen without overlapping row titles)
-                contentPadding = PaddingValues(start = Dx.Gutter, end = Dx.Gutter, top = 20.dp, bottom = 26.dp),
+                contentPadding = PaddingValues(start = Dx.Gutter, end = endPad, top = 20.dp, bottom = 26.dp),
                 horizontalArrangement = Arrangement.spacedBy(spacing),
                 content = content,
             )

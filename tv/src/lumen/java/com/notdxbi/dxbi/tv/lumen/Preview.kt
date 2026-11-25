@@ -364,6 +364,8 @@ val trailerTimes = ConcurrentHashMap<String, Double>()
  * once it's going, how far it's got, and when it's over.
  */
 private fun trailerScript(start: Double, whole: Boolean = false): String {
+    // (behind a page the trailer is a background, quiet; watched on its own from the Trailers row it's at full volume)
+    val volume = if (whole) 1.0 else 0.35
     val css = "html,body{margin:0!important;overflow:hidden!important;background:#000!important}" +
         "body *{visibility:hidden!important}" +
         "video{visibility:visible!important;object-fit:${if (whole) "contain" else "cover"}!important;width:100vw!important;height:100vh!important;left:0!important;top:0!important}"
@@ -378,6 +380,7 @@ private fun trailerScript(start: Double, whole: Boolean = false): String {
             if (!v) return;
             var quiet = !!window.lumenMuted;
             if (v.muted !== quiet) v.muted = quiet;
+            if (!quiet && Math.abs(v.volume - $volume) > 0.01) v.volume = $volume;
             if (!sought && v.readyState > 0) { v.currentTime = $start; sought = true; }
             if (v.ended) { if (!over) { over = true; LumenTrailer.ended(); } return; }
             if (window.lumenSeek) { v.currentTime = Math.max(0, v.currentTime + window.lumenSeek); window.lumenSeek = 0; }

@@ -203,19 +203,47 @@ fun Art(asked: String?, modifier: Modifier = Modifier, contentScale: ContentScal
     }
 }
 
-/** A title's logo (its name drawn as on the poster), or its name in large type when it has none */
+/**
+ * A title's logo (its name drawn as on the poster), or its name in large type when it has none.
+ * Shown at a size over about 90 dp tall, the catalogue's small logo (which blurs on a 4K screen) is only there to start with: TMDB's
+ * sharp one, at the size it was uploaded, fades in over it when it's loaded, and the page never waits for it. Shown smaller,
+ * the small one is all there is, and sharp enough.
+ */
 @Composable
 fun TitleLogo(title: Title, maxHeight: Dp, maxWidth: Dp, textSize: TextUnit, modifier: Modifier = Modifier, centred: Boolean = false) {
-    var missing by remember(title.logoUrl) { mutableStateOf(title.logoUrl == null) }
+    val wantSharp = maxHeight >= 90.dp && title.id.startsWith("tt")
+    // (null until TMDB has answered; then its logo, or "" for none)
+    val sharper by androidx.compose.runtime.produceState<String?>(null, title.id, wantSharp) {
+        value = if (wantSharp) Tmdb.logo(title.id) ?: "" else ""
+    }
+    val sharpUrl = sharper?.takeIf { it.isNotEmpty() }
+    var sharpFailed by remember(sharpUrl) { mutableStateOf(false) }
+    var sharpShown by remember(sharpUrl) { mutableStateOf(false) }
+    var lowFailed by remember(title.logoUrl) { mutableStateOf(title.logoUrl == null) }
+    val fade by androidx.compose.animation.core.animateFloatAsState(if (sharpShown) 1f else 0f, androidx.compose.animation.core.tween(350), label = "logo-sharp")
+    val align = if (centred) Alignment.Center else Alignment.CenterStart
+    // (the name in type only once nothing is coming: TMDB has answered with nothing, or its picture failed, and the small one is no use)
+    val waiting = wantSharp && sharper == null
+    val noLogo = lowFailed && !waiting && (sharpUrl == null || sharpFailed)
     Box(modifier.fillMaxWidth(), contentAlignment = if (centred) Alignment.Center else Alignment.CenterStart) {
-        if (!missing) {
-            AsyncImage(
+        if (!noLogo) {
+            // (the small one stays under the sharp one until it has fully faded in)
+            if (!lowFailed && fade < 1f) AsyncImage(
                 model = fresh(title.logoUrl),
                 contentDescription = title.name,
                 contentScale = ContentScale.Fit,
-                alignment = if (centred) Alignment.Center else Alignment.CenterStart,
-                onError = { missing = true },
+                alignment = align,
+                onError = { lowFailed = true },
                 modifier = Modifier.height(maxHeight).fillMaxWidth(),
+            )
+            if (sharpUrl != null && !sharpFailed) AsyncImage(
+                model = sharpUrl,
+                contentDescription = title.name,
+                contentScale = ContentScale.Fit,
+                alignment = align,
+                onSuccess = { sharpShown = true },
+                onError = { sharpFailed = true },
+                modifier = Modifier.height(maxHeight).fillMaxWidth().graphicsLayer { alpha = fade },
             )
         } else {
             Text(

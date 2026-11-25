@@ -52,6 +52,50 @@ object Tmdb {
         return hit
     }
 
+    private val logos = ConcurrentHashMap<String, Any>()
+
+    /**
+     * The sharpest logo TMDB has for a title (its name as drawn on the poster), at the size it was uploaded: Metahub's and the
+     * catalogue's are small, and blur on a 4K screen. The English ones first, then the best liked, then the widest (a
+     * vector one isn't taken: the picture loader can't draw it). null without a key, a match, or a logo
+     */
+    suspend fun logo(imdb: String): String? {
+        logos[imdb]?.let { return if (it === MISS) null else it as String }
+        val (k, id) = find(imdb) ?: return null
+        val r = get("/$k/$id/images", "&include_image_language=en,null") ?: return null
+        val best = r.optJSONArray("logos").objects()
+            .filter { it.str("file_path")?.endsWith(".svg", ignoreCase = true) == false }
+            .sortedWith(
+                compareByDescending<JSONObject> { it.optString("iso_639_1") == "en" }
+                    .thenByDescending { it.optDouble("vote_average", 0.0) }
+                    .thenByDescending { it.optInt("width") },
+            )
+            .firstOrNull()
+        val url = best?.str("file_path")?.let { "$IMAGES/original$it" }
+        logos[imdb] = url ?: MISS
+        return url
+    }
+
+    /**
+     * The whole Cast & Crew row as TMDB has it: [{name, role, photo, id}], the directors first, then the writers, then the cast in
+     * billing order with their parts (the catalogue's own list is three or four names). null without a key or a match, or with no one
+     */
+    suspend fun credits(imdb: String): List<JSONObject>? {
+        val (k, id) = find(imdb) ?: return null
+        val c = get("/$k/$id/credits") ?: return null
+        fun person(o: JSONObject, role: String) = JSONObject().put("name", o.optString("name")).put("role", role)
+            .put("photo", face(o.str("profile_path")) ?: JSONObject.NULL)
+            .put("id", o.optInt("id").takeIf { it > 0 }?.toString() ?: JSONObject.NULL)
+        val crew = c.optJSONArray("crew").objects()
+        val writing = setOf("Screenplay", "Writer", "Story", "Novel", "Author", "Creator", "Teleplay")
+        val directors = crew.filter { it.optString("job") == "Director" }.map { it to "Director" }.take(3)
+        val writers = crew.filter { it.optString("job") in writing }.map { it to "Writer" }.take(3)
+        val cast = c.optJSONArray("cast").objects().sortedBy { it.optInt("order", 999) }.take(20).map { it to it.str("character").orEmpty() }
+        val seen = HashSet<Int>()
+        val out = (directors + writers + cast).filter { (o, _) -> o.str("name") != null && seen.add(o.optInt("id")) }.map { (o, role) -> person(o, role) }
+        return out.ifEmpty { null }
+    }
+
     /** The cast row: [{name, role, photo, id}], the directors first then the cast (a name TMDB doesn't list keeps no photo). null without a key or a match */
     suspend fun cast(type: String, imdb: String, names: JSONArray): List<JSONObject>? {
         val (k, id) = find(imdb) ?: return null
