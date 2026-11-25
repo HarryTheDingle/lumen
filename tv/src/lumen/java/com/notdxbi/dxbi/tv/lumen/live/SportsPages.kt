@@ -94,13 +94,16 @@ internal class BillboardData(
     val live: Boolean = false,
     val countdownTo: Long? = null,
     val countdownLabel: String? = null,
-    val primary: String,
+    /** The main button; null: none (a match with no stream on the IPTV has no Watch) */
+    val primary: String?,
     val primaryIcon: ImageVector = Icons.Filled.PlayArrow,
     val onPrimary: () -> Unit,
     val secondary: String? = null,
     val secondaryIcon: ImageVector? = null,
     val onSecondary: (() -> Unit)? = null,
     val accent: Color = Color(0xFFE10600),
+    /** Full-length cut-outs of the two sides (UFC's fighters), stood on the right of the billboard */
+    val cutouts: Pair<String?, String?>? = null,
 )
 
 /** How tall the billboard's picture is, from the very top of the page (it runs up behind the tabs and the clock) */
@@ -111,13 +114,18 @@ internal val BACKDROP_H = 470.dp
  * page scrolls, as a film page's backdrop does; it fades into the black at its left and its foot.
  */
 @Composable
-internal fun BillboardBackdrop(art: String?, lists: LazyListState) {
+internal fun BillboardBackdrop(art: String?, lists: LazyListState, page: String = "") {
     val h = with(LocalDensity.current) { BACKDROP_H.toPx() }
+    // (a new tab's picture fades in once its page has settled, rather than jumping about as the page builds under it)
+    var settled by remember(page) { mutableStateOf(false) }
+    LaunchedEffect(page) { settled = false; delay(380); settled = true }
+    val shown by androidx.compose.animation.core.animateFloatAsState(if (settled) 1f else 0f, tween(if (settled) 420 else 120), label = "backdrop-in")
     Box(
         Modifier.fillMaxWidth().height(BACKDROP_H).graphicsLayer {
             // (its foot stays level with the billboard's foot; off the page once the billboard is)
             val b = lists.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "billboard" }
             translationY = if (b != null) (b.offset + b.size - h).coerceAtMost(0f) else -h * 2
+            alpha = shown
         },
     ) {
         Crossfade(targetState = art, animationSpec = tween(Dx.Slow), label = "backdrop", modifier = Modifier.fillMaxSize()) { url ->
@@ -148,6 +156,19 @@ internal fun BillboardBackdrop(art: String?, lists: LazyListState) {
 @Composable
 internal fun BigBillboard(d: BillboardData, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().height(360.dp)) {
+        // the two fighters stood full-length on the right, red corner nearer the middle, facing each other
+        d.cutouts?.let { (a, b) ->
+            Row(Modifier.align(Alignment.BottomEnd).padding(end = 24.dp).height(430.dp), horizontalArrangement = Arrangement.spacedBy((-70).dp), verticalAlignment = Alignment.Bottom) {
+                listOf(a, b).forEach { url ->
+                    if (url != null) AsyncImage(
+                        model = url, contentDescription = null, contentScale = ContentScale.Fit, alignment = Alignment.BottomCenter,
+                        modifier = Modifier.width(300.dp).fillMaxHeight()
+                            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                            .drawWithContent { drawContent(); drawRect(Brush.verticalGradient(0f to Color.Black, 0.8f to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn) },
+                    )
+                }
+            }
+        }
         Column(Modifier.align(Alignment.BottomStart).padding(start = Dx.Gutter, bottom = 18.dp).widthIn(max = 560.dp)) {
             if (d.home != null || d.away != null) {
                 Row(horizontalArrangement = Arrangement.spacedBy((-12).dp), modifier = Modifier.padding(bottom = 10.dp)) {
@@ -169,7 +190,7 @@ internal fun BigBillboard(d: BillboardData, modifier: Modifier = Modifier) {
                 Countdown(d.countdownTo, d.accent)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 16.dp)) {
-                com.notdxbi.dxbi.tv.lumen.PlayButton(d.primary, onClick = d.onPrimary, icon = d.primaryIcon)
+                if (d.primary != null) com.notdxbi.dxbi.tv.lumen.PlayButton(d.primary, onClick = d.onPrimary, icon = d.primaryIcon)
                 if (d.secondary != null && d.onSecondary != null && d.secondaryIcon != null) {
                     com.notdxbi.dxbi.tv.lumen.RoundButton(d.secondaryIcon, d.secondary, onClick = d.onSecondary, expands = true)
                 }

@@ -842,6 +842,11 @@ class Engine(context: Context) {
         runCatching { org.json.JSONObject(core.f1Standings(series)) }.getOrNull()
     }
 
+    /** A sports page's data from the Worker (ufc, tennis, golf) as JSON; null when it can't be had */
+    suspend fun sportsJson(path: String): org.json.JSONObject? = withContext(Dispatchers.IO) {
+        runCatching { org.json.JSONObject(core.sportsJson(path)) }.getOrNull()
+    }
+
     /** Formula 1's next race weekend as JSON; null when it can't be had */
     suspend fun f1Weekend(): org.json.JSONObject? = withContext(Dispatchers.IO) {
         runCatching { org.json.JSONObject(core.f1Weekend()) }.getOrNull()

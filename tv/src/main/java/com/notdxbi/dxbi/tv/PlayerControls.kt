@@ -104,7 +104,20 @@ class PlayerControls(
         click(R.id.ctl_subtitles) { showTracks(it, C.TRACK_TYPE_TEXT, "Subtitles") }
         click(R.id.ctl_audio) { showTracks(it, C.TRACK_TYPE_AUDIO, "Audio") }
         // Lumen: fewer buttons. No speed; Streams, Stats and Picture open out from More, Subtitles and Audio stay
-        if (Phone.ownsKeys()) {
+        if (GlassPill.wanted(activity)) {
+            // (the TV: every button out at once, no More to open; no speed)
+            activity.findViewById<View>(R.id.ctl_speed).visibility = View.GONE
+            activity.findViewById<View>(R.id.ctl_more).visibility = View.GONE
+            listOf(R.id.ctl_streams, R.id.ctl_stats, R.id.ctl_picture).forEach { activity.findViewById<View>(it).visibility = View.VISIBLE }
+            // (the name and episode go above the seek bar, at the left as Apple TV has them: the buttons along the bottom
+            // have the whole width, and one opening out never runs into them)
+            val titles = activity.findViewById<LinearLayout>(R.id.controls_title)
+            (titles.parent as? ViewGroup)?.removeView(titles)
+            titles.gravity = Gravity.START
+            titles.findViewById<TextView>(R.id.title).apply { maxWidth = dp(900); setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f) }
+            titles.findViewById<TextView>(R.id.subtitle).apply { maxWidth = dp(900); setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f) }
+            activity.findViewById<LinearLayout>(R.id.controls_bottom).addView(titles, 0, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(6) })
+        } else if (Phone.ownsKeys()) {
             val tucked = listOf(R.id.ctl_streams, R.id.ctl_stats, R.id.ctl_picture).map { activity.findViewById<View>(it) }
             activity.findViewById<View>(R.id.ctl_speed).visibility = View.GONE
             tucked.forEach { it.visibility = View.GONE }
@@ -151,7 +164,7 @@ class PlayerControls(
         val row = activity.findViewById<ViewGroup>(R.id.controls_row)
         val titles = activity.findViewById<View>(R.id.controls_title)
         row.setPadding(0, if (upright) dp(46) else 0, 0, 0)
-        titles.layoutParams = (titles.layoutParams as android.widget.FrameLayout.LayoutParams).apply { gravity = if (upright) Gravity.TOP or Gravity.CENTER_HORIZONTAL else Gravity.CENTER; topMargin = if (upright) dp(-44) else 0 }
+        if (titles.layoutParams is android.widget.FrameLayout.LayoutParams) titles.layoutParams = (titles.layoutParams as android.widget.FrameLayout.LayoutParams).apply { gravity = if (upright) Gravity.TOP or Gravity.CENTER_HORIZONTAL else Gravity.CENTER; topMargin = if (upright) dp(-44) else 0 }
         val side = dp(if (upright) 12 else 56)
         // (the seek bar gets the room when it's narrow)
         for (id in listOf(R.id.time_now, R.id.time_left)) activity.findViewById<TextView>(id).minWidth = dp(if (upright) 44 else 72)

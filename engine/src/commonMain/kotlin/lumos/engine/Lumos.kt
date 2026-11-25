@@ -414,6 +414,9 @@ class Lumos(syncServer: String) {
     suspend fun f1Weekend(): String = sync.f1Weekend()
 
     @Throws(Exception::class)
+    suspend fun sportsJson(path: String): String = sync.sportsJson(path)
+
+    @Throws(Exception::class)
     suspend fun sportsTable(league: String): String = sync.sportsTable(league)
 
     @Throws(Exception::class)

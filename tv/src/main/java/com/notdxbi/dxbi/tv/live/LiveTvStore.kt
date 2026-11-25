@@ -998,6 +998,12 @@ class LiveTvStore(
     /** Formula 1's next race weekend: sessions, the circuit and its outline, last year's winner, artwork */
     suspend fun f1Weekend(): org.json.JSONObject? = keptJson("f1weekend", 30 * 60_000L) { engine.f1Weekend() }
 
+    /** UFC's next card, tennis (rankings, slams, draws) or golf (leaderboards): [kind] "ufc", "tennis" or "golf" */
+    suspend fun sportsPage(kind: String): org.json.JSONObject? = keptJson("page:$kind", 10 * 60_000L) { engine.sportsJson("/iptv/sports/$kind") }
+
+    /** As [sportsPage], asked for afresh */
+    suspend fun sportsPageFresh(kind: String): org.json.JSONObject? { sportsExtras.remove("page:$kind"); return sportsPage(kind) }
+
     /** A football league's table */
     suspend fun sportsTable(league: String): org.json.JSONObject? = keptJson("table:$league", 15 * 60_000L) { engine.sportsTable(league) }
 
@@ -1005,7 +1011,8 @@ class LiveTvStore(
     suspend fun sportsArt(teams: List<String>): Map<String, org.json.JSONObject> {
         val names = teams.filter { it.isNotBlank() }.distinct().sorted()
         if (names.isEmpty()) return emptyMap()
-        val json = keptJson("art:" + names.joinToString("|"), 6 * 3600_000L) { engine.sportsArt(names) } ?: return emptyMap()
+        // (not kept here: the Worker keeps them, and one the picture site turned away is asked for again next time)
+        val json = engine.sportsArt(names) ?: return emptyMap()
         val all = json.optJSONObject("teams") ?: return emptyMap()
         return all.keys().asSequence().mapNotNull { k -> all.optJSONObject(k)?.let { k to it } }.toMap()
     }

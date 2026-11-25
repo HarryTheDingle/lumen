@@ -44,11 +44,16 @@ class PictureZoom(private val playerView: PlayerView) {
             PixelCopy.request(surface, bitmap, { result ->
                 val bars = if (result == PixelCopy.SUCCESS) bars(bitmap) else null
                 bitmap.recycle()
-                if (bars == null) handler.postDelayed({ measure(attempt + 1) }, 2000)
-                else fill(bars[0], bars[1], bars[2], bars[3])
+                if (bars == null) {
+                    // (the picture can't be read, or it's dark just now: fill the screen with the frame as it is meanwhile,
+                    // and look again)
+                    if (attempt == 0) fill(0f, 0f, 0f, 0f)
+                    handler.postDelayed({ measure(attempt + 1) }, 2000)
+                } else fill(bars[0], bars[1], bars[2], bars[3])
             }, handler)
         } catch (_: IllegalArgumentException) {
             bitmap.recycle()
+            if (attempt == 0) fill(0f, 0f, 0f, 0f)
             handler.postDelayed({ measure(attempt + 1) }, 2000) // no picture yet
         }
     }
@@ -72,6 +77,8 @@ class PictureZoom(private val playerView: PlayerView) {
         if (shown.width == 0 || shown.height == 0) return
         val width = shown.width * (1 - l - r)
         val height = shown.height * (1 - t - b)
-        apply(minOf(playerView.width / width, playerView.height / height).coerceIn(1f, 2f), 0f, 0f)
+        // (the picture without its bars, made big enough to fill the screen both ways: a 2.39:1 film on a 16:9 TV loses a
+        // little at its sides, as Netflix's "fill" does; bars in the file and bars from a wide file both go)
+        apply(maxOf(playerView.width / width, playerView.height / height).coerceIn(1f, 1.5f), 0f, 0f)
     }
 }

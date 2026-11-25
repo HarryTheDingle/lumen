@@ -1025,8 +1025,8 @@ export async function handleSportsArt(body = {}, env, now = Date.now(), fetchImp
   const names = [...new Set((Array.isArray(body && body.teams) ? body.teams : []).map((n) => String(n || "").trim()).filter(Boolean))].slice(0, 12);
   const out = {};
   // (TheSportsDB's free key allows a few calls a second: a handful at a time)
-  for (let i = 0; i < names.length; i += 4) {
-    const got = await Promise.all(names.slice(i, i + 4).map((n) => (n.startsWith("league:") ? leagueArt(n.slice(7), fetchImpl) : teamArt(n, fetchImpl)).catch(() => null)));
+  for (let i = 0; i < names.length; i += 2) {
+    const got = await Promise.all(names.slice(i, i + 2).map((n) => (n.startsWith("league:") ? leagueArt(n.slice(7), fetchImpl) : teamArt(n, fetchImpl)).catch(() => null)));
     got.forEach((a, j) => { if (a) out[names[i + j]] = a; });
   }
   return { status: 200, body: { teams: out } };
@@ -1118,4 +1118,190 @@ export async function handleF1Weekend(body = {}, env, now = Date.now(), fetchImp
     };
   });
   return out ? { status: 200, body: out } : { status: 502, body: { error: "Race weekend unavailable." } };
+}
+
+// ---- UFC's next card, tennis (rankings, the slams, the draw), and golf's leaderboard (ESPN, free; fighters' cut-outs from TheSportsDB) ----
+
+const head = (sport, id) => (id && /^\d{2,12}$/.test(String(id)) ? `https://a.espncdn.com/i/headshots/${sport}/players/full/${id}.png` : null);
+
+/** A fighter's full-length cut-out (transparent PNG) from TheSportsDB, kept a month (null kept too: most have none) */
+async function fighterCutout(name, fetchImpl) {
+  const clean = String(name || "").trim();
+  if (!clean) return null;
+  const v = await edgeCached(`cut:${clean.toLowerCase()}`, 30 * 24 * 3600, async () => {
+    const json = await sportsDbJson(`searchplayers.php?p=${encodeURIComponent(clean.replace(/ /g, "_"))}`, fetchImpl);
+    if (!json) return null;
+    const p = (Array.isArray(json.player) ? json.player : []).find((x) => /fight|mma/i.test(x.strSport || "")) || null;
+    return { url: p ? p.strCutout || p.strRender || null : null };
+  });
+  return v ? v.url : null;
+}
+
+/** POST /iptv/sports/ufc: the next (or current) UFC card, main event first, with each fighter's record, headshot and cut-out */
+export async function handleUfc(body = {}, env, now = Date.now(), fetchImpl = globalThis.fetch) {
+  const out = await edgeCachedPartial(`ufc:card2:${Math.floor(now / (30 * 60 * 1000))}`, 1800, 120, (v) => v.bouts.length > 0 && Boolean(v.bouts[0].red.cutout || v.bouts[0].blue.cutout), async () => {
+    const json = await fetchJsonWith(fetchImpl, `${ESPN_BASE}/mma/ufc/scoreboard`);
+    const ev = json && Array.isArray(json.events) ? json.events[0] : null;
+    if (!ev) return null;
+    const comps = Array.isArray(ev.competitions) ? [...ev.competitions].reverse() : [];
+    const side = (c) => {
+      const a = (c && c.athlete) || {};
+      const rec = c && Array.isArray(c.records) && c.records[0] ? c.records[0].summary : null;
+      return { id: c && c.id ? String(c.id) : null, name: a.displayName || a.fullName || "", short: a.shortName || null, record: rec, flag: (a.flag && a.flag.href) || null, headshot: head("mma", c && c.id), cutout: null, winner: Boolean(c && c.winner) };
+    };
+    const bouts = comps.map((c, i) => {
+      const cs = Array.isArray(c.competitors) ? c.competitors : [];
+      const st = (c.status && c.status.type) || {};
+      return {
+        id: String(c.id || i),
+        weight: (c.type && (c.type.abbreviation || c.type.text)) || "",
+        main: i === 0,
+        startMs: Date.parse(c.date || "") || null,
+        state: st.state === "in" ? "LIVE" : st.state === "post" ? "FINAL" : "UPCOMING",
+        result: st.shortDetail || null,
+        red: side(cs.find((x) => x.order === 1) || cs[0]),
+        blue: side(cs.find((x) => x.order === 2) || cs[1]),
+      };
+    }).filter((b) => b.red.name && b.blue.name);
+    // (cut-outs for the top of the card: a few at a time, TheSportsDB's free key is slow to anger)
+    const top = bouts.slice(0, 5);
+    for (const b of top) {
+      const [r, bl] = await Promise.all([fighterCutout(b.red.name, fetchImpl), fighterCutout(b.blue.name, fetchImpl)]);
+      b.red.cutout = r; b.blue.cutout = bl;
+    }
+    return {
+      name: ev.name || "", shortName: ev.shortName || null,
+      startMs: Date.parse(ev.date || "") || null,
+      venue: (ev.competitions && ev.competitions[0] && ev.competitions[0].venue && ev.competitions[0].venue.fullName) || null,
+      bouts,
+    };
+  });
+  return out ? { status: 200, body: out } : { status: 502, body: { error: "UFC card unavailable." } };
+}
+
+function tennisPlayer(c) {
+  const a = (c && c.athlete) || {};
+  return {
+    id: c && c.id ? String(c.id) : null,
+    name: a.displayName || "", short: a.shortName || null,
+    flag: (a.flag && a.flag.href) || null, country: (a.flag && a.flag.alt) || null,
+    seed: c && c.curatedRank && c.curatedRank.current && c.curatedRank.current < 99 ? c.curatedRank.current : null,
+    headshot: head("tennis", c && c.id),
+    sets: (Array.isArray(c && c.linescores) ? c.linescores : []).map((s) => s.value),
+    winner: Boolean(c && c.winner),
+  };
+}
+
+/** An event's singles draws, the later rounds only (quarter-finals on, or the rounds being played), as round lists of matches */
+function tennisDraws(ev) {
+  const LATE = ["Round 4", "Quarterfinal", "Semifinal", "Final"];
+  return (Array.isArray(ev.groupings) ? ev.groupings : [])
+    .filter((g) => /singles/i.test((g.grouping && g.grouping.displayName) || ""))
+    .map((g) => {
+      const comps = (g.competitions || []).filter((c) => !/qualif/i.test((c.round && c.round.displayName) || ""));
+      const playing = new Set(comps.filter((c) => c.status && c.status.type && c.status.type.state !== "post").map((c) => c.round && c.round.displayName));
+      const names = [...new Set(comps.map((c) => c.round && c.round.displayName))].filter((r) => LATE.includes(r) || playing.has(r));
+      return {
+        name: g.grouping.displayName,
+        rounds: names.map((r) => ({
+          name: r,
+          matches: comps.filter((c) => c.round && c.round.displayName === r).map((c) => {
+            const st = (c.status && c.status.type) || {};
+            const ps = Array.isArray(c.competitors) ? [...c.competitors].sort((a, b) => (a.order || 0) - (b.order || 0)) : [];
+            return { id: String(c.id || ""), startMs: Date.parse(c.date || "") || null, state: st.state === "in" ? "LIVE" : st.state === "post" ? "FINAL" : "UPCOMING", p1: tennisPlayer(ps[0]), p2: tennisPlayer(ps[1]) };
+          }).filter((m) => m.p1.name || m.p2.name),
+        })),
+      };
+    });
+}
+
+/** POST /iptv/sports/tennis: rankings (ATP, WTA), the four slams this year and next, and the draw of what's on now */
+export async function handleTennis(body = {}, env, now = Date.now(), fetchImpl = globalThis.fetch) {
+  const out = await edgeCachedPartial(`tennis:v1:${Math.floor(now / (20 * 60 * 1000))}`, 1200, 300, (v) => v.rankings.atp.length > 0, async () => {
+    const year = new Date(now).getUTCFullYear();
+    const rank = async (tour) => {
+      const json = await fetchJsonWith(fetchImpl, `${ESPN_BASE}/tennis/${tour}/rankings`);
+      const r = json && Array.isArray(json.rankings) ? json.rankings[0] : null;
+      return ((r && r.ranks) || []).slice(0, 20).map((x) => ({
+        rank: x.current, previous: x.previous ?? null, points: x.points ?? null,
+        id: x.athlete && x.athlete.id ? String(x.athlete.id) : null,
+        name: (x.athlete && x.athlete.displayName) || "",
+        flag: (x.athlete && x.athlete.flag && x.athlete.flag.href) || null,
+        headshot: head("tennis", x.athlete && x.athlete.id),
+      }));
+    };
+    const slamDates = [year, year + 1].flatMap((y) => [`${y}0120`, `${y}0601`, `${y}0705`, `${y}0905`]);
+    const [atp, wta, nowAtp, nowWta, ...slamDays] = await Promise.all([
+      rank("atp"), rank("wta"),
+      fetchJsonWith(fetchImpl, `${ESPN_BASE}/tennis/atp/scoreboard`),
+      fetchJsonWith(fetchImpl, `${ESPN_BASE}/tennis/wta/scoreboard`),
+      ...slamDates.map((d) => fetchJsonWith(fetchImpl, `${ESPN_BASE}/tennis/atp/scoreboard?dates=${d}`)),
+    ]);
+    const slams = [];
+    for (const day of slamDays) {
+      for (const e of (day && day.events) || []) {
+        if (!e.major || slams.some((s) => s.id === e.id)) continue;
+        const draws = tennisDraws(e);
+        const champ = (n) => { const d = draws.find((x) => x.name === n); const f = d && d.rounds.find((r) => r.name === "Final"); const m = f && f.matches[0]; return m && m.state === "FINAL" ? (m.p1.winner ? m.p1 : m.p2.winner ? m.p2 : null) : null; };
+        slams.push({
+          id: String(e.id), name: e.name, startMs: Date.parse(e.date || "") || null, endMs: Date.parse(e.endDate || "") || null,
+          state: e.status && e.status.type ? (e.status.type.state === "in" ? "LIVE" : e.status.type.state === "post" ? "FINAL" : "UPCOMING") : "UPCOMING",
+          men: champ("Men's Singles"), women: champ("Women's Singles"),
+          lastMen: (e.previousWinners && e.previousWinners[0] && (e.previousWinners[0].displayName || e.previousWinners[0])) || null,
+          lastWomen: (e.previousWinners && e.previousWinners[1] && (e.previousWinners[1].displayName || e.previousWinners[1])) || null,
+        });
+      }
+    }
+    slams.sort((a, b) => (a.startMs || 0) - (b.startMs || 0));
+    const events = [];
+    for (const j of [nowAtp, nowWta]) {
+      const e = j && Array.isArray(j.events) ? j.events[0] : null;
+      if (!e || events.some((x) => x.id === String(e.id))) continue;
+      const st = e.status && e.status.type ? e.status.type.state : "pre";
+      events.push({ id: String(e.id), name: e.name, major: Boolean(e.major), startMs: Date.parse(e.date || "") || null, endMs: Date.parse(e.endDate || "") || null, state: st === "in" ? "LIVE" : st === "post" ? "FINAL" : "UPCOMING", draws: tennisDraws(e) });
+    }
+    return { rankings: { atp, wta }, slams, events };
+  });
+  return out ? { status: 200, body: out } : { status: 502, body: { error: "Tennis unavailable." } };
+}
+
+function golfBoard(ev) {
+  const c = ev && Array.isArray(ev.competitions) ? ev.competitions[0] : null;
+  const st = (c && c.status && c.status.type) || {};
+  const players = (c && Array.isArray(c.competitors) ? c.competitors : []).sort((a, b) => (a.order || 0) - (b.order || 0));
+  const scoreOf = (p) => String(p.score != null ? (typeof p.score === "object" ? p.score.displayValue : p.score) : "");
+  let lastScore = null, lastPos = 0;
+  const rows = players.slice(0, 50).map((p, i) => {
+    const sc = scoreOf(p);
+    const pos = sc === lastScore ? lastPos : i + 1;
+    lastScore = sc; lastPos = pos;
+    const rounds = (Array.isArray(p.linescores) ? p.linescores : []).filter((l) => l.value != null && l.value >= 50).slice(0, 4).map((l) => ({ strokes: l.value, toPar: l.displayValue || null }));
+    return { pos, name: (p.athlete && (p.athlete.displayName || p.athlete.fullName)) || "", flag: (p.athlete && p.athlete.flag && p.athlete.flag.href) || null, headshot: head("golf", p.id), toPar: sc || "E", rounds, thru: (p.status && p.status.thru) || null };
+  });
+  // ties marked T
+  rows.forEach((r) => { r.tied = rows.filter((x) => x.pos === r.pos).length > 1; });
+  return {
+    id: String(ev.id), name: ev.name || "", startMs: Date.parse(ev.date || "") || null, endMs: Date.parse(ev.endDate || "") || null,
+    state: st.state === "in" ? "LIVE" : st.state === "post" ? "FINAL" : "UPCOMING", detail: st.detail || null,
+    course: (c && c.venue && c.venue.fullName) || (ev.courses && ev.courses[0] && ev.courses[0].name) || null,
+    rows,
+  };
+}
+
+/** POST /iptv/sports/golf: the PGA Tour's event now (or next), and the last one finished with its leaderboard */
+export async function handleGolf(body = {}, env, now = Date.now(), fetchImpl = globalThis.fetch) {
+  const out = await edgeCachedPartial(`golf:v1:${Math.floor(now / (10 * 60 * 1000))}`, 600, 300, (v) => Boolean(v.current || v.last), async () => {
+    const day = (ms) => new Date(ms).toISOString().slice(0, 10).replace(/-/g, "");
+    // (the last five weeks at once: ESPN gives a range of days' events, the latest finished one is the last)
+    const [cur, back] = await Promise.all([
+      fetchJsonWith(fetchImpl, `${ESPN_BASE}/golf/pga/scoreboard`),
+      fetchJsonWith(fetchImpl, `${ESPN_BASE}/golf/pga/scoreboard?dates=${day(now - 35 * 86400000)}-${day(now)}`),
+    ]);
+    const current = cur && cur.events && cur.events[0] ? golfBoard(cur.events[0]) : null;
+    const stateOf = (x) => (x.competitions && x.competitions[0] && x.competitions[0].status && x.competitions[0].status.type && x.competitions[0].status.type.state) || (x.status && x.status.type && x.status.type.state);
+    const done = ((back && back.events) || []).filter((x) => stateOf(x) === "post" && (!current || String(x.id) !== current.id));
+    const last = done.length ? golfBoard(done[done.length - 1]) : null;
+    return { current, last };
+  });
+  return out ? { status: 200, body: out } : { status: 502, body: { error: "Golf unavailable." } };
 }

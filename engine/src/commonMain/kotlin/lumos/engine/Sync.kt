@@ -206,6 +206,13 @@ class Sync(private val server: String, private val http: HttpClient, var session
     @Throws(Exception::class)
     suspend fun f1Standings(series: String = "f1"): String = call("/iptv/sports/f1/standings", buildJsonObject { put("series", series) }, signed = true).toString()
 
+    /** One of the sports pages' data from the Worker (/iptv/sports/ufc, /tennis, /golf), as JSON */
+    @Throws(Exception::class)
+    suspend fun sportsJson(path: String): String {
+        require(path.startsWith("/iptv/sports/"))
+        return call(path, buildJsonObject { }, signed = true).toString()
+    }
+
     /** Formula 1's next race weekend: sessions, circuit (with its drawn outline), last year's winner, artwork; as JSON */
     @Throws(Exception::class)
     suspend fun f1Weekend(): String = call("/iptv/sports/f1/weekend", buildJsonObject { }, signed = true).toString()

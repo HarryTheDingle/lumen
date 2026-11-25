@@ -65,6 +65,7 @@ fun MatchPage(
 ) {
     var match by remember { mutableStateOf<JSONObject?>(null) }
     var failed by remember { mutableStateOf(false) }
+    val streamable = remember(fixture.id) { runCatching { store.resolveFixtureStreams(fixture).isNotEmpty() }.getOrDefault(false) }
     // a finished match: is it in a channel's catch-up?
     val context = androidx.compose.ui.platform.LocalContext.current
     var replay by remember { mutableStateOf<LiveTvStore.Replay?>(null) }
@@ -123,7 +124,12 @@ fun MatchPage(
                     }
                     Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         when {
-                            live -> LiveChip(label = "Watch" + (fixture.ukChannelName?.let { " on $it" } ?: ""), selected = true, onClick = onWatch, modifier = Modifier.focusRequester(first))
+                            // (Watch only when the IPTV has a stream for it)
+                            live && streamable -> LiveChip(label = "Watch" + (fixture.ukChannelName?.let { " on $it" } ?: ""), selected = true, onClick = onWatch, modifier = Modifier.focusRequester(first))
+                            live -> {
+                                LiveChip(label = "Back", selected = true, onClick = onBack, modifier = Modifier.focusRequester(first))
+                                Text("Not on your IPTV" + (fixture.ukChannelName?.let { " (it's on $it)" } ?: ""), fontSize = 14.sp, color = Dx.Muted, modifier = Modifier.align(Alignment.CenterVertically))
+                            }
                             status == "UPCOMING" -> LiveChip(label = if (reminded) "Reminder set" else "Remind me", selected = true, onClick = onRemind, modifier = Modifier.focusRequester(first))
                             else -> {
                                 replay?.let { r ->

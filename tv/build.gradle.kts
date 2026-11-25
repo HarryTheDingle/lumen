@@ -75,8 +75,8 @@ android {
         create("lumen3") {
             dimension = "brand"
             applicationId = "com.harrythedingle.lumen.tv"
-            versionName = "3.4.1"
-            versionCode = 30401
+            versionName = "3.4.2"
+            versionCode = 30402
             buildConfigField("String", "APP_NAME", "\"Lumen\"")
             buildConfigField("String", "UPDATE_REPO", "\"HarryTheDingle/lumen\"")
             buildConfigField("String", "UPDATE_FEED", "\"\"")

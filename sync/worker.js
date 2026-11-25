@@ -23,7 +23,7 @@ import { handlePicks, handleAsk } from "./picks.js";
 import { resolveLabels } from "./labels.js";
 import { handleScores } from "./scores.js";
 import { enrichEpgProgramme, pruneEpg, readUkEpg, refreshUkEpg } from "./epg.js";
-import { handleF1Standings, handleF1Weekend, handleSportsArt, handleSportsFixtures, handleSportsMatch, handleSportsTable, handleTeamsSchedule, handleTeamsSearch } from "./sports.js";
+import { handleF1Standings, handleF1Weekend, handleGolf, handleSportsArt, handleSportsFixtures, handleSportsMatch, handleSportsTable, handleTeamsSchedule, handleTeamsSearch, handleTennis, handleUfc } from "./sports.js";
 import { handleIptvSetupSubmit, renderSetupPage } from "./iptv-setup.js";
 import { seal, open, sealStored } from "./seal.js";
 import { handleIptvPresence, pruneIptvPresence } from "./presence.js";
@@ -512,6 +512,9 @@ async function handle(request, env) {
     case "/iptv/sports/f1/weekend": { const r = await handleF1Weekend(body, env, now); return reply(r.status, r.body); }
     case "/iptv/sports/table": { const r = await handleSportsTable(body, env, now); return reply(r.status, r.body); }
     case "/iptv/sports/art": { const r = await handleSportsArt(body, env, now); return reply(r.status, r.body); }
+    case "/iptv/sports/ufc": { const r = await handleUfc(body, env, now); return reply(r.status, r.body); }
+    case "/iptv/sports/tennis": { const r = await handleTennis(body, env, now); return reply(r.status, r.body); }
+    case "/iptv/sports/golf": { const r = await handleGolf(body, env, now); return reply(r.status, r.body); }
     case "/iptv/presence": { const r = await handleIptvPresence(body, env, me, now); return reply(r.status, r.body); }
     case "/iptv/setup/start": {
       await env.DB.prepare("DELETE FROM lumos_iptv_setup WHERE expires < ?").bind(now).run();

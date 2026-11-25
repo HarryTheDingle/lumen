@@ -179,7 +179,12 @@ fun SportsHomeView(
             if (!row.isPlayable) return@mapNotNull null
             val p = store.nowAndNext(ch, nowMs).first
             if (p != null && p.isLiveSport && p.isOnAt(nowMs)) row to p else null
-        }.distinctBy { it.second.title + it.first.guideChannel.id }.take(40)
+        }
+            // (the same programme on several channels, e.g. Sky Sports' main and its football channel, or an HD and an SD
+            // copy: one tile, on the best of them)
+            .groupBy { (_, p) -> simpleNorm(p.title.removePrefix("Live:").removePrefix("LIVE:")) + "@" + p.startMs / 60_000L }
+            .values.map { same -> same.maxBy { (row, _) -> qualityScore(row) } }
+            .take(40)
     }
     // Your teams first, then your favourite sports, then the rest
     val favTeamWords = remember(prefs.favouriteTeams) { prefs.favouriteTeams.flatMap { listOfNotNull(it.name, it.shortName) }.map(::simpleNorm).filter { it.length >= 3 } }
@@ -187,10 +192,14 @@ fun SportsHomeView(
     val tvRanked = remember(tvLive, favTeamWords, favTiles) {
         tvLive.sortedBy { (row, p) ->
             val t = " ${simpleNorm(p.title)} "
+            // (your teams, then real matches and races, then your sports' other programmes, then the rest)
+            val match = Regex("\\b(v|vs)\\b|grand prix|race|final", RegexOption.IGNORE_CASE).containsMatchIn(p.title)
             when {
                 favTeamWords.any { t.contains(" $it ") } -> 0
-                favTiles.any { tvForTile(it, row, p) } -> 1
-                else -> 2
+                match && favTiles.any { tvForTile(it, row, p) } -> 1
+                match -> 2
+                favTiles.any { tvForTile(it, row, p) } -> 3
+                else -> 4
             }
         }
     }
@@ -300,7 +309,11 @@ fun SportsHomeView(
     val heroEvent = events.firstOrNull { it.status == FixtureStatus.LIVE }
         ?: if (tile == SportTile.LIVE) null else (events.filter { it.status == FixtureStatus.UPCOMING }.minByOrNull { it.startMs }
             ?: events.filter { it.status == FixtureStatus.FINAL }.maxByOrNull { it.startMs })
-    val detailFor = focusedMatch?.takeIf { f -> pool.any { it.id == f.id } } ?: (if (tile == SportTile.LIVE) live else live + upcoming).firstOrNull { sided(it) }
+    // (a live match the IPTV has a stream for comes before one it hasn't: only those get a Watch button)
+    val resolved by store.resolvedFixtureStreams.collectAsState()
+    fun hasStream(f: SportsFixture) = resolved[f.id]?.isNotEmpty() == true
+    val detailFor = focusedMatch?.takeIf { f -> pool.any { it.id == f.id } }
+        ?: (if (tile == SportTile.LIVE) live else live + upcoming).sortedBy { if (it.status == FixtureStatus.LIVE && hasStream(it)) 0 else 1 }.firstOrNull { sided(it) }
     val tvShown = if (tile == SportTile.LIVE) tvRanked else tvRanked.filter { tvForTile(tile, it.first, it.second) }
     // The billboard: the match or programme the remote is on; before it's on one, a live match (yours first), else what's
     // live on TV, else the next match
@@ -334,6 +347,19 @@ fun SportsHomeView(
         val j = runCatching { store.f1Weekend() }.getOrNull()
         weekend = parseWeekend(j); weekendDone = true
     }
+    var ufcCard by remember { mutableStateOf<UfcCard?>(null) }
+    var tennis by remember { mutableStateOf<Tennis?>(null) }
+    var golf by remember { mutableStateOf<Golf?>(null) }
+    LaunchedEffect(Unit) {
+        launch { ufcCard = parseUfc(runCatching { store.sportsPage("ufc") }.getOrNull()) }
+        launch { tennis = parseTennis(runCatching { store.sportsPage("tennis") }.getOrNull()) }
+        launch { golf = parseGolf(runCatching { store.sportsPage("golf") }.getOrNull()) }
+    }
+    fun remindAt(id: String, title: String, at: Long) {
+        val on = id in remindedIds
+        android.widget.Toast.makeText(context, if (on) "Reminder removed" else "We'll remind you before $title starts", android.widget.Toast.LENGTH_SHORT).show()
+        LiveReminders.toggle(context, LiveReminders.Reminder(id = id, title = title, startMs = at, channelId = null, channelName = null))
+    }
     val footballTeams = remember(prefs.favouriteTeams) { prefs.favouriteTeams.filter { it.sport.contains("football", true) || it.sport.contains("soccer", true) || it.league.startsWith("eng") || it.league.contains(".") } }
     val tableLeagues = remember(footballTeams) { (listOf("eng.1") + footballTeams.map { it.league }).distinct() }
     var tables by remember { mutableStateOf<Map<String, LeagueTable>>(emptyMap()) }
@@ -348,6 +374,7 @@ fun SportsHomeView(
     val sportsDbLeague = mapOf(
         "eng.1" to "4328", "eng.2" to "4329", "eng.3" to "4396", "uefa.champions" to "4480", "uefa.europa" to "4481",
         "eng.fa" to "4482", "eng.league_cup" to "4570", "sco.1" to "4330", "f1" to "4370",
+        "irl" to "4373", "nascar-premier" to "4393", "ufc" to "4443", "atp" to "4464", "wta" to "4517", "pga" to "4425",
     )
     fun leagueArt(league: String?, pick: Int = 0): String? = league?.let { sportsDbLeague[it] }?.let { fanart("league:$it", pick) }
     val footballMineIds = remember(footballTeams) { footballTeams.mapTo(HashSet()) { it.teamId } }
@@ -371,6 +398,7 @@ fun SportsHomeView(
         val score = if (hideSportsScores || f.home?.score == null) null else "${f.home?.score} – ${f.away?.score ?: "0"}"
         val reminded = "fixture:${f.id}" in remindedIds
         val mineSide = listOfNotNull(f.home, f.away).firstOrNull { it.id in favTeamIds }
+        val racing = f.isRacing()
         return BillboardData(
             key = "fx:${f.id}",
             // (your team's own picture for its matches; the competition's action photos for anyone else's)
@@ -378,17 +406,22 @@ fun SportsHomeView(
             kicker = listOfNotNull(f.leagueName.takeIf { it.isNotBlank() }, f.venue).joinToString("  ·  "),
             title = fixtureTitle(f),
             line = when (f.status) {
-                FixtureStatus.LIVE -> listOfNotNull("Live", f.clock, score, f.ukChannelName).joinToString("  ·  ")
-                FixtureStatus.FINAL -> listOfNotNull("Full time", score).joinToString("  ·  ")
+                FixtureStatus.LIVE -> listOfNotNull("Live", f.clock, score, f.ukChannelName, if (hasStream(f)) null else "not on your IPTV").joinToString("  ·  ")
+                FixtureStatus.FINAL -> listOfNotNull(if (racing) "Finished" else "Full time", score).joinToString("  ·  ")
                 else -> listOfNotNull(SimpleDateFormat("EEE d MMM", Locale.UK).format(Date(f.startMs)), timeLabel(f.startMs), f.ukChannelName).joinToString("  ·  ")
             },
             home = f.home, away = f.away, live = live,
             countdownTo = if (f.status == FixtureStatus.UPCOMING) f.startMs else null,
             countdownLabel = if (f.isRacing()) "Starts in" else "Kick-off in",
-            primary = when { live -> "Watch live"; f.status == FixtureStatus.UPCOMING -> if (reminded) "Reminder set" else "Remind me"; else -> "Match details" },
-            primaryIcon = when { live -> Icons.Filled.PlayArrow; f.status == FixtureStatus.UPCOMING -> if (reminded) Icons.Filled.NotificationsActive else Icons.Filled.Notifications; else -> Icons.Filled.Info },
-            onPrimary = { when { live -> store.playFixture(context, f); f.status == FixtureStatus.UPCOMING -> toggleReminder(f); else -> openMatch = f } },
-            secondary = if (f.status != FixtureStatus.FINAL && f.home != null) "Match details" else null,
+            primary = when {
+                live && hasStream(f) -> "Watch live"
+                f.status == FixtureStatus.UPCOMING -> if (reminded) "Reminder set" else "Remind me"
+                racing -> null
+                else -> "Match details"
+            },
+            primaryIcon = when { live && hasStream(f) -> Icons.Filled.PlayArrow; f.status == FixtureStatus.UPCOMING -> if (reminded) Icons.Filled.NotificationsActive else Icons.Filled.Notifications; else -> Icons.Filled.Info },
+            onPrimary = { when { live && hasStream(f) -> store.playFixture(context, f); f.status == FixtureStatus.UPCOMING -> toggleReminder(f); else -> openMatch = f } },
+            secondary = if (f.status != FixtureStatus.FINAL && !racing && f.home != null && (live && hasStream(f) || f.status == FixtureStatus.UPCOMING)) "Match details" else null,
             secondaryIcon = Icons.Filled.Info,
             onSecondary = { openMatch = f },
             accent = accent,
@@ -405,6 +438,84 @@ fun SportsHomeView(
         onPrimary = { store.playGuideRow(context, row, zapChannelIds = zap) },
         accent = tintFor(p.title),
     )
+    /** UFC's main event, the next (or live) slam, or golf's event this week: their own billboards */
+    fun sportBillboard(): BillboardData? {
+        val tvNow = tvShown.firstOrNull()
+        val watch: (() -> Unit)? = tvNow?.let { (r, _) -> { store.playGuideRow(context, r, zapChannelIds = tvShown.mapNotNull { it.first.linkedChannel?.id }) } }
+        return when (tile) {
+            SportTile.UFC -> ufcCard?.let { c ->
+                val m = c.bouts.first()
+                val id = "ufc:${c.startMs}"
+                val on = m.state == "LIVE" || c.bouts.any { it.state == "LIVE" }
+                BillboardData(
+                    key = "ufc:${c.name}",
+                    art = leagueArt("ufc", 0),
+                    kicker = listOfNotNull(c.name, c.startMs?.let { SimpleDateFormat("EEE d MMM", Locale.UK).format(Date(it)) }, c.venue).joinToString("  ·  "),
+                    title = "${m.red.name.substringAfterLast(' ')} v ${m.blue.name.substringAfterLast(' ')}",
+                    line = listOfNotNull(m.weight.takeIf { it.isNotBlank() }, listOfNotNull(m.red.record, m.blue.record).takeIf { it.size == 2 }?.joinToString(" v ")).joinToString("  ·  "),
+                    live = on,
+                    countdownTo = c.startMs?.takeIf { !on && it > nowMs },
+                    countdownLabel = "The card starts in",
+                    primary = when { on && watch != null -> "Watch live"; on -> null; id in remindedIds -> "Reminder set"; else -> "Remind me" },
+                    primaryIcon = if (on) Icons.Filled.PlayArrow else if (id in remindedIds) Icons.Filled.NotificationsActive else Icons.Filled.Notifications,
+                    onPrimary = { if (on) watch?.invoke() else c.startMs?.let { remindAt(id, c.name, it) } },
+                    accent = Color(0xFFD20A0A),
+                    cutouts = m.red.cutout to m.blue.cutout,
+                )
+            }
+            SportTile.TENNIS -> tennis?.let { t ->
+                val liveEvent = t.events.firstOrNull { it.state == "LIVE" }
+                val slam = t.slams.firstOrNull { it.state == "LIVE" } ?: t.slams.firstOrNull { (it.startMs ?: 0L) > nowMs }
+                when {
+                    liveEvent != null -> BillboardData(
+                        key = "tennis:${liveEvent.name}", art = leagueArt("atp", 1),
+                        kicker = listOfNotNull(if (liveEvent.major) "Grand Slam" else "Tennis", spanLabel(liveEvent.startMs, liveEvent.endMs)).joinToString("  ·  "),
+                        title = liveEvent.name,
+                        line = listOfNotNull("On now", liveEvent.draws.firstOrNull()?.rounds?.lastOrNull { r -> r.matches.any { it.state != "FINAL" } }?.name).joinToString("  ·  "),
+                        live = true,
+                        primary = if (watch != null) "Watch live" else null, onPrimary = { watch?.invoke() }, accent = Color(0xFF2E7DD1),
+                    )
+                    slam != null -> {
+                        val id = "slam:${slam.name}:${slam.startMs}"
+                        BillboardData(
+                            key = "slam:${slam.name}", art = leagueArt("atp", slam.name.length),
+                            kicker = "Grand Slam  ·  ${spanLabel(slam.startMs, slam.endMs)}",
+                            title = slam.name,
+                            line = listOfNotNull(slam.lastMen, slam.lastWomen).takeIf { it.isNotEmpty() }?.let { "Holders: ${it.joinToString(" and ")}" },
+                            countdownTo = slam.startMs?.takeIf { it > nowMs }, countdownLabel = "Starts in",
+                            primary = if (id in remindedIds) "Reminder set" else "Remind me",
+                            primaryIcon = if (id in remindedIds) Icons.Filled.NotificationsActive else Icons.Filled.Notifications,
+                            onPrimary = { slam.startMs?.let { remindAt(id, slam.name, it) } },
+                            accent = Color(0xFF2E7DD1),
+                        )
+                    }
+                    else -> null
+                }
+            }
+            SportTile.GOLF -> golf?.let { g ->
+                val e = g.current ?: g.last ?: return@let null
+                val lead = e.rows.firstOrNull()
+                val id = "golf:${e.name}:${e.startMs}"
+                BillboardData(
+                    key = "golf:${e.name}", art = leagueArt("pga", e.name.length),
+                    kicker = listOfNotNull("PGA Tour", spanLabel(e.startMs, e.endMs), e.course).joinToString("  ·  "),
+                    title = e.name,
+                    line = when {
+                        e.state == "LIVE" && lead != null -> "Leader: ${lead.name} ${lead.toPar}"
+                        e.state == "FINAL" && lead != null -> "Won by ${lead.name} at ${lead.toPar}"
+                        else -> g.last?.rows?.firstOrNull()?.let { w -> "Last week: ${w.name} won " + (if (g.last.name.startsWith("The ")) g.last.name else "the ${g.last.name}") }
+                    },
+                    live = e.state == "LIVE",
+                    countdownTo = e.startMs?.takeIf { e.state == "UPCOMING" && it > nowMs }, countdownLabel = "Tees off in",
+                    primary = when { e.state == "LIVE" -> if (watch != null) "Watch live" else null; e.state == "UPCOMING" -> if (id in remindedIds) "Reminder set" else "Remind me"; else -> null },
+                    primaryIcon = if (e.state == "LIVE") Icons.Filled.PlayArrow else if (id in remindedIds) Icons.Filled.NotificationsActive else Icons.Filled.Notifications,
+                    onPrimary = { if (e.state == "LIVE") watch?.invoke() else e.startMs?.let { remindAt(id, e.name, it) } },
+                    accent = Color(0xFF1F8A4C),
+                )
+            }
+            else -> null
+        }
+    }
     val racingWords = Regex(when (series) { Series.F1 -> "formula|f1|grand prix|qualifying|motorsport"; Series.INDY -> "indycar|indy 500|indy car"; Series.NASCAR -> "nascar" }, RegexOption.IGNORE_CASE)
     val racingTv = tvRanked.filter { (row, p) -> racingWords.containsMatchIn(p.title + " " + row.guideChannel.name) }
     val favLive = footballSchedules.flatMap { it.live }.firstOrNull()
@@ -450,13 +561,18 @@ fun SportsHomeView(
             }
         }
         SportTile.FOOTBALL -> {
-            val f = favLive ?: live.firstOrNull { sided(it) } ?: favNext ?: upcoming.firstOrNull { sided(it) }
+            val f = favLive ?: live.firstOrNull { sided(it) && hasStream(it) } ?: favNext ?: live.firstOrNull { sided(it) } ?: upcoming.firstOrNull { sided(it) }
             when {
                 f != null && (f.status == FixtureStatus.LIVE || tvShown.isEmpty() || f == favNext) -> fixtureBillboard(f, tintFor(f.home?.name ?: f.name))
                 tvShown.isNotEmpty() -> tvShown.first().let { (r, p) -> tvBillboard(r, p, tvShown.mapNotNull { it.first.linkedChannel?.id }) }
                 f != null -> fixtureBillboard(f, tintFor(f.home?.name ?: f.name))
                 else -> null
             }
+        }
+        SportTile.UFC, SportTile.TENNIS, SportTile.GOLF -> sportBillboard() ?: when {
+            tvTop != null -> tvBillboard(tvTop.first, tvTop.second, tvShown.mapNotNull { it.first.linkedChannel?.id })
+            heroEvent != null -> fixtureBillboard(heroEvent, tintFor(tile.label))
+            else -> null
         }
         else -> when {
             billboardMatch != null && (billboardMatch.status == FixtureStatus.LIVE || tvTop == null) -> fixtureBillboard(billboardMatch, tintFor(billboardMatch.home?.name ?: billboardMatch.name))
@@ -471,13 +587,22 @@ fun SportsHomeView(
         (sportsDbLeague.values.map { "league:$it" } + footballTeams.map { it.name } + listOfNotNull(bill?.home?.name, bill?.away?.name)).distinct()
     }
     LaunchedEffect(artNames) {
-        val want = artNames.filter { it !in art }
-        if (want.isNotEmpty()) art = art + runCatching { store.sportsArt(want) }.getOrDefault(emptyMap())
+        // (any the picture site turned away are asked for again a little later, a few times)
+        repeat(4) { attempt ->
+            val want = artNames.filter { it !in art }
+            if (want.isEmpty()) return@LaunchedEffect
+            art = art + runCatching { store.sportsArt(want) }.getOrDefault(emptyMap())
+            delay(20_000L * (attempt + 1))
+        }
+    }
+    // (UFC's card comes again shortly when its fighters' cut-outs weren't to be had the first time)
+    LaunchedEffect(ufcCard?.bouts?.firstOrNull()?.red?.cutout == null && ufcCard != null) {
+        if (ufcCard != null && ufcCard?.bouts?.firstOrNull()?.red?.cutout == null) { delay(130_000L); parseUfc(runCatching { store.sportsPageFresh("ufc") }.getOrNull())?.let { ufcCard = it } }
     }
 
     Box(Modifier.fillMaxSize().background(Dx.Background)) {
     SportsGlow(glow.first, glow.second)
-    BillboardBackdrop(bill?.art, lists)
+    BillboardBackdrop(bill?.art, lists, page = tile.name + (if (tile == SportTile.F1) series.name else ""))
     // The whole page is one list of rows, as a film's page is: the sports along the top are the first row, and scroll away with
     // the rest; each row centres itself as the remote comes to it, in the page's one soft glide
     androidx.compose.runtime.CompositionLocalProvider(
@@ -601,13 +726,28 @@ fun SportsHomeView(
                 tables["eng.1"]?.let { tableSection(it, footballMineIds, seen) }
                 tableLeagues.filter { it != "eng.1" }.forEach { l -> tables[l]?.let { tableSection(it, footballMineIds, seen, window = true) } }
                 panelSection("Results", past.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds, { }, seen) { openMatch = it }
+            } else if (tile == SportTile.UFC && ufcCard != null) {
+                tvLiveSection(tvShown, nowMs, emptyList(), hideSportsScores, seen, { _, _ -> }) { row, _ -> store.playGuideRow(context, row, zapChannelIds = tvShown.mapNotNull { it.first.linkedChannel?.id }) }
+                ufcSections(ufcCard!!, seen) { _ -> ufcCard?.startMs?.let { remindAt("ufc:$it", ufcCard!!.name, it) } }
+            } else if (tile == SportTile.TENNIS && tennis != null) {
+                val t = tennis!!
+                tvLiveSection(tvShown, nowMs, emptyList(), hideSportsScores, seen, { _, _ -> }) { row, _ -> store.playGuideRow(context, row, zapChannelIds = tvShown.mapNotNull { it.first.linkedChannel?.id }) }
+                // (the draw of what's on, else of the latest event, its later rounds as a bracket)
+                (t.events.filter { it.state == "LIVE" }.ifEmpty { t.events.take(1) }).forEach { e -> e.draws.forEach { d -> drawSection(e, d, nowMs, seen) } }
+                slamSection(t.slams, nowMs, seen)
+                rankingsSection(t, seen)
+            } else if (tile == SportTile.GOLF && golf != null) {
+                val g = golf!!
+                tvLiveSection(tvShown, nowMs, emptyList(), hideSportsScores, seen, { _, _ -> }) { row, _ -> store.playGuideRow(context, row, zapChannelIds = tvShown.mapNotNull { it.first.linkedChannel?.id }) }
+                g.current?.takeIf { it.rows.isNotEmpty() }?.let { golfSection(if (it.state == "LIVE") "Leaderboard" else "Final leaderboard  ·  ${it.name}", it, seen) }
+                g.last?.takeIf { g.current?.rows.isNullOrEmpty() }?.let { golfSection("Last week  ·  ${it.name}", it, seen, max = 20) }
             } else {
                 // (every sport's page leads with what's live for it on the TV guide, the match feed or not)
                 tvLiveSection(tvShown, nowMs, (fixtures + mine).distinctBy { it.id }, hideSportsScores, seen, { _, _ -> }) { row, _ -> store.playGuideRow(context, row, zapChannelIds = tvShown.mapNotNull { it.first.linkedChannel?.id }) }
                 if (tile == SportTile.LIVE && tvShown.isEmpty() && live.isEmpty()) item(key = "nothing-live") {
                     Text("Nothing live right now. Coming up is under each sport.", fontSize = 16.sp, color = Dx.Muted, modifier = Modifier.padding(start = Dx.Gutter, top = 24.dp))
                 }
-                panelSection("Live now", live.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds, { }, seen) { store.playFixture(context, it) }
+                panelSection("Live now", live.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds, { }, seen) { openMatch = it }
                 if (tile != SportTile.LIVE) {
                     panelSection("Coming up", upcoming.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds, { }, seen) { openMatch = it }
                     panelSection("Results", past.filter { sided(it) }, nowMs, hideSportsScores, favTeamIds, { }, seen) { openMatch = it }
@@ -1438,5 +1578,16 @@ internal fun F1Standings(json: org.json.JSONObject, favourites: Set<String>, onT
                 }
             }
         }
+    }
+}
+
+/** How good a TV channel's copy of a programme is: one that plays first, then 4K, full HD, HD, the rest */
+private fun qualityScore(row: lumos.iptv.GuideChannelRow): Int {
+    val q = (row.qualityBadge ?: "").uppercase()
+    return (if (row.isPlayable) 100 else 0) + when {
+        "4K" in q || "UHD" in q -> 40
+        "FHD" in q || "1080" in q -> 30
+        "HD" in q || "720" in q -> 20
+        else -> 10
     }
 }
