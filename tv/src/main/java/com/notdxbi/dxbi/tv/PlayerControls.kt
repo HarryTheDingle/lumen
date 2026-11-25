@@ -54,12 +54,20 @@ class PlayerControls(
     private val seek: (Int) -> Unit,
     private val leave: (Boolean) -> Unit,
 ) : Controls {
+    init {
+        // (Lumen on a TV: Live TV's glass buttons, opening out to their names, in place of the square ones)
+        if (GlassPill.wanted(activity)) GlassPill.swapAll(
+            activity.findViewById(R.id.controls),
+            listOf(R.id.ctl_back, R.id.ctl_play, R.id.ctl_rewind, R.id.ctl_forward, R.id.ctl_next, R.id.ctl_streams, R.id.ctl_stats, R.id.ctl_picture, R.id.ctl_speed, R.id.ctl_more, R.id.ctl_subtitles, R.id.ctl_audio),
+        )
+    }
+
     private val root: View = activity.findViewById(R.id.controls)
     private val panel: View = activity.findViewById(R.id.panel)
     private val panelTitle: TextView = activity.findViewById(R.id.panel_title)
     private val panelRows: LinearLayout = activity.findViewById(R.id.panel_rows)
     private val line: SeekLine = activity.findViewById(R.id.seek_line)
-    private val play: ImageButton = activity.findViewById(R.id.ctl_play)
+    private val play: View = activity.findViewById(R.id.ctl_play)
     private val timeNow: TextView = activity.findViewById(R.id.time_now)
     private val timeLeft: TextView = activity.findViewById(R.id.time_left)
     private val handler = Handler(Looper.getMainLooper())
@@ -106,6 +114,7 @@ class PlayerControls(
                 tucked.forEach { v -> v.visibility = if (open) View.VISIBLE else View.GONE }
                 // (the name and episode in the middle step aside while they're out: the three buttons ran over them)
                 activity.findViewById<View>(R.id.controls_title).animate().alpha(if (open) 0f else 1f).setDuration(200L).start()
+                chainFocus()
                 // (open: on to the first of them, to the left)
                 if (open) tucked.first().requestFocus()
             }
@@ -135,6 +144,7 @@ class PlayerControls(
         val shown = buttons.count { it.visibility != View.GONE }
         val size = dp(minOf(52, (widthDp - 16) / shown - 2))
         for (button in buttons) {
+            if (button is GlassPill) continue
             button.layoutParams = (button.layoutParams as ViewGroup.MarginLayoutParams).apply { width = size; height = size; marginEnd = dp(if (upright) 2 else 4) }
             button.setPadding(size / 4, size / 4, size / 4, size / 4)
         }
@@ -152,11 +162,28 @@ class PlayerControls(
     private fun click(id: Int, action: (View) -> Unit) {
         activity.findViewById<View>(id).apply {
             setOnClickListener { action(it) }
-            setOnFocusChangeListener { view, has -> if (has) lastFocus = view }
+            if (this is GlassPill) onFocus = { has -> if (has) lastFocus = this }
+            else setOnFocusChangeListener { view, has -> if (has) lastFocus = view }
+        }
+    }
+
+    /**
+     * The buttons along the bottom in order, each told its neighbours: Right from the last of the left-hand ones goes
+     * across to the first on the right (the remote went up onto the seek bar, and started scrubbing), and the ends stay put
+     */
+    private fun chainFocus() {
+        val order = listOf(R.id.ctl_play, R.id.ctl_rewind, R.id.ctl_forward, R.id.ctl_next, R.id.ctl_streams, R.id.ctl_stats, R.id.ctl_picture, R.id.ctl_speed, R.id.ctl_more, R.id.ctl_subtitles, R.id.ctl_audio)
+            .map { activity.findViewById<View>(it) }.filter { it.visibility == View.VISIBLE }
+        order.forEachIndexed { i, v ->
+            v.nextFocusLeftId = (order.getOrNull(i - 1) ?: v).id
+            v.nextFocusRightId = (order.getOrNull(i + 1) ?: v).id
+            v.nextFocusUpId = R.id.seek_line
+            v.nextFocusDownId = v.id
         }
     }
 
     override fun show() {
+        chainFocus()
         if (!visible) {
             root.visibility = View.VISIBLE
             if (clock != null) clock.visibility = View.VISIBLE
@@ -187,7 +214,11 @@ class PlayerControls(
     override fun release() = handler.removeCallbacksAndMessages(null)
 
     fun paint() {
-        play.setImageResource(if (exo.playWhenReady) R.drawable.ic_pause else R.drawable.ic_play)
+        val icon = if (exo.playWhenReady) R.drawable.ic_pause else R.drawable.ic_play
+        when (val p = play) {
+            is GlassPill -> { p.setIcon(icon); p.setLabel(if (exo.playWhenReady) "Pause" else "Play") }
+            is ImageButton -> p.setImageResource(icon)
+        }
         val duration = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
         timeNow.text = time(exo.currentPosition)
         timeLeft.text = if (duration > 0) "-" + time(duration - exo.currentPosition) else "--:--"
@@ -212,7 +243,13 @@ class PlayerControls(
         when (code) {
             KeyEvent.KEYCODE_DPAD_UP -> rows.getOrNull(at - 1)?.requestFocus()
             KeyEvent.KEYCODE_DPAD_DOWN -> rows.getOrNull(at + 1)?.requestFocus()
-            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {}
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                if (rows.getOrNull(at)?.tag == LIP_SYNC) {
+                    LipSync.shift(activity, if (code == KeyEvent.KEYCODE_DPAD_LEFT) -LipSync.STEP_MS else +LipSync.STEP_MS)
+                    lipSyncText?.invoke()
+                    poke()
+                }
+            }
             else -> return false
         }
         return true
@@ -362,14 +399,34 @@ class PlayerControls(
         heading("Sound")
         for (mode in SoundMode.MODES) row(mode.label, sound.mode === mode) { sound.mode = mode }
         // (for a TV or sound system whose sound runs behind or ahead of the picture: kept for this TV, both players)
-        heading("Lip sync")
-        val shown = { ms: Long -> panelTitle.text = if (ms == 0L) "Picture & sound" else "Lip sync · " + LipSync.label(ms) }
-        shown(LipSync.ms)
-        row("Sound sooner", false, keepOpen = true) { shown(LipSync.shift(activity, -LipSync.STEP_MS)) }
-        row("Sound later", false, keepOpen = true) { shown(LipSync.shift(activity, +LipSync.STEP_MS)) }
-        row("In time", false, keepOpen = true) { shown(LipSync.set(activity, 0L)) }
+        lipSyncRow()
         focusFirst()
     }
+
+    /**
+     * Lip sync as Live TV has it: one row, Left brings the sound sooner, Right makes it later, OK puts it back in time; it
+     * says where it is, and the arrows show while the remote is on it
+     */
+    private fun lipSyncRow() {
+        lateinit var line: TextView
+        fun text(focused: Boolean) {
+            val label = LipSync.label(LipSync.ms)
+            line.text = android.text.SpannableStringBuilder("Lip sync\n").apply {
+                val from = length
+                append(if (focused) "◀ sooner   $label   later ▶" else label)
+                setSpan(android.text.style.RelativeSizeSpan(0.8f), from, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }
+        line = row("Lip sync", false, keepOpen = true) { LipSync.set(activity, 0L); text(true) }
+        line.tag = LIP_SYNC
+        val colour = line.onFocusChangeListener
+        line.setOnFocusChangeListener { v, has -> colour?.onFocusChange(v, has); text(has) }
+        text(false)
+        lipSyncText = { text(line.isFocused) }
+    }
+
+    /** Repaints the lip sync row after Left or Right */
+    private var lipSyncText: (() -> Unit)? = null
 
     private fun englishOrUnsaid(code: String?): Boolean {
         if (code.isNullOrEmpty()) return true
@@ -473,5 +530,6 @@ class PlayerControls(
 
     private companion object {
         const val HIDE_AFTER_MS = 6000L
+        private const val LIP_SYNC = "lipsync"
     }
 }

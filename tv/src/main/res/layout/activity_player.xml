@@ -96,12 +96,12 @@
                 <ImageButton
                     android:id="@+id/ctl_rewind"
                     style="@style/PlayerButton"
-                    android:contentDescription="Back 10 seconds"
+                    android:contentDescription="Back 10s"
                     android:src="@drawable/ic_rewind" />
                 <ImageButton
                     android:id="@+id/ctl_forward"
                     style="@style/PlayerButton"
-                    android:contentDescription="Forward 10 seconds"
+                    android:contentDescription="Forward 10s"
                     android:src="@drawable/ic_forward" />
                 <ImageButton
                     android:id="@+id/ctl_next"
@@ -155,7 +155,7 @@
                 <ImageButton
                     android:id="@+id/ctl_stats"
                     style="@style/PlayerButton"
-                    android:contentDescription="Stream stats"
+                    android:contentDescription="Stats"
                     android:src="@drawable/ic_stats" />
                 <ImageButton
                     android:id="@+id/ctl_picture"
@@ -165,7 +165,7 @@
                 <ImageButton
                     android:id="@+id/ctl_speed"
                     style="@style/PlayerButton"
-                    android:contentDescription="Playback speed"
+                    android:contentDescription="Speed"
                     android:src="@drawable/ic_speed" />
                 <!-- Lumen: Stats and Picture open out from here (dx.bi TV shows them all, and no More) -->
                 <ImageButton
