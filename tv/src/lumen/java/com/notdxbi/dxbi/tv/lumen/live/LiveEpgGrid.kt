@@ -954,6 +954,13 @@ fun LiveEpgGrid(
                     },
                 )
             }
+            // (one added from Find a channel comes out of the guide again here)
+            if (linked != null && linked.id in guidePrefs.guideChannels) {
+                add(Action("Take out of the guide", Icons.Filled.LiveTv) {
+                    store.toggleGuideChannel(linked.id)
+                    refocusChannelId = linked.id
+                })
+            }
             if (row.hasCatchup && linked != null) {
                 add(Action("Browse catch-up archive", Icons.Filled.LiveTv) {
                     onOpenCatchup(linked)
