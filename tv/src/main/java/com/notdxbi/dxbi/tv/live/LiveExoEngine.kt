@@ -229,6 +229,9 @@ class LiveExoEngine(
         var stuckSinceMs = 0L
         var lastObservedPos = -1L
         var lastRenderedFrames = -1
+        // (when it's buffered again after playing: short stalls over and over never reach the 6 s that counts as stalled, so
+        // a few of them close together count instead)
+        val rebuffers = ArrayDeque<Long>()
 
         fun fireReadyOnce() {
             if (tuneGen != generation || terminalFired || readyFired) return
@@ -288,7 +291,16 @@ class LiveExoEngine(
                 when (playbackState) {
                     Player.STATE_BUFFERING -> {
                         _isBuffering.value = true
-                        if (bufferingSinceMs == 0L) bufferingSinceMs = SystemClock.elapsedRealtime()
+                        val now = SystemClock.elapsedRealtime()
+                        if (bufferingSinceMs == 0L) bufferingSinceMs = now
+                        if (readyFired && !resolved.isCatchup && exo.playWhenReady) {
+                            rebuffers.addLast(now)
+                            while (rebuffers.isNotEmpty() && now - rebuffers.first() > REBUFFER_WINDOW_MS) rebuffers.removeFirst()
+                            if (rebuffers.size >= REBUFFER_LIMIT) {
+                                android.util.Log.i("lumos-live", "stream keeps buffering: ${rebuffers.size} stalls in ${REBUFFER_WINDOW_MS / 1000} s")
+                                fireFailureOnce(KEEPS_BUFFERING)
+                            }
+                        }
                     }
                     Player.STATE_READY -> {
                         _isBuffering.value = false
@@ -745,6 +757,10 @@ class LiveExoEngine(
         /** The provider refused the login itself */
         const val REFUSED_LOGIN = "The provider refused this login. Check it in Settings → Live TV."
         private const val STALL_TIMEOUT_MS = 6_000L
+        /** Stalls this close together, after the stream's started, count as a stream that can't keep up */
+        private const val REBUFFER_LIMIT = 3
+        private const val REBUFFER_WINDOW_MS = 90_000L
+        const val KEEPS_BUFFERING = "Stream keeps buffering"
         private const val INITIAL_TUNE_TIMEOUT_MS = 15_000L
     }
 }

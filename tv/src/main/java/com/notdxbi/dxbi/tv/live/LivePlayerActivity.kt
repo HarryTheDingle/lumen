@@ -591,17 +591,16 @@ class LivePlayerActivity : AppCompatActivity() {
                         return true
                     }
                     KeyEvent.KEYCODE_DPAD_DOWN -> {
-                        // (the buttons first, as on a film's page; Down again brings up the channels)
-                        LivePlayerExtras.expanded.value = false
-                        showOsd(autoHide = true)
+                        // (the next channel, as Up is the one before: a TV remote's channel keys. The controls are OK's)
+                        zapRelative(+1, showBannerOnly = true)
                         return true
                     }
                     KeyEvent.KEYCODE_DPAD_CENTER,
                     KeyEvent.KEYCODE_ENTER,
                     KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                        // one press pauses, as in Lumen's player and on Apple TV (it used to only bring up the controls)
+                        // OK brings up the controls (Play/Pause is the first of them, so a second OK pauses); Down from
+                        // them brings up the channels
                         hideZapBanner()
-                        exoEngine.togglePause()
                         LivePlayerExtras.expanded.value = false
                         showOsd(autoHide = true)
                         return true
@@ -916,6 +915,23 @@ class LivePlayerActivity : AppCompatActivity() {
                     isCatchup = resolved.isCatchup,
                 )
                 if (!resolved.isCatchup) lookForLumenCopy(liveStore, channel) else LumenHandoff.offer.value = null
+                // (moved here because the last feed kept buffering: if this one plays steadily for a while, it's the one this
+                // channel opens on from now on, as choosing it in Options → Feeds does)
+                steadyJob?.cancel()
+                if (stallLeftOn == channel.id && !resolved.isCatchup) {
+                    steadyJob = lifecycleScope.launch {
+                        delay(STEADY_KEEP_MS)
+                        if (currentChannelFlow.value.id == channel.id && activeStreamIdFlow.value == stream.id &&
+                            playbackStateFlow.value is LivePlaybackState.Playing
+                        ) {
+                            android.util.Log.i("lumos-live", "keeping feed ${stream.id} for ${channel.name}: steady after the last kept buffering")
+                            liveStore.pinPreferredStream(channel.id, stream.id)
+                            stallLeftOn = null
+                        }
+                    }
+                } else {
+                    stallLeftOn = null
+                }
                 return
             }
 
@@ -944,10 +960,16 @@ class LivePlayerActivity : AppCompatActivity() {
         }
     }
 
+    /** The channel whose stream was left for stalling: the feed that then plays steadily is kept for it */
+    private var stallLeftOn: String? = null
+    private var steadyJob: Job? = null
+
     private fun handleMidStreamFailover(reason: String) {
         val liveStore = store ?: return
         val channel = currentChannelFlow.value
         val failedStream = activeCandidates.getOrNull(activeStreamIndex)
+        steadyJob?.cancel()
+        stallLeftOn = if (reason.contains("buffering", ignoreCase = true) && catchupProgrammeFlow.value == null) channel.id else null
         android.util.Log.i("lumos-live", "failover on ${channel.name}: $reason (feed ${activeStreamIndex + 1} of ${activeCandidates.size})")
         if (failedStream != null) {
             liveStore.recordStreamFailure(failedStream.id)
@@ -1688,5 +1710,7 @@ class LivePlayerActivity : AppCompatActivity() {
         private const val PRESENCE_HEARTBEAT_MS = 45_000L
         private const val SCRUB_GIVE_UP_MS = 60_000L
         private const val FAILOVER_BANNER_DELAY_MS = 350L
+        /** How long a feed that took over from a buffering one must play steadily before it is kept for the channel */
+        private const val STEADY_KEEP_MS = 120_000L
     }
 }

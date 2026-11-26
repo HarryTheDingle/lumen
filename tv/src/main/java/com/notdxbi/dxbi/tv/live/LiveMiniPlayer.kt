@@ -117,9 +117,31 @@ object LiveMiniPlayer {
         // (a live stream stalls now and then, a dropped connection or a provider cutting it off after a while: the corner
         // player tunes the same feed again, a few times in a row, before it gives up; it used to stop at the first stall)
         var retries = 0
+        // (feeds already tried here: a feed that keeps buffering, or stalls a second time, is left for the channel's next
+        // one, as the full-screen player does, rather than tuned again)
+        val tried = HashSet<String>().apply { newSession.activeStream?.id?.let(::add) }
         newSession.engine.onStallFailover = { reason ->
             scope.launch(Dispatchers.Main) {
                 if (_session.value?.engine !== newSession.engine) return@launch
+                val current = _session.value ?: return@launch
+                val moveOn = current.catchupProgramme == null && effectiveStore != null &&
+                    (reason == LiveExoEngine.KEEPS_BUFFERING || retries >= 1)
+                val next = if (moveOn) effectiveStore!!.rankedStreamsFor(current.channel).firstOrNull { it.id !in tried } else null
+                if (next != null && retries < MAX_RETRIES) {
+                    retries++
+                    tried += next.id
+                    current.activeStream?.id?.let { effectiveStore!!.recordStreamFailure(it) }
+                    android.util.Log.i("lumos-live", "corner player stalled ($reason): next feed ${next.id} ($retries of $MAX_RETRIES)")
+                    val resolved = runCatching { kotlinx.coroutines.withContext(Dispatchers.IO) { effectiveStore!!.resolveLive(current.channel, next) } }.getOrNull()
+                    if (resolved == null || _session.value?.engine !== newSession.engine) { stop(effectiveStore); return@launch }
+                    _session.value = current.copy(activeStream = next)
+                    newSession.engine.tune(
+                        resolved,
+                        onReady = { retries = 0 },
+                        onFail = { scope.launch(Dispatchers.Main) { if (_session.value?.engine === newSession.engine) stop(effectiveStore) } },
+                    )
+                    return@launch
+                }
                 val again = newSession.engine.lastTuned
                 if (again != null && retries < MAX_RETRIES) {
                     retries++
