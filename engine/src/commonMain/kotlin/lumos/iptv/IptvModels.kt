@@ -378,6 +378,8 @@ data class IptvProfilePrefs(
     val showNonUk: Boolean = false,
     val favouriteTeams: List<SavedSportsTeam> = emptyList(),
     val hideSportsScores: Boolean = false,
+    /** Provider channels added to the guide itself (a row of their own in their category), from Find a channel */
+    val guideChannels: List<String> = emptyList(),
 )
 
 /** Concrete playable URL and HTTP headers ready for the media player. */

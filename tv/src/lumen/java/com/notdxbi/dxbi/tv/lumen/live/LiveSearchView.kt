@@ -154,14 +154,35 @@ fun LiveSearchView(
     val inGuide = remember(prefs.favourites) { prefs.favourites.toHashSet() }
     var shownFavs by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(favourites) { shownFavs = (shownFavs + favourites.map { it.id }).distinct() }
-    fun holdChannel(ch: CanonicalChannel) {
-        val adding = ch.id !in inGuide
-        store.toggleFavourite(ch.id)
-        Toast.makeText(context, if (adding) "${ch.name} added to Favourites in your guide" else "${ch.name} taken out of your guide's Favourites", Toast.LENGTH_SHORT).show()
+    // Hold OK on a channel: add it to the guide itself (a row in its category), or to Favourites at the top
+    var holding by remember { mutableStateOf<CanonicalChannel?>(null) }
+    fun holdChannel(ch: CanonicalChannel) { holding = ch }
+    holding?.let { ch ->
+        val cat = com.notdxbi.dxbi.tv.live.guideCategoryFor(ch)
+        val linkedInGuide = mainGuideRows.any { it.linkedChannel?.id == ch.id }
+        val added = ch.id in prefs.guideChannels
+        val fav = ch.id in inGuide
+        com.notdxbi.dxbi.tv.lumen.ActionMenu(
+            heading = ch.name,
+            actions = buildList {
+                if (!linkedInGuide) add(com.notdxbi.dxbi.tv.lumen.Action(if (added) "Take out of the guide" else "Add to the guide · $cat", Icons.Filled.LiveTv) {
+                    store.toggleGuideChannel(ch.id)
+                    Toast.makeText(context, if (added) "${ch.name} taken out of your guide" else "${ch.name} added to your guide under $cat", Toast.LENGTH_SHORT).show()
+                })
+                add(com.notdxbi.dxbi.tv.lumen.Action(if (fav) "Remove from Favourites" else "Add to Favourites", if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder) {
+                    store.toggleFavourite(ch.id)
+                    Toast.makeText(context, if (!fav) "${ch.name} added to Favourites in your guide" else "${ch.name} taken out of your guide's Favourites", Toast.LENGTH_SHORT).show()
+                })
+            },
+            onDismiss = { holding = null },
+        )
     }
-    // Every channel your IPTV provider has, in its own groups (its group titles), to look through a group at a time
-    val providerGroups = remember(channels, scope) {
+    // Every channel your IPTV provider has, in its own groups (its group titles), to look through a group at a time; a
+    // filter along the top narrows them (UK, Motor, News…) by the groups' and channels' names
+    var everyFilter by remember { mutableStateOf(EveryFilter.ALL) }
+    val providerGroups = remember(channels, scope, everyFilter) {
         channels.filter { it.streams.isNotEmpty() && it.inScope(scope) }
+            .filter { ch -> everyFilter.matches(ch.streams.first().groupTitle + " " + ch.name) }
             .groupBy { ch -> ch.streams.first().groupTitle.trim().ifBlank { ch.category.label } }
             .entries.map { it.key to it.value }
     }
@@ -245,9 +266,23 @@ fun LiveSearchView(
                             item(key = "h:fav") { TileHeading("Favourite channels") }
                             tileRows("fav", favs, nowNextMap, nowMs, perRow, inGuide, ::holdChannel) { store.playLive(context, it) }
                         }
-                        item(key = "h:hold") { Text("Hold OK on a channel to add it to Favourites in your guide.", fontSize = 13.sp, color = Dx.Muted) }
-                        if (providerGroups.isNotEmpty()) {
+                        item(key = "h:hold") { Text("Hold OK on a channel to add it to your guide or to Favourites.", fontSize = 13.sp, color = Dx.Muted) }
+                        if (channels.isNotEmpty() && scope != SearchScope.CATCHUP) {
                             item(key = "h:every") { TileHeading("Every channel on your IPTV (${providerGroups.sumOf { it.second.size }})") }
+                            item(key = "every-filters") {
+                                androidx.compose.foundation.lazy.LazyRow(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    contentPadding = PaddingValues(vertical = 6.dp),
+                                ) {
+                                    items(EveryFilter.entries.size, key = { "f:" + EveryFilter.entries[it].name }) { i ->
+                                        val f = EveryFilter.entries[i]
+                                        LiveChip(label = f.label, selected = everyFilter == f, onClick = { everyFilter = f; openGroup = null })
+                                    }
+                                }
+                            }
+                        }
+                        if (providerGroups.isNotEmpty()) {
                             item(key = "groups") {
                                 androidx.compose.foundation.lazy.LazyRow(
                                     Modifier.fillMaxWidth(),
@@ -450,4 +485,21 @@ private fun teamNick(name: String?): String? {
         "arsenal" in n -> "gunners"
         else -> null
     }
+}
+
+/** The filters over every channel on the IPTV: words looked for in each channel's group and name */
+private enum class EveryFilter(val label: String, private val words: Regex?) {
+    ALL("All", null),
+    UK("UK", Regex("(^|[^a-z])uk([^a-z]|$)|united kingdom|british", RegexOption.IGNORE_CASE)),
+    SPORTS("Sports", Regex("sport", RegexOption.IGNORE_CASE)),
+    MOTOR("Motor", Regex("motor|\\bf1\\b|formula|racing|nascar|indy|motogp|speedway|rally|superbike", RegexOption.IGNORE_CASE)),
+    FOOTBALL("Football", Regex("football|soccer|premier league|\\befl\\b|laliga|la liga|bundesliga|serie a|ligue 1|champions league|mutv|lfc", RegexOption.IGNORE_CASE)),
+    NEWS("News", Regex("news", RegexOption.IGNORE_CASE)),
+    MOVIES("Movies", Regex("movie|cinema|film", RegexOption.IGNORE_CASE)),
+    KIDS("Kids", Regex("kid|child|cartoon|nick|disney|cbeebies|cbbc|boomerang", RegexOption.IGNORE_CASE)),
+    DOCS("Documentaries", Regex("documentar|discovery|nat geo|national geographic|history|science|animal planet", RegexOption.IGNORE_CASE)),
+    MUSIC("Music", Regex("music|mtv|vevo|radio", RegexOption.IGNORE_CASE)),
+    UHD("4K", Regex("4k|uhd|2160", RegexOption.IGNORE_CASE));
+
+    fun matches(text: String): Boolean = words?.containsMatchIn(text) ?: true
 }

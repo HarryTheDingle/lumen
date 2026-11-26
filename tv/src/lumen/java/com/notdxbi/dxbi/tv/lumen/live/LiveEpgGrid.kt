@@ -264,12 +264,34 @@ fun LiveEpgGrid(
     val miniSession by LiveMiniPlayer.session.collectAsState()
     val recents by store.recents.collectAsState()
     val watchingId = miniSession?.channel?.id
-    val allRows = remember(rows, activeFilter) {
-        if (activeFilter == EpgRowFilter.ALL) rows else rows.filter { matchesFilter(it, activeFilter) }
-    }
     // (channels added from Find a channel that the UK listings don't have get a row of their own in Favourites: their
     // provider's own guide, if it has one, fills it)
     val providerChannels by store.channels.collectAsState()
+    // Channels added to the guide itself from Find a channel: a row each at the end of their category (News with the
+    // news channels), so the guide's filters find them too
+    val guidePrefs by store.prefs.collectAsState()
+    val withAdded = remember(rows, guidePrefs.guideChannels, providerChannels, isSportsMode) {
+        if (isSportsMode || guidePrefs.guideChannels.isEmpty()) return@remember rows
+        val linked = rows.mapNotNullTo(HashSet()) { it.linkedChannel?.id }
+        val byId = providerChannels.associateBy { it.id }
+        val out = rows.toMutableList()
+        for (id in guidePrefs.guideChannels) {
+            if (id in linked) continue
+            val ch = byId[id] ?: continue
+            val cat = com.notdxbi.dxbi.tv.live.guideCategoryFor(ch)
+            val row = GuideChannelRow(
+                guideChannel = lumos.iptv.GuideChannel(id = "iptv:${ch.id}", name = ch.name, category = cat, logoUrl = ch.logoUrl, mainGuide = false),
+                linkedChannel = ch,
+                bestStream = ch.streams.firstOrNull(),
+            )
+            val at = out.indexOfLast { it.guideChannel.category.equals(cat, true) }
+            if (at >= 0) out.add(at + 1, row) else out.add(row)
+        }
+        out
+    }
+    val allRows = remember(withAdded, activeFilter) {
+        if (activeFilter == EpgRowFilter.ALL) withAdded else withAdded.filter { matchesFilter(it, activeFilter) }
+    }
     val sections = remember(allRows, activeFilter, favourites, recents, watchingId, isSportsMode, providerChannels) {
         val byChannel = HashMap(allRows.filter { it.linkedChannel != null }.associateBy { it.linkedChannel!!.id })
         if (favourites.any { it !in byChannel }) {

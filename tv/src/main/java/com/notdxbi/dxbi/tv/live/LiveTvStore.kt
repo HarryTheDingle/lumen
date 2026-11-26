@@ -391,6 +391,13 @@ class LiveTvStore(
         }
     }
 
+    /** Adds a provider channel to the guide (a row of its own, in its category), or takes it out again */
+    fun toggleGuideChannel(channelId: String) {
+        updatePrefs { current ->
+            current.copy(guideChannels = if (channelId in current.guideChannels) current.guideChannels - channelId else current.guideChannels + channelId)
+        }
+    }
+
     fun pinPreferredStream(channelId: String, streamId: String?) {
         updatePrefs(renormalize = true) { current ->
             val nextPins = current.preferredStreamByChannel.toMutableMap()
@@ -1816,4 +1823,15 @@ class LiveTvStore(
         private const val MAX_ENRICHMENTS = 250
         private const val MAX_RECENTS = 20
     }
+}
+
+/** The guide's category for a provider channel (the UK guide's own words: Entertainment, Sports, Movies, News, Kids) */
+fun guideCategoryFor(channel: CanonicalChannel): String = when (channel.category) {
+    lumos.iptv.ChannelCategory.SPORTS, lumos.iptv.ChannelCategory.EVENTS -> "Sports"
+    lumos.iptv.ChannelCategory.MOVIES -> "Movies"
+    lumos.iptv.ChannelCategory.NEWS -> "News"
+    lumos.iptv.ChannelCategory.KIDS -> "Kids"
+    lumos.iptv.ChannelCategory.DOCUMENTARY -> "Documentaries"
+    lumos.iptv.ChannelCategory.MUSIC -> "Music"
+    else -> "Entertainment"
 }
