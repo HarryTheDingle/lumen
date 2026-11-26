@@ -1069,6 +1069,42 @@ class LiveTvStore(
         }.filter { it.league.equals(leagueCode, true) && it.status == lumos.iptv.FixtureStatus.UPCOMING }.distinctBy { it.id }.sortedBy { it.startMs }
     }
 
+    /**
+     * A series' next race from TheSportsDB (its free key), for when ESPN has none: between seasons ESPN only knows the
+     * season just gone, while TheSportsDB has next year's calendar as soon as it's out. Practice, qualifying and tests are
+     * skipped. A race listed by date alone (its time not yet set) comes as midnight UK time with statusDetail "time TBC".
+     */
+    suspend fun nextSeasonRace(sportsDbLeague: String, leagueCode: String): SportsFixture? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val json = keptJson("next:$sportsDbLeague", 6 * 3_600_000L) {
+            runCatching {
+                val c = java.net.URL("https://www.thesportsdb.com/api/v1/json/123/eventsnextleague.php?id=$sportsDbLeague").openConnection() as java.net.HttpURLConnection
+                c.connectTimeout = 8_000; c.readTimeout = 8_000
+                c.inputStream.bufferedReader().use { org.json.JSONObject(it.readText()) }.also { c.disconnect() }
+            }.getOrNull()
+        } ?: return@withContext null
+        val events = json.optJSONArray("events") ?: return@withContext null
+        val skip = Regex("practice|qualif|testing|test day|duel", RegexOption.IGNORE_CASE)
+        val now = System.currentTimeMillis()
+        (0 until events.length()).asSequence().mapNotNull { events.optJSONObject(it) }.mapNotNull { e ->
+            val name = e.optString("strEvent").takeIf { it.isNotBlank() && !skip.containsMatchIn(it) } ?: return@mapNotNull null
+            val date = e.optString("dateEvent").takeIf { it.length == 10 } ?: return@mapNotNull null
+            val time = e.optString("strTime").takeIf { it.isNotBlank() && it != "null" && !it.startsWith("00:00") }
+            val ms = if (time != null) {
+                java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.UK).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+                    .parse("$date ${time.take(8).padEnd(8, '0').let { t -> if (t.length == 5) "$t:00" else t }}")?.time
+            } else {
+                java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.UK).apply { timeZone = java.util.TimeZone.getTimeZone("Europe/London") }.parse(date)?.time
+            } ?: return@mapNotNull null
+            if (ms < now) return@mapNotNull null
+            SportsFixture(
+                id = "tsdb:${e.optString("idEvent")}", sport = "racing", league = leagueCode,
+                leagueName = e.optString("strLeague"), name = name, startMs = ms, status = lumos.iptv.FixtureStatus.UPCOMING,
+                statusDetail = if (time == null) "time TBC" else null,
+                venue = listOf(e.optString("strVenue"), e.optString("strCity")).firstOrNull { it.isNotBlank() && it != "null" },
+            )
+        }.minByOrNull { it.startMs }
+    }
+
     /** (logs what the replay addon offers: its catalogs and ids) */
     suspend fun probeAddon(nameLike: String): String = engine.probeAddon(nameLike)
 

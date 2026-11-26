@@ -582,13 +582,18 @@ internal fun TrackMap(w: F1Weekend, modifier: Modifier = Modifier) {
 }
 
 /** The last weekend's sessions in the replay addon, as wide cards with the race's picture, to play */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 internal fun LazyListScope.replayCards(round: LiveTvStore.MotorRound?, art: String?, seen: MutableSet<String>, onPick: (LiveTvStore.MotorRound, LiveTvStore.MotorSession) -> Unit) {
     round ?: return
     if (round.sessions.isEmpty()) return
-    item(key = "h:replays") { SectionName("Replays · ${round.place}", Modifier.loadIn(seen, "h:replays")) }
-    item(key = "replays") {
+    val k = "replays:${round.round}"
+    item(key = "h:$k") { SectionName("Replays · Round ${round.round}" + (round.place.takeUnless { it.isBlank() || it.equals("Unknown", true) }?.let { " · $it" } ?: ""), Modifier.loadIn(seen, "h:$k")) }
+    item(key = k) {
+        // (the row's own scrolling: the page turns Compose's off for its rows, so the cards stood still while the remote went
+        // along them off the edge)
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides com.notdxbi.dxbi.tv.lumen.rememberRowScrolling(gutter = Dx.Gutter)) {
         LazyRow(
-            modifier = Modifier.fillMaxWidth().loadIn(seen, "replays").centredWhenFocused(),
+            modifier = Modifier.fillMaxWidth().loadIn(seen, k).centredWhenFocused(),
             contentPadding = PaddingValues(horizontal = Dx.Gutter, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -614,6 +619,7 @@ internal fun LazyListScope.replayCards(round: LiveTvStore.MotorRound?, art: Stri
                     }
                 }
             }
+        }
         }
     }
 }

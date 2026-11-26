@@ -86,8 +86,8 @@ import java.util.Locale
 internal class MotorData(val coming: List<SportsFixture>, val rounds: List<LiveTvStore.MotorRound>, val standings: org.json.JSONObject?, val at: Long)
 private object MotorCache { val map = HashMap<Series, MotorData>() }
 
-private enum class Series(val label: String, val code: String, val sport: String) {
-    F1("Formula 1", "f1", "f1"), INDY("IndyCar", "irl", "indycar"), NASCAR("NASCAR", "nascar-premier", "nascar")
+private enum class Series(val label: String, val code: String, val sport: String, /** TheSportsDB's league */ val sportsDb: String) {
+    F1("Formula 1", "f1", "f1", "4370"), INDY("IndyCar", "irl", "indycar", "4373"), NASCAR("NASCAR", "nascar-premier", "nascar", "4393")
 }
 
 private fun SportsFixture.isRacing() =
@@ -239,7 +239,11 @@ fun SportsHomeView(
     suspend fun motorData(sr: Series): MotorData {
         MotorCache.map[sr]?.takeIf { System.currentTimeMillis() - it.at < 300_000L }?.let { return it }
         return kotlinx.coroutines.coroutineScope {
-            val a = async { runCatching { store.upcomingRaces(sr.sport, sr.code) }.getOrDefault(emptyList()) }
+            val a = async {
+                val soon = runCatching { store.upcomingRaces(sr.sport, sr.code) }.getOrDefault(emptyList())
+                // (between seasons ESPN has nothing to come: next season's first race, so the page still counts down to it)
+                soon.ifEmpty { listOfNotNull(if (sr == Series.F1) null else runCatching { store.nextSeasonRace(sr.sportsDb, sr.code) }.getOrNull()) }
+            }
             val b = async { if (sr == Series.F1) runCatching { store.motorReplays() }.getOrDefault(emptyList()) else emptyList() }
             val c = async { runCatching { store.f1Standings(sr.code) }.getOrNull() }
             MotorData(a.await(), b.await(), c.await(), System.currentTimeMillis()).also { MotorCache.map[sr] = it }
@@ -424,13 +428,23 @@ fun SportsHomeView(
             line = when (f.status) {
                 FixtureStatus.LIVE -> listOfNotNull("Live", f.clock, score, f.ukChannelName, if (hasStream(f)) null else "not on your IPTV").joinToString("  ·  ")
                 FixtureStatus.FINAL -> listOfNotNull(if (racing) "Finished" else "Full time", score).joinToString("  ·  ")
-                else -> listOfNotNull(SimpleDateFormat("EEE d MMM", Locale.UK).format(Date(f.startMs)), timeLabel(f.startMs), f.ukChannelName).joinToString("  ·  ")
+                else -> listOfNotNull(
+                    SimpleDateFormat(if (f.startMs - System.currentTimeMillis() > 120L * 86_400_000L) "EEE d MMM yyyy" else "EEE d MMM", Locale.UK).format(Date(f.startMs)),
+                    if (f.statusDetail == "time TBC") "time to be confirmed" else timeLabel(f.startMs),
+                    f.ukChannelName,
+                ).joinToString("  ·  ")
             },
             home = f.home, away = f.away, live = live,
             countdownTo = if (f.status == FixtureStatus.UPCOMING) f.startMs else null,
-            countdownLabel = if (f.isRacing()) "Starts in" else "Kick-off in",
+            countdownLabel = when {
+                f.id.startsWith("tsdb:") -> "The new season starts in"
+                f.isRacing() -> "Starts in"
+                else -> "Kick-off in"
+            },
             primary = when {
                 live && hasStream(f) -> "Watch live"
+                // (no reminder while only the day is known: it'd go off the midnight before)
+                f.status == FixtureStatus.UPCOMING && f.statusDetail == "time TBC" -> null
                 f.status == FixtureStatus.UPCOMING -> if (reminded) "Reminder set" else "Remind me"
                 racing -> null
                 else -> "Match details"
@@ -718,9 +732,11 @@ fun SportsHomeView(
             tvLiveSection(racingTv, nowMs, emptyList(), hideSportsScores, seen, { _, _ -> }) { row, _ -> store.playGuideRow(context, row, zapChannelIds = racingTv.mapNotNull { it.first.linkedChannel?.id }) }
             if (series == Series.F1) {
                 // (the replays' cards wear that race's own picture from the TV guide when it's on there, else a Formula 1 photo)
-                val round = rounds.firstOrNull()
-                val roundArt = round?.let { r -> tvRanked.firstOrNull { (_, p) -> placeMatches(r.place, p.title) && !p.iconUrl.isNullOrBlank() }?.second?.iconUrl }
-                replayCards(round, roundArt ?: leagueArt("f1", 1), seen) { r, sess -> playMotor(r, sess) }
+                // (every weekend the addon still has, newest first, a row each: it keeps only the last few rounds)
+                rounds.forEach { round ->
+                    val roundArt = tvRanked.firstOrNull { (_, p) -> placeMatches(round.place, p.title) && !p.iconUrl.isNullOrBlank() }?.second?.iconUrl
+                    replayCards(round, roundArt ?: leagueArt("f1", round.round), seen) { r, sess -> playMotor(r, sess) }
+                }
             }
             fixtureSection("Live now", f1.filter { it.status == FixtureStatus.LIVE }, nowMs, hideSportsScores, remindedIds, seen) { store.playFixture(context, it) }
             fixtureSection("Races to come", f1.filter { it.status == FixtureStatus.UPCOMING }.drop(if (nextRace?.status == FixtureStatus.UPCOMING) 1 else 0).take(8), nowMs, hideSportsScores, remindedIds, seen) { toggleReminder(it) }
