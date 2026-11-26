@@ -340,6 +340,22 @@ fun SportsHomeView(
     // a new sport starts at the top of its page
     LaunchedEffect(tile) { lists.scrollToItem(0) }
 
+    // Back from inside a sport's page: first up to its pill along the top (the page glides back to its top); only a Back
+    // from the pills goes on to Lumen's menu
+    var tilesFocused by remember { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler(enabled = !tilesFocused && openMatch == null && !addingTeam && !nav.menuOpen) {
+        pageScroller.toTop()
+        scope.launch {
+            val idx = tiles.indexOf(tile)
+            if (idx >= 0 && tileRow.layoutInfo.visibleItemsInfo.none { it.index == idx }) tileRow.scrollToItem(idx)
+            // (the pills come back into the page as it glides up: try each frame until the chosen one's there)
+            repeat(90) {
+                if (runCatching { chosenTile.requestFocus() }.isSuccess && tilesFocused) return@launch
+                androidx.compose.runtime.withFrameNanos { }
+            }
+        }
+    }
+
     // ---- The extras: Formula 1's weekend, the football tables, and the teams' pictures (all through the Worker, kept a while)
     var weekend by remember { mutableStateOf<F1Weekend?>(null) }
     var weekendDone by remember { mutableStateOf(false) }
@@ -616,7 +632,8 @@ fun SportsHomeView(
     ) {
         // (the page tag and the sports share the top line, as the menu and the clock do; they scroll away together)
         item(key = "pills") {
-            Row(Modifier.fillMaxWidth().height(66.dp)) {
+            // (the top line as a whole: Back on the page tag or a pill goes on to the menu)
+            Row(Modifier.fillMaxWidth().height(66.dp).onFocusChanged { tilesFocused = it.hasFocus }) {
             LivePageTag(LiveSection.SPORTS, nav, compact = true)
             androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides com.notdxbi.dxbi.tv.lumen.rememberRowScrolling()) {
             LazyRow(
