@@ -862,10 +862,11 @@ fun LiveEpgGrid(
                         .clipToBounds(),
                 ) {
                     val xOffset = maxWidth * fraction
+                    // (the line's middle on the now point, as the dot's is: it was drawn just left of it, so the dot sat off-centre)
                     Box(
                         modifier = Modifier
                             .padding(top = TIME_HEADER_HEIGHT)
-                            .offset(x = xOffset - 1.dp)
+                            .offset(x = xOffset - 0.5.dp)
                             .graphicsLayer { translationX = slide() }
                             .width(1.dp)
                             .fillMaxHeight()
@@ -1713,3 +1714,4 @@ private fun rulerDay(ms: Long): String {
         else -> java.text.SimpleDateFormat("EEEE", java.util.Locale.UK).format(java.util.Date(ms))
     }
 }
+
