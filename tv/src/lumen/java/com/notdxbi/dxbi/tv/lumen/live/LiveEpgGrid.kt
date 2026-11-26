@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Theaters
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -223,7 +224,7 @@ fun LiveEpgGrid(
     var focusedTimeMs by remember { mutableLongStateOf(nowMs) }
     var focusedIsLive by remember { mutableStateOf(true) }
     // (where the remote was when a programme's page opened: closing it, the focus first falls on the live programme)
-    var openedFrom by remember { mutableStateOf<Pair<Int, Long>?>(null) }
+    var openedFrom by remember { mutableStateOf<Pair<String, Long>?>(null) }
     var pendingFocus by remember { mutableStateOf<Pair<Int, Long>?>(null) }
     var focusNonce by remember { mutableIntStateOf(0) }
     var didInitialFocus by remember(isSportsMode) { mutableStateOf(false) }
@@ -237,6 +238,8 @@ fun LiveEpgGrid(
     // the filters, down the left: Left from the first programme opens them (a second Left there opens Lumen's menu)
     fun openRail() { filterRailOpen = true }
     var longPressTarget by remember { mutableStateOf<LongPressTarget?>(null) }
+    // (a channel just added to or taken out of Favourites: its row moves, so the remote goes with it once the menu's closed)
+    var refocusChannelId by remember { mutableStateOf<String?>(null) }
     var streamPickerRow by remember { mutableStateOf<GuideChannelRow?>(null) }
 
     LaunchedEffect(nowMs, followLive, pastUnlocked) {
@@ -378,8 +381,14 @@ fun LiveEpgGrid(
     // Back from the player: the guide is on the channel that was playing (zapping there moves it on from the row it was opened on)
     LaunchedEffect(restoreFocusKey) {
         if (restoreFocusKey == 0L) return@LaunchedEffect
-        val (r, t) = openedFrom ?: return@LaunchedEffect
+        val (key, t) = openedFrom ?: return@LaunchedEffect
         delay(60)
+        // (by the row's key, not its place: adding the channel to Favourites on the page moves every row under it down one,
+        // and the Recently watched row it was on can be gone, moved up to Favourites)
+        val channelId = key.substringAfter(':')
+        val r = rowKeys.indexOf(key).takeIf { it >= 0 }
+            ?: filteredRows.indexOfFirst { it.linkedChannel?.id == channelId || it.guideChannel.id == channelId }.takeIf { it >= 0 }
+            ?: focusedRowIdx
         requestSlotFocus(r, t)
     }
     LaunchedEffect(returnedKey, filteredRows.size) {
@@ -391,11 +400,25 @@ fun LiveEpgGrid(
         }
     }
 
+    /** How many rows the page shows */
+    fun shownRows(): Int {
+        val pitch = with(density) { ROW_HEIGHT.roundToPx() }
+        return (listState.layoutInfo.viewportSize.height / pitch).takeIf { it > 0 } ?: 5
+    }
+
+    /** Whether row [rowIdx] is on the page (laid out, so its programmes can take the remote) */
+    fun rowShown(rowIdx: Int): Boolean {
+        val item = listing.itemOfRow.getOrElse(rowIdx) { return false }
+        return listState.layoutInfo.visibleItemsInfo.any { it.index == item }
+    }
+
     /** The item to put at the top with row [row] third from it (its section's name with it, when that's just above) */
-    fun firstItemFor(row: Int, shown: Int = 5): Int {
+    fun firstItemFor(row: Int, shown: Int = shownRows()): Int {
         val r = (row - 2).coerceAtLeast(0)
         var item = listing.itemOfRow.getOrElse(r) { 0 }
         if (item > 0 && listing.rowOf[item - 1] < 0) item--
+        // (the sections' names take rows too: with two of them between, the row itself could fall below the page's foot)
+        item = item.coerceAtLeast(listing.itemOfRow.getOrElse(row) { 0 } - shown + 1)
         return item.coerceIn(0, (listing.rowOf.size - shown).coerceAtLeast(0))
     }
 
@@ -406,8 +429,9 @@ fun LiveEpgGrid(
             pendingFocus = null
             return@LaunchedEffect
         }
-        val visibleIndices = listState.layoutInfo.visibleItemsInfo.map { it.index }
-        if (listing.itemOfRow.getOrElse(rowIdx) { 0 } !in visibleIndices) {
+        // (a row just under the page's foot comes in with the page's glide within a few frames)
+        repeat(8) { if (!rowShown(rowIdx)) withFrameNanos { } }
+        if (!rowShown(rowIdx)) {
             // (held Down: jump straight there; an animated scroll per press fell behind and lost the focus)
             // (with the row in the middle of the screen, not at its top: the page showed the next section otherwise)
             listState.scrollToItem(firstItemFor(rowIdx))
@@ -415,8 +439,10 @@ fun LiveEpgGrid(
         val slots = slotsForRow(row)
         val slotIdx = findSlotIndexForTime(slots, targetTimeMs)
         val req = slotRequesterFor(rowKeys[rowIdx], slotIdx)
+        // (a requester whose programme isn't laid out yet takes the request without a word and nothing happens: only ask
+        // once the row's on the page)
         repeat(30) {
-            if (runCatching { req.requestFocus() }.isSuccess) {
+            if (rowShown(rowIdx) && runCatching { req.requestFocus() }.isSuccess) {
                 pendingFocus = null
                 return@LaunchedEffect
             }
@@ -433,6 +459,17 @@ fun LiveEpgGrid(
         val shown = (listState.layoutInfo.viewportSize.height / pitch).coerceAtLeast(1)
         pageScroller.glideRow = pitch.toFloat()
         pageScroller.place(firstItemFor(focusedRowIdx, shown), 0f)
+    }
+
+    // Favourites changed from the hold-OK menu: the row the remote was on can be gone (a channel in Recently watched moves up
+    // to Favourites), and with nothing in the guide focused, Down went nowhere. Put the remote on the channel's row again.
+    LaunchedEffect(refocusChannelId, sections) {
+        val id = refocusChannelId ?: return@LaunchedEffect
+        // (after the menu's window has gone: closing it hands the focus back to this window)
+        delay(120)
+        val idx = filteredRows.indexOfFirst { it.linkedChannel?.id == id }
+        refocusChannelId = null
+        requestSlotFocus(if (idx >= 0) idx else focusedRowIdx.coerceIn(0, filteredRows.lastIndex.coerceAtLeast(0)), if (focusedIsLive) System.currentTimeMillis() else focusedTimeMs)
     }
 
     LaunchedEffect(filterRailOpen) {
@@ -512,7 +549,8 @@ fun LiveEpgGrid(
                     filterRailOpen = false
                     onMoveToRail()
                 },
-                modifier = Modifier.align(Alignment.TopStart).padding(top = TIME_HEADER_HEIGHT),
+                // (from the top of the guide, beside the time strip: lower down, the last filters ran off the bottom of the screen)
+                modifier = Modifier.align(Alignment.TopStart).fillMaxHeight(),
             )
             Column(modifier = Modifier.fillMaxSize().graphicsLayer { translationX = railShiftPx }) {
                 // 3-hour time header ruler
@@ -608,8 +646,12 @@ fun LiveEpgGrid(
                             buildViewportSlots(programmes, windowStartMs, windowEndMs)
                         }
                         val isFav = row.linkedChannel?.id in favourites
+                        // (a channel with no listings, as one added to Favourites from Find a channel, is hour-long blanks: the one
+                        // running now, not the first, which is in the hidden hour before the view, so the remote went out of sight)
                         val liveSlotIdx = remember(slots, nowMs) {
-                            slots.indexOfFirst { it.programme?.isOnAt(nowMs) == true }.takeIf { it >= 0 } ?: 0
+                            slots.indexOfFirst { it.programme?.isOnAt(nowMs) == true }.takeIf { it >= 0 }
+                                ?: slots.indexOfFirst { nowMs >= it.startMs && nowMs < it.endMs }.takeIf { it >= 0 }
+                                ?: 0
                         }
 
                         GuideChannelViewportRow(
@@ -635,7 +677,8 @@ fun LiveEpgGrid(
                                 val shownTo = minOf(slot.endMs, viewportEndMs)
                                 focusedTimeMs = if (shownTo > shownFrom) (shownFrom + shownTo) / 2 else slot.midMs
                                 ensureVisible(slot)
-                                focusedIsLive = slot.programme?.isOnAt(System.currentTimeMillis()) == true
+                                val now = System.currentTimeMillis()
+                                focusedIsLive = slot.programme?.isOnAt(now) ?: (now >= slot.startMs && now < slot.endMs)
                                 onFocusSlot(row, slot.programme)
                                 slot.programme?.let { prog ->
                                     store.enrichIfMissing(row.linkedChannel?.id ?: row.guideChannel.id, prog)
@@ -649,12 +692,12 @@ fun LiveEpgGrid(
                                     programme = slot.programme,
                                     nowMs = nowMs,
                                     zapChannelIds = zapChannelIds,
-                                    onOpenProgramme = { r, p -> openedFrom = rowIdx to slot.midMs; onOpenProgramme(r, p, zapChannelIds) },
+                                    onOpenProgramme = { r, p -> openedFrom = rowKeys[rowIdx] to slot.midMs; onOpenProgramme(r, p, zapChannelIds) },
                                 )
                             },
                             onLongClickSlot = { slot ->
                                 val prog = slot.programme
-                                if (prog != null) { openedFrom = rowIdx to slot.midMs; onOpenProgramme(row, prog, zapChannelIds) }
+                                if (prog != null) { openedFrom = rowKeys[rowIdx] to slot.midMs; onOpenProgramme(row, prog, zapChannelIds) }
                                 else longPressTarget = LongPressTarget(row = row, programme = null)
                             },
                             onStepRow = { delta ->
@@ -667,7 +710,9 @@ fun LiveEpgGrid(
                                     val nextSlotIdx = findSlotIndexForTime(nextSlots, targetMs)
                                     val req = slotRequesterFor(rowKeys[nextRowIdx], nextSlotIdx)
                                     focusedRowIdx = nextRowIdx
-                                    if (runCatching { req.requestFocus() }.isFailure) {
+                                    // (a row below the page's foot isn't laid out yet: asking its programme for the remote did nothing,
+                                    // so Down stuck once Favourites and Recently watched, with their names, pushed the rows down)
+                                    if (!rowShown(nextRowIdx) || runCatching { req.requestFocus() }.isFailure) {
                                         requestSlotFocus(nextRowIdx, targetMs)
                                     }
                                     true
@@ -882,6 +927,7 @@ fun LiveEpgGrid(
                         icon = if (isFav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                     ) {
                         store.toggleFavourite(linked.id)
+                        refocusChannelId = linked.id
                     },
                 )
             }
@@ -1599,9 +1645,11 @@ private fun FilterRail(
     ) {
         Column(
             modifier = Modifier
-                .padding(start = 40.dp, top = 18.dp)
+                // (scrolls if a short screen still can't fit them all: the chosen one is brought into view)
+                .verticalScroll(androidx.compose.foundation.rememberScrollState())
+                .padding(start = 40.dp, top = 4.dp, bottom = 24.dp)
                 .width(180.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text("Show", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Dx.Muted, modifier = Modifier.padding(start = 16.dp, bottom = 2.dp))
             filters.filter { it != EpgRowFilter.PLAYABLE }.forEach { f ->
@@ -1609,7 +1657,7 @@ private fun FilterRail(
                     onClick = { onPick(f) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(44.dp)
+                        .height(40.dp)
                         .focusRequester(requesters.getValue(f))
                         .onPreviewKeyEvent { ev ->
                             if (ev.type != KeyEventType.KeyDown) false
