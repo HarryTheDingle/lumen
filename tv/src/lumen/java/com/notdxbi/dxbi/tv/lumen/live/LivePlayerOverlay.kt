@@ -407,7 +407,7 @@ private fun BottomOsdScrim(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(if (stripOpen) 370.dp else 230.dp)
+            .height(if (stripOpen) 386.dp else 230.dp)
             .background(
                 Brush.verticalGradient(
                     0f to Color.Transparent,
@@ -593,11 +593,11 @@ private fun ChannelStrip(
     val currentTile = remember { FocusRequester() }
     val nowMs = System.currentTimeMillis()
 
-    // (five whole tiles across, the Guide button and four channels: nothing is cut off at either edge, and the row only
-    // ever moves by whole tiles, the playing channel third along where it can be)
+    // (five whole tiles across: nothing is cut off at either edge, and the row only ever moves by whole tiles. The playing
+    // channel opens at the far left, the ones after it to its right; the Guide button is just before it, a Left away)
     val density = androidx.compose.ui.platform.LocalDensity.current
     val total = entries.size + 1
-    fun firstFor(idx: Int): Int = (idx + 1 - 2).coerceIn(0, (total - STRIP_SHOWN).coerceAtLeast(0))
+    fun firstFor(idx: Int): Int = (idx + 1).coerceIn(0, (total - STRIP_SHOWN).coerceAtLeast(0))
     val listState = rememberLazyListState(firstFor(currentIdx), 0)
     var firstPlace by remember { mutableStateOf(true) }
     LaunchedEffect(currentChannelId) {
@@ -668,6 +668,14 @@ private fun ChannelStrip(
                             text = prog?.title ?: channel.name, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold, color = ink,
                             maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                         )
+                        // (when it's on, as the guide shows it)
+                        if (prog != null) {
+                            Text(
+                                text = "${LiveTimeFormat.formatTime24h(prog.startMs)} – ${LiveTimeFormat.formatTime24h(prog.endMs)}",
+                                style = TextStyle(fontSize = 12.sp, lineHeight = 14.sp, color = ink.copy(alpha = 0.68f), fontFeatureSettings = "tnum"),
+                                maxLines = 1,
+                            )
+                        }
                         Box(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)).background(ink.copy(alpha = 0.2f))) {
                             Box(Modifier.fillMaxHeight().fillMaxWidth((prog?.progressAt(nowMs) ?: 0f).coerceIn(0f, 1f)).background(ink))
                         }
@@ -696,7 +704,7 @@ private val StripPreview = androidx.compose.runtime.mutableStateOf<Pair<Canonica
 
 /** How tall the quick channel changer's tiles are, how wide, and the gap between them */
 private val PANEL_BORDER = Color(0x1FFFFFFF)
-private val STRIP_HEIGHT = 92.dp
+private val STRIP_HEIGHT = 108.dp
 private val STRIP_TILE_W = 148.dp
 private val STRIP_GAP = 12.dp
 /** Room at each end for a chosen tile to lift into */
