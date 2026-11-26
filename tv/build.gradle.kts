@@ -8,9 +8,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// The TMDB key Lumen uses (cast photos, trailers, facts), from Lumen TV's own keystore.properties, kept out of git
+// Lumen 2's release key (tv/lumen-release.jks, its passwords in tv/lumen-keystore.properties, both kept out of git and
+// backed up: Lumen 3 installs over Lumen 2, so it must be signed with the same key), and the TMDB key Lumen uses
+// (cast photos, trailers, facts) from the same file
 val lumenProps = Properties().apply {
-    val f = rootProject.file("../dxbi-stremio/tv/keystore.properties")
+    val f = file("lumen-keystore.properties")
     if (f.exists()) f.inputStream().use { load(it) }
 }
 // Lumos's own release key (tv/lumos-release.jks, its passwords in tv/keystore.properties: both kept out of git and backed up,
@@ -21,7 +23,7 @@ val lumosProps = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }
 val releaseKey = lumosProps.getProperty("storeFile")?.let { file(it) }?.takeIf { it.exists() && !project.hasProperty("debugSigned") }
-val lumenKey = lumenProps.getProperty("storeFile")?.let { rootProject.file("../dxbi-stremio/tv/$it") }?.takeIf { it.exists() }
+val lumenKey = lumenProps.getProperty("storeFile")?.let { file(it) }?.takeIf { it.exists() }
 val tmdbKey: String = (lumenProps.getProperty("tmdbKey") ?: System.getenv("LUMEN_TMDB_KEY") ?: "").trim().replace("\"", "")
 
 android {
@@ -47,7 +49,7 @@ android {
     }
 
     signingConfigs {
-        // (Lumen TV's own key, from dxbi-stremio/tv/keystore.properties: Lumen 3 must be signed as Lumen 2 was)
+        // (Lumen TV's own key, tv/lumen-release.jks and tv/lumen-keystore.properties: Lumen 3 must be signed as Lumen 2 was)
         if (lumenKey != null) create("lumen") {
             storeFile = lumenKey
             storePassword = lumenProps.getProperty("storePassword")

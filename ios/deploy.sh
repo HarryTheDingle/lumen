@@ -28,8 +28,8 @@ sed -i '' \
   Lumos.xcodeproj/project.pbxproj
 
 step "Building"
-# (Lumen's TMDB key, for cast photos and person pages: tmdbKey=… in Lumen's tv/keystore.properties, not in git)
-TMDB_KEY="$(sed -n 's/^tmdbKey=//p' ../../dxbi-stremio/tv/keystore.properties 2>/dev/null | head -1 | tr -d '\r" ')"
+# (Lumen's TMDB key, for cast photos and person pages: tmdbKey=… in tv/lumen-keystore.properties, not in git)
+TMDB_KEY="$(sed -n 's/^tmdbKey=//p' ../tv/lumen-keystore.properties 2>/dev/null | head -1 | tr -d '\r" ')"
 xcodebuild -project Lumos.xcodeproj -scheme Lumos -destination 'generic/platform=iOS' -allowProvisioningUpdates -quiet build LUMEN_TMDB_KEY="$TMDB_KEY"
 APP="$(xcodebuild -project Lumos.xcodeproj -scheme Lumos -destination 'generic/platform=iOS' -showBuildSettings 2>/dev/null \
   | awk -F' = ' '/ BUILT_PRODUCTS_DIR /{print $2; exit}')/Lumos.app"

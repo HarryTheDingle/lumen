@@ -1,6 +1,6 @@
 # Lumen 3 IPTV UI Handoff for Claude
 
-All non-visual IPTV infrastructure is built, isolated on branch `feat/iptv` inside `/Users/harryelliott/Developer/Lumen/Lumos-iptv`, and verified green. The backend, multi-source parser, UK EPG guide service, catch-up resolver, multi-provider channel normalizer, Media3 live player engine, failover loop, and sync state are ready.
+All non-visual IPTV infrastructure is built, isolated on branch `feat/iptv` inside `/Users/harryelliott/Developer/Lumen/lumen`, and verified green. The backend, multi-source parser, UK EPG guide service, catch-up resolver, multi-provider channel normalizer, Media3 live player engine, failover loop, and sync state are ready.
 
 Your job in Claude Code is designing and building the Apple TV-clean Android TV visual experience on top of these stable contracts.
 
@@ -134,7 +134,7 @@ Fix every complaint from TiViMate and Smarters Pro:
 
 ## Verification commands
 
-Run these after your UI edits from `/Users/harryelliott/Developer/Lumen/Lumos-iptv`:
+Run these after your UI edits from `/Users/harryelliott/Developer/Lumen/lumen`:
 
 ```bash
 JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew :engine:jvmTest
@@ -159,7 +159,7 @@ Confirm:
 When you are ready to push the new UK EPG and QR IPTV setup routes live to `lumos-sync.hedigital.workers.dev`:
 
 ```bash
-cd /Users/harryelliott/Developer/Lumen/Lumos-iptv/sync
+cd /Users/harryelliott/Developer/Lumen/lumen/sync
 npx wrangler d1 execute lumen-sync --remote --file schema.sql
 # Optional if you have a curated UK XMLTV feed URL:
 # npx wrangler secret put UK_EPG_XMLTV_URL
@@ -168,7 +168,7 @@ npx wrangler deploy
 
 ## Starter prompt for Claude Code
 
-Run `claude` inside `/Users/harryelliott/Developer/Lumen/Lumos-iptv` and paste this:
+Run `claude` inside `/Users/harryelliott/Developer/Lumen/lumen` and paste this:
 
 > Read `IPTV_CLAUDE_HANDOFF.md`, `tv/src/lumen/java/com/notdxbi/dxbi/tv/lumen/Theme.kt`, `Glass.kt`, `Cards.kt`, `Nav.kt`, `CalendarScreen.kt`, and `SettingsScreen.kt` first.
 >

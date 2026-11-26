@@ -4,6 +4,7 @@ build/
 local.properties
 *.keystore
 keystore.properties
+lumen-keystore.properties
 .DS_Store
 xcuserdata/
 Lumos.xcodeproj/
